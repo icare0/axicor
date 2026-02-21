@@ -1,0 +1,28 @@
+# Rust
+target/
+Cargo.lock
+
+# CUDA
+*.ptx
+*.cubin
+*.fatbin
+
+# Baked blobs (бинарные — не в VCS)
+*.state
+*.axons
+checkpoint_*.bin
+checkpoint_*.bin.tmp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Логи и дампы
+*.log
+*.dump
