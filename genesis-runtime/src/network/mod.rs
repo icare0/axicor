@@ -1,6 +1,8 @@
 pub mod ring_buffer;
 pub mod bsp;
 pub mod router;
+pub mod slow_path;
+pub mod geometry_client;
 pub mod socket;
 
 use bytemuck::{Pod, Zeroable};

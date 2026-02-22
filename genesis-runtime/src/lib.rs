@@ -10,6 +10,8 @@ use std::sync::Arc;
 use genesis_baker::bake::neuron_placement::PlacedNeuron;
 use genesis_baker::bake::axon_growth::GrownAxon;
 use genesis_baker::parser::blueprints::NeuronType;
+use tokio::sync::{mpsc, oneshot};
+use crate::network::slow_path::{GeometryRequest, GeometryResponse};
 
 #[repr(C, align(32))]
 #[derive(Clone, Copy, Default)]
@@ -55,6 +57,7 @@ pub struct Runtime {
     pub axons: Arc<Vec<GrownAxon>>,
     pub neuron_types: Arc<Vec<NeuronType>>,
     pub master_seed: u64,
+    pub geometry_receiver: Option<mpsc::Receiver<(GeometryRequest, oneshot::Sender<GeometryResponse>)>>,
 }
 
 impl Runtime {
@@ -66,7 +69,7 @@ impl Runtime {
         neuron_types: Arc<Vec<NeuronType>>,
         master_seed: u64,
     ) -> Self {
-        Self { vram, v_seg, neurons, axons, neuron_types, master_seed }
+        Self { vram, v_seg, neurons, axons, neuron_types, master_seed, geometry_receiver: None }
     }
 
     pub fn init_constants(constants: &GenesisConstantMemory) -> bool {
