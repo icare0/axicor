@@ -499,3 +499,37 @@ fn test_night_phase_cycle() {
     assert_eq!(downloaded_targets[32], 0, "Slot 1 should be pruned (target 0)");
 }
 
+#[test]
+fn test_homeostasis_habituation() {
+    let mut consts = setup_constants();
+    // Overstimulate Variant 0:
+    // Rest potential is massively high, so it wants to spike constantly.
+    consts.variants[0].rest_potential = 200;
+    consts.variants[0].threshold = 100;
+    consts.variants[0].refractory_period = 0;
+    consts.variants[0].homeostasis_penalty = 20;
+    consts.variants[0].homeostasis_decay = 2; // Penalty:Decay ratio 10:1
+    consts.variants[0].leak = 0;
+
+    Runtime::init_constants(&consts);
+
+    let mut builder = MockBakerBuilder::new(1, 1);
+    builder.voltages[0] = 200; // start
+    
+    let (state_bytes, axons_bytes) = builder.build();
+    let vram = VramState::load_shard(&state_bytes, &axons_bytes).unwrap();
+    let mut runtime = Runtime::new(vram, 1, std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]), 0);
+
+    for _ in 0..100 {
+        runtime.tick();
+    }
+    runtime.synchronize();
+
+    let th_offs = runtime.vram.download_threshold_offset().unwrap();
+    let final_th = th_offs[0];
+
+    // Expected equilibrium:
+    // threshold_offset should bounce around 100 to combat the 200 rest_voltage vs 100 base threshold.
+    println!("Final Threshold Offset: {}", final_th);
+    assert!(final_th >= 90 && final_th <= 120, "Threshold offset should equilibrate around 100 to prevent runaway spiking, got {}", final_th);
+}

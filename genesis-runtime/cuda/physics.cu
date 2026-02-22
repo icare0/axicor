@@ -118,10 +118,11 @@ __global__ void update_neurons_kernel(uint32_t padded_n, int32_t *voltage,
     v += dendrite_sum;
 
     // Spiking Check
-    if (v >= (p.threshold + th_off)) {
+    int32_t is_spiking = (v >= (p.threshold + th_off)) ? 1 : 0;
+
+    if (is_spiking) {
       v = p.rest_potential;
       ref_timer = p.refractory_period;
-      th_off += p.homeostasis_penalty;
       f |= 1; // Set spike flag
 
       // Fire local axon
@@ -130,14 +131,13 @@ __global__ void update_neurons_kernel(uint32_t padded_n, int32_t *voltage,
         axon_heads[my_axon] = 0;
       }
     } else {
-      // Decay threshold offset
-      if (th_off > 0)
-        th_off -= p.homeostasis_decay;
-      if (th_off < 0)
-        th_off = 0;
       if (v < p.rest_potential)
         v = p.rest_potential;
     }
+
+    // Homeostasis (Branchless Universal Update)
+    th_off += (is_spiking * p.homeostasis_penalty) - p.homeostasis_decay;
+    th_off = (th_off > 0) ? th_off : 0;
   }
 
   // Write-back

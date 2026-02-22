@@ -39,7 +39,7 @@ impl SpikeRouter {
             if let Some(targets) = self.routing_table.get(&nid) {
                 // Fan-out: One neuron might send spikes to multiple remote locations
                 for t in targets {
-                    let total_offset = (current_tick_offset as u32 + t.tick_offset as u32);
+                    let total_offset = current_tick_offset as u32 + t.tick_offset as u32;
                     // We must clamp the offset mapping to u8 (assuming batch_size < 255)
                     let final_offset = std::cmp::min(total_offset, 255) as u8;
 

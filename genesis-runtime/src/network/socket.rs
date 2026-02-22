@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use anyhow::{Result, bail, Context};
 use std::sync::Arc;
-use bytemuck::{cast_slice, bytes_of};
 
 use crate::network::{SpikeEvent, SpikeBatchHeader};
 

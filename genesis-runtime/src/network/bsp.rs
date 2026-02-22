@@ -31,13 +31,11 @@ impl BspBarrier {
         self.outgoing_batches = new_outgoing;
         
         if let Some(socket) = &self.socket {
-            // 1. Send all outgoing packets concurrently using UDP
-            for (target_shard, events) in &self.outgoing_batches {
-                if let Some(addr) = self.peer_addresses.get(target_shard) {
-                    socket.send_batch(*addr, batch_id, events).await?;
-                } else {
-                    eprintln!("Warning: No peer address for layout shard {}", target_shard);
-                }
+            // 1. Send all outgoing packets concurrently using UDP to ALL known peers (Strict BSP)
+            for (target_shard, addr) in &self.peer_addresses {
+                let empty = Vec::new();
+                let events = self.outgoing_batches.get(target_shard).unwrap_or(&empty);
+                socket.send_batch(*addr, batch_id, events).await?;
             }
             
             // 2. Wait for incoming packets from ALL expected peers

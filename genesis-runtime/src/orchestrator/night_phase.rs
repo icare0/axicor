@@ -85,19 +85,23 @@ impl NightPhase {
         runtime.geometry_receiver = Some(rx);
     }
 
-    fn handle_geometry_request(_runtime: &mut Runtime, req: GeometryRequest) -> GeometryResponse {
+    fn handle_geometry_request(runtime: &mut Runtime, req: GeometryRequest) -> GeometryResponse {
         match req {
             GeometryRequest::Handover(axon) => {
                 println!("Received Handover request from Axon ID {}", axon.source_axon_id);
-                // TODO: Graph allocation of Ghost Axons in `runtime.axons`
-                GeometryResponse::Ack(AckNewAxon {
-                    source_axon_id: axon.source_axon_id,
-                    ghost_id: 9999, // Stub ID
-                })
+                if let Some(ghost_id) = runtime.vram.allocate_ghost_axon() {
+                    GeometryResponse::Ack(AckNewAxon {
+                        source_axon_id: axon.source_axon_id,
+                        ghost_id,
+                    })
+                } else {
+                    println!("Failed to allocate Ghost Axon: VRAM pool exhausted.");
+                    GeometryResponse::Error("VRAM Ghost Axon pool exhausted".into())
+                }
             }
             GeometryRequest::Prune(prune) => {
                 println!("Received Prune request for Ghost ID {}", prune.ghost_id);
-                // TODO: Free ghost axle slot
+                runtime.vram.free_ghost_axon(prune.ghost_id);
                 GeometryResponse::Ok
             }
         }

@@ -89,3 +89,23 @@ y_plus = "192.168.1.11:8000"
         assert_eq!(config.neighbors.y_minus, None);
     }
 }
+
+// ---- Simulation Configuration (Runtime specifics) ----
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SimulationConfigRoot {
+    pub simulation: SimulationRuntime,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SimulationRuntime {
+    pub sync_batch_ticks: u32,
+    pub voxel_size_um: u32,
+    pub signal_speed_um_tick: u32,
+}
+
+pub fn parse_simulation_config(path: &Path) -> Result<SimulationConfigRoot> {
+    let content = fs::read_to_string(path)?;
+    let config: SimulationConfigRoot = toml::from_str(&content)?;
+    Ok(config)
+}

@@ -15,6 +15,9 @@ pub struct VramState {
 
     // Axon State (total_axons length, not padded_n)
     pub total_axons: usize,
+    pub ghost_axons_allocated: usize,
+    pub max_ghost_axons: usize,
+    pub base_axons: usize,
     pub axon_head_index: *mut c_void,
     pub soma_to_axon: *mut c_void,
 
@@ -79,7 +82,32 @@ impl VramState {
         let dendrite_targets = allocate_and_copy(dc * 4)?;
         let dendrite_weights = allocate_and_copy(dc * 2)?;
         let dendrite_refractory = allocate_and_copy(dc * 1)?;
-        let axon_head_index = allocate_and_copy(pa * 4)?;
+        
+        // Axon Heads: Base + Pre-allocate 10000 Ghost Axons
+        let max_ghost_axons = 10000;
+        let total_axons = pa + max_ghost_axons;
+        let axon_head_index = unsafe { ffi::gpu_malloc(total_axons * 4) };
+        if axon_head_index.is_null() { anyhow::bail!("alloc failed for axon heads"); }
+        
+        // Copy base axons
+        unsafe {
+            ffi::gpu_memcpy_host_to_device(
+                axon_head_index,
+                state_bytes[offset..offset + pa * 4].as_ptr() as *const c_void,
+                pa * 4,
+            );
+        }
+        offset += pa * 4;
+
+        // Init spare Ghost Axons to AXON_SENTINEL
+        let sentinels = vec![0x80000000u32; max_ghost_axons];
+        unsafe {
+            ffi::gpu_memcpy_host_to_device(
+                (axon_head_index as *mut u32).add(pa) as *mut c_void,
+                sentinels.as_ptr() as *const c_void,
+                max_ghost_axons * 4,
+            );
+        }
 
         // Output buffer for spikes. Max 1024 spikes per tick.
         let outbound_spikes_buffer = unsafe { ffi::gpu_malloc(1024 * 4) };
@@ -91,12 +119,15 @@ impl VramState {
 
         // Virtual Axons placeholder allocation (default up to 8192 u32s = 32KB = 262k bits)
         let input_bitmask_buffer = unsafe { ffi::gpu_malloc(32768) };
-        let mut zero_vec = vec![0u8; 32768];
+        let zero_vec = vec![0u8; 32768];
         unsafe { ffi::gpu_memcpy_host_to_device(input_bitmask_buffer, zero_vec.as_ptr() as *const c_void, 32768) };
 
         Ok(VramState {
             padded_n: pn,
-            total_axons: pa,
+            total_axons,
+            ghost_axons_allocated: 0,
+            max_ghost_axons,
+            base_axons: pa,
             num_virtual: 0,
             virtual_offset: pa as u32,
             voltage,
@@ -246,6 +277,30 @@ impl VramState {
         };
         if !success { anyhow::bail!("Failed to upload input bitmask") }
         Ok(())
+    }
+
+    pub fn allocate_ghost_axon(&mut self) -> Option<u32> {
+        if self.ghost_axons_allocated < self.max_ghost_axons {
+            let id = (self.base_axons + self.ghost_axons_allocated) as u32;
+            self.ghost_axons_allocated += 1;
+            Some(id)
+        } else {
+            None
+        }
+    }
+
+    pub fn free_ghost_axon(&mut self, ghost_id: u32) {
+        if (ghost_id as usize) >= self.base_axons && (ghost_id as usize) < self.base_axons + self.ghost_axons_allocated {
+            let sentinel: u32 = 0x80000000;
+            let offset = ghost_id as usize;
+            unsafe {
+                ffi::gpu_memcpy_host_to_device(
+                    (self.axon_head_index as *mut u32).add(offset) as *mut std::ffi::c_void,
+                    &sentinel as *const _ as *const std::ffi::c_void,
+                    4,
+                );
+            }
+        }
     }
 }
 
