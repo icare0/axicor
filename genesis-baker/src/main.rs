@@ -183,6 +183,16 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         axons_bytes.len() as f64 / 1_048_576.0
     );
 
+    // --- 11. Write .positions blob (IDE viewport) ---
+    // Format: [u32; N] packed_pos per neuron. Layout: [type(4b)|z(8b)|y(10b)|x(10b)]
+    let positions_bytes = serialize_positions(&neurons);
+    atomic_write(out_dir.join("shard.positions"), &positions_bytes)?;
+    println!(
+        "[baker] ✓ Written: shard.positions ({} neurons, {:.1} KB)",
+        neurons.len(),
+        positions_bytes.len() as f64 / 1024.0
+    );
+
     println!("[baker] Done.");
     Ok(())
 }
@@ -208,4 +218,16 @@ fn atomic_write(path: impl AsRef<Path>, data: &[u8]) -> Result<()> {
     std::fs::rename(&tmp, path)
         .with_context(|| format!("Cannot rename .tmp → {}", path.display()))?;
     Ok(())
+}
+
+/// Сериализует позиции нейронов для IDE viewport.
+/// Формат: [u32; N] — packed_pos для каждого нейрона.
+/// Layout packed_pos: [type(4b) | z(8b) | y(10b) | x(10b)] — little-endian.
+/// IDE декодирует: x = pos & 0x3FF, y = (pos >> 10) & 0x3FF, z = (pos >> 20) & 0xFF, type = pos >> 28.
+fn serialize_positions(neurons: &[bake::neuron_placement::PlacedNeuron]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(neurons.len() * 4);
+    for n in neurons {
+        out.extend_from_slice(&n.position.to_le_bytes());
+    }
+    out
 }
