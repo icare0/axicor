@@ -1,15 +1,14 @@
 [world]
-width_um = 128
-depth_um = 128
-height_um = 1024
+width_um = 3500
+depth_um = 3500
+height_um = 10250
 
 [simulation]
 tick_duration_us = 100
 total_ticks = 10000
-master_seed = "GENESIS_DAEMON_TEST"
-global_density = 0.05
+master_seed = "GENESIS"
+global_density = 0.04
 voxel_size_um = 25
 signal_speed_um_tick = 50
 sync_batch_ticks = 1000
-num_virtual_axons = 1024
 axon_growth_max_steps = 1500

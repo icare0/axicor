@@ -47,7 +47,7 @@ echo "Starting baker daemon in background..."
 rm -f $SOCK
 target/debug/genesis-baker-daemon -z $ZONE \
   --sim tests/tmp/sim.toml \
-  --blueprints genesis-runtime/examples/blueprints.toml \
+  --blueprints zones/V1/blueprints.toml \
   --shard-dir baked/ &
 BAKER_PID=$!
 
@@ -74,7 +74,7 @@ echo "Running node for 2 seconds (should trigger Night Phase at tick 100)..."
 timeout 2 target/debug/genesis-runtime \
   --config tests/tmp/shard_${ZONE}.toml \
   --simulation tests/tmp/sim.toml \
-  --blueprints genesis-runtime/examples/blueprints.toml \
+  --blueprints zones/V1/blueprints.toml \
   --baked-dir baked/ \
   --baker-socket $SOCK || true
 

@@ -27,7 +27,7 @@ struct Cli {
     #[arg(short = 's', long, default_value = "config/simulation.toml")]
     sim: PathBuf,
 
-    #[arg(short = 'b', long, default_value = "genesis-runtime/examples/blueprints.toml")]
+    #[arg(short = 'b', long, default_value = "zones/V1/blueprints.toml")]
     blueprints: PathBuf,
 
     /// Directory containing baked shard files (.state, .axons)

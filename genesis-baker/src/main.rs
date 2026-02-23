@@ -21,13 +21,13 @@ struct Cli {
 enum Commands {
     /// Compile TOML configs into binary blobs ready for GPU loading.
     Compile {
-        #[arg(long, default_value = "simulation.toml")]
+        #[arg(long, default_value = "config/simulation.toml")]
         simulation: PathBuf,
-        #[arg(long, default_value = "blueprints.toml")]
+        #[arg(long, default_value = "zones/V1/blueprints.toml")]
         blueprints: PathBuf,
-        #[arg(long, default_value = "anatomy.toml")]
+        #[arg(long, default_value = "zones/V1/anatomy.toml")]
         anatomy: PathBuf,
-        #[arg(long, default_value = "io.toml")]
+        #[arg(long, default_value = "zones/V1/io.toml")]
         io: PathBuf,
         #[arg(short, long, default_value = "baked/")]
         output: PathBuf,

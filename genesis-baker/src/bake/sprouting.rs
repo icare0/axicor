@@ -54,31 +54,13 @@ pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
     let dz = az as f32 - bz as f32;
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
-
+// HERE
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::blueprints;
 
-    const BP: &str = r#"
-[[neuron_type]]
-name = "Vertical_Excitatory"
-threshold = 42000
-rest_potential = 10000
-leak_rate = 1200
-refractory_period = 15
-synapse_refractory_period = 15
-conduction_velocity = 200
-signal_propagation_length = 10
-axon_growth_step = 12
-homeostasis_penalty = 5000
-homeostasis_decay = 10
-slot_decay_ltm = 160
-slot_decay_wm = 96
-sprouting_weight_distance = 0.5
-sprouting_weight_power = 0.4
-sprouting_weight_explore = 0.1
-"#;
+    const BP: &str = include_str!("../../test_data/blueprints.toml");
 
     #[test]
     fn compute_power_index_zero_weights() {

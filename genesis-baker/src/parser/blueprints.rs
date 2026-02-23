@@ -37,6 +37,18 @@ pub struct NeuronType {
     /// Шаг роста аксона в вокселях (Cone Tracing step).
     pub axon_growth_step: u16,
 
+    // --- Рост аксона (Steering) ---
+    /// Угол поля зрения (FOV) конуса поиска в градусах.
+    pub steering_fov_deg: f32,
+    /// Максимальный радиус поиска для конуса (в микрометрах).
+    pub steering_radius_um: f32,
+    /// Вес сохранения текущего направления роста.
+    pub steering_weight_inertia: f32,
+    /// Вес притяжения к совместимым нейронам локально.
+    pub steering_weight_sensor: f32,
+    /// Вес случайного отклонения.
+    pub steering_weight_jitter: f32,
+
     // --- Гомеостаз (Adaptive Threshold) ---
     /// Штраф к threshold_offset после спайка.
     pub homeostasis_penalty: i32,
@@ -70,48 +82,12 @@ pub fn parse(src: &str) -> anyhow::Result<Blueprints> {
     let bp: Blueprints = toml::from_str(src)?;
     Ok(bp)
 }
-
+/// HERE
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = r#"
-[[neuron_type]]
-name = "Vertical_Excitatory"
-threshold = 42000
-rest_potential = 10000
-leak_rate = 1200
-refractory_period = 15
-synapse_refractory_period = 15
-conduction_velocity = 200
-signal_propagation_length = 10
-axon_growth_step = 12
-homeostasis_penalty = 5000
-homeostasis_decay = 10
-slot_decay_ltm = 160
-slot_decay_wm = 96
-sprouting_weight_distance = 0.5
-sprouting_weight_power   = 0.4
-sprouting_weight_explore = 0.1
-
-[[neuron_type]]
-name = "Horizontal_Inhibitory"
-threshold = 40000
-rest_potential = 10000
-leak_rate = 1500
-refractory_period = 10
-synapse_refractory_period = 5
-conduction_velocity = 100
-signal_propagation_length = 5
-axon_growth_step = 10
-homeostasis_penalty = 3000
-homeostasis_decay = 15
-slot_decay_ltm = 140
-slot_decay_wm = 80
-sprouting_weight_distance = 0.6
-sprouting_weight_power   = 0.3
-sprouting_weight_explore = 0.1
-"#;
+    const EXAMPLE: &str = include_str!("../../test_data/blueprints.toml");
 
     #[test]
     fn parse_blueprints_example() {
@@ -125,6 +101,8 @@ sprouting_weight_explore = 0.1
         assert_eq!(ve.refractory_period, 15);
         assert_eq!(ve.slot_decay_ltm, 160);
         assert_eq!(ve.slot_decay_wm, 96);
+        assert!((ve.steering_fov_deg - 60.0).abs() < 1e-5);
+        assert!((ve.steering_weight_inertia - 0.6).abs() < 1e-5);
         // sprouting weights sum ≈ 1.0
         assert!((ve.sprouting_weight_sum() - 1.0).abs() < 1e-5);
 
@@ -132,5 +110,6 @@ sprouting_weight_explore = 0.1
         assert_eq!(hi.name, "Horizontal_Inhibitory");
         assert_eq!(hi.conduction_velocity, 100);
         assert_eq!(hi.slot_decay_wm, 80);
+        assert!((hi.steering_fov_deg - 90.0).abs() < 1e-5);
     }
 }

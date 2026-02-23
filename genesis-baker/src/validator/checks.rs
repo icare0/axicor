@@ -112,82 +112,15 @@ pub fn check_sprouting_weights(blueprints: &Blueprints) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
+/// HERE
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::{anatomy, blueprints, simulation};
 
-    const SIM_OK: &str = r#"
-[world]
-width_um = 3500
-depth_um = 3500
-height_um = 10250
-[simulation]
-tick_duration_us = 100
-total_ticks = 10000
-master_seed = "GENESIS"
-global_density = 0.04
-voxel_size_um = 25
-signal_speed_um_tick = 50
-sync_batch_ticks = 1000
-"#;
-
-    const ANATOMY_OK: &str = r#"
-[[layer]]
-name = "L4"
-height_pct = 0.60
-population_pct = 0.60
-[layer.composition]
-"Vertical_Excitatory" = 0.80
-"Horizontal_Inhibitory" = 0.20
-
-[[layer]]
-name = "L2/3"
-height_pct = 0.40
-population_pct = 0.40
-[layer.composition]
-"Vertical_Excitatory" = 0.85
-"Horizontal_Inhibitory" = 0.15
-"#;
-
-    const BP_OK: &str = r#"
-[[neuron_type]]
-name = "Vertical_Excitatory"
-threshold = 42000
-rest_potential = 10000
-leak_rate = 1200
-refractory_period = 15
-synapse_refractory_period = 15
-conduction_velocity = 200
-signal_propagation_length = 10
-axon_growth_step = 12
-homeostasis_penalty = 5000
-homeostasis_decay = 10
-slot_decay_ltm = 160
-slot_decay_wm = 96
-sprouting_weight_distance = 0.5
-sprouting_weight_power   = 0.4
-sprouting_weight_explore = 0.1
-
-[[neuron_type]]
-name = "Horizontal_Inhibitory"
-threshold = 40000
-rest_potential = 10000
-leak_rate = 1500
-refractory_period = 10
-synapse_refractory_period = 5
-conduction_velocity = 100
-signal_propagation_length = 5
-axon_growth_step = 10
-homeostasis_penalty = 3000
-homeostasis_decay = 15
-slot_decay_ltm = 140
-slot_decay_wm = 80
-sprouting_weight_distance = 0.6
-sprouting_weight_power   = 0.3
-sprouting_weight_explore = 0.1
-"#;
+    const SIM_OK: &str = include_str!("../../test_data/simulation.toml");
+    const ANATOMY_OK: &str = include_str!("../../test_data/anatomy.toml");
+    const BP_OK: &str = include_str!("../../test_data/blueprints.toml");
 
     #[test]
     fn valid_config_passes() {

@@ -38,9 +38,13 @@ pub struct Simulation {
     pub segment_length_voxels: u32,
     /// Количество виртуальных аксонов (сетчатка). Опционально.
     pub num_virtual_axons: Option<u32>,
+    /// Максимальное количество шагов роста аксона (предохранитель от бесконечных циклов).
+    #[serde(default = "default_max_steps")]
+    pub axon_growth_max_steps: u32,
 }
 
 fn default_segment_length() -> u32 { 5 }
+fn default_max_steps() -> u32 { 2000 }
 
 impl SimulationConfig {
     /// Общее число вокселей для заданного размера вокселя (в мкм).
@@ -67,22 +71,8 @@ pub fn parse(src: &str) -> anyhow::Result<SimulationConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const EXAMPLE: &str = r#"
-[world]
-width_um  = 3500
-depth_um  = 3500
-height_um = 10250
-
-[simulation]
-tick_duration_us = 100
-total_ticks      = 10000
-master_seed      = "GENESIS"
-global_density   = 0.04
-voxel_size_um    = 25
-signal_speed_um_tick = 50
-sync_batch_ticks = 1000
-"#;
+/// HERE
+    const EXAMPLE: &str = include_str!("../../test_data/simulation.toml");
 
     #[test]
     fn parse_simulation_example() {
@@ -93,6 +83,7 @@ sync_batch_ticks = 1000
         assert_eq!(cfg.simulation.voxel_size_um, 25);
         assert_eq!(cfg.simulation.signal_speed_um_tick, 50);
         assert_eq!(cfg.simulation.sync_batch_ticks, 1000);
+        assert_eq!(cfg.simulation.axon_growth_max_steps, 1500);
     }
 
     #[test]

@@ -73,6 +73,7 @@ pub fn grow_axons(
 ) -> Vec<GrownAxon> {
     let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
     let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
+    let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
 
     let mut axons = Vec::with_capacity(neurons.len());
     let spatial_grid = SpatialGrid::new(neurons);
@@ -117,12 +118,12 @@ pub fn grow_axons(
         let cone_seed = entity_seed(master_seed, soma_idx as u32);
         let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
         
-        // Approximate specs fields
-        let fov_cos = 0.866; // cos(30 deg) = 60 deg cone
-        let max_search_radius_vox = 100.0 / (sim.simulation.voxel_size_um as f32); // e.g. 100 microns
-        let weight_inertia = 0.6;
-        let weight_sensor = 0.3;
-        let weight_jitter = 0.1;
+        // Approximate specs fields replaced with actual config
+        let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos(); 
+        let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
+        let weight_inertia = nt.steering_weight_inertia;
+        let weight_sensor = nt.steering_weight_sensor;
+        let weight_jitter = nt.steering_weight_jitter;
 
         // V_global (Goal)
         let mut target_pos = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
@@ -132,7 +133,7 @@ pub fn grow_axons(
         let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
 
         let mut segments = Vec::new();
-        let max_steps = 1000;
+        let max_steps = sim.simulation.axon_growth_max_steps;
         let mut step = 0;
 
         while step < max_steps {
@@ -179,7 +180,7 @@ pub fn grow_axons(
             
             let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023); // 10 bits
             let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023); // 10 bits
-            let z = (current_pos.z.round() as u32).min(255); // 8 bits
+            let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255); // 8 bits
             let t = (owner_type_mask & 0x0F) as u32; // 4 bits
 
             let packed = (t << 28) | (z << 20) | (y << 10) | x;
@@ -247,75 +248,10 @@ mod tests {
     use crate::bake::seed::{seed_from_str, DEFAULT_MASTER_SEED};
     use crate::parser::{anatomy, blueprints, simulation};
     use genesis_core::constants::AXON_SENTINEL;
-
-    const SIM: &str = r#"
-[world]
-width_um = 3500
-depth_um = 3500
-height_um = 10250
-[simulation]
-tick_duration_us = 100
-total_ticks = 10000
-master_seed = "GENESIS"
-global_density = 0.01
-voxel_size_um = 25
-signal_speed_um_tick = 50
-sync_batch_ticks = 1000
-"#;
-    const ANATOMY: &str = r#"
-[[layer]]
-name = "L4"
-height_pct = 0.40
-population_pct = 0.55
-[layer.composition]
-"Vertical_Excitatory"   = 0.80
-"Horizontal_Inhibitory" = 0.20
-
-[[layer]]
-name = "L2/3"
-height_pct = 0.60
-population_pct = 0.45
-[layer.composition]
-"Vertical_Excitatory"   = 0.85
-"Horizontal_Inhibitory" = 0.15
-"#;
-    const BP: &str = r#"
-[[neuron_type]]
-name = "Vertical_Excitatory"
-threshold = 42000
-rest_potential = 10000
-leak_rate = 1200
-refractory_period = 15
-synapse_refractory_period = 15
-conduction_velocity = 200
-signal_propagation_length = 10
-axon_growth_step = 12
-homeostasis_penalty = 5000
-homeostasis_decay = 10
-slot_decay_ltm = 160
-slot_decay_wm = 96
-sprouting_weight_distance = 0.5
-sprouting_weight_power = 0.4
-sprouting_weight_explore = 0.1
-
-[[neuron_type]]
-name = "Horizontal_Inhibitory"
-threshold = 40000
-rest_potential = 10000
-leak_rate = 1500
-refractory_period = 10
-synapse_refractory_period = 5
-conduction_velocity = 100
-signal_propagation_length = 5
-axon_growth_step = 10
-homeostasis_penalty = 3000
-homeostasis_decay = 15
-slot_decay_ltm = 140
-slot_decay_wm = 80
-sprouting_weight_distance = 0.6
-sprouting_weight_power = 0.3
-sprouting_weight_explore = 0.1
-"#;
+/// HERE
+    const SIM: &str = include_str!("../../test_data/simulation_fast.toml");
+    const ANATOMY: &str = include_str!("../../test_data/anatomy.toml");
+    const BP: &str = include_str!("../../test_data/blueprints.toml");
 
     fn setup() -> (
         Vec<PlacedNeuron>,
@@ -410,6 +346,7 @@ pub fn grow_external_axons(
             let tip_x = tip_x.min(world_w_vox.saturating_sub(1));
             let tip_y = tip_y.min(world_d_vox.saturating_sub(1));
             let tip_z = tip_z.min(z_end);
+            let t = (channel.type_mask as u32) & 0x0F;
 
             ext_axons.push(GrownAxon {
                 soma_idx: usize::MAX, // Signifies external origin
@@ -418,7 +355,7 @@ pub fn grow_external_axons(
                 tip_y,
                 tip_z,
                 length_segments: 1, // Assume they just "entered" the shard at the border
-                segments: vec![(channel.type_mask as u32) << 28 | (tip_z << 20) | (tip_y << 10) | tip_x],
+                segments: vec![(t << 28) | (tip_z << 20) | (tip_y << 10) | tip_x],
             });
         }
     }
@@ -452,6 +389,7 @@ pub fn grow_mock_retina(
         let tip_x = ((ix as f32 * step_x) as u32).min(world_w_vox.saturating_sub(1));
         let tip_y = ((iy as f32 * step_y) as u32).min(world_d_vox.saturating_sub(1));
         let tip_z = 0; // Сетчатка лежит на дне (z=0)
+        let t = 0u32; // type=0 
 
         retina.push(GrownAxon {
             soma_idx: usize::MAX, // Signifies external origin
@@ -461,7 +399,7 @@ pub fn grow_mock_retina(
             tip_z,
             length_segments: 1,
             // (Type=0 | Z=0 | Y=tip_y | X=tip_x)
-            segments: vec![(tip_z << 20) | (tip_y << 10) | tip_x],
+            segments: vec![(t << 28) | (tip_z << 20) | (tip_y << 10) | tip_x],
         });
     }
 

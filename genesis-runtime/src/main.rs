@@ -31,7 +31,7 @@ struct Cli {
     port: u16,
 
     /// Path to the global simulation configuration (e.g. simulation.toml)
-    #[arg(short, long, default_value = "simulation.toml")]
+    #[arg(short, long, default_value = "config/simulation.toml")]
     simulation: PathBuf,
 
     /// Directory containing baked binary blocks (.state, .axons)
@@ -39,7 +39,7 @@ struct Cli {
     baked_dir: PathBuf,
 
     /// Path to the blueprints configuration (neuron type LUT)
-    #[arg(long, default_value = "genesis-runtime/examples/blueprints.toml")]
+    #[arg(long, default_value = "zones/V1/blueprints.toml")]
     blueprints: PathBuf,
 
     /// Actively injects a sweeping signal into Virtual Axons each sync_batch
