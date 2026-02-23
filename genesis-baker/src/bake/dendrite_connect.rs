@@ -172,6 +172,10 @@ pub fn reconnect_empty_dendrites(
     let grid = build_axon_grid(axons);
 
     for (soma_id, neuron) in neurons.iter().enumerate() {
+        // Virtual axons have no dendrite slots — skip them
+        if soma_id >= padded_n {
+            break;
+        }
         // Collect indices of empty slots for this neuron
         let mut empty_slots: Vec<usize> = Vec::new();
         for slot in 0..MAX_DENDRITE_SLOTS {
