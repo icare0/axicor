@@ -112,9 +112,9 @@ pub fn grow_axons(
         let tip_z = (target_z_start as f32 + soma_rel_z * target_h) as u32;
         let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
 
-        // Cone Tracing setup
+        // Global segment length from config (fixed for all types)
+        let segment_length_vox = sim.simulation.segment_length_voxels as f32;
         let cone_seed = entity_seed(master_seed, soma_idx as u32);
-        let segment_length_vox = nt.axon_growth_step as f32;
         let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
         
         // Approximate specs fields

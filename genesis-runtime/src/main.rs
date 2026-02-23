@@ -169,7 +169,8 @@ async fn main() -> Result<()> {
             synapse_refractory:   nt.synapse_refractory_period,
             slot_decay_ltm:       nt.slot_decay_ltm,
             slot_decay_wm:        nt.slot_decay_wm,
-            _padding:             [0; 4],
+            propagation_length:   nt.signal_propagation_length as u8,
+            _padding:             [0; 3],
         };
     }
     // Inertia LUT: linearly decreasing resistance — stronger weights change slower

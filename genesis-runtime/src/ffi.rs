@@ -32,8 +32,8 @@ extern "C" {
         soma_to_axon: *mut c_void,
         dendrite_targets: *mut c_void,
         dendrite_weights: *mut c_void,
+        dendrite_timers: *mut c_void,
         axon_heads: *mut c_void,
-        v_seg: u32,
         stream: *mut c_void,
     );
     pub fn launch_apply_gsop(
@@ -42,8 +42,6 @@ extern "C" {
         dendrite_targets: *mut c_void,
         dendrite_weights: *mut c_void,
         dendrite_timers: *mut c_void,
-        axon_heads: *mut c_void,
-        v_seg: u32,
         stream: *mut c_void,
     );
     pub fn launch_apply_spike_batch_impl(

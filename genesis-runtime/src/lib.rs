@@ -28,7 +28,8 @@ pub struct VariantParameters {
     pub synapse_refractory: u8,
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
-    pub _padding: [u8; 4],
+    pub propagation_length: u8,
+    pub _padding: [u8; 3],
 }
 
 #[repr(C, align(128))]
@@ -88,7 +89,7 @@ impl Runtime {
                 ptr::null_mut(),
             );
 
-            // 2. Update Neurons
+            // 2. Update Neurons (GLIF + Dendrite Integration)
             ffi::launch_update_neurons(
                 self.vram.padded_n as u32,
                 self.vram.voltage,
@@ -98,20 +99,18 @@ impl Runtime {
                 self.vram.soma_to_axon,
                 self.vram.dendrite_targets,
                 self.vram.dendrite_weights,
+                self.vram.dendrite_refractory,
                 self.vram.axon_head_index,
-                self.v_seg,
                 ptr::null_mut(),
             );
 
-            // 3. Apply GSOP
+            // 3. Apply GSOP (Timer-as-Contact-Flag from UpdateNeurons)
             ffi::launch_apply_gsop(
                 self.vram.padded_n as u32,
                 self.vram.flags,
                 self.vram.dendrite_targets,
                 self.vram.dendrite_weights,
-                self.vram.dendrite_refractory, // Note: passing refractory as timers
-                self.vram.axon_head_index,
-                self.v_seg,
+                self.vram.dendrite_refractory,
                 ptr::null_mut(),
             );
         }

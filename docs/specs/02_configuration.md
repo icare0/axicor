@@ -118,7 +118,7 @@ pub struct ShardStateSoA {
 
     // Dendrite arrays — Columnar Layout (size = 128 × padded_n)
     // Обращение в CUDA: data[slot * padded_n + tid]
-    pub dendrite_targets: Vec<u32>,  // 4 bytes × 128 × N (Packed: 24b Axon_ID | 8b Segment_Index)
+    pub dendrite_targets: Vec<u32>,  // 4 bytes × 128 × N (Packed: 22b Axon_ID | 10b Segment_Index)
     pub dendrite_weights: Vec<i16>,  // 2 bytes × 128 × N (Signed: знак = E/I)
     pub dendrite_timers: Vec<u8>,    // 1 byte × 128 × N
 
@@ -207,6 +207,8 @@ master_seed = "GENESIS" # String → хэшируется в u64 при стар
 # 1. Total_Voxels = (Width_um / 25) * (Depth_um / 25) * (Height_um / 25)
 # 2. Total_Neurons = Total_Voxels * global_density
 global_density = 0.04
+signal_speed_um_tick = 50   # Скорость сигнала (мкм/тик)
+segment_length_voxels = 5   # Длина сегмента аксона (вокселей). Глобально. По умолчанию: 5
 ```
 
 ### 4.1. Оптимизация Типов Данных (Memory Optimization)
@@ -339,8 +341,7 @@ synapse_refractory_period = 15   # u8. Рефрактерность входно
 
 # --- Физика Сигнала (Units: Integer geometry) ---
 conduction_velocity = 200        # Скорость (дискретное смещение за тик)
-signal_propagation_length = 10   # Длина "хвоста" сигнала в сегментах (Active Tail)
-axon_growth_step = 12            # Длина одного физического сегмента аксона (в вокселях)
+signal_propagation_length = 10   # Длина "хвоста" сигнала в сегментах (Active Tail, per-variant)
 
 # --- Гомеостаз (Adaptive Threshold) ---
 homeostasis_penalty = 5000       # +5000 к порогу после спайка
@@ -370,8 +371,6 @@ synapse_refractory_period = 5
 
 # --- Физика Сигнала ---
 conduction_velocity = 100        # Медленный сигнал
-signal_propagation_length = 5
-axon_growth_step = 10
 
 # --- Гомеостаз ---
 homeostasis_penalty = 3000
@@ -395,6 +394,6 @@ sprouting_weight_explore = 0.1
 |---|---|---|---|
 | **Potentials** | `threshold`, `rest_potential`, `voltage` | `i32` | Запас от переполнения при суммации входов |
 | **Timers** | `refractory_period`, `synapse_refractory_period` | `u8` | Значения > 255 тиков (25 мс) физиологически бессмысленны для рефрактерности |
-| **Geometry** | `conduction_velocity`, `axon_growth_step` | `u16` | Дискретные единицы, диапазон до 65535 |
+| **Geometry** | `conduction_velocity` | `u16` | Дискретные единицы, диапазон до 65535 |
 | **Homeostasis** | `homeostasis_penalty`, `homeostasis_decay` | `i32` / `u16` | Penalty суммируется с threshold (i32), decay — малое значение |
 

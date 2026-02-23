@@ -33,9 +33,14 @@ pub struct Simulation {
     pub signal_speed_um_tick: u16,
     /// Количество тиков автономного расчета между синхронизациями шардов.
     pub sync_batch_ticks: u32,
+    /// Длина одного сегмента аксона в вокселях (глобальная, фиксированная).
+    #[serde(default = "default_segment_length")]
+    pub segment_length_voxels: u32,
     /// Количество виртуальных аксонов (сетчатка). Опционально.
     pub num_virtual_axons: Option<u32>,
 }
+
+fn default_segment_length() -> u32 { 5 }
 
 impl SimulationConfig {
     /// Общее число вокселей для заданного размера вокселя (в мкм).

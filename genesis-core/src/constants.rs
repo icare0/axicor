@@ -8,8 +8,9 @@ pub const MAX_DENDRITE_SLOTS: usize = 128;
 /// LTM / WM boundary slot index.
 pub const WM_SLOT_START: usize = 80;
 
-/// Active Tail length in segments. dist <= PROPAGATION_LENGTH → synapse fires.
-pub const PROPAGATION_LENGTH: u32 = 10;
+/// target_packed bit layout: [31..10] Axon_ID (22 bits) | [9..0] Segment_Index (10 bits)
+pub const TARGET_AXON_SHIFT: u32 = 10;
+pub const TARGET_SEG_MASK: u32 = 0x3FF;
 
 /// Warp size for GPU alignment (padded_n must be multiple of this).
 pub const GPU_WARP_SIZE: usize = 32;

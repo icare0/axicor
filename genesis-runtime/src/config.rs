@@ -102,8 +102,12 @@ pub struct SimulationRuntime {
     pub sync_batch_ticks: u32,
     pub voxel_size_um: u32,
     pub signal_speed_um_tick: u32,
+    #[serde(default = "default_segment_length_voxels")]
+    pub segment_length_voxels: u32,
     pub num_virtual_axons: Option<u32>,
 }
+
+fn default_segment_length_voxels() -> u32 { 5 }
 
 pub fn parse_simulation_config(path: &Path) -> Result<SimulationConfigRoot> {
     let content = fs::read_to_string(path)?;
@@ -130,10 +134,14 @@ pub struct NeuronTypeConfig {
     pub gsop_potentiation: u16,
     #[serde(default = "default_gsop_dep")]
     pub gsop_depression: u16,
+    // Active Tail length per-variant (defaults to 10)
+    #[serde(default = "default_propagation_length")]
+    pub signal_propagation_length: u16,
 }
 
 fn default_gsop_pot() -> u16 { 74 }
 fn default_gsop_dep() -> u16 { 2 }
+fn default_propagation_length() -> u16 { 10 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BlueprintsConfig {
