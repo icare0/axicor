@@ -1,19 +1,25 @@
-# Genesis - Devlog
+# Genesis — Devlog
 
 ## Roadmap
 
-```
-[x] Спецификация архитектуры
-[x] Аудит логики (6 сценариев)
-[ ] genesis-baker  (TOML → .state / .axons)
-[ ] genesis-core   (типы, константы, SoA layout)
-[ ] genesis-runtime (CUDA kernels + host orchestrator)
-```
+- [x] Architecture specification
+- [x] Logic audit (6 scenarios)
+- [x] `genesis-core` — types, constants, SoA layout
+- [x] `genesis-baker` — TOML → `.state` / `.axons`
+- [x] `genesis-runtime` — CUDA kernels + host orchestrator
+- [x] Distributed runtime — BSP, UDP Fast Path, Day/Night Phase
+- [x] Slow Path TCP — Ghost Axon Handover, Geometry Requests
+- [x] Homeostatic Plasticity — branchless GLIF kernel
+- [x] Genesis Monitor — WebSocket telemetry server
+- [x] Genesis IDE — Bevy 3D viewer, camera, spike glow
+- [x] Smart Axon Growth — Cone Tracing, SpatialGrid, piecewise geometry
+- [ ] Night Phase CPU Sprouting — full reconnect (not a stub)
+- [ ] End-to-end: baker → runtime → GPU
+- [ ] First learning experiment
+- [ ] V 1.0.0 Release
 
 ---
 
-## Записи
+### [2026-02-21] V 0.0.0 — Hello World
 
-### [2026-02-21] V 0.0.0 - Hello World
-Первый коммит. Спецификация архитектуры завершена.
-7 документов, ~3000 строк. От высоких абстракций до побайтовых операций.
+First commit. Architecture specification complete. 7 docs, ~3000 lines.
