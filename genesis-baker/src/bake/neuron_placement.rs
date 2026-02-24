@@ -2,6 +2,7 @@ use crate::bake::seed::{entity_seed, random_f32, shuffle_indices};
 use crate::parser::{anatomy::Anatomy, simulation::SimulationConfig};
 use genesis_core::coords::{pack_position, unpack_position};
 use genesis_core::types::PackedPosition;
+use std::collections::HashSet;
 
 /// Размещённый нейрон в 3D-пространстве.
 #[allow(dead_code)]
@@ -47,6 +48,7 @@ pub fn place_neurons(
     let world_h_vox = sim.world.height_um / voxel_um;
 
     let mut all_neurons: Vec<PlacedNeuron> = Vec::with_capacity(total_budget as usize);
+    let mut occupancy: HashSet<u32> = HashSet::with_capacity(total_budget as usize);
 
     let mut z_cursor_pct = 0.0f32;
 
@@ -72,16 +74,36 @@ pub fn place_neurons(
 
             for (i, &si) in shuffle.iter().enumerate() {
                 // Равномерное распределение по Z внутри слоя
-                let z = z_start + (si as u32 % z_range);
-                // XY — псевдослучайно через seed
-                let pos_seed = entity_seed(master_seed, (all_neurons.len() + i) as u32);
-                let x = (random_f32(pos_seed) * world_w_vox as f32) as u32;
-                let y = (random_f32(pos_seed.wrapping_mul(6364136223846793005))
-                    * world_d_vox as f32) as u32;
+                let z_base = z_start + (si as u32 % z_range);
+                
+                let mut x = 0;
+                let mut y = 0;
+                let mut z = z_base;
+                let mut is_unique = false;
 
-                let x = x.min(world_w_vox - 1);
-                let y = y.min(world_d_vox - 1);
-                let z = z.min(255); // Z 8-bit cap
+                // Reject-sampling: до 100 попыток чтобы найти пустой воксель
+                for attempt in 0..100 {
+                    // XY — псевдослучайно через seed
+                    let pos_seed = entity_seed(master_seed, (all_neurons.len() + i + attempt * 1_000_000) as u32);
+                    x = (random_f32(pos_seed) * world_w_vox as f32) as u32;
+                    y = (random_f32(pos_seed.wrapping_mul(6364136223846793005))
+                        * world_d_vox as f32) as u32;
+
+                    x = x.min(world_w_vox.saturating_sub(1));
+                    y = y.min(world_d_vox.saturating_sub(1));
+                    z = z_base.min(255); // Z 8-bit cap
+
+                    // Key без type_mask (только координаты)
+                    let key = (z << 20) | (y << 10) | x;
+                    if occupancy.insert(key) {
+                        is_unique = true;
+                        break;
+                    }
+                }
+
+                if !is_unique {
+                    eprintln!("[warn] Voxel collision at ({}, {}, {}). Max attempts reached.", x, y, z);
+                }
 
                 all_neurons.push(PlacedNeuron {
                     position: pack_position(x, y, z, type_mask),
