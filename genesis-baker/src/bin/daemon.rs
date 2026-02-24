@@ -24,6 +24,9 @@ struct Cli {
     #[arg(short = 'z', long)]
     zone: u16,
 
+    #[arg(short = 's', long, default_value = "config/simulation.toml")]
+    pub sim: PathBuf,
+
     /// Path to blueprints.toml
     #[arg(short = 'b', long, default_value = "config/zones/V1/blueprints.toml")]
     pub blueprints: PathBuf,

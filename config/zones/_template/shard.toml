@@ -1,0 +1,14 @@
+zone_id = "V1"
+
+[world_offset]
+x = 0
+y = 0
+z = 0
+
+[dimensions]
+w = 500
+d = 500
+h = 1000
+
+[neighbors]
+# Solo mode — no peers
