@@ -106,14 +106,32 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     // --- 5. Cone Tracing: grow axons ---
     println!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = bake::axon_growth::compute_layer_ranges(&anatomy, &sim);
-    let mut axons = bake::axon_growth::grow_axons(
+    let shard_bounds = bake::axon_growth::ShardBounds::full_world(&sim);
+    let (mut axons, ghost_packets) = bake::axon_growth::grow_axons(
         &neurons,
         &layer_ranges,
         &blueprints.neuron_types,
         &sim,
+        &shard_bounds,
         master_seed,
     );
     let local_axons_count = axons.len();
+    if !ghost_packets.is_empty() {
+        println!("[baker] ✓ {} ghost packet(s) detected — injecting into shard B...", ghost_packets.len());
+        let (mut ghost_axons, leftover) = bake::axon_growth::inject_ghost_axons(
+            &ghost_packets,
+            &neurons,
+            &blueprints.neuron_types,
+            &sim,
+            &shard_bounds,
+            master_seed,
+        );
+        if !leftover.is_empty() {
+            println!("[baker] ⚠ {} ghost(s) exited shard B boundary (further shards not yet wired)", leftover.len());
+        }
+        println!("[baker] ✓ Injected {} ghost axons", ghost_axons.len());
+        axons.append(&mut ghost_axons);
+    }
 
     // --- 5.5 Atlas Routing (White Matter) ---
     if let Some(io_cfg) = &io {

@@ -30,6 +30,60 @@ pub struct LayerZRange {
     pub z_end_vox: u32,
 }
 
+/// Границы шарда в мировых координатах (вокселях).
+/// Аксоны, пересекающие эту границу, становятся Ghost Axons в соседнем шарде.
+/// В монорежиме (один шард) передавать `ShardBounds::full_world(&sim)` —
+/// тогда crossing никогда не произойдёт и поведение идентично текущему.
+#[derive(Debug, Clone)]
+pub struct ShardBounds {
+    pub x_start: u32, pub x_end: u32,
+    pub y_start: u32, pub y_end: u32,
+    pub z_start: u32, pub z_end: u32,
+}
+
+impl ShardBounds {
+    /// Единый шард = весь мировой объём. Ghost Packets генерироваться не будут.
+    pub fn full_world(sim: &SimulationConfig) -> Self {
+        Self {
+            x_start: 0,
+            x_end: sim.world.width_um / sim.simulation.voxel_size_um,
+            y_start: 0,
+            y_end: sim.world.depth_um / sim.simulation.voxel_size_um,
+            z_start: 0,
+            z_end: sim.world.height_um / sim.simulation.voxel_size_um,
+        }
+    }
+
+    /// Проверяет, вышла ли точка за пределы шарда.
+    #[inline]
+    pub fn is_outside(&self, x: u32, y: u32, z: u32) -> bool {
+        x < self.x_start || x >= self.x_end
+        || y < self.y_start || y >= self.y_end
+        || z < self.z_start || z >= self.z_end
+    }
+}
+
+/// Пакет межшардовой передачи.
+/// Генерируется, когда аксон в шарде A пересекает свою границу.
+/// Шард B получает этот пакет и создаёт Ghost Axon на своей стороне границы.
+#[derive(Debug, Clone)]
+pub struct GhostPacket {
+    /// ID шарда-источника (для маршрутизации в полишардовой топологии)
+    pub origin_shard_id: u32,
+    /// аксон без локальной сомы → usize::MAX
+    pub soma_idx: usize,
+    /// Тип нейрона (для whitelist, affinity и т.д.)
+    pub type_idx: usize,
+    /// Точка входа в новый шард (уже в его координатах)
+    pub entry_x: u32,
+    pub entry_y: u32,
+    pub entry_z: u32,
+    /// Направление движения в момент пересечения (для сохранения инерции)
+    pub entry_dir: Vec3,
+    /// Сколько шагов осталось до окончания роста
+    pub remaining_steps: u32,
+}
+
 /// Предвычисляет Z-диапазоны всех слоёв в вокселях.
 pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<LayerZRange> {
     let voxel_um = sim.simulation.voxel_size_um;
@@ -70,13 +124,15 @@ pub fn grow_axons(
     layer_ranges: &[LayerZRange],
     neuron_types: &[NeuronType],
     sim: &SimulationConfig,
+    shard_bounds: &ShardBounds,
     master_seed: u64,
-) -> Vec<GrownAxon> {
+) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
     let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
     let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
     let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
 
     let mut axons = Vec::with_capacity(neurons.len());
+    let mut ghost_packets: Vec<GhostPacket> = Vec::new();
     let spatial_grid = SpatialGrid::new(neurons);
 
     for (soma_idx, neuron) in neurons.iter().enumerate() {
@@ -224,6 +280,21 @@ pub fn grow_axons(
             let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255); // 8 bits
             let t = (owner_type_mask & 0x0F) as u32; // 4 bits
 
+            // Crossing detection — аксон вышел за границы шарда?
+            if shard_bounds.is_outside(x, y, z) {
+                ghost_packets.push(GhostPacket {
+                    origin_shard_id: 0, // текущий шард ID (0 в монорежиме)
+                    soma_idx,
+                    type_idx,
+                    entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
+                    entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
+                    entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
+                    entry_dir: forward_dir,
+                    remaining_steps: max_steps - step,
+                });
+                break; // Аксон в этом шарде заканчивается
+            }
+
             let packed = (t << 28) | (z << 20) | (y << 10) | x;
 
             if let Some(&last) = segments.last() {
@@ -257,7 +328,7 @@ pub fn grow_axons(
         });
     }
 
-    axons
+    (axons, ghost_packets)
 }
 
 /// Инициализировать axon_head по spec:
@@ -266,6 +337,134 @@ pub fn grow_axons(
 pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
     use genesis_core::constants::AXON_SENTINEL;
     AXON_SENTINEL.wrapping_sub(length_segments * v_seg)
+}
+
+/// Продолжает рост аксонов, пересёкших границу шарда (Ghost Axons).
+///
+/// Каждый GhostPacket описывает аксон, вошедший в этот шард через границу.
+/// Ghost Axon продолжает рост с сохранением инерции (`entry_dir`) и
+/// притяжением к нейронам текущего шарда.
+///
+/// - `soma_idx = usize::MAX` — нет локальной сомы, GSOP не применяется
+/// - Если Ghost Axon снова пересекает границу → генерируется новый GhostPacket
+///
+/// Возвращает: `(grown_ghosts, outgoing_packets)`
+pub fn inject_ghost_axons(
+    ghost_packets: &[GhostPacket],
+    neurons: &[PlacedNeuron],
+    neuron_types: &[NeuronType],
+    sim: &SimulationConfig,
+    shard_bounds: &ShardBounds,
+    master_seed: u64,
+) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
+    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
+    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
+    let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
+    let segment_length_vox = sim.simulation.segment_length_voxels as f32;
+
+    let spatial_grid = SpatialGrid::new(neurons);
+    let mut grown = Vec::with_capacity(ghost_packets.len());
+    let mut outgoing: Vec<GhostPacket> = Vec::new();
+
+    for packet in ghost_packets {
+        let nt = &neuron_types[packet.type_idx.min(neuron_types.len() - 1)];
+        let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos();
+        let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
+        let owner_type_mask = packet.type_idx as u8;
+
+        let mut current_pos = Vec3::new(
+            packet.entry_x as f32,
+            packet.entry_y as f32,
+            packet.entry_z as f32,
+        );
+        let mut forward_dir = packet.entry_dir;
+        let mut segments = Vec::new();
+
+        let ghost_seed = master_seed
+            .wrapping_add(packet.soma_idx as u64)
+            .wrapping_add(packet.origin_shard_id as u64);
+
+        let mut exited_again = false;
+        for step in 0..packet.remaining_steps {
+            let v_attract = calculate_v_attract(
+                current_pos,
+                forward_dir,
+                fov_cos,
+                max_search_radius_vox,
+                &spatial_grid,
+                neurons,
+                owner_type_mask,
+                usize::MAX, // Ghost не имеет сомы — self-check никогда не сработает
+                nt.type_affinity,
+            );
+
+            let s = ghost_seed.wrapping_add(step as u64);
+            let v_noise = Vec3::new(
+                random_f32(s) * 2.0 - 1.0,
+                random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
+                random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
+            ).normalize_or_zero();
+
+            // Нет v_global — аксон летит свободно: только инерция + притяжение + шум
+            forward_dir = (
+                forward_dir * nt.steering_weight_inertia
+                + v_attract * nt.steering_weight_sensor
+                + v_noise * nt.steering_weight_jitter
+            ).normalize_or_zero();
+
+            current_pos += forward_dir * segment_length_vox;
+
+            let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023);
+            let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023);
+            let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255);
+            let t = (owner_type_mask & 0x0F) as u32;
+
+            // Повторный выход → пакет для следующего шарда
+            if shard_bounds.is_outside(x, y, z) {
+                outgoing.push(GhostPacket {
+                    origin_shard_id: packet.origin_shard_id,
+                    soma_idx: packet.soma_idx,
+                    type_idx: packet.type_idx,
+                    entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
+                    entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
+                    entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
+                    entry_dir: forward_dir,
+                    remaining_steps: packet.remaining_steps - step,
+                });
+                exited_again = true;
+                break;
+            }
+
+            let packed = (t << 28) | (z << 20) | (y << 10) | x;
+            if segments.last().copied() == Some(packed) {
+                break; // Стагнация
+            }
+            segments.push(packed);
+        }
+
+        if segments.is_empty() && !exited_again {
+            continue; // Ghost ничего не вырастил — пропускаем
+        }
+
+        let length_segments = segments.len() as u32;
+        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
+            ((last & 0x3FF), ((last >> 10) & 0x3FF), ((last >> 20) & 0xFF))
+        } else {
+            (packet.entry_x, packet.entry_y, packet.entry_z)
+        };
+
+        grown.push(GrownAxon {
+            soma_idx: usize::MAX, // Ghost — нет локальной сомы
+            type_idx: packet.type_idx,
+            tip_x: final_x,
+            tip_y: final_y,
+            tip_z: final_z,
+            length_segments,
+            segments,
+        });
+    }
+
+    (grown, outgoing)
 }
 
 fn find_layer(z: u32, ranges: &[LayerZRange]) -> Option<&LayerZRange> {
@@ -339,6 +538,12 @@ pub fn grow_external_axons(
 
 /// Создаёт 2D-сетку виртуальных аксонов (Mock Retina).
 /// Они располагаются на плоскости Z=0 и смотрят вверх.
+///
+/// TODO: grow_mock_retina — отладочная заглушка, требует рефакторинга:
+///   1. Объединить с grow_external_axons через IoConfig
+///   2. type_mask должен браться из конфига, а не хардкодиться в 0
+///   3. Детерминированная подача сигнала должна управляться через IoConfig
+///   Tracked: замена через IoConfig.inputs с признаком `mock = true`
 pub fn grow_mock_retina(
     num_virtual: u32,
     sim: &SimulationConfig,
@@ -380,3 +585,78 @@ pub fn grow_mock_retina(
     retina
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::Vec3;
+
+    fn mock_bounds() -> ShardBounds {
+        ShardBounds { x_start: 0, x_end: 100, y_start: 0, y_end: 100, z_start: 0, z_end: 100 }
+    }
+
+    #[test]
+    fn test_shard_bounds_inside() {
+        let b = mock_bounds();
+        assert!(!b.is_outside(0, 0, 0));
+        assert!(!b.is_outside(50, 50, 50));
+        assert!(!b.is_outside(99, 99, 99));
+    }
+
+    #[test]
+    fn test_shard_bounds_outside() {
+        let b = mock_bounds();
+        assert!(b.is_outside(100, 50, 50)); // x >= x_end
+        assert!(b.is_outside(50, 100, 50)); // y >= y_end
+        assert!(b.is_outside(50, 50, 100)); // z >= z_end
+        assert!(b.is_outside(200, 200, 200));
+    }
+
+    #[test]
+    fn test_ghost_packet_fields() {
+        let pkt = GhostPacket {
+            origin_shard_id: 1,
+            soma_idx: usize::MAX,
+            type_idx: 2,
+            entry_x: 10, entry_y: 20, entry_z: 30,
+            entry_dir: Vec3::Z,
+            remaining_steps: 15,
+        };
+        assert_eq!(pkt.soma_idx, usize::MAX);
+        assert_eq!(pkt.remaining_steps, 15);
+        assert_eq!(pkt.type_idx, 2);
+    }
+
+    #[test]
+    fn test_inject_empty_packets() {
+        let neurons: Vec<PlacedNeuron> = vec![];
+        let neuron_types: Vec<NeuronType> = vec![];
+        let toml = r#"
+            [world]
+            width_um = 100
+            depth_um = 100
+            height_um = 100
+
+            [simulation]
+            tick_duration_us = 100
+            total_ticks = 1000
+            master_seed = "TEST"
+            global_density = 0.05
+            voxel_size_um = 25
+            signal_speed_um_tick = 50
+            sync_batch_ticks = 10
+        "#;
+        let sim = SimulationConfig::parse(toml).unwrap();
+        
+        let (grown, outgoing) = inject_ghost_axons(
+            &[],
+            &neurons,
+            &neuron_types,
+            &sim,
+            &mock_bounds(),
+            0,
+        );
+        assert!(grown.is_empty());
+        assert!(outgoing.is_empty());
+    }
+}
