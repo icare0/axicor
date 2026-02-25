@@ -1,6 +1,5 @@
-use crate::{ipc, Runtime};
-use genesis_core::constants::{AXON_SENTINEL, TICK_DURATION_US};
-use std::time::Duration;
+use crate::Runtime;
+use genesis_core::constants::AXON_SENTINEL;
 
 /// Интервал очистки: 1_800_000_000 тиков = 180 000 секунд = 50 часов (при 100мкс тике).
 /// Sentinel переполняется через 2^31 тиков ≈ 59.6 часов. 50 часов даёт консервативный запас.
@@ -31,25 +30,25 @@ impl SentinelManager {
     /// Проверяет, пришло ли время делать Sentinel Refresh, и если да — делает его.
     /// Это тяжелая операция (скачивание массива VRAM на хост и обратно),
     /// но она происходит крайне редко (раз в 50 часов).
-    pub fn check_and_refresh(&mut self, runtime: &Runtime, current_tick: u64) {
+    pub fn check_and_refresh(&mut self, vram: &crate::memory::VramState, current_tick: u64) {
         if current_tick - self.last_refresh_tick >= SENTINEL_REFRESH_INTERVAL_TICKS {
-            log::info!(
-                "Sentinel Refresh triggered at tick {}. Scanning {} axons...",
+            println!(
+                "[Sentinel] Refresh triggered at tick {}. Scanning {} axons...",
                 current_tick,
-                runtime.vram.total_axons
+                vram.total_axons
             );
 
             let start = std::time::Instant::now();
-            self.perform_refresh(runtime);
+            self.perform_refresh(vram);
             let elapsed = start.elapsed();
 
-            log::info!("Sentinel Refresh completed in {:?}", elapsed);
+            println!("[Sentinel] Refresh completed in {:?}", elapsed);
             self.last_refresh_tick = current_tick;
         }
     }
 
-    fn perform_refresh(&self, runtime: &Runtime) {
-        let total_axons = runtime.vram.total_axons;
+    fn perform_refresh(&self, vram: &crate::memory::VramState) {
+        let total_axons = vram.total_axons;
         if total_axons == 0 {
             return;
         }
@@ -60,9 +59,9 @@ impl SentinelManager {
         // 2. Скачиваем с GPU
         unsafe {
             crate::ffi::gpu_device_synchronize();
-            crate::ffi::gpu_memcpy_dtoh(
+            crate::ffi::gpu_memcpy_device_to_host(
                 host_axon_heads.as_mut_ptr() as *mut std::ffi::c_void,
-                runtime.vram.axon_head_index as *const std::ffi::c_void,
+                vram.axon_head_index as *const std::ffi::c_void,
                 total_axons * std::mem::size_of::<u32>(),
             );
         }
@@ -79,16 +78,16 @@ impl SentinelManager {
         // 4. Если были изменения — заливаем обратно
         if reset_count > 0 {
             unsafe {
-                crate::ffi::gpu_memcpy_htod(
-                    runtime.vram.axon_head_index as *mut std::ffi::c_void,
+                crate::ffi::gpu_memcpy_host_to_device(
+                    vram.axon_head_index as *mut std::ffi::c_void,
                     host_axon_heads.as_ptr() as *const std::ffi::c_void,
                     total_axons * std::mem::size_of::<u32>(),
                 );
                 crate::ffi::gpu_device_synchronize();
             }
-            log::debug!("Reset {} overflowed axons to AXON_SENTINEL", reset_count);
+            // println!("[Sentinel] Reset {} overflowed axons to AXON_SENTINEL", reset_count);
         } else {
-            log::debug!("No axons needed reset. All safe.");
+            // println!("[Sentinel] No axons needed reset. All safe.");
         }
     }
 }

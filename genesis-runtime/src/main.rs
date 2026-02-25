@@ -54,9 +54,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to load brain config: {:?}, err: {}", cli.brain, e))?;
     
     let sim_config = parse_simulation_config(&brain_config.simulation.config)
-        .with_context(|| format!("Failed to load simulation config: {:?}", brain_config.simulation.config))?;
-
-    let num_virtual = sim_config.simulation.num_virtual_axons.unwrap_or(0);
+         .with_context(|| format!("Failed to load simulation config: {:?}", brain_config.simulation.config))?;
     let sync_batch_ticks = sim_config.simulation.sync_batch_ticks as usize;
 
     println!("[Node] Brain Manifest Loaded. {} zones configured.", brain_config.zones.len());
@@ -127,7 +125,20 @@ async fn main() -> Result<()> {
         let state_bytes = std::fs::read(&state_path).context(format!("Missing {:?} (did you run baker?)", state_path))?;
         let axons_bytes = std::fs::read(&axons_path).context(format!("Missing {:?}", axons_path))?;
 
-        let vram = VramState::load_shard(&state_bytes, &axons_bytes, num_virtual)
+        let mut gxi = None;
+        if let Ok(entries) = std::fs::read_dir(&zone_entry.baked_dir) {
+            for entry in entries.flatten() {
+                if entry.path().extension().and_then(|e| e.to_str()) == Some("gxi") {
+                    println!("       Loading GXI Map: {:?}", entry.path().file_name().unwrap());
+                    if let Ok(parsed) = genesis_runtime::input::GxiFile::load(entry.path()) {
+                        gxi = Some(parsed);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let vram = VramState::load_shard(&state_bytes, &axons_bytes, gxi.as_ref())
             .context("Failed to push shard data to GPU VRAM")?;
 
         println!("       VRAM Load Complete. {} neurons, {} total axons", vram.padded_n, vram.total_axons);
@@ -200,21 +211,9 @@ async fn main() -> Result<()> {
     loop {
         let _loop_start = Instant::now();
 
-        // 6.1 Mock Retina Injection (only for the first zone with virtual axons)
-        if cli.mock_retina && num_virtual > 0 {
-            if let Some(zone) = zones.first_mut() {
-                let side = (num_virtual as f32).sqrt().ceil() as u32;
-                let sweep_x = (current_tick as u32 / 2) % side; 
-                let mut bitmask = vec![0u32; (num_virtual as usize + 31) / 32];
-                for i in 0..num_virtual {
-                    let ix = i % side;
-                    if ix == sweep_x || ix == (sweep_x + 1) % side { 
-                        bitmask[i as usize / 32] |= 1 << (i % 32);
-                    }
-                }
-                let _ = zone.runtime.vram.upload_input_bitmask(&bitmask);
-            }
-        }
+        // 6.1 External Input Injection (Virtual Axons)
+        // TODO: Реализовать чтение батчей из .gxi и вызов InjectInputs согласно Spec 05 §2.1-2.4
+
 
         let mut channel = IntraGpuChannel::new(intra_gpu_links.clone());
 
@@ -239,7 +238,7 @@ async fn main() -> Result<()> {
                 println!("[Node] Night Phase for Zone '{}' concluded.", zone.name);
             }
             // 6.4 Проверка на сброс переполненных аксонов (раз в 50h)
-            zone.runtime.sentinel.check_and_refresh(&zone.runtime, real_ticks_completed);
+            zone.runtime.sentinel.check_and_refresh(&zone.runtime.vram, real_ticks_completed);
         }
 
         // Throttle to simulated real time (e.g. 10ms network barrier limits display speed)

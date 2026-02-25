@@ -132,7 +132,7 @@ pub fn check_composition_quotas(anatomy: &Anatomy) -> anyhow::Result<()> {
 pub fn check_sprouting_weights(blueprints: &Blueprints) -> anyhow::Result<()> {
     for nt in &blueprints.neuron_types {
         let sum = nt.sprouting_weight_sum();
-        let max_range = nt.axon_growth_step as f32 * 1000.0; // dummy heuristic
+        let _max_range = nt.axon_growth_step as f32 * 1000.0; // dummy heuristic
         if (sum - 1.0).abs() > 0.02 {
             bail!(
                 "blueprints.toml: NeuronType '{}' sprouting weights sum = {:.4} ≠ 1.0 (±0.02).\n\

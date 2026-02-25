@@ -19,7 +19,6 @@ fn make_sim_config(speed: u32, len_voxels: u32) -> SimulationConfig {
             global_density: 1.0,
             signal_speed_um_tick: speed,
             sync_batch_ticks: 10,
-            num_virtual_axons: None,
             night_interval_ticks: 1000,
         },
     }

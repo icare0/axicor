@@ -3,6 +3,7 @@ pub mod config;
 pub mod ipc;
 pub mod memory;
 pub mod network;
+pub mod input;
 
 #[cfg(feature = "mock-gpu")]
 pub mod mock_ffi;

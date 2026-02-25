@@ -68,8 +68,9 @@ extern "C" {
     pub fn launch_inject_inputs(
         axon_heads: *mut c_void,
         input_bitmask: *const c_void,
-        virtual_offset: u32,
-        num_virtual: u32,
+        map_pixel_to_axon: *const c_void,
+        num_pixels: u32,
+        tick_in_batch: u32,
         stream: *mut c_void,
     );
 }

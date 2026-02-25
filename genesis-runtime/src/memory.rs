@@ -28,8 +28,8 @@ pub struct VramState {
     pub dendrite_refractory: *mut c_void,
 
     // Virtual Axons (InjectInputs)
-    pub num_virtual: u32,
-    pub virtual_offset: u32,
+    pub num_pixels: u32,
+    pub map_pixel_to_axon: *mut c_void,
     pub input_bitmask_buffer: *mut c_void,
 
     // Outbound Spikes (Per-Tick, MAX_SPIKES_PER_TICK length)
@@ -40,12 +40,11 @@ pub struct VramState {
 impl VramState {
     /// Loads the raw binary `.state` and `.axons` blobs from baker and 
     /// zero-copy migrates them into GPU VRAM (SoA layout).
-    pub fn load_shard(state_bytes: &[u8], axons_bytes: &[u8], num_virtual_axons: u32) -> anyhow::Result<Self> {
+    pub fn load_shard(state_bytes: &[u8], axons_bytes: &[u8], gxi: Option<&crate::input::GxiFile>) -> anyhow::Result<Self> {
         let axons_header = AxonsFileHeader::from_bytes(axons_bytes)
             .map_err(|e| anyhow::anyhow!(e))?;
         let num_axons = axons_header.total_axons as usize;
 
-        let virtual_offset = num_axons.saturating_sub(num_virtual_axons as usize) as u32;
         let pa = padded_n(num_axons);
 
         let state_header = StateFileHeader::from_bytes(state_bytes)
@@ -55,6 +54,39 @@ impl VramState {
         let dc = MAX_DENDRITE_SLOTS * pn;
 
         let mut offset = state_header.header_size as usize;
+        // --- Inject Inputs Context ---
+        let mut map_pixel_to_axon = std::ptr::null_mut();
+        let mut num_pixels = 0;
+        let mut bitmask_buffer = std::ptr::null_mut();
+        
+        let batch_size_ticks = 1000; // max batch ticks
+
+        if let Some(g) = gxi {
+            num_pixels = g.axon_ids.len() as u32;
+            if num_pixels > 0 {
+                unsafe {
+                    let bytes = (num_pixels as usize) * 4;
+                    map_pixel_to_axon = ffi::gpu_malloc(bytes);
+                    if map_pixel_to_axon.is_null() {
+                        anyhow::bail!("gpu_malloc failed for map_pixel_to_axon ({} bytes)", bytes);
+                    }
+                    let success = ffi::gpu_memcpy_host_to_device(
+                        map_pixel_to_axon,
+                        g.axon_ids.as_ptr() as *const c_void,
+                        bytes,
+                    );
+                    if !success {
+                        anyhow::bail!("Failed to upload map_pixel_to_axon to GPU");
+                    }
+
+                    let bitmask_bytes = ((num_pixels as usize + 31) / 32) * 4 * batch_size_ticks;
+                    bitmask_buffer = ffi::gpu_malloc(bitmask_bytes);
+                    if bitmask_buffer.is_null() {
+                        anyhow::bail!("gpu_malloc failed for input_bitmask_buffer ({} bytes)", bitmask_bytes);
+                    }
+                }
+            }
+        }
         let mut allocate_and_copy = |slice_len: usize| -> anyhow::Result<*mut c_void> {
             let ptr = unsafe { ffi::gpu_malloc(slice_len) };
             if ptr.is_null() {
@@ -117,10 +149,7 @@ impl VramState {
         let zero: u32 = 0;
         unsafe { ffi::gpu_memcpy_host_to_device(outbound_spikes_count, &zero as *const _ as *const c_void, 4) };
 
-        // Virtual Axons placeholder allocation (default up to 8192 u32s = 32KB = 262k bits)
-        let input_bitmask_buffer = unsafe { ffi::gpu_malloc(32768) };
-        let zero_vec = vec![0u8; 32768];
-        unsafe { ffi::gpu_memcpy_host_to_device(input_bitmask_buffer, zero_vec.as_ptr() as *const c_void, 32768) };
+
 
         Ok(VramState {
             padded_n: pn,
@@ -128,8 +157,9 @@ impl VramState {
             ghost_axons_allocated: 0,
             max_ghost_axons,
             base_axons: pa,
-            num_virtual: num_virtual_axons,
-            virtual_offset,
+            num_pixels,
+            map_pixel_to_axon,
+            input_bitmask_buffer: bitmask_buffer,
             voltage,
             threshold_offset,
             refractory_timer,
@@ -141,7 +171,6 @@ impl VramState {
             dendrite_refractory,
             outbound_spikes_buffer,
             outbound_spikes_count,
-            input_bitmask_buffer,
         })
     }
 
@@ -266,16 +295,36 @@ impl VramState {
         self.download_generic(self.outbound_spikes_buffer, count)
     }
 
-    pub fn upload_input_bitmask(&self, host_mask: &[u32]) -> anyhow::Result<()> {
-        let size = std::mem::size_of_val(host_mask);
+    /// Uploads a bitmask array to GPU memory. Used for External Virtual Axons.
+    /// Bitmask must be accurately sized: ((num_pixels + 31)/32) u32s times batch size.
+    pub fn upload_input_bitmask(&self, bitmask: &[u32], num_ticks: usize) -> anyhow::Result<()> {
+        if self.num_pixels == 0 {
+            return Ok(());
+        }
+        let max_ticks = 1000;
+        if num_ticks > max_ticks {
+            anyhow::bail!("Batch size too large: {} (max {})", num_ticks, max_ticks);
+        }
+        
+        let words_per_tick = (self.num_pixels as usize + 31) / 32;
+        let total_words = words_per_tick * num_ticks;
+        
+        if bitmask.len() < total_words {
+            anyhow::bail!("Bitmask len {} is less than required {} for {} ticks", bitmask.len(), total_words, num_ticks);
+        }
+
+        let bytes = total_words * std::mem::size_of::<u32>();
         let success = unsafe {
             ffi::gpu_memcpy_host_to_device(
                 self.input_bitmask_buffer,
-                host_mask.as_ptr() as *const std::ffi::c_void,
-                size,
+                bitmask.as_ptr() as *const c_void,
+                bytes,
             )
         };
-        if !success { anyhow::bail!("Failed to upload input bitmask") }
+        if !success {
+            anyhow::bail!("Failed to upload input bitmask to GPU");
+        }
+
         Ok(())
     }
 
@@ -306,7 +355,6 @@ impl VramState {
 
 impl Drop for VramState {
     fn drop(&mut self) {
-        // Free GPU memory implicitly when the VramState goes out of scope
         unsafe {
             ffi::gpu_free(self.voltage);
             ffi::gpu_free(self.threshold_offset);
@@ -322,7 +370,13 @@ impl Drop for VramState {
 
             ffi::gpu_free(self.outbound_spikes_buffer);
             ffi::gpu_free(self.outbound_spikes_count);
-            ffi::gpu_free(self.input_bitmask_buffer);
+
+            if !self.map_pixel_to_axon.is_null() {
+                ffi::gpu_free(self.map_pixel_to_axon);
+            }
+            if !self.input_bitmask_buffer.is_null() {
+                ffi::gpu_free(self.input_bitmask_buffer);
+            }
         }
     }
 }

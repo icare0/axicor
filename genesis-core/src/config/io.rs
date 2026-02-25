@@ -4,23 +4,26 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 pub struct IoConfig {
     #[serde(rename = "input")]
-    pub inputs: Vec<InputChannel>,
+    pub inputs: Vec<InputMap>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct InputChannel {
-    /// Friendly name describing the origin of this channel (e.g., "From_LGN")
+pub struct InputMap {
+    /// Имя признака/канала, например "retina_edges"
     pub name: String,
     
-    /// The target layer inside this zone where these external axons will spread
-    pub target_layer: String,
+    /// Название зоны куда инжектится этот ввод, например "V1"
+    pub target_zone: String,
     
-    /// Hard quota of axons arriving from this external source
-    pub axon_count: u32,
+    /// Тип нейрона к которому нужно подключаться, например "L4_Stellate".
+    /// Используйте "ALL" чтобы не ограничивать выбор типом.
+    pub target_type: String,
     
-    /// The phenotype mask to assign to these incoming segments
-    /// Affects downstream plasticity (GSOP LUT applied by the dendrites)
-    pub type_mask: u8,
+    /// Ширина входной матрицы в пикселях
+    pub width: u32,
+    
+    /// Высота входной матрицы в пикселях
+    pub height: u32,
 }
 
 impl IoConfig {

@@ -25,7 +25,6 @@ mod tests {
                 global_density: 1.0,
                 signal_speed_um_tick: 50,
                 sync_batch_ticks: 10,
-                num_virtual_axons: None,
                 night_interval_ticks: 1000,
             },
         }

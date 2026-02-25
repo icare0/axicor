@@ -28,16 +28,15 @@ impl DayPhase {
                 Runtime::init_constants(&zone.const_mem);
 
                 // 0. Inject Sensory Inputs (Virtual Axons)
-                if zone.runtime.vram.num_virtual > 0 {
-                    let u32s_per_tick = (zone.runtime.vram.num_virtual as usize + 31) / 32;
-                    let byte_offset = (current_tick as usize) * u32s_per_tick * 4;
+                if zone.runtime.vram.num_pixels > 0 {
                     unsafe {
-                        let ptr = (zone.runtime.vram.input_bitmask_buffer as *mut u8).add(byte_offset) as *const c_void;
+                        let ptr = zone.runtime.vram.input_bitmask_buffer as *const c_void;
                         ffi::launch_inject_inputs(
                             zone.runtime.vram.axon_head_index,
                             ptr,
-                            zone.runtime.vram.virtual_offset,
-                            zone.runtime.vram.num_virtual,
+                            zone.runtime.vram.map_pixel_to_axon,
+                            zone.runtime.vram.num_pixels,
+                            current_tick as u32,
                             std::ptr::null_mut(),
                         );
                     }

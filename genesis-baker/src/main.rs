@@ -107,7 +107,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     println!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = bake::axon_growth::compute_layer_ranges(&anatomy, &sim);
     let shard_bounds = bake::axon_growth::ShardBounds::full_world(&sim);
-    let (mut axons, ghost_packets) = bake::axon_growth::grow_axons(
+    let (mut axons, mut ghost_packets) = bake::axon_growth::grow_axons(
         &neurons,
         &layer_ranges,
         &blueprints.neuron_types,
@@ -116,6 +116,54 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         master_seed,
     );
     let local_axons_count = axons.len();
+
+    // --- 5.2 External Inputs (Virtual Axons) ---
+    let mut num_virtual = 0;
+    if let Some(io_cfg) = &io {
+        let shard_name = out_dir.file_name().and_then(|n| n.to_str()).unwrap_or("shard");
+        let zone_name = out_dir.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or(shard_name); // simple heuristic
+        // Если структура baked/V1/shard_0, то zone_name=V1. Если baked/V1, то out_dir=V1, zone_name=baked (не оч), но target_zone обычно это имя папки.
+        // Более точный хак: если есть io.toml, то zone - это target_zone из него. Но io.toml общий для зоны.
+        // Подождите: у нас нет --zone аргумента. Возьмём первый input, или пусть target_zone совпадает с out_dir.
+        
+        // Для простоты, вытащим zone_name из io.toml, где target_zone совпадает с чем-то, или просто применим все подходящие по эвристике.
+        // Запросим для "V1", или пусть grow_input_maps ищет по .gxi? 
+        // Если baker вызывается для конкретной зоны, то IDE передает `--output baked/ZONENAME`.
+        let zone_name_heuristic = out_dir.file_name().and_then(|n| n.to_str()).unwrap_or("V1");
+
+        println!("[baker] Processing Input Maps for zone '{}'...", zone_name_heuristic);
+        
+        let mut virtual_result = bake::input_map::grow_input_maps(
+            io_cfg,
+            zone_name_heuristic,
+            &neurons,
+            &layer_ranges,
+            &blueprints,
+            &sim,
+            &shard_bounds,
+            master_seed,
+            axons.len() as u32,
+        );
+
+        num_virtual = virtual_result.axons.len();
+        axons.append(&mut virtual_result.axons);
+        
+        if !virtual_result.ghosts.is_empty() {
+            println!("[baker] ⚠ {} virtual axon(s) generated ghost packets.", virtual_result.ghosts.len());
+            ghost_packets.append(&mut virtual_result.ghosts);
+        }
+
+        if !virtual_result.gxi_binary.is_empty() {
+            let gxi_path = out_dir.join(format!("{}.gxi", shard_name));
+            atomic_write(&gxi_path, &virtual_result.gxi_binary)?;
+            println!(
+                "[baker] ✓ Written: {}.gxi ({:.1} KB) with {} virtual axons",
+                shard_name,
+                virtual_result.gxi_binary.len() as f64 / 1024.0,
+                num_virtual
+            );
+        }
+    }
     if !ghost_packets.is_empty() {
         println!("[baker] ✓ {} ghost packet(s) detected — injecting into shard B...", ghost_packets.len());
         let (mut ghost_axons, leftover) = bake::axon_growth::inject_ghost_axons(
@@ -134,21 +182,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     }
 
     // --- 5.5 Atlas Routing (White Matter) ---
-    if let Some(io_cfg) = &io {
-        println!("[baker] Processing Atlas Routing (External Axons)...");
-        let mut ext_axons =
-            bake::axon_growth::grow_external_axons(io_cfg, &layer_ranges, &sim, master_seed);
-        println!("[baker] ✓ Injected {} external projections", ext_axons.len());
-        axons.append(&mut ext_axons);
-    }
-
-    // --- 5.6 Mock Retina (Virtual Axons) ---
-    let num_virtual = sim.simulation.num_virtual_axons.unwrap_or(0);
-    if num_virtual > 0 {
-        println!("[baker] Generating Mock Retina ({} virtual axons)...", num_virtual);
-        let mut retina_axons = bake::axon_growth::grow_mock_retina(num_virtual, &sim);
-        axons.append(&mut retina_axons);
-    }
+    // Временно отключено, будет переработано под новый IoConfig
 
     println!("[baker] ✓ Total Grown: {} axons ({} local, {} virtual)", 
         axons.len(), local_axons_count, num_virtual);

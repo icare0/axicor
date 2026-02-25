@@ -31,8 +31,8 @@ mod tests {
             dendrite_targets: std::ptr::null_mut(),
             dendrite_weights: std::ptr::null_mut(),
             dendrite_refractory: std::ptr::null_mut(),
-            num_virtual: 0,
-            virtual_offset: 0,
+            num_pixels: 0,
+            map_pixel_to_axon: std::ptr::null_mut(),
             input_bitmask_buffer: std::ptr::null_mut(),
             outbound_spikes_buffer: std::ptr::null_mut(),
             outbound_spikes_count: std::ptr::null_mut(),
@@ -61,6 +61,7 @@ mod tests {
             shard_data_path: None,
             baker_client: None,
             geometry_receiver: Some(dummy_rx),
+            sentinel: crate::sentinel::SentinelManager::new(),
         };
         
         let config = InstanceConfig {

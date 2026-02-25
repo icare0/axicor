@@ -25,7 +25,6 @@ fn test_default_values() {
     assert_eq!(cfg.simulation.segment_length_voxels, 5);
     assert_eq!(cfg.simulation.axon_growth_max_steps, 2000);
     assert_eq!(cfg.simulation.night_interval_ticks, 0);
-    assert_eq!(cfg.simulation.num_virtual_axons, None);
 }
 
 #[test]

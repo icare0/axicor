@@ -14,7 +14,7 @@ pub mod brain;
 
 pub use blueprints::{BlueprintsConfig, NeuronType};
 pub use anatomy::{AnatomyConfig, LayerConfig};
-pub use io::{IoConfig, InputChannel};
+pub use io::{IoConfig, InputMap};
 pub use instance::InstanceConfig;
 
 /// Полный распарсенный конфиг `simulation.toml`.
@@ -45,8 +45,6 @@ pub struct SimulationParams {
     
     #[serde(default = "default_segment_length")]
     pub segment_length_voxels: u32,
-    
-    pub num_virtual_axons: Option<u32>,
     
     #[serde(default = "default_max_steps")]
     pub axon_growth_max_steps: u32,

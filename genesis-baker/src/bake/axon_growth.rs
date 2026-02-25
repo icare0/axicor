@@ -91,7 +91,7 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
     let mut cursor_pct = 0.0f32;
     let mut ranges = Vec::with_capacity(anatomy.layers.len());
     for layer in &anatomy.layers {
-        let h_um = (sim.world.height_um as f32 * layer.height_pct) as u32;
+        let _h_um = (sim.world.height_um as f32 * layer.height_pct) as u32;
         let z_start = (cursor_pct * world_h_vox as f32) as u32;
         let z_end = ((cursor_pct + layer.height_pct) * world_h_vox as f32) as u32;
         cursor_pct += layer.height_pct;
@@ -142,193 +142,232 @@ pub fn grow_axons(
         let type_idx = neuron.type_idx;
         let nt = &neuron_types[type_idx.min(neuron_types.len() - 1)];
 
-        // 1. Найти домашний слой сомы
-        let home_layer = find_layer(soma_z, layer_ranges);
-        let (home_z_start, home_z_end) = match home_layer {
-            Some(l) => (l.z_start_vox, l.z_end_vox),
-            None => (soma_z, soma_z + 1),
-        };
-
-        // 2. Soma_Rel_Z — относительная позиция в домашнем слое [0.0, 1.0)
-        let layer_h = (home_z_end - home_z_start).max(1) as f32;
-        let soma_rel_z = (soma_z.saturating_sub(home_z_start) as f32) / layer_h;
-
-        // 3. Целевой слой — следующий вверх по Z (index + 1)
-        let target_layer = find_target_layer(soma_z, layer_ranges);
-        let (target_z_start, target_z_end) = match target_layer {
-            Some(l) => (l.z_start_vox, l.z_end_vox),
-            None => {
-                // Верхний слой — аксон тянется вниз к предыдущему
-                layer_ranges
-                    .first()
-                    .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox))
-            }
-        };
-
-        // 4. Target_Z = target_z_start + Soma_Rel_Z × target_height
-        let target_h = (target_z_end - target_z_start).max(1) as f32;
-        let tip_z = (target_z_start as f32 + soma_rel_z * target_h) as u32;
-        let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
-
-        // Global segment length from config (fixed for all types)
-        let segment_length_vox = sim.simulation.segment_length_voxels as f32;
-        let cone_seed = entity_seed(master_seed, soma_idx as u32);
-        let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
-        
-        // Approximate specs fields replaced with actual config
-        let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos(); 
-        let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
-        let weight_inertia = nt.steering_weight_inertia;
-        let weight_sensor = nt.steering_weight_sensor;
-        let weight_jitter = nt.steering_weight_jitter;
-
-        // V_global (Goal) — bias определяет вертикальный vs горизонтальный рост
-        let bias = nt.growth_vertical_bias.clamp(0.0, 1.0);
-        let is_horizontal = bias < 0.5;
-
-        let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
-        let is_growing_up = tip_z >= soma_z;
-
-        let (mut forward_dir, target_pos) = if is_horizontal {
-            // Случайный радиальный вектор в XY
-            let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
-            let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
-            let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
-            
-            // target_pos не используется для остановки H-нейронов, но используется
-            // для генерации константного v_global на каждом шаге. 
-            // Cоздаем целевую точку далеко в выбранном направлении.
-            let far_target = current_pos + dir * 5000.0;
-            (dir, far_target)
-        } else {
-            // Вертикальная цель: целевой слой по Z 
-            let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
-            
-            // Горизонтальная компонента (ограниченно)
-            let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
-            let target_x = random_f32(horiz_seed) * world_w_vox as f32;
-            let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
-            let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
-
-            let t_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
-            let dir = (t_pos - current_pos).normalize_or_zero();
-            let final_dir = if dir.length_squared() < 0.01 {
-                if is_growing_up { Vec3::Z } else { Vec3::NEG_Z }
-            } else {
-                dir
-            };
-            (final_dir, t_pos)
-        };
-
-        let mut segments = Vec::new();
-        let max_steps = sim.simulation.axon_growth_max_steps;
-        let mut step = 0;
-
-        while step < max_steps {
-            step += 1;
-            
-            // Check if reached Stop Condition
-            let finished = if is_horizontal {
-                // H: вышел из своего слоя по Z? (заблудился по вертикали)
-                let z = current_pos.z as u32;
-                z < home_z_start || z > home_z_end
-            } else {
-                // V: достиг целевой Z-plane?
-                if is_growing_up {
-                    current_pos.z >= target_pos.z
-                } else {
-                    current_pos.z <= target_pos.z
-                }
-            };
-
-            if finished {
-                break;
-            }
-
-            // V_global steering vector (always points toward the target plane/xy column)
-            let v_global = (target_pos - current_pos).normalize_or_zero();
-            
-            // Sensing → Weighting
-            let v_attract = calculate_v_attract(
-                current_pos,
-                forward_dir,
-                fov_cos,
-                max_search_radius_vox,
-                &spatial_grid,
-                neurons,
-                owner_type_mask,
-                soma_idx,
-                nt.type_affinity,
-            );
-
-            // Jitter
-            let s = cone_seed.wrapping_add(step as u64);
-            let v_noise = Vec3::new(
-                random_f32(s) * 2.0 - 1.0,
-                random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
-                random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
-            ).normalize_or_zero();
-
-            // Steering
-            forward_dir = (v_global * weight_inertia + v_attract * weight_sensor + v_noise * weight_jitter).normalize_or_zero();
-            
-            // Step & Pack
-            current_pos += forward_dir * segment_length_vox;
-            
-            let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023); // 10 bits
-            let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023); // 10 bits
-            let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255); // 8 bits
-            let t = (owner_type_mask & 0x0F) as u32; // 4 bits
-
-            // Crossing detection — аксон вышел за границы шарда?
-            if shard_bounds.is_outside(x, y, z) {
-                ghost_packets.push(GhostPacket {
-                    origin_shard_id: 0, // текущий шард ID (0 в монорежиме)
-                    soma_idx,
-                    type_idx,
-                    entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
-                    entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
-                    entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
-                    entry_dir: forward_dir,
-                    remaining_steps: max_steps - step,
-                });
-                break; // Аксон в этом шарде заканчивается
-            }
-
-            let packed = (t << 28) | (z << 20) | (y << 10) | x;
-
-            if let Some(&last) = segments.last() {
-                if last == packed {
-                    // Stagnation
-                    break;
-                }
-            }
-            
-            segments.push(packed);
-        }
-
-        let length_segments = segments.len() as u32;
-        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-            let z = (last >> 20) & 0xFF;
-            let y = (last >> 10) & 0x3FF;
-            let x = last & 0x3FF;
-            (x, y, z)
-        } else {
-            (soma_x, soma_y, soma_z)
-        };
-
-        axons.push(GrownAxon {
+        let (axon, ghost) = grow_single_axon(
+            soma_x, soma_y, soma_z,
             soma_idx,
             type_idx,
-            tip_x: final_x,
-            tip_y: final_y,
-            tip_z: final_z,
-            length_segments,
-            segments,
-        });
+            nt,
+            sim,
+            world_w_vox, world_d_vox, world_h_vox,
+            layer_ranges,
+            &spatial_grid,
+            neurons,
+            shard_bounds,
+            master_seed,
+        );
+
+        axons.push(axon);
+        if let Some(gp) = ghost {
+            ghost_packets.push(gp);
+        }
     }
 
     (axons, ghost_packets)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn grow_single_axon(
+    soma_x: u32, soma_y: u32, soma_z: u32,
+    soma_idx: usize,
+    type_idx: usize,
+    nt: &NeuronType,
+    sim: &SimulationConfig,
+    world_w_vox: u32, world_d_vox: u32, world_h_vox: u32,
+    layer_ranges: &[LayerZRange],
+    spatial_grid: &SpatialGrid,
+    neurons: &[PlacedNeuron],
+    shard_bounds: &ShardBounds,
+    master_seed: u64,
+) -> (GrownAxon, Option<GhostPacket>) {
+    use crate::bake::cone_tracing::calculate_v_attract;
+
+    // 1. Найдём слой сомы (Index_home)
+    let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
+    let (home_z_start, home_z_end) = match home_layer {
+        Some(l) => (l.z_start_vox, l.z_end_vox),
+        None => (soma_z, soma_z + 1), // fallback, if soma is outside defined layers
+    };
+
+    // 2. Soma_Rel_Z — относительная позиция в домашнем слое [0.0, 1.0)
+    let layer_h = (home_z_end - home_z_start).max(1) as f32;
+    let soma_rel_z = (soma_z.saturating_sub(home_z_start) as f32) / layer_h;
+
+    // 3. Целевой слой — следующий вверх по Z (index + 1)
+    let target_layer = layer_ranges.iter().find(|l| l.z_start_vox > soma_z);
+    let (target_z_start, target_z_end) = match target_layer {
+        Some(l) => (l.z_start_vox, l.z_end_vox),
+        None => {
+            // Верхний слой — аксон тянется вниз к предыдущему
+            layer_ranges
+                .first()
+                .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox))
+        }
+    };
+
+    // 4. Target_Z = target_z_start + Soma_Rel_Z × target_height
+    let target_h = (target_z_end - target_z_start).max(1) as f32;
+    let tip_z = (target_z_start as f32 + soma_rel_z * target_h) as u32;
+    let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
+
+    // Global segment length from config (fixed for all types)
+    let segment_length_vox = sim.simulation.segment_length_voxels as f32;
+    let cone_seed = entity_seed(master_seed, soma_idx as u32);
+    let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
+    
+    // Approximate specs fields replaced with actual config
+    let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos(); 
+    let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
+    let weight_inertia = nt.steering_weight_inertia;
+    let weight_sensor = nt.steering_weight_sensor;
+    let weight_jitter = nt.steering_weight_jitter;
+
+    // V_global (Goal) — bias определяет вертикальный vs горизонтальный рост
+    let bias = nt.growth_vertical_bias.clamp(0.0, 1.0);
+    let is_horizontal = bias < 0.5;
+
+    let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
+    let is_growing_up = tip_z >= soma_z;
+
+    let (mut forward_dir, target_pos) = if is_horizontal {
+        // Случайный радиальный вектор в XY
+        let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
+        let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
+        let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
+        
+        // target_pos не используется для остановки H-нейронов, но используется
+        // для генерации константного v_global на каждом шаге. 
+        // Cоздаем целевую точку далеко в выбранном направлении.
+        let far_target = current_pos + dir * 5000.0;
+        (dir, far_target)
+    } else {
+        // Вертикальная цель: целевой слой по Z 
+        let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
+        
+        // Горизонтальная компонента (ограниченно)
+        let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
+        let target_x = random_f32(horiz_seed) * world_w_vox as f32;
+        let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
+        let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
+
+        let t_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
+        let dir = (t_pos - current_pos).normalize_or_zero();
+        let final_dir = if dir.length_squared() < 0.01 {
+            if is_growing_up { Vec3::Z } else { Vec3::NEG_Z }
+        } else {
+            dir
+        };
+        (final_dir, t_pos)
+    };
+
+    let mut segments = Vec::new();
+    let max_steps = sim.simulation.axon_growth_max_steps;
+    let mut step = 0;
+    let mut ghost_packet = None;
+
+    while step < max_steps {
+        step += 1;
+        
+        // Check if reached Stop Condition
+        let finished = if is_horizontal {
+            // H: вышел из своего слоя по Z? (заблудился по вертикали)
+            let z = current_pos.z as u32;
+            z < home_z_start || z > home_z_end
+        } else {
+            // V: достиг целевой Z-plane?
+            if is_growing_up {
+                current_pos.z >= target_pos.z
+            } else {
+                current_pos.z <= target_pos.z
+            }
+        };
+
+        if finished {
+            break;
+        }
+
+        // V_global steering vector (always points toward the target plane/xy column)
+        let v_global = (target_pos - current_pos).normalize_or_zero();
+        
+        // Sensing → Weighting
+        let v_attract = calculate_v_attract(
+            current_pos,
+            forward_dir,
+            fov_cos,
+            max_search_radius_vox,
+            spatial_grid,
+            neurons,
+            owner_type_mask,
+            soma_idx,
+            nt.type_affinity,
+        );
+
+        // Jitter
+        let s = cone_seed.wrapping_add(step as u64);
+        let v_noise = Vec3::new(
+            random_f32(s) * 2.0 - 1.0,
+            random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
+            random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
+        ).normalize_or_zero();
+
+        // Steering
+        forward_dir = (v_global * weight_inertia + v_attract * weight_sensor + v_noise * weight_jitter).normalize_or_zero();
+        
+        // Step & Pack
+        current_pos += forward_dir * segment_length_vox;
+        
+        let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023); // 10 bits
+        let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023); // 10 bits
+        let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255); // 8 bits
+        let t = (owner_type_mask & 0x0F) as u32; // 4 bits
+
+        // Crossing detection — аксон вышел за границы шарда?
+        if shard_bounds.is_outside(x, y, z) {
+            ghost_packet = Some(GhostPacket {
+                origin_shard_id: 0, // текущий шард ID (0 в монорежиме)
+                soma_idx,
+                type_idx,
+                entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
+                entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
+                entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
+                entry_dir: forward_dir,
+                remaining_steps: max_steps - step,
+            });
+            break; // Аксон в этом шарде заканчивается
+        }
+
+        let packed = (t << 28) | (z << 20) | (y << 10) | x;
+
+        if let Some(&last) = segments.last() {
+            if last == packed {
+                // Stagnation
+                break;
+            }
+        }
+        
+        segments.push(packed);
+    }
+
+    let length_segments = segments.len() as u32;
+    let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
+        let z = (last >> 20) & 0xFF;
+        let y = (last >> 10) & 0x3FF;
+        let x = last & 0x3FF;
+        (x, y, z)
+    } else {
+        (soma_x, soma_y, soma_z)
+    };
+
+    let axon = GrownAxon {
+        soma_idx,
+        type_idx,
+        tip_x: final_x,
+        tip_y: final_y,
+        tip_z: final_z,
+        length_segments,
+        segments,
+    };
+
+    (axon, ghost_packet)
 }
 
 /// Инициализировать axon_head по spec:
@@ -485,105 +524,9 @@ fn find_target_layer(soma_z: u32, ranges: &[LayerZRange]) -> Option<&LayerZRange
 
 /// Generates fake "External" Ghost Axons that originate from other shards (Atlas Routing).
 /// They aren't attached to any local soma, so `soma_idx` is set to `usize::MAX`.
-pub fn grow_external_axons(
-    io_config: &crate::parser::io::IoConfig,
-    layer_ranges: &[LayerZRange],
-    sim: &SimulationConfig,
-    master_seed: u64,
-) -> Vec<GrownAxon> {
-    let mut ext_axons = Vec::new();
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-
-    for (channel_idx, channel) in io_config.inputs.iter().enumerate() {
-        // Find the target layer bounds
-        let layer_z = layer_ranges.iter().find(|l| l.name == channel.target_layer);
-        let (z_start, z_end) = match layer_z {
-            Some(l) => (l.z_start_vox, l.z_end_vox),
-            None => continue, // Layer not found, skip projecting here
-        };
-
-        let depth = (z_end - z_start).max(1) as f32;
-
-        for i in 0..channel.axon_count {
-            // Seed uniquely identifies this external projection
-            let s = master_seed
-                .wrapping_add(channel_idx as u64)
-                .wrapping_add(i as u64);
-
-            // Jitter the entry tip throughout the destination layer
-            let tip_x = (random_f32(s) * world_w_vox as f32) as u32;
-            let tip_y = (random_f32(s.wrapping_add(1)) * world_d_vox as f32) as u32;
-            let tip_z = z_start + (random_f32(s.wrapping_add(2)) * depth) as u32;
-
-            let tip_x = tip_x.min(world_w_vox.saturating_sub(1));
-            let tip_y = tip_y.min(world_d_vox.saturating_sub(1));
-            let tip_z = tip_z.min(z_end);
-            let t = (channel.type_mask as u32) & 0x0F;
-
-            ext_axons.push(GrownAxon {
-                soma_idx: usize::MAX, // Signifies external origin
-                type_idx: channel.type_mask as usize, // Stuffs the 4-bit config phenotype
-                tip_x,
-                tip_y,
-                tip_z,
-                length_segments: 1, // Assume they just "entered" the shard at the border
-                segments: vec![(t << 28) | (tip_z << 20) | (tip_y << 10) | tip_x],
-            });
-        }
-    }
-
-    ext_axons
-}
-
-/// Создаёт 2D-сетку виртуальных аксонов (Mock Retina).
-/// Они располагаются на плоскости Z=0 и смотрят вверх.
-///
-/// TODO: grow_mock_retina — отладочная заглушка, требует рефакторинга:
-///   1. Объединить с grow_external_axons через IoConfig
-///   2. type_mask должен браться из конфига, а не хардкодиться в 0
-///   3. Детерминированная подача сигнала должна управляться через IoConfig
-///   Tracked: замена через IoConfig.inputs с признаком `mock = true`
-pub fn grow_mock_retina(
-    num_virtual: u32,
-    sim: &SimulationConfig,
-) -> Vec<GrownAxon> {
-    if num_virtual == 0 {
-        return Vec::new();
-    }
-
-    let mut retina = Vec::with_capacity(num_virtual as usize);
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-
-    // Предположим, что мы распределяем сетчатку квадратом
-    let side = (num_virtual as f32).sqrt().ceil() as u32;
-    let step_x = (world_w_vox as f32 / side as f32).max(1.0);
-    let step_y = (world_d_vox as f32 / side as f32).max(1.0);
-
-    for i in 0..num_virtual {
-        let ix = i % side;
-        let iy = i / side;
-
-        let tip_x = ((ix as f32 * step_x) as u32).min(world_w_vox.saturating_sub(1));
-        let tip_y = ((iy as f32 * step_y) as u32).min(world_d_vox.saturating_sub(1));
-        let tip_z = 0; // Сетчатка лежит на дне (z=0)
-        let t = 0u32; // type=0 
-
-        retina.push(GrownAxon {
-            soma_idx: usize::MAX, // Signifies external origin
-            type_idx: 0, // Условно 0 (Excitatory)
-            tip_x,
-            tip_y,
-            tip_z,
-            length_segments: 1,
-            // (Type=0 | Z=0 | Y=tip_y | X=tip_x)
-            segments: vec![(t << 28) | (tip_z << 20) | (tip_y << 10) | tip_x],
-        });
-    }
-
-    retina
-}
+// NOTE: grow_external_axons and grow_mock_retina have been removed.
+// They will be replaced by the new Input Map Builder in `input_map.rs`
+// as per Spec 05 §2.1.
 
 
 #[cfg(test)]
