@@ -97,7 +97,7 @@ __global__ void ApplyGSOP(u8* flags, u32* dendrite_target, i16* dendrite_weights
         u32 col_idx = slot * N + tid;
 
         u32 target_packed = dendrite_target[col_idx];
-        if (target_packed == 0) continue;
+        if (target_packed == 0) break; // Columnar Defrag invariant: first empty = all empty
 
         // 4. Causal Check: Timer-as-Contact-Flag
         // UpdateNeurons (Step 4) уже записал результат в dendrite_timers:

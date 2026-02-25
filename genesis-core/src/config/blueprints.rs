@@ -9,7 +9,7 @@ pub struct BlueprintsConfig {
 
 /// Один [[neuron_type]] блок из blueprints.toml.
 /// Объединяет параметры как для baker (рост), так и для runtime (GSOP, Night Phase).
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct NeuronType {
     /// Уникальное имя типа. Используется как ключ в anatomy.toml.
     pub name: String,
@@ -107,7 +107,7 @@ pub struct NeuronType {
 
     // --- Night Phase ---
     #[serde(default = "default_prune_threshold")]
-    pub prune_threshold: u16,
+    pub prune_threshold: i16,
 }
 
 // Дефолтные значения для опциональных полей
@@ -127,7 +127,7 @@ fn default_sprouting_dist() -> f32 { 0.4 }
 fn default_sprouting_power() -> f32 { 0.4 }
 fn default_sprouting_exp() -> f32 { 0.1 }
 fn default_sprouting_type() -> f32 { 0.1 }
-fn default_prune_threshold() -> u16 { 15 }
+fn default_prune_threshold() -> i16 { 15 }
 fn default_ltm_slot_count() -> u8 { 80 }
 fn default_inertia_curve() -> [u8; 16] {
     [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8]

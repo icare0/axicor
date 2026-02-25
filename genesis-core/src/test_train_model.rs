@@ -112,7 +112,7 @@ fn test_roundtrip_fire_to_overlap() {
     }
     
     // На тике `length` голова должна оказаться возле 0 для сегмента 0
-    let start_segment = AXON_SENTINEL.wrapping_sub(length * V_SEG);
+    let _start_segment = AXON_SENTINEL.wrapping_sub(length * V_SEG);
     
     // Если мы сдвинули initial_head на length * V_SEG, мы окажемся в start_segment + length * V_SEG = AXON_SENTINEL
     // Ух ты, начальный сегмент это AXON_SENTINEL - length * V_SEG. Конечный - AXON_SENTINEL.

@@ -8,3 +8,7 @@ pub mod seed;
 pub mod signal;
 pub mod time;
 pub mod types;
+
+#[cfg(test)]
+#[path = "test_gsop_math.rs"]
+mod test_gsop_math;

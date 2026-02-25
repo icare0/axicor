@@ -22,13 +22,14 @@ struct alignas(32) VariantParameters {
   uint8_t slot_decay_ltm;
   uint8_t slot_decay_wm;
   uint8_t propagation_length;  // Active Tail length (per-variant, from blueprints)
-  uint8_t _padding[3];
+  uint8_t ltm_slot_count;
+  uint8_t inertia_curve[16];
+  uint8_t _padding[14];
 };
 
 struct alignas(128) GenesisConstantMemory {
   VariantParameters variants[16];
-  uint8_t inertia_lut[16];
-  uint8_t _padding[112];
+  // удалили inertia_lut, теперь он внутри VariantParameters
 };
 
 __constant__ GenesisConstantMemory const_mem;
@@ -222,11 +223,11 @@ __global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
     uint8_t d_timer = dendrite_timers[col_idx];
     uint32_t is_causal = (d_timer == p.synapse_refractory);
 
-    // 5. Inertia Rank: abs(weight) >> 12 → 0..15 (Spec §2.4)
+    // 5. Inertia Rank: abs(weight) >> 11 → 0..15 (Spec §2.4)
     int16_t w = dendrite_weights[col_idx];
     uint16_t abs_w = (w >= 0) ? (uint16_t)w : (uint16_t)(-w);
-    uint8_t rank = abs_w >> 12;
-    uint8_t inertia = const_mem.inertia_lut[rank];
+    uint8_t rank = abs_w >> 11;
+    uint8_t inertia = p.inertia_curve[rank];
 
     // 6. Branchless GSOP Math (Zero Float)
     uint16_t delta_pot = (p.gsop_potentiation * inertia) >> 7;
@@ -234,7 +235,7 @@ __global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
     int32_t delta = is_causal * delta_pot - (!is_causal) * delta_dep;
 
     // 7. Slot Decay: LTM/WM multipliers (Fixed-point: 128 = 1.0×)
-    uint8_t decay = (slot < 80) ? p.slot_decay_ltm : p.slot_decay_wm;
+    uint8_t decay = (slot < p.ltm_slot_count) ? p.slot_decay_ltm : p.slot_decay_wm;
     delta = (delta * decay) >> 7;
 
     // 8. Signed Clamp ±32767 (Branchless sign extraction)

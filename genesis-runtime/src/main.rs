@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
 
         // 4.3 Setup ZoneRuntime
         let const_mem = ZoneRuntime::build_constant_memory(&blueprints);
-        let prune_threshold = blueprints.neuron_types.first().map(|n| n.prune_threshold as i16).unwrap_or(15);
+        let prune_threshold = blueprints.neuron_types.first().map(|n| n.prune_threshold).unwrap_or(15);
         let v_seg = (sim_config.simulation.signal_speed_um_tick / sim_config.simulation.voxel_size_um) as u32;
         let master_seed = genesis_core::seed::MasterSeed::from_str(&sim_config.simulation.master_seed);
 
