@@ -85,8 +85,8 @@ total_axons = L + G + V (aligned to 32)
 
 | Класс | Содержимое | GPU Memory | Паттерн |
 |---|---|---|---|
-| **Static Geometry** (Read-Only) | Координаты, длины сегментов, топология графа | Texture Memory / Read-Only Cache | Не изменяется днём. Максимальная скорость чтения. |
-| **Dynamic State** (Hot) | `Head_Index` (`u32`) — текущая позиция «поезда» сигнала | Global Memory | Перезаписывается **каждый тик** в горячем цикле. |
+| **Static Geometry** (Read-Only) | Координаты, длины сегментов, топология графа (`soma_to_axon`, `dendrite_targets`) | L1 Read-Only Data Cache | Не изменяется днём. Чтение идёт через `const __restrict__` указатели в ядрах. Максимальная скорость. |
+| **Dynamic State** (Hot) | Вектора сигналов (`axon_heads`), веса синапсов (`dendrite_weights`), таймеры, вольтаж, флаги | Global Memory (L1 RW Cache) | Перезаписывается **каждый тик** в горячем цикле. |
 
 ### 1.4. Zero-Copy Загрузка (Fast Boot)
 
@@ -98,13 +98,11 @@ total_axons = L + G + V (aligned to 32)
 
 ### 1.5. Constant Memory (LUT Layout)
 
-Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. 256 байт — 100% в L1 кеше, чтение за 1 такт (Broadcast Read при одинаковом Variant в варпе).
+Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1024 байта (16 вариантов по 64 байта), что идеально помещается в 64KB лимит и обеспечивает Broadcast Read за 1 такт, если все треды в варпе имеют одинаковый Variant.
 
 ```rust
-// baking_compiler/src/lut_layout.rs
-
-#[repr(C, align(32))]
-pub struct VariantParameters {            // 32 bytes
+#[repr(C, align(64))]
+pub struct VariantParameters {            // 64 bytes
     pub threshold: i32,                   // 4  — Base threshold
     pub rest_potential: i32,              // 4  — Rest potential (GLIF reset)
     pub leak: i32,                        // 4  — GLIF Leakage per tick
@@ -114,20 +112,21 @@ pub struct VariantParameters {            // 32 bytes
     pub gsop_depression: u16,             // 2  — Unsigned delta
     pub refractory_period: u8,            // 1  — Soma refractory (ticks)
     pub synapse_refractory: u8,           // 1  — Synapse refractory (ticks)
-    pub slot_decay_ltm: u8,               // 1  — Множитель GSOP для LTM (слоты 0-79). Fixed-point: 128 = 1.0×
-    pub slot_decay_wm: u8,                // 1  — Множитель GSOP для WM (слоты 80-127). Fixed-point: 128 = 1.0×
-    pub _padding: [u8; 4],               // 4  → Total = 32 bytes
+    pub slot_decay_ltm: u8,               // 1  — Множитель GSOP для LTM (0-79). Fixed: 128 = 1.0×
+    pub slot_decay_wm: u8,                // 1  — Множитель GSOP для WM (80-127). Fixed: 128 = 1.0×
+    pub propagation_length: u8,           // 1  — Active Tail length
+    pub ltm_slot_count: u8,               // 1  — LTM vs WM threshold boundary
+    pub inertia_curve: [u8; 16],          // 16 — Inertia modifiers (rank: abs(weight) >> 11)
+    pub _padding: [u8; 14],               // 14 → Total = 64 bytes
 }
 
 #[repr(C, align(128))]
-pub struct GenesisConstantMemory {        // 256 bytes
-    pub variants: [VariantParameters; 4], // 128 bytes (4 × 32)
-    pub inertia_lut: [u8; 16],            // 16 bytes (16 рангов: abs(weight) >> 12)
-    pub _padding: [u8; 112],              // → Total = 256 bytes
+pub struct GenesisConstantMemory {        // 1024 bytes
+    pub variants: [VariantParameters; 16], // 16 variants supported
 }
 ```
 
-**Доступ из CUDA kernel:** Variant ID извлекается за 1 такт `(flags[tid] >> 6) & 0x3`, далее прямое чтение: `const_mem.variants[variant].threshold`.
+**Доступ из CUDA kernel:** Variant ID извлекается из `flags` за 1 такт: `(flags[tid] >> 4) & 0xF`. Далее прямое чтение: `const_mem.variants[variant].threshold`.
 
 > **⚠️ Baking Tool Validator (inertia_lut):** При сборке `GenesisConstantMemory` необходимо проверять, что минимальный результат `(gsop_potentiation * inertia_lut[rank]) >> 7 >= 1` для **всех** рангов и вариантов. Если результат равен 0, возникает «Мёртвая зона пластичности» — вес синапса перестаёт адаптироваться навсегда. Это задача валидатора Baking Tool (и в перспективе IDE с live-подсказками по конфигу).
 

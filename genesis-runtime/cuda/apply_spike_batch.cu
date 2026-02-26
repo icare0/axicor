@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 __global__ void apply_spike_batch_kernel(uint32_t num_spikes,
-                                         uint32_t *schedule_indices,
+                                         const uint32_t *__restrict__ schedule_indices,
                                          uint32_t *axon_heads) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -18,7 +18,7 @@ __global__ void apply_spike_batch_kernel(uint32_t num_spikes,
 
 // Redefine the ffi function implementation properly
 extern "C" void launch_apply_spike_batch_impl(uint32_t num_spikes,
-                                              uint32_t *schedule_indices,
+                                              const uint32_t *schedule_indices,
                                               uint32_t *axon_heads,
                                               void *stream) {
   if (num_spikes == 0)

@@ -79,8 +79,8 @@ extern "C" void launch_propagate_axons(uint32_t total_axons,
 __global__ void update_neurons_kernel(uint32_t padded_n, int32_t *voltage,
                                       int32_t *threshold_offset,
                                       uint8_t *refractory_timer, uint8_t *flags,
-                                      uint32_t *soma_to_axon,
-                                      uint32_t *dendrite_targets,
+                                      const uint32_t *__restrict__ soma_to_axon,
+                                      const uint32_t *__restrict__ dendrite_targets,
                                       int16_t *dendrite_weights,
                                       uint8_t *dendrite_timers,
                                       uint32_t *axon_heads) {
@@ -172,16 +172,16 @@ __global__ void update_neurons_kernel(uint32_t padded_n, int32_t *voltage,
 
 extern "C" void
 launch_update_neurons(uint32_t padded_n, void *voltage, void *threshold_offset,
-                      void *refractory_timer, void *flags, void *soma_to_axon,
-                      void *dendrite_targets, void *dendrite_weights,
+                      void *refractory_timer, void *flags, const void *soma_to_axon,
+                      const void *dendrite_targets, void *dendrite_weights,
                       void *dendrite_timers,
                       void *axon_heads, void *stream) {
   int blockSize = 128; // Smaller block for high register count
   int numBlocks = (padded_n + blockSize - 1) / blockSize;
   update_neurons_kernel<<<numBlocks, blockSize, 0, (cudaStream_t)stream>>>(
       padded_n, (int32_t *)voltage, (int32_t *)threshold_offset,
-      (uint8_t *)refractory_timer, (uint8_t *)flags, (uint32_t *)soma_to_axon,
-      (uint32_t *)dendrite_targets, (int16_t *)dendrite_weights,
+      (uint8_t *)refractory_timer, (uint8_t *)flags, (const uint32_t *)soma_to_axon,
+      (const uint32_t *)dendrite_targets, (int16_t *)dendrite_weights,
       (uint8_t *)dendrite_timers,
       (uint32_t *)axon_heads);
 }
@@ -192,8 +192,9 @@ launch_update_neurons(uint32_t padded_n, void *voltage, void *threshold_offset,
 // Uses Timer-as-Contact-Flag: UpdateNeurons already recorded contact in
 // dendrite_timers. timer == synapse_refractory → contact this tick.
 // No redundant overlap check. Early exit for 99.9% of threads.
-__global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
-                                  uint32_t *dendrite_targets,
+__global__ void apply_gsop_kernel(uint32_t padded_n,
+                                  const uint8_t *__restrict__ flags,
+                                  const uint32_t *__restrict__ dendrite_targets,
                                   int16_t *dendrite_weights,
                                   uint8_t *dendrite_timers) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -246,14 +247,14 @@ __global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
   }
 }
 
-extern "C" void launch_apply_gsop(uint32_t padded_n, void *flags,
-                                  void *dendrite_targets,
+extern "C" void launch_apply_gsop(uint32_t padded_n, const void *flags,
+                                  const void *dendrite_targets,
                                   void *dendrite_weights, void *dendrite_timers,
                                   void *stream) {
   int blockSize = 128;
   int numBlocks = (padded_n + blockSize - 1) / blockSize;
   apply_gsop_kernel<<<numBlocks, blockSize, 0, (cudaStream_t)stream>>>(
-      padded_n, (uint8_t *)flags, (uint32_t *)dendrite_targets,
+      padded_n, (const uint8_t *)flags, (const uint32_t *)dendrite_targets,
       (int16_t *)dendrite_weights, (uint8_t *)dendrite_timers);
 }
 

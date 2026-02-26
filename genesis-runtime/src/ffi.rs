@@ -29,8 +29,8 @@ extern "C" {
         threshold_offset: *mut c_void,
         refractory_timer: *mut c_void,
         flags: *mut c_void,
-        soma_to_axon: *mut c_void,
-        dendrite_targets: *mut c_void,
+        soma_to_axon: *const c_void,
+        dendrite_targets: *const c_void,
         dendrite_weights: *mut c_void,
         dendrite_timers: *mut c_void,
         axon_heads: *mut c_void,
@@ -38,15 +38,15 @@ extern "C" {
     );
     pub fn launch_apply_gsop(
         padded_n: u32,
-        flags: *mut c_void,
-        dendrite_targets: *mut c_void,
+        flags: *const c_void,
+        dendrite_targets: *const c_void,
         dendrite_weights: *mut c_void,
         dendrite_timers: *mut c_void,
         stream: *mut c_void,
     );
     pub fn launch_apply_spike_batch_impl(
         num_spikes: u32,
-        schedule_indices: *mut c_void,
+        schedule_indices: *const c_void,
         axon_heads: *mut c_void,
         stream: *mut c_void,
     );
