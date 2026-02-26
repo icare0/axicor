@@ -84,6 +84,8 @@ mod tests {
             },
             config,
             prune_threshold: -50,
+            is_sleeping: false,
+            sleep_requested: false,
         }
     }
 

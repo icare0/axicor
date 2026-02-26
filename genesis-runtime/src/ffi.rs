@@ -48,6 +48,7 @@ extern "C" {
         num_spikes: u32,
         schedule_indices: *const c_void,
         axon_heads: *mut c_void,
+        total_axons: u32,
         stream: *mut c_void,
     );
     pub fn launch_record_readout(

@@ -42,25 +42,31 @@ impl DayPhase {
                     }
                 }
 
-                // 1. Process Network Spikes for this specific tick
-                let num_spikes = schedule.counts[current_tick];
-                if num_spikes > 0 {
-                    let element_offset = current_tick * 1024; // MAX_SPIKES_PER_TICK
-                    let byte_offset = element_offset * std::mem::size_of::<u32>();
-                    
-                    unsafe {
-                        let ptr = (gpu_schedule_buffer as *mut u8).add(byte_offset) as *mut c_void;
-                        ffi::launch_apply_spike_batch_impl(
-                            num_spikes,
-                            ptr,
-                            zone.runtime.vram.axon_head_index,
-                            std::ptr::null_mut(),
-                        );
+                // 1. Process Network Spikes & Physics only if NOT sleeping (Legalized Amnesia §2.3)
+                if !zone.is_sleeping {
+                    let num_spikes = schedule.counts[current_tick];
+                    if num_spikes > 0 {
+                        let element_offset = current_tick * 1024; // MAX_SPIKES_PER_TICK
+                        let byte_offset = element_offset * std::mem::size_of::<u32>();
+                        
+                        unsafe {
+                            let ptr = (gpu_schedule_buffer as *mut u8).add(byte_offset) as *mut c_void;
+                            ffi::launch_apply_spike_batch_impl(
+                                num_spikes,
+                                ptr,
+                                zone.runtime.vram.axon_head_index,
+                                zone.runtime.vram.total_axons as u32,
+                                std::ptr::null_mut(),
+                            );
+                        }
                     }
-                }
 
-                // 2. Propagate Axons, Update Neurons, Apply GSOP
-                zone.runtime.tick();
+                    // 2. Propagate Axons, Update Neurons, Apply GSOP
+                    zone.runtime.tick();
+                } else {
+                    // Zone is sleeping: Incoming spikes to this zone are dropped
+                    // Local physics are paused
+                }
 
                 // 3. Record Readout Interface (Batching raw spikes)
                 if zone.runtime.vram.num_mapped_somas > 0 {

@@ -31,6 +31,11 @@ impl NightPhase {
         let mut _weights = runtime.vram.download_dendrite_weights().expect("Failed to download weights");
         let mut _targets = runtime.vram.download_dendrite_targets().expect("Failed to download targets");
 
+        // 2.5 Checkpointing (Spec §3.3)
+        // Dump the structural state BEFORE sprouting logic so external tools can analyze it
+        // Or for restoring the VRAM state upon crash
+        Self::write_checkpoint(runtime, zone_id, &_weights, &_targets);
+
         // 3. Sprouting (IPC → genesis-baker-daemon via SHM + Unix socket)
         println!("3. Sprouting & Nudging (IPC → baker daemon)");
         let padded_n = runtime.vram.padded_n;
@@ -103,6 +108,28 @@ impl NightPhase {
                 runtime.vram.free_ghost_axon(prune.ghost_id);
                 GeometryResponse::Ok
             }
+        }
+    }
+
+    fn write_checkpoint(runtime: &Runtime, zone_id: u32, weights: &[i16], targets: &[u32]) {
+        // Find shard directory from runtime context or default to local baked dir
+        let path_str = format!("baked/zone_{}_checkpoint_pre_sprout", zone_id);
+        println!("   [Checkpoint] Saving weights and targets to {}...", path_str);
+        
+        let path = std::path::Path::new(&path_str);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        // Just write the raw bytes to disk (Fast Checkpoint)
+        let w_bytes: &[u8] = bytemuck::cast_slice(weights);
+        let t_bytes: &[u8] = bytemuck::cast_slice(targets);
+        
+        if let Err(e) = std::fs::write(format!("{}.weights", path_str), w_bytes) {
+            eprintln!("   [Checkpoint Error] Could not write weights: {}", e);
+        }
+        if let Err(e) = std::fs::write(format!("{}.targets", path_str), t_bytes) {
+            eprintln!("   [Checkpoint Error] Could not write targets: {}", e);
         }
     }
 }

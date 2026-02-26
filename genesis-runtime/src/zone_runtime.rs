@@ -7,6 +7,8 @@ pub struct ZoneRuntime {
     pub const_mem: GenesisConstantMemory,
     pub config: InstanceConfig,
     pub prune_threshold: i16,
+    pub sleep_requested: bool,
+    pub is_sleeping: bool,
 }
 
 impl ZoneRuntime {

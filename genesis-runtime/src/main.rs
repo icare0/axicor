@@ -167,11 +167,13 @@ async fn main() -> Result<()> {
         }
 
         zones.push(ZoneRuntime {
-            name: zone_entry.name.clone(),
+            name: zone_entry.name.clone(), // Assuming zone_entry.name is the correct source for name
             runtime,
             const_mem,
-            config: shard_config,
-            prune_threshold,
+            config: shard_config, // Assuming shard_config is the correct source for config
+            prune_threshold: -50, // WM decay limit
+            is_sleeping: false,
+            sleep_requested: false,
         });
     }
 
