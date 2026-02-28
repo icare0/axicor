@@ -14,15 +14,38 @@
 
 ```rust
 // Структура массивов в VRAM (SoA), Dense Index 0..N-1
-struct SomaState {
-    voltage: *mut i32,           // Текущий заряд мембраны (i32 — защита от переполнения)
-    threshold_offset: *mut i32,  // Адаптивный порог для гомеостаза (§3.2 из 03_neuron_model)
-    refractory_timer: *mut u8,   // Оставшееся время «сна» (0..255 тиков)
-    flags: *mut u8,              // Побитовая раскладка ниже
+pub struct VramState {
+    // Soma State (padded_n length)
+    voltage: *mut c_void,           // i32 — текущий заряд мембраны
+    threshold_offset: *mut c_void,  // i32 — адаптивный порог гомеостаза
+    refractory_timer: *mut c_void,  // u8 — таймер рефрактерности сомы
+    flags: *mut c_void,             // u8 — битовая карта
+
+    // Axon State (total_axons length, not padded_n)
+    total_axons: usize,
+    axon_head_index: *mut c_void,  // u32 — головы аксонов
+    soma_to_axon: *mut c_void,     // u32 — маппинг soma_id → axon_id
+
+    // Dendrite Columns (MAX_DENDRITE_SLOTS * padded_n length)
+    dendrite_targets: *mut c_void,     // u32 (packed: [31..10] axon_id | [9..0] segment)
+    dendrite_weights: *mut c_void,     // i16 — синаптические веса
+    dendrite_refractory: *mut c_void,  // u8 — таймеры дендюр преносчивости
+
+    // I/O Matrix (Virtual Axons, InjectInputs)
+    num_pixels: u32,                   // всего виртуальных аксонов
+    map_pixel_to_axon: *mut c_void,    // u32[] — пиксель → врт. аксон_id
+    input_bitmask_buffer: *mut c_void, // u32[] — двоичная маска входов
+    input_matrices: Vec<InputMatrixInfo>, // метаданные по матрицам (офцет, опцион. stride)
+
+    // Readout Interface (Output)
+    num_mapped_somas: u32,         // кол-во сом (выходы)
+    readout_batch_ticks: u32,      // батч в тиках
+    mapped_soma_ids: *mut c_void,  // u32[] — соми к выводу
+    output_history: *mut c_void,   // u8[batch_ticks × num_somas] — спайки тика
 }
 
 // flags (u8) — битовая карта:
-// [7..4] Type Mask (Geo | Sign | Variant) — из 03_neuron_model §2
+// [7..4] Type Mask (Geo | Sign | Variant) — экстрактивные 4 бита
 // [3..1] Reserved
 // [0]    Is_Spiking (1 = сома выстрелила в этом тике)
 ```
@@ -147,14 +170,14 @@ pub struct GenesisConstantMemory {        // 1024 bytes
 
 **Порядок запуска ядер (каждый тик):**
 
-| # | Kernel | Описание |
-|---|---|---|
-| 1 | `InjectInputs` | Bitmask Injection для виртуальных аксонов (single-tick pulse) |
-| 2 | `ApplySpikeBatch` | Сброс `axon_heads[ghost_id] = 0` для входящих сетевых спайков |
-| 3 | `PropagateAxons` | Безусловный `axon_heads[tid] += v_seg` для **всех** аксонов (Local + Ghost + Virtual) |
-| 4 | `UpdateNeurons` | GLIF: leak → dendrite loop → threshold → fire. При спайке: `axon_heads[my_axon] = 0` |
-| 5 | `ApplyGSOP` | Пластичность: Timer-as-Contact-Flag (`timer == synapse_refractory` → Potentiation, иначе Depression) |
-| 6 | `RecordOutputs` | Z-Sort map → `u8` per channel, Coalesced Write в `output_history[]` |
+| # | Kernel | Описание | Оисточник |
+|---|---|----|----|
+| 1 | `InjectInputs` | Bitmask Injection для виртуальных аксонов (single-tick pulse) | [05_signal_physics.md §2.4](./05_signal_physics.md) |
+| 2 | `ApplySpikeBatch` | Чтение Ghost indices из Schedule, сброс `axon_heads[ghost_id] = 0` | [05_signal_physics.md §1.2.1](./05_signal_physics.md) |
+| 3 | `PropagateAxons` | Безусловный `axon_heads[tid] += v_seg` для **всех** аксонов (Local + Ghost + Virtual) | [05_signal_physics.md §1.6](./05_signal_physics.md) |
+| 4 | `UpdateNeurons` | GLIF + дендритный цикл + проверка порога + срыв спайка | [05_signal_physics.md §1.5](./05_signal_physics.md) |
+| 5 | `ApplyGSOP` | Пластичность: Timer-as-Contact-Flag режим STDP | [05_signal_physics.md §1.3](./05_signal_physics.md) |
+| 6 | `RecordReadout` | Чтение spike flags из mapped_soma_ids, запись в output_history | [05_signal_physics.md §3.2](./05_signal_physics.md) |
 
 
 ### 2.2. Фаза «Ночь» (Per-Zone Offline Maintenance)
@@ -243,6 +266,11 @@ Shared Memory (AoS, per warp):
 **a) f32 → u32 Quantization:**
 - Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
 
+#### 2.2.4. Step 4: Baking & Defragmentation (CPU)
+
+**a) f32 → u32 Quantization:**
+- Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
+
 **b) DenseIndex Generation:**
 - GPU работает с dense indices (0..N-1), не с PackedPosition.
 - CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
@@ -255,13 +283,120 @@ Shared Memory (AoS, per warp):
 - `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
 - Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
 
-### 2.3. Легализованная Амнезия (Spike Drop)
+### 2.3. External I/O Server (UDP для входов/выходов)
+
+Отдельный Tokio-сервер (на третьем ядре) для взаимодействия с External Hub. Обрабатывает I/O неблокирующе.
+
+```rust
+pub struct ExternalIoServer {
+    sock_in: Arc<UdpSocket>,        // Port N: ресивер Input Bitmasks
+    sock_out: Arc<UdpSocket>,       // Port N+1: сендер Output History
+    last_client_addr: Option<SocketAddr>, // Память о клиенте
+}
+
+// Протокол пакета
+#[repr(C)]
+pub struct ExternalIoHeader {
+    pub zone_hash: u32,     // идентификатор Zone
+    pub matrix_hash: u32,   // идентификатор Input/Output матрицы
+    pub payload_size: u32,  // размер пайлоада
+}
+```
+
+**Дисфрагментация:** UDP пакеты больше 65KB автоматически дропятся (отсутствует EMSGSIZE отравления сокета). Полные передачи когда батч готов.
+
+**Плагин**:
+- На каждом батче (когда `current_tick_in_batch == 0`) стадия услуги выслыла UDP датаграмму с `output_history` предыдущего батча клиенту (робоцика, визуализация).
+- Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положении и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
+
+---
+
+## Связанные документы
+
+| Документ | Что связывается |
+|---|---|
+| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory параметры |
+| [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, сетевой I/O |
+| [02_configuration.md](./02_configuration.md) | Определения Variant'ов, blueprints, валидация параметров |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons формат файле, Sort&Prune в Night |
+| [project_structure.md](../project_structure.md) | Обзор архитектуры |
+
+---
+
+## Changelog
+
+| Дата | Версия | Описание |
+|---|---|---|
+| 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
+| TBD | 2.0 | Первая версия |
+- CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
+- В массив `targets[]` вписываются DenseIndex + segment offset.
+
+**c) Columnar Layout Defrag:**
+- Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
+
+**d) Warp Alignment:**
+- `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
+- Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
+
+### 2.3. External I/O Server (UDP для вѝԳется/выходов)
+
+Отдельный Tokio-сервер (третью ѰЯдро) для вчёт-раза Internal Compute. Обрабатывает I/O неавтонно.
+
+```rust
+pub struct ExternalIoServer {
+    sock_in: Arc<UdpSocket>,        // Port N: ресивер Input Bitmasks
+    sock_out: Arc<UdpSocket>,       // Port N+1: сендер Output History
+    last_client_addr: Option<SocketAddr>, // Мемория о клиенте
+}
+
+// Протокол пакета
+#[repr(C)]
+pub struct ExternalIoHeader {
+    pub zone_hash: u32,     // идентификатор Zone
+    pub matrix_hash: u32,   // идентификатор Input/Output матрицы
+    pub payload_size: u32,  // размер пайлоада
+}
+```
+
+**ДислокČрагментирование:** UDP пакеты больше 65KB автоматически дропъются (отсутствует EMSGSIZE потравления сокета). Полные алвания когда батч готов.
+
+**ПԼтАгтѯн**:
+- На каждом батче (когда `current_tick_in_batch == 0`) нчамск услюгные нервые высылают UDP датаграммю с `output_history` предыдущего батча клиенту (роботика, визуализация).
+- Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положенны и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
+
+### 2.4. Легализованная Амнезия (Spike Drop)
 
 Пока зона спит, остальные зоны продолжают работать и слать спайки (Fast Path).
 
 - Хост спящей зоны принимает TCP/UDP пакет, видит статус `SLEEP` → **мгновенный Drop**.
 - Ноль копирований в VRAM. Ноль ветвлений. Информация теряется **физиологически достоверно**.
 - **Биологический аналог:** Человек во сне не обрабатывает зрительный вход. Это нормальное поведение живой системы, не ошибка инференс-сервера.
+
+---
+
+## 3. Инварианты Жизненного Цикла (Lifecycle Invariants)
+
+---
+
+## Connected Documents
+
+| Document | Connection |
+|---|---|
+| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory variant parameters |
+| [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, network I/O |
+| [02_configuration.md](./02_configuration.md) | Variant definitions, blueprints, parameter validation |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons file format, Sort&Prune during Night |
+| [project_structure.md](../project_structure.md) | Architecture overview |
+
+---
+
+## Changelog
+
+| Date | Version | Changes |
+|---|---|---|
+| 2026-02-28 | 2.1 | Synchronized VramState with real memory.rs (added I/O Matrix fields, readout buffers). Updated Day Phase table with 6 kernels and source references. Added External I/O Server section for UDP multiplexing. |
+| TBD | 2.0 | First version |
 
 ---
 

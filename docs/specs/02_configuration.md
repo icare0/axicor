@@ -191,24 +191,44 @@ Slot_127: [Нейрон_0.Д127, Нейрон_1.Д127, ...]              // Ма
 ```toml
 [world]
 # Физические размеры пространства (в микрометрах)
-width_um = 3500    # 140 voxels * 25 um
-depth_um = 3500    # 140 voxels * 25 um
-height_um = 10250  # 410 voxels * 25 um
+# Миниколонка во-первых V1: ~1mm × 1mm × 2.5mm (коры)
+width_um = 1000    # = 40 voxels × 25 um
+depth_um = 1000    # = 40 voxels × 25 um
+height_um = 2500   # = 100 voxels × 25 um (толщина коры)
 
 [simulation]
-tick_duration_us = 100  # 1 тик = 100 мкс (0.1 мс). Необходимое разрешение для GSOP.
-                        # При velocity=500 мкм/мс сигнал проходит 50 мкм/тик.
-total_ticks = 10000     # 10000 тиков = 1 секунда симуляции
-master_seed = "GENESIS" # String → хэшируется в u64 при старте
+# --- Глобальные параметры (единые для всех зон) ---
 
-# Глобальная Плотность (Global Density)
-# Процент вокселей, в которых находятся тела нейронов (0.04 = 4%).
+# Временное разрешение
+tick_duration_us = 100  # 1 тик = 100 мкс (0.1 мс). Необходимое разрешение для GSOP (01_foundations.md §1.4).
+
+# Пространственная дискретизация
+voxel_size_um = 25       # Единица квантирования пространства (01_foundations.md §1.1).
+                         # 25 μm — компромисс между разрешением и памятью для кортикальных нейронов.
+
+# Параметры аксонов
+segment_length_voxels = 2   # 1 сегмент = 2 вокселя = 50 мкм. Максимум: 8 вокселей (01_foundations.md §1.2).
+signal_speed_um_tick = 50   # Скорость сигнала в микрометрах за тик (01_foundations.md §1.5).
+                            # Вычисляется как: v_seg = signal_speed_um_tick ÷ (voxel_size_um × segment_length_voxels) = 50 ÷ 50 = 1 ✓
+
+# Синхронизация
+sync_batch_ticks = 100      # Количество тиков между синхронизациями шардов (100 тиков × 100 мкс = 10 мс).
+
+# Контроль и инициализация
+total_ticks = 0             # 0 = бесконечная симуляция (до завершения программы)
+master_seed = "GENESIS"     # String → хэшируется в u64 при старте (01_foundations.md §2.1).
+                            # Единственная точка входа энтропии. Используйте читаемые значения: "GENESIS", "DEBUG_RUN_42", т.д.
+
+# Плотность нейронов
+# Процент вокселей, в которых находятся тела нейронов (soma centers).
 # Расчет:
-# 1. Total_Voxels = (Width_um / 25) * (Depth_um / 25) * (Height_um / 25)
-# 2. Total_Neurons = Total_Voxels * global_density
-global_density = 0.04
-signal_speed_um_tick = 50   # Скорость сигнала (мкм/тик)
-segment_length_voxels = 5   # Длина сегмента аксона (вокселей). Глобально. По умолчанию: 5
+# 1. Total_Voxels = (Width_um / voxel_size_um) × (Depth_um / voxel_size_um) × (Height_um / voxel_size_um)
+#                 = (1000 / 25) × (1000 / 25) × (2500 / 25) = 40 × 40 × 100 = 160,000 voxels
+# 2. Total_Neurons = Total_Voxels × global_density = 160,000 × 0.04 = 6,400 нейронов
+global_density = 0.04           # 4% (Биологически реалистично для коры)
+
+# Рост аксонов (Baking/Sprouting)
+axon_growth_max_steps = 500     # Максимум итераций Cone Tracing при росте (500 шагов × 50 мкм = 25 мм)
 ```
 
 ### 4.1. Оптимизация Типов Данных (Memory Optimization)
@@ -384,6 +404,176 @@ slot_decay_wm = 80               # 80/128 = 0.625× (агрессивный ра
 sprouting_weight_distance = 0.6  # Больше ценят локальные связи
 sprouting_weight_power   = 0.3  # Меньше зависимость от хабов
 sprouting_weight_explore = 0.1
+```
+
+---
+
+## 7. Спецификация: `brain.toml` (Multi-Zone Architecture)
+
+Определяет топологию мультизонального мозга: какие зоны присутствуют, где вычисляются данные и как они синхронизируются. Это **корневой конфиг** для всей распределённой системы (см. [06_distributed.md](./06_distributed.md)).
+
+### 7.1. Структура и Иерархия
+
+```
+brain.toml (корень)
+├─ [simulation] → simulation.toml (глобальная физика)
+├─ [[zone]] × N (определяет зоны)
+│  ├─ name: "SensoryCortex"
+│  ├─ blueprints: "config/zones/.../blueprints.toml"
+│  └─ baked_dir: "baked/SensoryCortex/"
+└─ [[connection]] × M (межзональные связи через Ghost Axons)
+   ├─ from: "SensoryCortex"
+   ├─ to: "HiddenCortex"
+   └─ output_matrix: "sensory_out"
+```
+
+**Инвариант:** Каждая зона ссылается на непересекающуюся папку `baked/`. Отсутствие файла в `baked_dir` → **критическая ошибка при инициализации** (Must have: `.state`, `.axons`, `.gxo`).
+
+### 7.2. Секция [simulation]
+
+Ссылка на единственный `simulation.toml` — все зоны синхронизированы одинаковым `tick_duration_us` и пространственной метрикой.
+
+```toml
+[simulation]
+config = "config/simulation.toml"  # Абсолютный или относительный путь
+```
+
+**Обоснование:** Нельзя, чтобы SensoryCortex считал тики быстрее, чем HiddenCortex, иначе входная синхронизация рассинхронизируется (см. [06_distributed.md §2.4](./06_distributed.md#24-batch-synchronization)).
+
+### 7.3. Секция [[zone]]: Определение Зон
+
+```toml
+[[zone]]
+name = "SensoryCortex"                                 # Имя зоны (уникально)
+blueprints = "config/zones/SensoryCortex/blueprints.toml"  # Путь к типам нейронов
+baked_dir = "baked/SensoryCortex/"                    # Путь к скомпилированным бинарным файлам
+
+[[zone]]
+name = "HiddenCortex"
+blueprints = "config/zones/HiddenCortex/blueprints.toml"
+baked_dir = "baked/HiddenCortex/"
+
+[[zone]]
+name = "MotorCortex"
+blueprints = "config/zones/MotorCortex/blueprints.toml"
+baked_dir = "baked/MotorCortex/"
+```
+
+#### Поля
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `name` | `String` | Уникальный идентификатор зоны. Используется в `[[connection]]` и шардовых конфигах. Примеры: `"V1"`, `"V2"`, `"Motor"`, `"Thalamus"`. |
+| `blueprints` | `String` | Путь к `blueprints.toml` этой зоны. Содержит определения 4-х типов нейронов (§6). Может быть абсолютным или относительным к позиции `brain.toml`. |
+| `baked_dir` | `String` | Папка, содержащая бинарные файлы: `.state` (начальное состояние сомы), `.axons` (геометрия), `.gxo` (выходная матрица, опционально), `.gxi` (входная матрица, опционально). Создаётся инструментом Baking (genesis-baker). |
+
+### 7.4. Секция [[connection]]: Межзональные Связи
+
+Определяет Ghost Axon Projections — как выходные аксоны одной зоны подключаются в качестве входных к соседней (см. [06_distributed.md §2.5](./06_distributed.md)).
+
+```toml
+[[connection]]
+from = "SensoryCortex"                  # Исходящая зона
+to = "HiddenCortex"                     # Целевая зона
+output_matrix = "sensory_out"           # Имя выходного матрикса в исходящей зоне
+                                        # (debe existir в SensoryCortex/blueprints.toml)
+width = 64                              # Ширина матрицы в пикселях
+height = 64                             # Высота матрицы в пикселях
+entry_z = "top"                         # Глубина спавна: "top" | "mid" | "bottom" | число в мкм
+target_type = "All"                     # Целевые типы нейронов: "All" | конкретный тип
+growth_steps = 1000                     # Максимум итераций Cone Tracing для Ghost Axon Growth
+
+# Опциональные поля (Planned, не реализовано в текущей версии)
+# synapse_weight = 5000                 # Начальный вес синапса Ghost Axon
+# latency_ticks = 2                     # Задержка распространения (межзональная)
+```
+
+#### Интерпретация
+
+1. **from/to:** Зона с `from` должна иметь `output_matrix` с именем `sensory_out` в её `blueprints.toml`.
+2. **width/height:** Разрешение проекции. Вычисляется матричный масштаб: `spatial_scale_x = zone_width / width` (см. [08_io_matrix.md](./08_io_matrix.md)).
+3. **entry_z:** На какой высоте (слой) спавнятся входные аксоны в целевую зону. `"top"= слой L1, "bottom" = слой L5/6`.
+4. **target_type:** К каким нейронам прикрепляются дендриты Ghost Axon. `"All"` = ко всем типам.
+5. **growth_steps:** Параметр алгоритма синтеза связей. При значении 0 — связи **заранее известны** (читаются из бинарника). При значении > 0 — **динамический рост** (Cube Tracing в целевой зоне).
+
+### 7.5. Пример Полной Конфигурации
+
+```toml
+[simulation]
+config = "config/simulation.toml"
+
+[[zone]]
+name = "SensoryCortex"
+blueprints = "config/zones/SensoryCortex/blueprints.toml"
+baked_dir = "baked/SensoryCortex/"
+
+[[zone]]
+name = "HiddenCortex"
+blueprints = "config/zones/HiddenCortex/blueprints.toml"
+baked_dir = "baked/HiddenCortex/"
+
+[[zone]]
+name = "MotorCortex"
+blueprints = "config/zones/MotorCortex/blueprints.toml"
+baked_dir = "baked/MotorCortex/"
+
+# --- Межзональная контрастивная экономика ---
+
+[[connection]]
+# V1 → Hidden: сенсорные входы
+from = "SensoryCortex"
+to = "HiddenCortex"
+output_matrix = "sensory_out"
+width = 64
+height = 64
+entry_z = "top"
+target_type = "All"
+growth_steps = 1000
+
+[[connection]]
+# Hidden → Motor: моторные ответы
+from = "HiddenCortex"
+to = "MotorCortex"
+output_matrix = "hidden_out"
+width = 32
+height = 32
+entry_z = "mid"
+target_type = "All"
+growth_steps = 800
+```
+
+### 7.6. Runtime Инициализация (Startup Sequence)
+
+Движок при инициализации:
+
+1. **Парсит `brain.toml`.**
+2. **Для каждой `[[zone]]`:**
+   - Загружает `blueprints.toml` → структура нейротипов
+   - Загружает бинарные файлы из `baked_dir/` в VRAM (`.state`, `.axons`)
+   - Опционально загружает `.gxo` (выходные матрицы) и инициирует UDP output servers
+   - Создаёт `ZoneRuntime` с этими данными
+3. **Для каждой `[[connection]]`:**
+   - Проверяет существование `from` и `to` зон в `zones`
+   - Создаёт `IntraGpuChannel` (voir [06_distributed.md §2.6](./06_distributed.md#26-intra-gpu-channel-ghost-axon-routing)) для маршрутизации Ghost Axons
+   - Синтезирует связи через Cone Tracing (если `growth_steps > 0`) или загружает из бинарника
+4. **Инициирует BSP Barrier** между зонами (§1.2.1, [06_distributed.md §1.3](./06_distributed.md#13-bsp-barrier))
+
+**Fail-Fast Policy:** Если какой-то путь недоступен или файл повреждён → immediate panic с диагностикой. Сломанный `baked_dir/` → **not bootable**.
+
+---
+
+## Сводка Иерархии
+
+```
+simulation.toml (Laws of Physics)
+    ↓
+anatomy.toml (Layer heights, Density per layer)
+    ↓
+blueprints.toml (Neuron types, Synapse rules)
+    ↓
+brain.toml (Multi-zone topology, Inter-zone connections)
+    ├→ baked/ (Compiled, immutable binary snapshots)
+    └→ [Shard configs] (Instance-specific: offset, dimensions)
 ```
 
 ### 6.2. Типы Данных в Runtime
