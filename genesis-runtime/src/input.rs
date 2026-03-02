@@ -10,7 +10,7 @@ pub struct GxiMatrix {
     pub stride: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GxiFile {
     pub total_pixels: u32,
     pub matrices: Vec<GxiMatrix>,

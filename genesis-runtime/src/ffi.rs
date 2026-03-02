@@ -46,6 +46,7 @@ extern "C" {
     
     // Загрузка Blueprint-параметров в Constant Memory GPU
     pub fn gpu_load_constants(host_ptr: *const c_void);
+    pub fn update_constant_memory_hot_reload(new_variants: *const c_void, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
         padded_n: u32,

@@ -1,56 +1,21 @@
+use crossbeam::queue::SegQueue;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-/// Packet sent when an axon wants to cross a shard boundary (Night Phase).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NewAxon {
-    /// Local absolute ID of the axon on the sending shard.
-    pub source_axon_id: u32,
-    /// X/Y/Z entry point on the boundary plane of the receiver. We use u32 packed.
-    pub entry_point: (u16, u16),
-    /// Normalized directional inertia vector.
-    pub vector: (i8, i8, i8),
-    /// Structural type of the sending neuron (Geo | Sign | Variant).
-    pub type_mask: u8,
-    /// How many segments this axon can still grow.
-    pub remaining_length: u16,
-}
-
-/// Acknowledgment of a successful boundary crossing.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AckNewAxon {
-    /// The original ID on the sender side so it knows which axon this is.
-    pub source_axon_id: u32,
-    /// The newly allocated Ghost ID on the receiver side.
-    pub ghost_id: u32,
-}
-
-/// Packet sent when a long-range axon dies (pruned due to weight < threshold).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PruneAxon {
-    /// The target's local ghost ID to be freed.
-    pub ghost_id: u32,
-}
-
-/// The overarching enum for all Geometry events (Slow Path).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GeometryRequest {
-    Handover(NewAxon),
-    Prune(PruneAxon),
+    Handover(AxonHandoverEvent),
+    Prune(u32),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GeometryResponse {
-    Ack(AckNewAxon),
+    Ack(AxonHandoverAck),
     Ok,
 }
 
 #[repr(C, packed)]
-pub struct GrowHeader {
-    pub magic: u32, // 0x47524F57
-    pub count: u32,
-}
-
-#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AxonHandoverEvent {
     pub local_axon_id: u32,
     pub entry_x: u16,
@@ -61,4 +26,30 @@ pub struct AxonHandoverEvent {
     pub type_mask: u8,
     pub remaining_length: u16,
     pub _padding: u16,
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AxonHandoverAck {
+    pub magic: u32,         // 0x41434B48 ("ACKH")
+    pub local_axon_id: u32, 
+    pub ghost_id: u32,      
+}
+
+pub struct SlowPathQueues {
+    pub incoming_grow: Arc<SegQueue<AxonHandoverEvent>>,
+    pub outgoing_ack: Arc<SegQueue<AxonHandoverAck>>,
+    pub outgoing_grow: Arc<SegQueue<AxonHandoverEvent>>,
+    pub incoming_ack: Arc<SegQueue<AxonHandoverAck>>,
+}
+
+impl SlowPathQueues {
+    pub fn new() -> Self {
+        Self {
+            incoming_grow: Arc::new(SegQueue::new()),
+            outgoing_ack: Arc::new(SegQueue::new()),
+            outgoing_grow: Arc::new(SegQueue::new()),
+            incoming_ack: Arc::new(SegQueue::new()),
+        }
+    }
 }

@@ -13,8 +13,21 @@ pub fn execute_day_batch(
     total_ticks: u64
 ) {
 
-    // Set Constant Memory
-    Runtime::init_constants(&zone.const_mem);
+    // Zero-Downtime Hot-Reload & Async Constant Memory injection
+    let mut mem_updated = false;
+    while let Some(new_const_mem) = zone.hot_reload_queue.pop() {
+        zone.const_mem = new_const_mem;
+        mem_updated = true;
+    }
+    if mem_updated {
+        println!("🚀 [Hot-Reload] 1024 bytes of VariantParameters injected to VRAM __constant__!");
+    }
+    unsafe {
+        ffi::update_constant_memory_hot_reload(
+            &zone.const_mem as *const _ as *const std::ffi::c_void,
+            stream,
+        );
+    }
 
     let layout_vram = genesis_core::layout::VramState {
         voltage: zone.runtime.vram.voltage as *mut i32,

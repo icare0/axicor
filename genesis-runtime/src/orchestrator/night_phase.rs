@@ -17,35 +17,26 @@ unsafe fn save_hot_checkpoint(
     pinned_targets: *const u32,
     pinned_weights: *const i16,
 ) {
-    // В реальном проекте путь берется из конфига зоны (baked_dir)
-    // Здесь мы временно захардкодим на папку baked/zone_name
     let path_str = format!("baked/{}/checkpoint_weights.bin", zone_name);
     let path = Path::new(&path_str);
-    
-    // Используем BufWriter с большим буфером (4MB) для утилизации скорости NVMe
     let file = OpenOptions::new().create(true).write(true).truncate(true).open(path).expect("Fatal: Failed to open checkpoint file");
     let mut writer = BufWriter::with_capacity(4 * 1024 * 1024, file);
 
-    // 1. Header (16 bytes)
     writer.write_all(&CHKT_MAGIC.to_le_bytes()).unwrap();
     writer.write_all(&total_ticks.to_le_bytes()).unwrap();
     writer.write_all(&padded_n.to_le_bytes()).unwrap();
 
-    // 2. Рассчитываем размеры массивов в байтах
     let targets_bytes_len = (MAX_DENDRITE_SLOTS * padded_n as usize) * 4;
     let weights_bytes_len = (MAX_DENDRITE_SLOTS * padded_n as usize) * 2;
 
-    // 3. Формируем сырые &[u8] слайсы прямо из Pinned RAM
     let targets_slice = std::slice::from_raw_parts(pinned_targets as *const u8, targets_bytes_len);
     let weights_slice = std::slice::from_raw_parts(pinned_weights as *const u8, weights_bytes_len);
 
-    // 4. Zero-Copy I/O: Пишем на диск напрямую
     writer.write_all(targets_slice).unwrap();
     writer.write_all(weights_slice).unwrap();
     writer.flush().unwrap();
 }
 
-/// Прямое чтение с диска в Pinned RAM без промежуточных буферов.
 pub unsafe fn load_hot_checkpoint(
     zone_name: &str,
     expected_padded_n: u32,
@@ -54,44 +45,30 @@ pub unsafe fn load_hot_checkpoint(
 ) -> Option<u64> {
     let path_str = format!("baked/{}/checkpoint_weights.bin", zone_name);
     let path = Path::new(&path_str);
-    
-    if !path.exists() {
-        return None; // Чекпоинта нет, зона стартует с нуля
-    }
+    if !path.exists() { return None; }
 
     let mut file = File::open(path).expect("Fatal: Failed to open checkpoint");
     let mut header = [0u8; 16];
-    if file.read_exact(&mut header).is_err() {
-        return None;
-    }
+    if file.read_exact(&mut header).is_err() { return None; }
 
     let magic = u32::from_le_bytes(header[0..4].try_into().unwrap());
-    assert_eq!(magic, CHKT_MAGIC, "Fatal: Checkpoint corrupted for zone {}", zone_name);
+    assert_eq!(magic, CHKT_MAGIC);
 
     let tick = u64::from_le_bytes(header[4..12].try_into().unwrap());
     let padded_n = u32::from_le_bytes(header[12..16].try_into().unwrap());
-    
-    assert_eq!(
-        padded_n, expected_padded_n, 
-        "Fatal: Topology changed (padded_n mismatch). Cannot load checkpoint for {}", zone_name
-    );
+    assert_eq!(padded_n, expected_padded_n);
 
     let targets_bytes_len = (MAX_DENDRITE_SLOTS * padded_n as usize) * 4;
     let weights_bytes_len = (MAX_DENDRITE_SLOTS * padded_n as usize) * 2;
 
-    // Контракт unsafe: мы гарантируем, что размеры буферов в Pinned RAM 
-    // в точности совпадают с ожидаемыми размерами слайсов.
     let targets_slice = std::slice::from_raw_parts_mut(pinned_targets as *mut u8, targets_bytes_len);
     let weights_slice = std::slice::from_raw_parts_mut(pinned_weights as *mut u8, weights_bytes_len);
 
-    // ОС сама зальет страницы с диска прямо в Pinned RAM
     file.read_exact(targets_slice).unwrap();
     file.read_exact(weights_slice).unwrap();
-
     Some(tick)
 }
 
-/// Вызывается из главного потока, мгновенно возвращает управление
 pub fn trigger_night_phase(
     zone_name: String,
     total_ticks: u64,
@@ -100,18 +77,53 @@ pub fn trigger_night_phase(
     total_axons: u32,
     prune_threshold: i16,
     is_sleeping: Arc<AtomicBool>,
-    master_seed: u64
+    master_seed: u64,
+    queues: Arc<crate::network::slow_path::SlowPathQueues>,
+    inter_node_channels: Vec<crate::network::inter_node::InterNodeChannel>,
+    spatial_grid: Arc<std::sync::Mutex<crate::orchestrator::spatial_grid::SpatialGrid>>,
 ) {
-    // Уводим зону в сон
     is_sleeping.store(true, Ordering::Release);
-
-    // Поднимаем выделенный OS-поток под тяжелую математику (Sprouting / Baking)
     let vram_addr = vram_ptr as usize;
+
     thread::spawn(move || {
         unsafe {
             let vram = &mut *(vram_addr as *mut crate::memory::VramState);
-            let stream = std::ptr::null_mut(); // Для асинхронной ночи лучше создать отдельный cudaStream_t
-            
+            let stream = std::ptr::null_mut();
+
+            // Step 0: Process Incoming Handovers & ACKs (Deferred VRAM Patching)
+            // 0.1 Incoming Handovers (GROW from remote -> Local Ghost)
+            let mut pending_handovers = Vec::new();
+            while let Some(event) = queues.incoming_grow.pop() {
+                pending_handovers.push(event);
+            }
+
+            if !pending_handovers.is_empty() {
+                let acks = process_incoming_handovers(
+                    &pending_handovers,
+                    &mut vram.ghost_axons_allocated,
+                    vram.max_ghost_axons as u32,
+                    vram.base_axons as u32,
+                    vram.axon_head_index as *mut u32,
+                );
+                for ack in acks {
+                    queues.outgoing_ack.push(ack);
+                }
+            }
+
+            // 0.2 Received ACKs (ACK from remote for our GROW -> Patch Routing Table)
+            let mut pending_acks = Vec::new();
+            while let Some(ack) = queues.incoming_ack.pop() {
+                pending_acks.push(ack);
+            }
+
+            if !pending_acks.is_empty() {
+                patch_routing_table_during_night(
+                    &inter_node_channels,
+                    &pending_acks,
+                    stream as crate::ffi::CudaStream,
+                );
+            }
+
             // Step 1: GPU Sort & Prune
             crate::ffi::launch_sort_and_prune(
                 padded_n,
@@ -119,40 +131,116 @@ pub fn trigger_night_phase(
                 vram.dendrite_weights as *mut std::ffi::c_void,
                 vram.dendrite_refractory as *mut std::ffi::c_void,
                 prune_threshold,
-                stream
+                stream as crate::ffi::CudaStream,
             );
-            crate::ffi::gpu_stream_synchronize(stream);
+            crate::ffi::gpu_stream_synchronize(stream as crate::ffi::CudaStream);
 
-            // Step 2: Download
-            let targets_size = genesis_core::constants::MAX_DENDRITE_SLOTS * (padded_n as usize) * 4;
-            let weights_size = genesis_core::constants::MAX_DENDRITE_SLOTS * (padded_n as usize) * 2;
-            
-            crate::ffi::gpu_memcpy_device_to_host_async(vram.pinned_host_targets as *mut _, vram.dendrite_targets as *const _, targets_size, stream);
-            crate::ffi::gpu_memcpy_device_to_host_async(vram.pinned_host_weights as *mut _, vram.dendrite_weights as *const _, weights_size, stream);
-            crate::ffi::gpu_stream_synchronize(stream);
+            // Step 2: Download for CPU Sprouting
+            let dc = MAX_DENDRITE_SLOTS * (padded_n as usize);
+            crate::ffi::gpu_memcpy_device_to_host_async(vram.pinned_host_targets as *mut _, vram.dendrite_targets, dc * 4, stream as crate::ffi::CudaStream);
+            crate::ffi::gpu_memcpy_device_to_host_async(vram.pinned_host_weights as *mut _, vram.dendrite_weights, dc * 2, stream as crate::ffi::CudaStream);
+            crate::ffi::gpu_stream_synchronize(stream as crate::ffi::CudaStream);
 
-            let zone_name_clone = zone_name.clone();
-            save_hot_checkpoint(
-                &zone_name_clone,
-                total_ticks,
-                padded_n,
-                vram.pinned_host_targets as *const u32,
-                vram.pinned_host_weights as *const i16
+            let pinned_targets = std::slice::from_raw_parts_mut(vram.pinned_host_targets as *mut u32, dc);
+            let pinned_weights = std::slice::from_raw_parts_mut(vram.pinned_host_weights as *mut i16, dc);
+
+            // Step 3: CPU Sprouting, Nudging & Outgoing Handovers
+            // 3.1 Populate SpatialGrid for candidate search
+            {
+                let mut grid = spatial_grid.lock().unwrap();
+                grid.clear();
+                // Index all active axons
+                for axon_id in 0..(total_axons as usize) {
+                    let packed = vram.axon_tips_uvw[axon_id];
+                    if packed == 0 { continue; }
+                    let tx = packed & 0x3FF;
+                    let ty = (packed >> 10) & 0x3FF;
+                    let tz = (packed >> 20) & 0xFF;
+                    grid.insert(axon_id as u32, tx, ty, tz);
+                }
+            }
+
+            let (new_synapses, handovers) = crate::orchestrator::sprouting::run_cpu_sprouting(
+                pinned_targets,
+                pinned_weights,
+                padded_n as usize,
+                total_axons,
+                master_seed,
+                &mut vram.axon_tips_uvw,
+                &vram.axon_dirs_xyz,
+                25.0, // voxel_size_um
+                (7500.0, 7500.0, 2500.0), // world_size_um
+                12.0, // axon_growth_step_um
+                &vram.host_neuron_positions,
+                &spatial_grid,
             );
 
-            // Step 3: CPU Sprouting (DOD slice manipulation)
-            let targets_slice = std::slice::from_raw_parts_mut(vram.pinned_host_targets as *mut u32, targets_size / 4);
-            let weights_slice = std::slice::from_raw_parts_mut(vram.pinned_host_weights as *mut i16, weights_size / 2);
-            
-            crate::orchestrator::sprouting::run_cpu_sprouting(targets_slice, weights_slice, padded_n as usize, total_axons, master_seed);
+            if !handovers.is_empty() {
+                for h in &handovers {
+                    queues.outgoing_grow.push(*h);
+                }
+                println!("           Night Phase: {} handovers pushed to queue.", handovers.len());
+            }
 
             // Step 4: Upload back to VRAM
-            crate::ffi::gpu_memcpy_host_to_device_async(vram.dendrite_targets as *mut _, vram.pinned_host_targets as *const _, targets_size, stream);
-            crate::ffi::gpu_memcpy_host_to_device_async(vram.dendrite_weights as *mut _, vram.pinned_host_weights as *const _, weights_size, stream);
-            crate::ffi::gpu_stream_synchronize(stream);
-        }
+            crate::ffi::gpu_memcpy_host_to_device_async(vram.dendrite_targets, vram.pinned_host_targets, dc * 4, stream as crate::ffi::CudaStream);
+            crate::ffi::gpu_memcpy_host_to_device_async(vram.dendrite_weights, vram.pinned_host_weights, dc * 2, stream as crate::ffi::CudaStream);
+            crate::ffi::gpu_stream_synchronize(stream as crate::ffi::CudaStream);
 
-        // Пробуждение зоны (Day Phase снова подхватит её в следующем батче)
-        is_sleeping.store(false, Ordering::Release);
+            // Step 5: Hot Checkpoint Save
+            save_hot_checkpoint(&zone_name, total_ticks, padded_n, vram.pinned_host_targets as *const u32, vram.pinned_host_weights as *const i16);
+
+            is_sleeping.store(false, Ordering::Release);
+        }
     });
+}
+
+pub unsafe fn process_incoming_handovers(
+    tcp_queue: &[crate::network::slow_path::AxonHandoverEvent],
+    ghost_alloc_counter: &mut usize,
+    max_ghost_capacity: u32,
+    base_ghost_offset: u32,
+    axon_heads_ptr: *mut u32,
+) -> Vec<crate::network::slow_path::AxonHandoverAck> {
+    let mut acks = Vec::with_capacity(tcp_queue.len());
+    for event in tcp_queue {
+        if *ghost_alloc_counter >= max_ghost_capacity as usize {
+            println!("⚠ Ghost Axon capacity reached. Dropping handover.");
+            continue;
+        }
+        let ghost_id = base_ghost_offset + (*ghost_alloc_counter as u32);
+        *ghost_alloc_counter += 1;
+        // [AUDIT]: Инициализация Sentinel-ом для предотвращения ложных срабатываний
+        std::ptr::write_volatile(axon_heads_ptr.add(ghost_id as usize), 0x80000000); 
+        acks.push(crate::network::slow_path::AxonHandoverAck {
+            magic: 0x41434B48,
+            local_axon_id: event.local_axon_id,
+            ghost_id,
+        });
+    }
+    acks
+}
+
+/// [AUDIT]: Безопасное обновление таблицы маршрутизации в Night Phase.
+pub unsafe fn patch_routing_table_during_night(
+    channels: &[crate::network::inter_node::InterNodeChannel],
+    pending_acks: &[crate::network::slow_path::AxonHandoverAck],
+    stream: crate::ffi::CudaStream,
+) {
+    for ack in pending_acks {
+        // Находим, через какой канал шел этот аксон
+        for channel in channels {
+            if let Some(pos) = channel.src_indices_host.iter().position(|&id| id == ack.local_axon_id) {
+                let ghost_id_to_patch = ack.ghost_id; // Copy to local to avoid unaligned reference
+                // Точечный патч в VRAM
+                crate::ffi::gpu_memcpy_host_to_device_async(
+                    channel.dst_ghost_ids_d.add(pos) as *mut _,
+                    &ghost_id_to_patch as *const _ as *const _,
+                    4,
+                    stream
+                );
+            }
+        }
+    }
+    crate::ffi::gpu_stream_synchronize(stream);
 }

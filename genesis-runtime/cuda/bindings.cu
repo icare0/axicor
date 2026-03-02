@@ -373,6 +373,12 @@ void gpu_load_constants(const void *host_ptr) {
   cudaMemcpyToSymbol(VARIANT_LUT, host_ptr, 1024, 0, cudaMemcpyHostToDevice);
 }
 
+void update_constant_memory_hot_reload(const void *new_variants, cudaStream_t stream) {
+  // Асинхронно копируем новые параметры в константную память,
+  // обеспечивая Zero-Downtime Hot-Reload на барьере BSP.
+  cudaMemcpyToSymbolAsync(VARIANT_LUT, new_variants, 1024, 0, cudaMemcpyHostToDevice, stream);
+}
+
 // Ланчеры. Мы распаковываем указатель на VramState и передаем структуру по
 // значению, чтобы она легла в регистры или Constant Memory при запуске ядра.
 void launch_inject_inputs(const SoA_State *vram, uint32_t virtual_offset,

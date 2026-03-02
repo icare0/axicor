@@ -6,9 +6,26 @@ use std::ptr;
 /// Канал синхронизации между зонами на одном GPU.
 /// Индексы хранятся в VRAM, чтобы CPU вообще не участвовал в передаче спайков.
 pub struct IntraGpuChannel {
+    pub src_indices_host: Vec<u32>,
+    pub dst_indices_host: Vec<u32>,
     pub src_indices_d: *mut u32, // Указатель VRAM
     pub dst_indices_d: *mut u32, // Указатель VRAM
     pub count: u32,
+}
+
+unsafe impl Send for IntraGpuChannel {}
+unsafe impl Sync for IntraGpuChannel {}
+
+impl Clone for IntraGpuChannel {
+    fn clone(&self) -> Self {
+        Self {
+            src_indices_host: self.src_indices_host.clone(),
+            dst_indices_host: self.dst_indices_host.clone(),
+            src_indices_d: self.src_indices_d,
+            dst_indices_d: self.dst_indices_d,
+            count: self.count,
+        }
+    }
 }
 
 impl IntraGpuChannel {
@@ -27,6 +44,8 @@ impl IntraGpuChannel {
         ffi::gpu_stream_synchronize(stream);
 
         Self {
+            src_indices_host: src_indices_host.to_vec(),
+            dst_indices_host: dst_indices_host.to_vec(),
             src_indices_d: src_d,
             dst_indices_d: dst_d,
             count,

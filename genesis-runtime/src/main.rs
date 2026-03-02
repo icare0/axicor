@@ -71,6 +71,7 @@ fn main() -> Result<()> {
     let sim_config = parse_simulation_config(&brain_config.simulation.config)
          .with_context(|| format!("Failed to load simulation config: {:?}", brain_config.simulation.config))?;
     let sync_batch_ticks = sim_config.simulation.sync_batch_ticks as usize;
+    let mut io_server_opt: Option<Arc<ExternalIoServer>> = None;
 
     println!("[Node] Brain Manifest Loaded. {} zones configured.", brain_config.zones.len());
 
@@ -94,9 +95,17 @@ fn main() -> Result<()> {
     let telemetry_port = if is_node_a { 8012 } else { 8002 };
     let telemetry_tx = TelemetryServer::start(telemetry_port).await;
 
+    let slow_path_port = if is_node_a { 8013 } else { 8003 };
+    let slow_path_target_port = if is_node_a { 8003 } else { 8013 };
+    let slow_path_target_addr = format!("127.0.0.1:{}", slow_path_target_port);
+    let slow_path_target_addr = format!("127.0.0.1:{}", slow_path_target_port);
+    // [AUDIT]: SlowPathService replaced with Lock-Free SegQueues
+    // Placeholder - queues are now zone-specific in this architecture for 1.5M isolation
+
     println!("[Node] Bound UDP Fast Path on {}", udp_addr);
 
     let mut zone_ping_pongs = std::collections::HashMap::new();
+    let mut sensory_gxi_opt = None;
 
     // 4. Load Zones (Filter based on NODE_A)
     let mut zones: Vec<ZoneRuntime> = Vec::new();
@@ -163,8 +172,11 @@ fn main() -> Result<()> {
                 }
             }
         }
+        if zone_entry.name == "SensoryCortex" {
+            sensory_gxi_opt = gxi.clone();
+        }
 
-        let mut required_ghost_slots = 0;
+        let mut required_ghost_slots = 200_000; // Capacity reserve for Axon Handover (Dynamic Ghosts)
         for conn in &brain_config.connections {
             if conn.to == zone_entry.name {
                 required_ghost_slots += conn.axon_ids.len();
@@ -214,6 +226,131 @@ fn main() -> Result<()> {
             ping_pong,
             last_night_time: std::time::Instant::now(),
             min_night_delay: std::time::Duration::from_secs(30),
+            slow_path_queues: Arc::new(genesis_runtime::network::slow_path::SlowPathQueues::new()),
+            hot_reload_queue: Arc::new(crossbeam::queue::SegQueue::new()),
+            inter_node_channels: Vec::new(),
+            intra_gpu_channels: Vec::new(),
+            spatial_grid: std::sync::Arc::new(std::sync::Mutex::new(genesis_runtime::orchestrator::spatial_grid::SpatialGrid::new())),
+        });
+
+        // --- NEW: SPAWN HOT RELOAD WATCHER ---
+        let hot_reload_q = zones.last().unwrap().hot_reload_queue.clone();
+        let blueprints_path = format!("config/zones/{}/blueprints.toml", zone_entry.name);
+        rt.spawn(async move {
+            let mut last_modified = std::time::SystemTime::UNIX_EPOCH;
+            loop {
+                if let Ok(metadata) = std::fs::metadata(&blueprints_path) {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified > last_modified {
+                            last_modified = modified;
+                            if let Ok(content) = std::fs::read_to_string(&blueprints_path) {
+                                if let Ok(blueprints) = toml::from_str::<genesis_core::config::BlueprintsConfig>(&content) {
+                                    let mut valid = true;
+                                    for nt in &blueprints.neuron_types {
+                                        for &inertia in &nt.inertia_curve {
+                                            let val = (nt.gsop_potentiation as i32 * inertia as i32) >> 7;
+                                            if val < 1 {
+                                                valid = false;
+                                                println!("⚠️ [Hot-Reload] Validation failed for {} (gsop_potentiation * inertia >> 7 < 1). Ignoring.", blueprints_path);
+                                                break;
+                                            }
+                                        }
+                                        if !valid { break; }
+                                    }
+                                    if valid {
+                                        let new_const_mem = ZoneRuntime::build_constant_memory(&blueprints);
+                                        hot_reload_q.push(new_const_mem);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        });
+
+        // --- NEW: SPAWN ASYNC TCP DISPATCHER FOR THIS ZONE ---
+        let zone_queues = zones.last().unwrap().slow_path_queues.clone();
+        let listen_port = slow_path_port;
+        let target_url = slow_path_target_addr.clone();
+
+        rt.spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            use tokio::net::{TcpListener, TcpStream};
+            
+            // 1. TCP Listener (Immigrant Axons)
+            let listener = TcpListener::bind(format!("0.0.0.0:{}", listen_port)).await.unwrap();
+            let q_in = zone_queues.clone();
+            tokio::spawn(async move {
+                while let Ok((mut socket, _)) = listener.accept().await {
+                    let q = q_in.clone();
+                    tokio::spawn(async move {
+                        let mut header = [0u8; 8];
+                        if socket.read_exact(&mut header).await.is_ok() {
+                            let magic = u32::from_le_bytes(header[0..4].try_into().unwrap());
+                            let count = u32::from_le_bytes(header[4..8].try_into().unwrap());
+                            
+                            if magic == 0x47524F57 { // GROW
+                                for _ in 0..count {
+                                    let mut buf = [0u8; 16];
+                                    if socket.read_exact(&mut buf).await.is_ok() {
+                                        let ev = unsafe { std::mem::transmute::<[u8; 16], genesis_runtime::network::slow_path::AxonHandoverEvent>(buf) };
+                                        q.incoming_grow.push(ev);
+                                    }
+                                }
+                            } else if magic == 0x41434B48 { // ACKH
+                                for _ in 0..count {
+                                    let mut buf = [0u8; 12];
+                                    if socket.read_exact(&mut buf).await.is_ok() {
+                                        let ack = unsafe { std::mem::transmute::<[u8; 12], genesis_runtime::network::slow_path::AxonHandoverAck>(buf) };
+                                        q.incoming_ack.push(ack);
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
+            // 2. TCP Egress (Emigrant Axons & ACKs)
+            loop {
+                // Batch Outgoing GROW
+                let mut grows = Vec::new();
+                while let Some(ev) = zone_queues.outgoing_grow.pop() { grows.push(ev); }
+                if !grows.is_empty() {
+                    if let Ok(mut stream) = TcpStream::connect(&target_url).await {
+                        let magic = 0x47524F57u32;
+                        let count = grows.len() as u32;
+                        let mut head = magic.to_le_bytes().to_vec();
+                        head.extend_from_slice(&count.to_le_bytes());
+                        let _ = stream.write_all(&head).await;
+                        let bytes = unsafe { std::slice::from_raw_parts(grows.as_ptr() as *const u8, grows.len() * 16) };
+                        let _ = stream.write_all(bytes).await;
+                    } else {
+                        for ev in grows { zone_queues.outgoing_grow.push(ev); } // Retry
+                    }
+                }
+
+                // Batch Outgoing ACKs
+                let mut acks = Vec::new();
+                while let Some(ack) = zone_queues.outgoing_ack.pop() { acks.push(ack); }
+                if !acks.is_empty() {
+                    if let Ok(mut stream) = TcpStream::connect(&target_url).await {
+                        let magic = 0x41434B48u32;
+                        let count = acks.len() as u32;
+                        let mut head = magic.to_le_bytes().to_vec();
+                        head.extend_from_slice(&count.to_le_bytes());
+                        let _ = stream.write_all(&head).await;
+                        let bytes = unsafe { std::slice::from_raw_parts(acks.as_ptr() as *const u8, acks.len() * 12) };
+                        let _ = stream.write_all(bytes).await;
+                    } else {
+                        for ack in acks { zone_queues.outgoing_ack.push(ack); } // Retry
+                    }
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
         });
     }
 
@@ -298,18 +435,27 @@ fn main() -> Result<()> {
             let to_idx = zones.iter().position(|z| z.name == conn.to).unwrap();
             let (src_map, dst_map) = genesis_runtime::network::ghosts::load_ghosts(ghosts_path);
             let channel = unsafe { IntraGpuChannel::new(&src_map, &dst_map) };
+            
+            // Assign to source zone
+            zones[from_idx].intra_gpu_channels.push(unsafe { IntraGpuChannel::new(&src_map, &dst_map) }); // Need separate instance? No, let's just move it.
+            
             links.push(ZoneLink { from_idx, to_idx, channel });
             println!("[Node] Established Zero-Copy Intra-GPU Channel {} -> {}", conn.from, conn.to);
         } else if from_exists && !to_exists {
             // Inter-Node Sender (different processes)
             let (src_map, dst_map) = genesis_runtime::network::ghosts::load_ghosts(ghosts_path);
             let target_hash = genesis_runtime::network::router::fnv1a_32(conn.to.as_bytes());
-            let src_zone = zones.iter().find(|z| z.name == conn.from).unwrap();
-            let src_idx = zones.iter().position(|z| z.name == conn.from).unwrap(); // Keep track of index
+            let from_idx = zones.iter().position(|z| z.name == conn.from).unwrap();
             
             let channel = unsafe { 
                 genesis_runtime::network::inter_node::InterNodeChannel::new(target_hash, &src_map, &dst_map) 
             };
+            
+            // Assign to source zone
+            zones[from_idx].inter_node_channels.push(unsafe { 
+                 genesis_runtime::network::inter_node::InterNodeChannel::new(target_hash, &src_map, &dst_map) 
+            });
+
             inter_node_links.push(channel);
             println!("[Node] Established Fast-Path Inter-Node Channel {} -> {} (UDP)", conn.from, conn.to);
         }
@@ -344,7 +490,6 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut io_server_opt = None;
     let mut dashboard_state = Arc::new(DashboardState::default());
     dashboard_state.total_ticks.store(max_restored_tick, Ordering::Relaxed);
 
@@ -354,6 +499,14 @@ fn main() -> Result<()> {
             pinned_input_ptr,
             input_bytes
         ).await;
+        
+        // Pass matrix offsets from GXI to server for multi-matrix routing
+        if let Some(ref gxi_data) = sensory_gxi_opt {
+            for m in &gxi_data.matrices {
+                io_server_obj.matrix_offsets.insert(m.name_hash, m.offset);
+            }
+        }
+
         io_server_obj.dashboard = Some(dashboard_state.clone());
         let io_server = Arc::new(io_server_obj);
 
@@ -482,12 +635,12 @@ fn main() -> Result<()> {
             }
         }
 
-        // Шаг 5: Асинхронная отправка выходов
-        let target_addr = "127.0.0.1:8082";
-        let zone_hash = 0x12345678; // Твой FNV-1a хэш
-        let matrix_hash = 0x87654321;
-        
+        // Шаг 5: Асинхронная отправка выходов (MotorCortex -> Python Client)
         if is_node_a {
+            let target_addr = "127.0.0.1:8082";
+            let motor_zone_hash = genesis_runtime::network::router::fnv1a_32(b"MotorCortex");
+            let motor_matrix_hash = genesis_runtime::network::router::fnv1a_32(b"motor_actuators");
+            
             let io_tx = io_server_opt.as_ref().unwrap().clone();
             // Передаем указатель через usize границу потока
             let pinned_output_addr = pinned_output_ptr as usize;
@@ -495,8 +648,8 @@ fn main() -> Result<()> {
             rt.spawn(async move {
                 io_tx.send_output_batch(
                     target_addr, 
-                    zone_hash, 
-                    matrix_hash, 
+                    motor_zone_hash, 
+                    motor_matrix_hash, 
                     pinned_output_addr, 
                     output_bytes
                 ).await;
@@ -535,7 +688,10 @@ fn main() -> Result<()> {
                     zone.runtime.vram.total_axons as u32,
                     zone.prune_threshold,
                     zone.is_sleeping.clone(),
-                    42 
+                    zone.runtime.master_seed,
+                    zone.slow_path_queues.clone(),
+                    zone.inter_node_channels.clone(),
+                    zone.spatial_grid.clone(),
                 );
             }
         }

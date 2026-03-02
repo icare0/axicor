@@ -29,6 +29,9 @@ pub struct VramState {
     pub base_axons: usize,
     pub axon_head_index: *mut c_void,
     pub soma_to_axon: *mut c_void,
+    pub axon_tips_uvw: Vec<u32>,
+    pub axon_dirs_xyz: Vec<u32>,
+    pub host_neuron_positions: Vec<u32>,
 
     // Dendrite Columns (MAX_DENDRITE_SLOTS * padded_n length)
     pub dendrite_targets: *mut c_void,
@@ -137,6 +140,14 @@ impl VramState {
             Ok(ptr)
         };
 
+        // [AUDIT]: Host-side neuron positions for SpatialGrid
+        let mut host_neuron_positions = vec![0u32; pn];
+        let nrn_pos_offset = std::mem::size_of::<StateFileHeader>();
+        unsafe {
+            let src_ptr = state_bytes.as_ptr().add(nrn_pos_offset) as *const u32;
+            std::ptr::copy_nonoverlapping(src_ptr, host_neuron_positions.as_mut_ptr(), pn);
+        }
+
         let voltage = allocate_and_copy(pn * 4)?;
         let flags = allocate_and_copy(pn * 1)?;
         let threshold_offset = allocate_and_copy(pn * 4)?;
@@ -179,7 +190,20 @@ impl VramState {
         }
         // No need to increment offset here, it's the end of axons
 
-        // Init spare Ghost Axons to AXON_SENTINEL
+        // 5. Axon Geometry (Host-side for Sprouting)
+        let mut axon_tips_uvw = vec![0; total_axons];
+        let mut axon_dirs_xyz = vec![0; total_axons];
+        
+        if axons_bytes.len() >= 8 + pa * 8 {
+            let tips_ptr = axons_bytes[8..].as_ptr() as *const u32;
+            unsafe {
+                std::ptr::copy_nonoverlapping(tips_ptr, axon_tips_uvw.as_mut_ptr(), pa);
+                let dirs_ptr = tips_ptr.add(pa); 
+                std::ptr::copy_nonoverlapping(dirs_ptr, axon_dirs_xyz.as_mut_ptr(), pa);
+            }
+        }
+
+        // Init spare Ghost Axons to AXON_SENTINEL (GPU)
         let sentinels = vec![0x80000000u32; max_ghost_axons];
         unsafe {
             ffi::gpu_memcpy_host_to_device(
@@ -238,6 +262,9 @@ impl VramState {
             flags,
             soma_to_axon,
             axon_head_index,
+            axon_tips_uvw,
+            axon_dirs_xyz,
+            host_neuron_positions,
             dendrite_targets,
             dendrite_weights,
             dendrite_refractory,

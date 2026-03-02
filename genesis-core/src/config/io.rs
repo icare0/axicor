@@ -17,42 +17,26 @@ pub struct IoConfig {
 }
 
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct InputMap {
-    /// Имя признака/канала, например "retina_edges"
     pub name: String,
-    
-    /// Название зоны куда инжектится этот ввод, например "V1"
     pub target_zone: String,
-    
-    /// Тип нейрона к которому нужно подключаться, например "L4_Stellate".
-    /// Используйте "ALL" чтобы не ограничивать выбор типом.
     pub target_type: String,
-    
-    /// Ширина входной матрицы в пикселях
     pub width: u32,
-    
-    /// Высота входной матрицы в пикселях
     pub height: u32,
+    pub stride: u32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct OutputMap {
-    /// Имя популяции/канала вывода, например "motor_arm"
     pub name: String,
-    
-    /// Название зоны из которой читаем спайки, например "M1"
     pub source_zone: String,
-    
-    /// Фрагмент маски (тип нейронов), которые входят в популяцию тайла.
-    /// Используйте "ALL" для сбора всех типов.
     pub target_type: String,
-    
-    /// Ширина выходной матрицы в тайлах
     pub width: u32,
-    
-    /// Высота выходной матрицы в тайлах
     pub height: u32,
+    pub stride: u32,
 }
 
 impl IoConfig {

@@ -19,6 +19,8 @@ pub struct GrownAxon {
     pub length_segments: u32,
     /// Геометрия кусочно-линейная (PackedPositions: Type|Z|Y|X)
     pub segments: Vec<u32>,
+    /// Last segment vector (for handover)
+    pub last_dir: glam::Vec3,
 }
 
 /// Кэш Z-диапазонов слоёв (вычисляется один раз из anatomy + sim)
@@ -131,35 +133,37 @@ pub fn grow_axons(
     let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
     let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
 
-    let mut axons = Vec::with_capacity(neurons.len());
-    let mut ghost_packets: Vec<GhostPacket> = Vec::new();
+    use rayon::prelude::*;
+
     let spatial_grid = SpatialGrid::new(neurons);
 
-    for (soma_idx, neuron) in neurons.iter().enumerate() {
-        let soma_z = neuron.z();
-        let soma_x = neuron.x();
-        let soma_y = neuron.y();
-        let type_idx = neuron.type_idx;
+    let results: Vec<(GrownAxon, Option<GhostPacket>)> = neurons
+        .par_iter()
+        .enumerate()
+        .map(|(soma_idx, neuron)| {
+            let soma_z = neuron.z();
+            let soma_x = neuron.x();
+            let soma_y = neuron.y();
+            let type_idx = neuron.type_idx;
 
-        let (axon, ghost) = grow_single_axon(
-            soma_x, soma_y, soma_z,
-            soma_idx,
-            type_idx as u8,
-            const_mem,
-            sim,
-            world_w_vox, world_d_vox, world_h_vox,
-            layer_ranges,
-            &spatial_grid,
-            neurons,
-            shard_bounds,
-            master_seed,
-        );
+            grow_single_axon(
+                soma_x, soma_y, soma_z,
+                soma_idx,
+                type_idx as u8,
+                const_mem,
+                sim,
+                world_w_vox, world_d_vox, world_h_vox,
+                layer_ranges,
+                &spatial_grid,
+                neurons,
+                shard_bounds,
+                master_seed,
+            )
+        })
+        .collect();
 
-        axons.push(axon);
-        if let Some(gp) = ghost {
-            ghost_packets.push(gp);
-        }
-    }
+    let (axons, ghost_packets_opts): (Vec<_>, Vec<_>) = results.into_iter().unzip();
+    let ghost_packets = ghost_packets_opts.into_iter().flatten().collect();
 
     (axons, ghost_packets)
 }
@@ -370,6 +374,7 @@ pub fn grow_single_axon(
         tip_z: final_z,
         length_segments,
         segments,
+        last_dir: forward_dir,
     };
 
     (axon, ghost_packet)
@@ -506,6 +511,7 @@ pub fn inject_ghost_axons(
             tip_z: final_z,
             length_segments,
             segments,
+            last_dir: forward_dir,
         });
     }
 

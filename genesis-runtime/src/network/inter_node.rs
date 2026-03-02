@@ -4,6 +4,7 @@ use std::ptr;
 
 pub struct InterNodeChannel {
     pub target_zone_hash: u32,
+    pub src_indices_host: Vec<u32>,
     pub src_indices_d: *mut u32,
     pub dst_ghost_ids_d: *mut u32,
     pub count: u32,
@@ -11,6 +12,23 @@ pub struct InterNodeChannel {
     // Zero-Copy Pinned RAM (доступен и GPU, и CPU)
     pub out_events_pinned: *mut SpikeEvent,
     pub out_count_pinned: *mut u32,
+}
+
+unsafe impl Send for InterNodeChannel {}
+unsafe impl Sync for InterNodeChannel {}
+
+impl Clone for InterNodeChannel {
+    fn clone(&self) -> Self {
+        Self {
+            target_zone_hash: self.target_zone_hash,
+            src_indices_host: self.src_indices_host.clone(),
+            src_indices_d: self.src_indices_d,
+            dst_ghost_ids_d: self.dst_ghost_ids_d,
+            count: self.count,
+            out_events_pinned: self.out_events_pinned,
+            out_count_pinned: self.out_count_pinned,
+        }
+    }
 }
 
 impl InterNodeChannel {
@@ -28,6 +46,7 @@ impl InterNodeChannel {
         
         Self {
             target_zone_hash,
+            src_indices_host: src_indices.to_vec(),
             src_indices_d: src_d,
             dst_ghost_ids_d: dst_d,
             count,

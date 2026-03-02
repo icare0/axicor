@@ -24,6 +24,9 @@ pub struct ExternalIoServer {
     pub new_frame_ready: Arc<AtomicUsize>, 
     
     pub dashboard: Option<Arc<crate::tui::DashboardState>>,
+    
+    // Mapping: matrix_hash -> offset_in_pinned_words
+    pub matrix_offsets: std::collections::HashMap<u32, u32>,
 }
 
 // Легализуем передачу сырого указателя между потоками (мы гарантируем безопасность логикой)
@@ -40,6 +43,7 @@ impl ExternalIoServer {
             max_payload_bytes,
             new_frame_ready: Arc::new(AtomicUsize::new(0)),
             dashboard: None,
+            matrix_offsets: std::collections::HashMap::new(),
         }
     }
 
@@ -64,11 +68,17 @@ impl ExternalIoServer {
                             continue; 
                         }
 
+                        // Find offset for this matrix
+                        let matrix_hash_val = header.matrix_hash;
+                        let offset = self.matrix_offsets.get(&matrix_hash_val).copied().unwrap_or(0);
+                        
                         // ZERO-COPY PATH: Прямое копирование из стека в DMA-память хоста
                         let payload_src = buf.as_ptr().add(IO_HEADER_SIZE);
+                        let dest_ptr = (self.pinned_input_ptr as *mut u8).add(offset as usize * 4);
+                        
                         ptr::copy_nonoverlapping(
                             payload_src, 
-                            self.pinned_input_ptr as *mut u8, 
+                            dest_ptr, 
                             payload_bytes
                         );
 

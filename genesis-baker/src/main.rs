@@ -116,11 +116,18 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
             .with_context(|| format!("Cannot read {}", an_path.display()))?,
     )
     .context("Failed to parse anatomy.toml")?;
+    let io = parser::io::parse(
+        &std::fs::read_to_string(io_path)
+            .with_context(|| format!("Cannot read {}", io_path.display()))?,
+    )
+    .context("Failed to parse io.toml")?;
 
     println!(
-        "[baker] ✓ Parsed: {} neuron types, {} layers",
+        "[baker] ✓ Parsed: {} neuron types, {} layers, {}/{} I/O",
         name_map.len(),
-        anatomy.layers.len()
+        anatomy.layers.len(),
+        io.inputs.len(),
+        io.outputs.len()
     );
 
     // --- 2. Validate ---
@@ -160,59 +167,43 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     );
     let local_axons_count = axons.len();
 
-    // --- 5.2 External Inputs (Virtual Axons CartPole Mock) ---
+    // --- 5.2 External Inputs (Virtual Axons from io.toml) ---
     let mut num_virtual = 0;
-    if zone_name == "SensoryCortex" {
-        println!("[baker] Processing CartPole Input Maps...");
-        
-        let input_matrices = vec![
-            bake::input_map::InputMatrixDef {
-                name_hash: 0x87654321,
-                width: 8,
-                height: 8,
-            }
-        ];
-
+    if !io.inputs.is_empty() {
+        println!("[baker] Processing Input Maps for {}...", zone_name);
         let mut virtual_axons = bake::input_map::bake_inputs(
             out_dir,
-            &input_matrices,
+            &io,
             axons.len() as u32,
         );
         num_virtual = virtual_axons.len();
         axons.append(&mut virtual_axons);
 
         println!(
-            "[baker] ✓ Written CartPole .gxi with {} virtual axons",
+            "[baker] ✓ Written {}.gxi with {} virtual axons",
+            zone_name,
             num_virtual
         );
     }
 
-    // --- 5.3 External Outputs (Readout Maps CartPole Mock) ---
-    if zone_name == "MotorCortex" {
-        println!("[baker] Processing CartPole Output Maps...");
+    // --- 5.3 External Outputs (Readout Maps from io.toml) ---
+    if !io.outputs.is_empty() {
+        println!("[baker] Processing Output Maps for {}...", zone_name);
         
         let packed_positions: Vec<u32> = neurons.iter().map(|n| n.position).collect();
         
-        let output_matrices = vec![
-            bake::output_map::OutputMatrixDef {
-                name_hash: 0x12345678, // Matching runtime payload hash expectation
-                width: 2, // Left/Right
-                height: 1,
-                stride: 1,
-            }
-        ];
-
         bake::output_map::bake_outputs(
             out_dir,
-            &output_matrices,
+            &io,
             sim.world.width_um as f32,
             sim.world.depth_um as f32,
             &packed_positions,
         );
 
         println!(
-            "[baker] ✓ Written CartPole .gxo for {} somas",
-            2
+            "[baker] ✓ Written {}.gxo for {} matrices",
+            zone_name,
+            io.outputs.len()
         );
     }
     if !ghost_packets.is_empty() {
@@ -257,6 +248,15 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     for (i, ax) in axons.iter().enumerate() {
         if i < shard.axon_heads.len() {
             shard.axon_heads[i] = bake::axon_growth::init_axon_head(ax.length_segments, v_seg);
+            
+            // Записываем геометрию (Z|Y|X packing matching Spec)
+            shard.axon_tips_uvw[i] = (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
+            
+            // Записываем направление (i8 packing: X | Y | Z | 0)
+            let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+            let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+            let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+            shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
         }
         if ax.soma_idx != usize::MAX && ax.soma_idx < shard.soma_to_axon.len() {
             shard.soma_to_axon[ax.soma_idx] = i as u32;

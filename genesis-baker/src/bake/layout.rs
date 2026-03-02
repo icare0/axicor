@@ -23,6 +23,8 @@ pub struct ShardSoA {
 
     // Аксоны
     pub axon_heads: Vec<u32>,
+    pub axon_tips_uvw: Vec<u32>, // PackedTip
+    pub axon_dirs_xyz: Vec<u32>, // PackedDir
 
     // Маппинг: soma_idx → axon_idx
     pub soma_to_axon: Vec<u32>,
@@ -49,6 +51,8 @@ impl ShardSoA {
 
             // Хард-инвариант: пустые аксоны ОБЯЗАНЫ быть 0x80000000
             axon_heads: vec![AXON_SENTINEL; total_axons],
+            axon_tips_uvw: vec![0; total_axons],
+            axon_dirs_xyz: vec![0; total_axons],
 
             soma_to_axon: vec![u32::MAX; padded_n],
         }
@@ -74,20 +78,22 @@ impl ShardSoA {
         write_raw_slice(&mut state_file, &self.flags);
         write_raw_slice(&mut state_file, &self.threshold_offset);
         write_raw_slice(&mut state_file, &self.refractory_timer);
-        write_raw_slice(&mut state_file, &self.soma_to_axon); // Missing previously!
+        write_raw_slice(&mut state_file, &self.soma_to_axon);
 
         write_raw_slice(&mut state_file, &self.dendrite_targets);
         write_raw_slice(&mut state_file, &self.dendrite_weights);
         write_raw_slice(&mut state_file, &self.dendrite_timers);
         
-        // memory.rs also expects axon_heads at the very end of state_bytes!
         write_raw_slice(&mut state_file, &self.axon_heads);
 
         // 2. Дамп аксонов (.axons)
-        // Even if serialize_axons isn't used here, we MUST write the header so `VramState::load_shard` doesn't panic.
         let mut axons_file = BufWriter::new(File::create(axons_path).expect("Failed to create .axons file"));
         let header = genesis_core::layout::AxonsFileHeader::new(self.total_axons as u32);
         axons_file.write_all(header.as_bytes()).unwrap();
+
+        // Пишем геометрию аксонов
+        write_raw_slice(&mut axons_file, &self.axon_tips_uvw);
+        write_raw_slice(&mut axons_file, &self.axon_dirs_xyz);
     }
 }
 
