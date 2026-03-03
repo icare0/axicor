@@ -7,39 +7,39 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ManifestVariant {
     pub id: u8,
-    pub name: String, // Теперь ты можешь писать name = "Pyramidal" в TOML
+    pub name: String,
     pub threshold: i32,
     pub rest_potential: i32,
     pub leak_rate: i32,
     pub homeostasis_penalty: i32,
-    pub homeostasis_decay: u16,
-    pub gsop_potentiation: i16,
-    pub gsop_depression: i16,
+    pub homeostasis_decay: i32,
+    pub gsop_potentiation: i32,
+    pub gsop_depression: i32,
     pub refractory_period: u8,
     pub synapse_refractory_period: u8,
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
-    pub signal_propagation_length: u16,
+    pub signal_propagation_length: u8,
 }
 
 /// 2. GPU Layout: Строгий C-формат. Отсутствуют ссылки и объекты кучи.
 /// Общий размер 28 байт. Выравнивание (align) = 4. 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct GpuVariantParameters {
     pub threshold: i32,
     pub rest_potential: i32,
     pub leak_rate: i32,
     pub homeostasis_penalty: i32,
-    pub homeostasis_decay: u16,
-    pub gsop_potentiation: i16,
-    pub gsop_depression: i16,
+    pub homeostasis_decay: i32,
+    pub gsop_potentiation: i32,
+    pub gsop_depression: i32,
     pub refractory_period: u8,
     pub synapse_refractory_period: u8,
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
-    pub signal_propagation_length: u16,
-    pub _padding: u16, // Выравнивание до 28 байт
+    pub signal_propagation_length: u8,
+    pub _padding: [u8; 31],
 }
 
 impl ManifestVariant {
@@ -58,7 +58,7 @@ impl ManifestVariant {
             slot_decay_ltm: self.slot_decay_ltm,
             slot_decay_wm: self.slot_decay_wm,
             signal_propagation_length: self.signal_propagation_length,
-            _padding: 0,
+            _padding: [0; 31],
         }
     }
 }

@@ -42,6 +42,26 @@ pub struct ShardVramPtrs {
 unsafe impl Send for ShardVramPtrs {}
 unsafe impl Sync for ShardVramPtrs {}
 
+/// Параметры физики для одного типа (варианта) нейронов.
+/// [ЗАКОН]: Размер ДОЛЖЕН быть строго 64 байта для выравнивания в Constant Memory.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+pub struct VariantParameters {
+    pub threshold: i32,
+    pub rest_potential: i32,
+    pub leak_rate: i32,
+    pub homeostasis_penalty: i32,
+    pub homeostasis_decay: i32,
+    pub gsop_potentiation: i32,
+    pub gsop_depression: i32,
+    pub refractory_period: u8,
+    pub synapse_refractory_period: u8,
+    pub slot_decay_ltm: u8,
+    pub slot_decay_wm: u8,
+    pub signal_propagation_length: u8,
+    pub _padding: [u8; 31],
+}
+
 #[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
 extern "C" {
     // =====================================================================
@@ -65,8 +85,35 @@ extern "C" {
         state_size:  usize,
     ) -> i32;
 
+    /// Загружает .axons блоб (плоский [total_axons]u32) в axon_heads.
+    /// Возвращает 0 при успехе.
+    pub fn cu_upload_axons_blob(
+        vram:        *const ShardVramPtrs,
+        axons_blob:  *const c_void,
+        axons_size:  usize,
+    ) -> i32;
+
     /// Освобождает все VRAM-буферы, ассоциированные с шардом.
     pub fn cu_free_shard(vram: *mut ShardVramPtrs);
+
+    /// Day Phase Orchestrator: запускает 6 ядер асинхронно.
+    pub fn cu_step_day_phase(
+        vram: *const ShardVramPtrs,
+        padded_n: u32,
+        total_axons: u32,
+        v_seg: u32,
+        input_bitmask: *const u32,
+        virtual_offset: u32,
+        num_virtual_axons: u32,
+        incoming_spikes: *const u32,
+        num_incoming_spikes: u32,
+        mapped_soma_ids: *const u32,
+        output_history: *mut u8,
+        num_outputs: u32,
+    ) -> i32;
+
+    /// Заливает таблицу параметров (16 записей) в __constant__ память GPU.
+    pub fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32;
 
     // =====================================================================
     // § Управление памятью и потоками (legacy helpers, используются memory.rs)
@@ -198,4 +245,28 @@ extern "C" {
         out_count_pinned: *mut u32,
         stream: CudaStream,
     );
+
+    pub fn cu_allocate_io_buffers(
+        input_words: u32,
+        schedule_capacity: u32,
+        output_capacity: u32,
+        d_input_bitmask: *mut *mut u32,
+        d_incoming_spikes: *mut *mut u32,
+        d_output_history: *mut *mut u8,
+    ) -> i32;
+
+    pub fn cu_dma_h2d_io(
+        d_input_bitmask: *mut u32,
+        h_input_bitmask: *const u32,
+        input_words: u32,
+        d_incoming_spikes: *mut u32,
+        h_incoming_spikes: *const u32,
+        schedule_capacity: u32,
+    ) -> i32;
+
+    pub fn cu_dma_d2h_io(
+        h_output_history: *mut u8,
+        d_output_history: *const u8,
+        output_capacity: u32,
+    ) -> i32;
 }

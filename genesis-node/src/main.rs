@@ -68,8 +68,8 @@ fn main() -> Result<()> {
             io_server.run_rx_loop().await;
         });
 
-        // Spawn Geometry Server (if not already spawned by its own method)
-        boot_result.geometry_server.spawn();
+        // Spawn Geometry Server
+        boot_result.geometry_server.spawn(boot_result.geometry_data);
 
         // 6. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
         // [Architectural Invariant] This loop dispatches work to dedicated OS threads.

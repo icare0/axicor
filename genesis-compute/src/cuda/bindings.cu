@@ -28,26 +28,27 @@ struct SoA_State {
   uint32_t *telemetry_spikes;
 };
 
-// Общий размер 28 байт. Выравнивание (align) = 4.
-struct GpuVariantParameters {
+// Строго 64 байта. 16 типов = 1024 байта (идеально ложится в кеш L1 constant)
+struct VariantParameters {
   int32_t threshold;
   int32_t rest_potential;
   int32_t leak_rate;
   int32_t homeostasis_penalty;
-  uint16_t homeostasis_decay;
-  int16_t gsop_potentiation;
-  int16_t gsop_depression;
+  int32_t homeostasis_decay;
+  int32_t gsop_potentiation;
+  int32_t gsop_depression;
   uint8_t refractory_period;
   uint8_t synapse_refractory_period;
   uint8_t slot_decay_ltm;
   uint8_t slot_decay_wm;
-  uint16_t signal_propagation_length;
-  uint16_t _padding; // Выравнивание до 28 байт
+  uint8_t signal_propagation_length;
+  uint8_t _padding[31]; // Дополняем до 64 байт
 };
 }
 
 // Глобальная константная память GPU (448 байт).
-__constant__ GpuVariantParameters VARIANT_LUT[16];
+// Глобальная константная память. Определена в physics.cu.
+extern __constant__ VariantParameters VARIANT_LUT[16];
 __constant__ int16_t current_dopamine;
 
 // Константы (совпадают с constants.rs)
@@ -58,12 +59,10 @@ __constant__ int16_t current_dopamine;
 // Ядро 1: Инъекция внешних сигналов (InjectInputs)
 // Спецификация: 08_io_matrix.md §2.6
 // =====================================================================
-__global__ void inject_inputs_kernel(const SoA_State state,
-                                     const uint32_t *bitmask,
-                                     uint32_t virtual_offset,
-                                     uint32_t current_tick,
-                                     uint8_t input_stride,
-                                     uint32_t total_virtual_axons) {
+__global__ void
+inject_inputs_kernel(const SoA_State state, const uint32_t *bitmask,
+                     uint32_t virtual_offset, uint32_t current_tick,
+                     uint8_t input_stride, uint32_t total_virtual_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= total_virtual_axons)
     return;
@@ -140,7 +139,7 @@ __global__ void update_neurons_kernel(const SoA_State state,
   uint8_t type_idx = (flag >> 4) & 0xF;
 
   // Broadcast Read: загрузка параметров физики из L1 за 1 такт
-  GpuVariantParameters variant = VARIANT_LUT[type_idx];
+  VariantParameters variant = VARIANT_LUT[type_idx];
 
   // 1. Refractory Gate (Hard Limit)
   uint8_t ref_timer = state.refractory_timer[tid];
@@ -239,7 +238,7 @@ __global__ void apply_gsop_kernel(const SoA_State state, uint32_t padded_n) {
     return;
 
   uint8_t type_idx = (flag >> 4) & 0xF;
-  GpuVariantParameters variant = VARIANT_LUT[type_idx];
+  VariantParameters variant = VARIANT_LUT[type_idx];
 
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
     uint32_t col_idx = slot * padded_n + tid; // 100% Coalesced Memory Access
@@ -371,16 +370,16 @@ void gpu_device_synchronize() { cudaDeviceSynchronize(); }
 void gpu_synchronize() { cudaDeviceSynchronize(); }
 
 void gpu_load_constants(const void *host_ptr) {
-  // Копируем 448 байт (16 * 28) напрямую в symbol VARIANT_LUT
-  cudaMemcpyToSymbol(VARIANT_LUT, host_ptr, 448, 0, cudaMemcpyHostToDevice);
+  // Копируем 1024 байта (16 * 64) напрямую в symbol VARIANT_LUT
+  cudaMemcpyToSymbol(VARIANT_LUT, host_ptr, 1024, 0, cudaMemcpyHostToDevice);
 }
 
-void update_constant_memory_hot_reload(const GpuVariantParameters *new_variants,
+void update_constant_memory_hot_reload(const VariantParameters *new_variants,
                                        cudaStream_t stream) {
   // Асинхронно копируем новые параметры в константную память,
   // обеспечивая Zero-Downtime Hot-Reload на барьере BSP.
   cudaMemcpyToSymbolAsync(VARIANT_LUT, new_variants,
-                          sizeof(GpuVariantParameters) * 16, 0,
+                          sizeof(VariantParameters) * 16, 0,
                           cudaMemcpyHostToDevice, (cudaStream_t)stream);
 }
 
@@ -407,11 +406,11 @@ void launch_apply_spike_batch(SoA_State vram, const uint32_t *tick_schedule,
   uint32_t threads = 256;
   uint32_t blocks = (tick_spikes_count + threads - 1) / threads;
   // Мы используем tick_schedule напрямую. Ядро ожидает массив u32.
-  // SpikeEvent в Rust упакован так же, как Ghost_Payload в GPU (4B ID + 4B offset).
-  // Но ядро apply_spike_batch_kernel ожидает просто uint32_t * schedule_buffer.
-  // ВАКНИМАНИЕ: Если SpikeEvent - это (u32 id, u32 offset), то нам нужно ядро,
-  // которое это понимает.
-  // Но спецификация Шага 10 говорит: ApplySpikeBatch берет tick_schedule.
+  // SpikeEvent в Rust упакован так же, как Ghost_Payload в GPU (4B ID + 4B
+  // offset). Но ядро apply_spike_batch_kernel ожидает просто uint32_t *
+  // schedule_buffer. ВАКНИМАНИЕ: Если SpikeEvent - это (u32 id, u32 offset), то
+  // нам нужно ядро, которое это понимает. Но спецификация Шага 10 говорит:
+  // ApplySpikeBatch берет tick_schedule.
   apply_spike_batch_kernel<<<blocks, threads, 0, 0>>>(
       vram, tick_schedule, &tick_spikes_count, 0, tick_spikes_count);
 }
@@ -443,8 +442,8 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
   uint32_t threads = 256;
   uint32_t blocks = (total_pixels + threads - 1) / threads;
   vram.output_history = output_history;
-  record_readout_kernel<<<blocks, threads, 0, 0>>>(
-      vram, mapped_soma_ids, total_pixels, current_tick);
+  record_readout_kernel<<<blocks, threads, 0, 0>>>(vram, mapped_soma_ids,
+                                                   total_pixels, current_tick);
 }
 
 // ... rest of functions stay same or similar ...
@@ -618,4 +617,227 @@ void launch_sort_and_prune(uint32_t padded_n, uint32_t *dendrite_targets,
   sort_and_prune_kernel<<<blocks, threads, 0, stream>>>(state, padded_n,
                                                         prune_threshold);
 }
+} // last existing extern "C"
+
+// =====================================================================
+// § New Memory Contract: ShardVramPtrs + cu_* functions
+//
+// ЗАКОН: Порядок полей ShardVramPtrs строго совпадает с Rust-структурой
+// и с порядком байт в .state блобе. Нарушение = Silent Data Corruption.
+//
+// Раскладка в памяти (padded_n кратно 32 → всё Warp-Aligned):
+//   soma_voltage      [padded_n]       × 4 B  ← base ptr (= soma_voltage)
+//   soma_flags        [padded_n]       × 1 B
+//   threshold_offset  [padded_n]       × 4 B
+//   timers            [padded_n]       × 1 B
+//   soma_to_axon      [padded_n]       × 4 B
+//   dendrite_targets  [padded_n × 128] × 4 B
+//   dendrite_weights  [padded_n × 128] × 2 B
+//   ── один cudaMalloc, один cudaMemcpyAsync ──
+//   axon_heads        [total_axons]    × 4 B  ← отдельный cudaMalloc
+// =====================================================================
+
+// Зеркало Rust #[repr(C)] struct ShardVramPtrs
+struct ShardVramPtrs {
+  int32_t *soma_voltage; // base ptr всего state-блоба
+  uint8_t *soma_flags;
+  int32_t *threshold_offset;
+  uint8_t *timers;
+  uint32_t *soma_to_axon;
+  uint32_t *dendrite_targets;
+  int16_t *dendrite_weights;
+  uint32_t *axon_heads; // отдельный буфер
+};
+
+#define MAX_DENDRITES_SV 128
+
+extern "C" {
+
+// ─── Аллокация
+// ──────────────────────────────────────────────────────────────── Два
+// cudaMalloc: State (непрерывный блок) + Axons (отдельный). Если хоть одна
+// аллокация падает — откатываем и возвращаем ненулевой код.
+int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
+                          ShardVramPtrs *out_vram) {
+  size_t sz_voltage = (size_t)padded_n * sizeof(int32_t);
+  size_t sz_flags = (size_t)padded_n * sizeof(uint8_t);
+  size_t sz_thresh = (size_t)padded_n * sizeof(int32_t);
+  size_t sz_timers = (size_t)padded_n * sizeof(uint8_t);
+  size_t sz_s2a = (size_t)padded_n * sizeof(uint32_t);
+  size_t sz_targets = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(uint32_t);
+  size_t sz_weights = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(int16_t);
+
+  size_t total_state = sz_voltage + sz_flags + sz_thresh + sz_timers + sz_s2a +
+                       sz_targets + sz_weights;
+
+  // Единый Flat Allocation для всех полей сом + дендритов
+  void *base = nullptr;
+  cudaError_t err = cudaMalloc(&base, total_state);
+  if (err != cudaSuccess) {
+    fprintf(stderr, "[cu_allocate_shard] cudaMalloc state failed: %s\n",
+            cudaGetErrorString(err));
+    return (int32_t)err;
+  }
+
+  // Нулевая инициализация — гарантирует отсутствие мусора при первом тике
+  cudaMemset(base, 0, total_state);
+
+  // Zero-Cost Partitioning: раздаём указатели внутри одного буфера
+  size_t off = 0;
+  out_vram->soma_voltage = (int32_t *)((char *)base + off);
+  off += sz_voltage;
+  out_vram->soma_flags = (uint8_t *)((char *)base + off);
+  off += sz_flags;
+  out_vram->threshold_offset = (int32_t *)((char *)base + off);
+  off += sz_thresh;
+  out_vram->timers = (uint8_t *)((char *)base + off);
+  off += sz_timers;
+  out_vram->soma_to_axon = (uint32_t *)((char *)base + off);
+  off += sz_s2a;
+  out_vram->dendrite_targets = (uint32_t *)((char *)base + off);
+  off += sz_targets;
+  out_vram->dendrite_weights = (int16_t *)((char *)base + off);
+
+  // Аксоны — отдельная аллокация (total_axons ≠ padded_n)
+  err = cudaMalloc((void **)&out_vram->axon_heads,
+                   (size_t)total_axons * sizeof(uint32_t));
+  if (err != cudaSuccess) {
+    fprintf(stderr, "[cu_allocate_shard] cudaMalloc axon_heads failed: %s\n",
+            cudaGetErrorString(err));
+    cudaFree(base);
+    return (int32_t)err;
+  }
+
+  // Инициализируем аксоны нулём (живые). Baker перезапишет нужные значения.
+  cudaMemset(out_vram->axon_heads, 0, (size_t)total_axons * sizeof(uint32_t));
+
+  return 0;
 }
+
+// ─── DMA Upload: State
+// ──────────────────────────────────────────────────────── .state блоб содержит
+// 7 массивов слитно, в том же порядке, что и ShardVramPtrs. Поскольку мы
+// сделали Flat Allocation, base_ptr == soma_voltage. Один cudaMemcpyAsync
+// заполняет ВСЕ 7 массивов на 100% пропускной способности PCIe.
+int32_t cu_upload_state_blob(const ShardVramPtrs *vram, const void *state_blob,
+                             size_t state_size) {
+  cudaError_t err =
+      cudaMemcpyAsync((void *)vram->soma_voltage, // base ptr блока
+                      state_blob, state_size, cudaMemcpyHostToDevice,
+                      0 // default stream
+      );
+  if (err != cudaSuccess) {
+    fprintf(stderr, "[cu_upload_state_blob] cudaMemcpyAsync failed: %s\n",
+            cudaGetErrorString(err));
+    return (int32_t)err;
+  }
+  // Block CPU until VRAM is ready. Init-phase — latency не важна.
+  cudaStreamSynchronize(0);
+  return 0;
+}
+
+// ─── DMA Upload: Axons
+// ──────────────────────────────────────────────────────── .axons блоб —
+// плоский массив uint32_t axon_heads.
+int32_t cu_upload_axons_blob(const ShardVramPtrs *vram, const void *axons_blob,
+                             size_t axons_size) {
+  cudaError_t err = cudaMemcpyAsync((void *)vram->axon_heads, axons_blob,
+                                    axons_size, cudaMemcpyHostToDevice, 0);
+  if (err != cudaSuccess) {
+    fprintf(stderr, "[cu_upload_axons_blob] cudaMemcpyAsync failed: %s\n",
+            cudaGetErrorString(err));
+    return (int32_t)err;
+  }
+  cudaStreamSynchronize(0);
+  return 0;
+}
+
+// ─── Free
+// ─────────────────────────────────────────────────────────────────────
+// soma_voltage == base ptr всего state-блока.
+// Два cudaFree соответствуют двум cudaMalloc в cu_allocate_shard.
+void cu_free_shard(ShardVramPtrs *vram) {
+  if (vram->soma_voltage) {
+    cudaFree((void *)vram->soma_voltage);
+    vram->soma_voltage = nullptr;
+    vram->soma_flags = nullptr;
+    vram->threshold_offset = nullptr;
+    vram->timers = nullptr;
+    vram->soma_to_axon = nullptr;
+    vram->dendrite_targets = nullptr;
+    vram->dendrite_weights = nullptr;
+  }
+  if (vram->axon_heads) {
+    cudaFree((void *)vram->axon_heads);
+    vram->axon_heads = nullptr;
+  }
+}
+
+} // extern "C" (ShardVramPtrs block)
+
+// ============================================================================
+// I/O VRAM Allocations & DMA Transfers
+// ============================================================================
+extern "C" {
+
+int32_t cu_allocate_io_buffers(
+    uint32_t input_words,       // Размер битовой маски в u32
+    uint32_t schedule_capacity, // sync_batch_ticks * MAX_SPIKES_PER_TICK
+    uint32_t output_capacity,   // sync_batch_ticks * num_outputs
+    uint32_t **d_input_bitmask, uint32_t **d_incoming_spikes,
+    uint8_t **d_output_history) {
+  if (input_words > 0) {
+    if (cudaMalloc((void **)d_input_bitmask, input_words * sizeof(uint32_t)) !=
+        cudaSuccess)
+      return -1;
+  } else {
+    *d_input_bitmask = nullptr;
+  }
+
+  if (schedule_capacity > 0) {
+    if (cudaMalloc((void **)d_incoming_spikes,
+                   schedule_capacity * sizeof(uint32_t)) != cudaSuccess)
+      return -1;
+  } else {
+    *d_incoming_spikes = nullptr;
+  }
+
+  if (output_capacity > 0) {
+    if (cudaMalloc((void **)d_output_history,
+                   output_capacity * sizeof(uint8_t)) != cudaSuccess)
+      return -1;
+  } else {
+    *d_output_history = nullptr;
+  }
+  return 0;
+}
+
+int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
+                      const uint32_t *h_input_bitmask, uint32_t input_words,
+                      uint32_t *d_incoming_spikes,
+                      const uint32_t *h_incoming_spikes,
+                      uint32_t schedule_capacity) {
+  // Асинхронная загрузка в Stream 0. CPU не блокируется!
+  if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
+    cudaMemcpyAsync(d_input_bitmask, h_input_bitmask,
+                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, 0);
+  }
+  if (schedule_capacity > 0 && d_incoming_spikes && h_incoming_spikes) {
+    cudaMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
+                    schedule_capacity * sizeof(uint32_t),
+                    cudaMemcpyHostToDevice, 0);
+  }
+  return 0;
+}
+
+int32_t cu_dma_d2h_io(uint8_t *h_output_history,
+                      const uint8_t *d_output_history,
+                      uint32_t output_capacity) {
+  if (output_capacity > 0 && d_output_history && h_output_history) {
+    cudaMemcpyAsync(h_output_history, d_output_history,
+                    output_capacity * sizeof(uint8_t), cudaMemcpyDeviceToHost,
+                    0);
+  }
+  return 0;
+}
+} // Final closing brace for extern "C"

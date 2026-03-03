@@ -42,9 +42,8 @@ fn main() {
         .add_plugins(shard_map::ShardMapPlugin)
         .add_plugins(io_matrix::IoMatrixPlugin)
         .add_plugins(hud::HudPlugin)
-        .add_systems(Update, debug_spike_events)
-        .add_systems(Startup, setup_viewport)
-        .add_plugins(camera::CameraPlugin)
+        .add_systems(Startup, camera::setup_camera)
+        .add_systems(Update, (debug_spike_events, camera::camera_controller))
         .run();
 }
 
@@ -77,13 +76,12 @@ fn setup_viewport(
 }
 
 /// Временная система для дебага: проверяем, что ECS видит спайки
-fn debug_spike_events(mut events: EventReader<telemetry::SpikeFrame>) {
+fn debug_spike_events(mut events: EventReader<telemetry::SpikeFrameEvent>) {
     for frame in events.read() {
         if !frame.spike_ids.is_empty() {
             println!(
-                "IDE Render Tick: Received {} spikes from GPU Batch #{}",
+                "IDE Render Tick: Received {} spikes",
                 frame.spike_ids.len(),
-                frame.tick
             );
         }
     }

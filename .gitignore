@@ -46,6 +46,7 @@ _agents/
 _agent/
 .agent/
 brains/
+.venv/
 baked/
 venv/
 

@@ -4,6 +4,7 @@ use bevy::{
 };
 use crate::{
     camera::IdeCamera,
+    loader::LoadedGeometry,
     world::NeuronLayerData,
 };
 
@@ -75,6 +76,7 @@ fn handle_picking(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<(&Camera, &GlobalTransform), With<IdeCamera>>,
     q_layers: Query<&NeuronLayerData>,
+    geometry: Option<Res<LoadedGeometry>>,
     mut selection: ResMut<SelectionState>,
 ) {
     // Обрабатываем только при клике ЛКМ
@@ -93,28 +95,27 @@ fn handle_picking(
     let mut best_match = None;
     let radius_sq = 0.5 * 0.5; // Радиус сферы 0.5
 
-    // O(N) проход по всем батчам. Для 500k это доли миллисекунды.
-    for layer in q_layers.iter() {
-        for (local_idx, instance) in layer.instances.iter().enumerate() {
-            // Распаковка PackedPosition (Voxel Size = 25.0)
-            let x = (instance.packed_pos & 0x7FF) as f32 * 25.0;
-            let y = ((instance.packed_pos >> 11) & 0x7FF) as f32 * 25.0;
-            let z = ((instance.packed_pos >> 22) & 0x3FF) as f32 * 25.0;
-            let center = Vec3::new(x, y, z);
+    if let Some(geom) = geometry {
+        // O(N) проход по всем батчам. Для 500k это доли миллисекунды.
+        for layer in q_layers.iter() {
+            for (local_idx, instance) in layer.instances.iter().enumerate() {
+                let pos_f4 = geom.0[instance.global_idx as usize];
+                let center = Vec3::new(pos_f4[0], pos_f4[1], pos_f4[2]);
 
-            // Векторная математика пересечения луча и сферы
-            let l = center - ray.origin;
-            let tca = l.dot(ray.direction.normalize());
-            
-            if tca < 0.0 { continue; } // Сфера позади камеры
-            
-            let d2 = l.length_squared() - tca * tca;
-            if d2 > radius_sq { continue; } // Луч прошел мимо
+                // Векторная математика пересечения луча и сферы
+                let l = center - ray.origin;
+                let tca = l.dot(ray.direction.normalize());
+                
+                if tca < 0.0 { continue; } // Сфера позади камеры
+                
+                let d2 = l.length_squared() - tca * tca;
+                if d2 > radius_sq { continue; } // Луч прошел мимо
 
-            let dist = tca - (radius_sq - d2).sqrt();
-            if dist < closest_dist {
-                closest_dist = dist;
-                best_match = Some((layer.type_id, local_idx as u32));
+                let dist = tca - (radius_sq - d2).sqrt();
+                if dist < closest_dist {
+                    closest_dist = dist;
+                    best_match = Some((layer.type_id, local_idx as u32));
+                }
             }
         }
     }
@@ -167,6 +168,7 @@ fn handle_box_select(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<(&Camera, &GlobalTransform), With<IdeCamera>>,
     q_layers: Query<&NeuronLayerData>,
+    geometry: Option<Res<LoadedGeometry>>,
     mut tool: ResMut<BoxSelectTool>,
     mut selection: ResMut<SelectionState>,
     mut q_box_ui: Query<&mut Node, With<BoxSelectUi>>,
@@ -218,21 +220,20 @@ fn handle_box_select(
         let Ok((camera, cam_transform)) = q_camera.get_single() else { return };
         let mut new_selection = Vec::with_capacity(1000);
 
-        // Проходим по всем сырым VRAM-батчам
-        for layer in q_layers.iter() {
-            for (local_idx, instance) in layer.instances.iter().enumerate() {
-                // Распаковка PackedPosition (Voxel Size = 25.0 um)
-                let x = (instance.packed_pos & 0x7FF) as f32 * 25.0;
-                let y = ((instance.packed_pos >> 11) & 0x7FF) as f32 * 25.0;
-                let z = ((instance.packed_pos >> 22) & 0x3FF) as f32 * 25.0;
-                let world_pos = Vec3::new(x, y, z);
+        if let Some(geom) = geometry {
+            // Проходим по всем сырым VRAM-батчам
+            for layer in q_layers.iter() {
+                for (local_idx, instance) in layer.instances.iter().enumerate() {
+                    let pos_f4 = geom.0[instance.global_idx as usize];
+                    let world_pos = Vec3::new(pos_f4[0], pos_f4[1], pos_f4[2]);
 
-                // Если нейрон сзади камеры / вне вьюпорта, получим Err
-                if let Ok(screen_pos) = camera.world_to_viewport(cam_transform, world_pos) {
-                    // 2D AABB Intersection
-                    if screen_pos.x >= min_x && screen_pos.x <= max_x && 
-                       screen_pos.y >= min_y && screen_pos.y <= max_y {
-                        new_selection.push((layer.type_id, local_idx as u32));
+                    // Если нейрон сзади камеры / вне вьюпорта, получим Err
+                    if let Ok(screen_pos) = camera.world_to_viewport(cam_transform, world_pos) {
+                        // 2D AABB Intersection
+                        if screen_pos.x >= min_x && screen_pos.x <= max_x && 
+                           screen_pos.y >= min_y && screen_pos.y <= max_y {
+                            new_selection.push((layer.type_id, local_idx as u32));
+                        }
                     }
                 }
             }

@@ -348,14 +348,14 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 rest_potential: v.rest_potential,
                 leak_rate: v.leak_rate,
                 homeostasis_penalty: v.homeostasis_penalty,
-                homeostasis_decay: v.homeostasis_decay,
-                gsop_potentiation: v.gsop_potentiation,
-                gsop_depression: v.gsop_depression,
+                homeostasis_decay: v.homeostasis_decay as i32,
+                gsop_potentiation: v.gsop_potentiation as i32,
+                gsop_depression: v.gsop_depression as i32,
                 refractory_period: v.refractory_period,
                 synapse_refractory_period: v.synapse_refractory_period,
                 slot_decay_ltm: v.slot_decay_ltm as u8,
                 slot_decay_wm: v.slot_decay_wm as u8,
-                signal_propagation_length: v.signal_propagation_length as u16,
+                signal_propagation_length: v.signal_propagation_length as u8,
             }
         }).collect(),
     };

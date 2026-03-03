@@ -6,7 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use genesis_core::ipc::{TelemetryFrameHeader, TELE_MAGIC};
+use genesis_core::ipc::TelemetryFrameHeader;
 use genesis_compute::memory::PinnedBuffer;
 use futures_util::StreamExt;
 
@@ -114,6 +114,8 @@ async fn handle_ws(ws: WebSocketUpgrade, server: Arc<TelemetryServer>) -> impl I
     ws.on_upgrade(move |socket| websocket_stream(socket, server))
 }
 
+pub const TELE_MAGIC: u32 = u32::from_le_bytes(*b"SPIK");
+
 async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
     server.swapchain.active_clients.fetch_add(1, Ordering::SeqCst);
     println!("[Telemetry] Client connected. Active: {}", server.swapchain.active_clients.load(Ordering::Relaxed));
@@ -128,19 +130,17 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
             let ptr = server.swapchain.ready_for_export.load(Ordering::Acquire);
             
             // Binary Frame Packing (Header + Array of u32)
-            let header = TelemetryFrameHeader {
-                magic: TELE_MAGIC,
-                tick: current_tick as u32,
-                spikes_count: count as u32,
-                _padding: 0,
-            };
-
-            let header_bytes = bytemuck::bytes_of(&header);
+            // [0..4] Magic (b"SPIK")
+            // [4..12] Tick (u64, LE)
+            // [12..16] Spikes Count (u32, LE)
+            // [16..] Array of u32
+            let mut frame = Vec::with_capacity(16 + count * 4);
+            frame.extend_from_slice(&TELE_MAGIC.to_le_bytes());
+            frame.extend_from_slice(&(current_tick as u64).to_le_bytes());
+            frame.extend_from_slice(&(count as u32).to_le_bytes());
+            
             let spikes_slice = unsafe { std::slice::from_raw_parts(ptr, count) };
             let spikes_bytes = bytemuck::cast_slice(spikes_slice);
-
-            let mut frame = Vec::with_capacity(header_bytes.len() + spikes_bytes.len());
-            frame.extend_from_slice(header_bytes);
             frame.extend_from_slice(spikes_bytes);
 
             if let Err(_) = socket.send(Message::Binary(frame)).await {
@@ -148,7 +148,7 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
             }
             last_processed_tick = current_tick;
         } else {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         }
     }
 

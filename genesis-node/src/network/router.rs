@@ -107,7 +107,7 @@ impl InterNodeRouter {
 
     pub fn spawn_receiver_loop(
         socket: Arc<UdpSocket>, 
-        zone_ping_pongs: HashMap<u32, Arc<crate::network::bsp::PingPongSchedule>>
+        bsp_barrier: Arc<std::sync::Mutex<crate::network::bsp::BspBarrier>>,
     ) {
         tokio::spawn(async move {
             let mut buf = [0u8; 65535];
@@ -125,20 +125,13 @@ impl InterNodeRouter {
                     let events_ptr = unsafe { buf.as_ptr().add(std::mem::size_of::<SpikeBatchHeader>()) as *const SpikeEvent };
                     let events = unsafe { std::slice::from_raw_parts(events_ptr, events_count) };
                     
-                    let zone_hash = if zone_ping_pongs.len() == 1 {
-                        *zone_ping_pongs.keys().next().unwrap()
-                    } else {
-                        // For multi-zone nodes, we need a way to route incoming packets to the correct shard.
-                        // Currently simplified to first/only zone.
-                        *zone_ping_pongs.keys().next().unwrap()
-                    };
-
-                    if let Some(ping_pong) = zone_ping_pongs.get(&zone_hash) {
+                    {
+                        let mut bsp = bsp_barrier.lock().unwrap();
+                        let schedule = bsp.get_write_schedule();
                         for event in events {
-                            unsafe { ping_pong.ingest_spike(event) };
+                            // Using the new tick-based scheduler (Contract §12)
+                            schedule.push_spike(event.tick_offset as usize, event.ghost_axon_id);
                         }
-                        
-                        ping_pong.packets_received.fetch_add(1, Ordering::Release);
                     }
                 }
             }

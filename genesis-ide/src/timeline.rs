@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::{
     layout::{AreaBody, EditorType},
-    telemetry::SpikeFrame,
+    telemetry,
     log_console::SystemLog,
 };
 
@@ -102,7 +102,7 @@ fn build_timeline_ui(
 
 /// Читает стрим телеметрии и обновляет часы. Сложность O(N_frames).
 fn update_simulation_time(
-    mut events: EventReader<SpikeFrame>,
+    mut events: EventReader<telemetry::SpikeFrameEvent>,
     mut sim_time: ResMut<SimulationTime>,
 ) {
     let mut latest_tick = None;

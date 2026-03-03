@@ -50,10 +50,13 @@ fn build_inspector_ui(
     }
 }
 
+use crate::loader::LoadedGeometry;
+
 /// Zero-Cost обновление. Выполняется только если изменился SelectionState.
 fn update_inspector_ui(
     selection: Res<SelectionState>,
     config: Option<Res<LoadedConfig>>,
+    geometry: Option<Res<LoadedGeometry>>,
     q_layers: Query<&NeuronLayerData>,
     mut q_text: Query<&mut Text, With<InspectorDataBinding>>,
 ) {
@@ -61,26 +64,26 @@ fn update_inspector_ui(
     if !selection.is_changed() { return; }
 
     let Some(config) = config else { return };
+    let Some(geometry) = geometry else { return };
     let Some(blueprints) = &config.blueprints else { return };
     let Ok(mut text) = q_text.get_single_mut() else { return };
 
     // Берём первый нейрон из выделения (MVP для популяций)
     if let Some(&(t_id, l_idx)) = selection.selected_neurons.first() {
-        // Достаем PackedPosition из VRAM snapshot'а (наш слой)
-        let mut packed_pos = 0;
+        let mut global_idx = 0;
         for layer in q_layers.iter() {
             if layer.type_id == t_id {
                 if let Some(instance) = layer.instances.get(l_idx as usize) {
-                    packed_pos = instance.packed_pos;
+                    global_idx = instance.global_idx;
                 }
                 break;
             }
         }
 
-        // Декодируем координаты
-        let x = (packed_pos & 0x7FF) as f32 * 25.0;
-        let y = ((packed_pos >> 11) & 0x7FF) as f32 * 25.0;
-        let z = ((packed_pos >> 22) & 0x3FF) as f32 * 25.0;
+        let pos = geometry.0[global_idx as usize];
+        let x = pos[0];
+        let y = pos[1];
+        let z = pos[2];
 
         // Берем физические параметры из загруженного Blueprint
         let profile = blueprints.neuron_types.get(t_id as usize);
@@ -89,15 +92,15 @@ fn update_inspector_ui(
 
         let new_str = format!(
             "=== NEURON INSPECTOR ===\n\n\
-            Local Index: {}\n\
-            Type Index:  {} (4-bit mask)\n\n\
+            Global Index: {}\n\
+            Local Index:  {}\n\
+            Type Index:   {} (4-bit mask)\n\n\
             [ Spatial Data ]\n\
-            Position:    X:{:.1}  Y:{:.1}  Z:{:.1} um\n\
-            Packed:      0x{:08X}\n\n\
+            Position:     X:{:.1}  Y:{:.1}  Z:{:.1} um\n\n\
             [ Membrane Physics (Live Config) ]\n\
-            Threshold:   {} mV\n\
-            Rest Pot.:   {} mV\n",
-            l_idx, t_id, x, y, z, packed_pos, thresh, rest
+            Threshold:    {} mV\n\
+            Rest Pot.:    {} mV\n",
+            global_idx, l_idx, t_id, x, y, z, thresh, rest
         );
 
         text.0 = new_str;

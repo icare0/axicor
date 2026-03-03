@@ -3,23 +3,23 @@ config = "config/simulation.toml"
 
 [[zone]]
 name = "SensoryCortex"
-blueprints = "config/zones/RobotBrain/blueprints.toml"
-anatomy = "config/zones/RobotBrain/SensoryCortex/anatomy.toml"
-io = "config/zones/RobotBrain/SensoryCortex/io.toml"
+blueprints = "config/brains/RobotBrain/blueprints.toml"
+anatomy = "config/brains/RobotBrain/SensoryCortex/anatomy.toml"
+io = "config/brains/RobotBrain/SensoryCortex/io.toml"
 baked_dir = "baked/SensoryCortex"
 
 [[zone]]
 name = "HiddenCortex"
-blueprints = "config/zones/RobotBrain/blueprints.toml"
-anatomy = "config/zones/RobotBrain/HiddenCortex/anatomy.toml"
-io = "config/zones/RobotBrain/HiddenCortex/io.toml"
+blueprints = "config/brains/RobotBrain/blueprints.toml"
+anatomy = "config/brains/RobotBrain/HiddenCortex/anatomy.toml"
+io = "config/brains/RobotBrain/HiddenCortex/io.toml"
 baked_dir = "baked/HiddenCortex"
 
 [[zone]]
 name = "MotorCortex"
-blueprints = "config/zones/RobotBrain/blueprints.toml"
-anatomy = "config/zones/RobotBrain/MotorCortex/anatomy.toml"
-io = "config/zones/RobotBrain/MotorCortex/io.toml"
+blueprints = "config/brains/RobotBrain/blueprints.toml"
+anatomy = "config/brains/RobotBrain/MotorCortex/anatomy.toml"
+io = "config/brains/RobotBrain/MotorCortex/io.toml"
 baked_dir = "baked/MotorCortex"
 
 [[connection]]

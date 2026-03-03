@@ -49,7 +49,7 @@ impl SentinelManager {
     }
 
     fn perform_refresh(&self, vram: &VramState) {
-        let total_axons = vram.total_axons;
+        let total_axons = vram.total_axons as usize;
         if total_axons == 0 {
             return;
         }
@@ -62,7 +62,7 @@ impl SentinelManager {
             ffi::gpu_device_synchronize();
             ffi::gpu_memcpy_device_to_host(
                 host_axon_heads.as_mut_ptr() as *mut std::ffi::c_void,
-                vram.axon_head_index as *const std::ffi::c_void,
+                vram.ptrs.axon_heads as *const std::ffi::c_void,
                 total_axons * std::mem::size_of::<u32>(),
             );
         }
@@ -80,7 +80,7 @@ impl SentinelManager {
         if reset_count > 0 {
             unsafe {
                 ffi::gpu_memcpy_host_to_device(
-                    vram.axon_head_index as *mut std::ffi::c_void,
+                    vram.ptrs.axon_heads as *mut std::ffi::c_void,
                     host_axon_heads.as_ptr() as *const std::ffi::c_void,
                     total_axons * std::mem::size_of::<u32>(),
                 );

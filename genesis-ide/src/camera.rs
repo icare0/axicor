@@ -1,11 +1,10 @@
-use bevy::{
-    input::mouse::MouseMotion,
-    prelude::*,
-    window::{CursorGrabMode, PrimaryWindow},
-};
+use bevy::prelude::*;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::window::{CursorGrabMode, PrimaryWindow};
 
 #[derive(Component)]
 pub struct IdeCamera {
+    pub is_active: bool,
     pub speed: f32,
     pub pitch: f32,
     pub yaw: f32,
@@ -13,113 +12,102 @@ pub struct IdeCamera {
 
 impl Default for IdeCamera {
     fn default() -> Self {
-        Self { 
-            speed: 50.0, 
-            pitch: 0.0, 
-            yaw: 0.0 
+        Self {
+            is_active: false,
+            speed: 500.0, // Базовая скорость (мкм/сек)
+            pitch: 0.0,
+            yaw: 0.0,
         }
     }
 }
 
-// Ресурс-флаг активного режима (Blender-like toggle)
-#[derive(Resource, Default, PartialEq, Eq)]
-pub enum CameraMode {
-    #[default]
-    Free,
-    Captured,
-}
-
-pub struct CameraPlugin;
-
-impl Plugin for CameraPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<CameraMode>()
-           .add_systems(Startup, setup_camera)
-           .add_systems(Update, (toggle_camera_mode, camera_movement_system));
-    }
-}
-
-fn setup_camera(mut commands: Commands) {
-    // 1. Спавним камеру для UI (ОБЯЗАТЕЛЬНО для Bevy)
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: 1,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
-    ));
-
-    // 2. Наша 3D FPS камера
+pub fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 0.0, 500.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // Размещаем камеру над слоем L1, смотрим вниз (Z - вверх)
+        Transform::from_xyz(500.0, -500.0, 1500.0).looking_at(Vec3::ZERO, Vec3::Z),
         IdeCamera::default(),
     ));
 }
 
-fn toggle_camera_mode(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut mode: ResMut<CameraMode>,
+/// Zero-Cost контроллер камеры (Blender-like UX).
+/// Выполняется каждый кадр, реагирует на сырые события ввода.
+pub fn camera_controller(
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
-) {
-    // Перехват по Alt или выход по Esc
-    if keys.just_pressed(KeyCode::AltLeft) || keys.just_pressed(KeyCode::Escape) {
-        let mut window = q_windows.single_mut();
-        
-        if *mode == CameraMode::Captured || keys.just_pressed(KeyCode::Escape) {
-            *mode = CameraMode::Free;
-            window.cursor_options.visible = true;
-            window.cursor_options.grab_mode = CursorGrabMode::None;
-        } else {
-            *mode = CameraMode::Captured;
-            window.cursor_options.visible = false;
-            window.cursor_options.grab_mode = CursorGrabMode::Locked;
-        }
-    }
-}
-
-fn camera_movement_system(
-    time: Res<Time>,
-    mode: Res<CameraMode>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut mouse_motion: EventReader<MouseMotion>,
     mut q_camera: Query<(&mut Transform, &mut IdeCamera)>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse_btns: Res<ButtonInput<MouseButton>>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut mouse_wheel: EventReader<MouseWheel>,
+    time: Res<Time>,
 ) {
-    if *mode != CameraMode::Captured {
-        return; // Ранний выход, не тратим такты
+    let mut window = q_windows.single_mut();
+    let (mut transform, mut cam) = q_camera.single_mut();
+
+    // 1. Context Switch: Активация/деактивация режима камеры (Alt / Esc)
+    if keys.just_pressed(KeyCode::AltLeft) || keys.just_pressed(KeyCode::AltRight) {
+        cam.is_active = !cam.is_active;
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        cam.is_active = false;
     }
 
-    let (mut transform, mut cam) = q_camera.single_mut();
-    let dt = time.delta_secs();
+    if cam.is_active {
+        window.cursor_options.grab_mode = CursorGrabMode::Locked;
+        window.cursor_options.visible = false;
+    } else {
+        window.cursor_options.grab_mode = CursorGrabMode::None;
+        window.cursor_options.visible = true;
+        // Early Exit: если не в режиме камеры, мышь нужна для UI/Raycasting
+        return; 
+    }
 
-    // Вращение (Mouse)
+    // 2. Управление скоростью (Колесико мыши)
+    for ev in mouse_wheel.read() {
+        // Логарифмический скейл скорости (10 мкм/с -> 10,000 мкм/с)
+        let multiplier = if ev.y > 0.0 { 1.2 } else { 0.8 };
+        cam.speed = (cam.speed * multiplier).clamp(10.0, 20_000.0);
+    }
+
+    // 3. Вращение (Mouse Look)
     let mut mouse_delta = Vec2::ZERO;
     for ev in mouse_motion.read() {
         mouse_delta += ev.delta;
     }
-
-    if mouse_delta != Vec2::ZERO {
-        let sensitivity = 0.002;
-        cam.yaw -= mouse_delta.x * sensitivity;
-        cam.pitch -= mouse_delta.y * sensitivity;
-        cam.pitch = cam.pitch.clamp(-1.54, 1.54); // Ограничение по вертикали (~88 градусов)
-
-        transform.rotation = Quat::from_axis_angle(Vec3::Y, cam.yaw) 
-                           * Quat::from_axis_angle(Vec3::X, cam.pitch);
+    
+    if mouse_delta.length_squared() > 0.0 {
+        cam.yaw -= mouse_delta.x * 0.002;
+        cam.pitch -= mouse_delta.y * 0.002;
+        // Защита от переворота (Gimbal Lock)
+        cam.pitch = cam.pitch.clamp(-1.54, 1.54); 
+        
+        transform.rotation = Quat::from_euler(EulerRot::ZYX, cam.yaw, cam.pitch, 0.0);
     }
 
-    // Движение (WASD + Space/Shift)
-    let mut direction = Vec3::ZERO;
-    if keys.pressed(KeyCode::KeyW) { direction += *transform.forward(); }
-    if keys.pressed(KeyCode::KeyS) { direction += *transform.back(); }
-    if keys.pressed(KeyCode::KeyA) { direction += *transform.left(); }
-    if keys.pressed(KeyCode::KeyD) { direction += *transform.right(); }
-    if keys.pressed(KeyCode::Space) { direction += Vec3::Y; }
-    if keys.pressed(KeyCode::ShiftLeft) { direction -= Vec3::Y; }
+    // 4. Перемещение (С учетом ориентации)
+    let mut velocity = Vec3::ZERO;
+    let forward = transform.forward();
+    let right = transform.right();
 
-    if direction != Vec3::ZERO {
-        let move_speed = cam.speed * dt;
-        transform.translation += direction.normalize() * move_speed;
+    if keys.pressed(KeyCode::KeyW) { velocity += *forward; }
+    if keys.pressed(KeyCode::KeyS) { velocity -= *forward; }
+    if keys.pressed(KeyCode::KeyA) { velocity -= *right; }
+    if keys.pressed(KeyCode::KeyD) { velocity += *right; }
+    
+    // Глобальное изменение высоты (Strict Z)
+    if keys.pressed(KeyCode::Space) { velocity += Vec3::Z; }
+    if keys.pressed(KeyCode::ShiftLeft) { velocity -= Vec3::Z; }
+
+    // 5. Pan-режим (ПКМ)
+    if mouse_btns.pressed(MouseButton::Right) && mouse_delta.length_squared() > 0.0 {
+        let up = transform.up();
+        // Движение строго перпендикулярно направлению взгляда
+        velocity -= *right * mouse_delta.x * 0.5;
+        velocity += *up * mouse_delta.y * 0.5; 
+    }
+
+    if velocity.length_squared() > 0.0 {
+        let delta = velocity.normalize() * cam.speed * time.delta_secs();
+        transform.translation += delta;
     }
 }

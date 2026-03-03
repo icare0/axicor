@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     hud::SelectionState,
     layout::{AreaBody, EditorType},
-    telemetry::SpikeFrame,
+    telemetry::SpikeFrameEvent,
     world::GlobalSpikeMap,
 };
 
@@ -49,7 +49,7 @@ impl Plugin for SignalScopePlugin {
 
 /// Агрегация спайков в скользящее окно истории
 fn aggregate_spike_data(
-    mut events: EventReader<SpikeFrame>,
+    mut events: EventReader<SpikeFrameEvent>,
     spike_map: Option<Res<GlobalSpikeMap>>,
     selection: Res<SelectionState>,
     mut scope: ResMut<ScopeHistory>,

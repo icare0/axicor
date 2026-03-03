@@ -1,13 +1,16 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::ptr;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
 use crossbeam::channel::{bounded, Sender, Receiver};
 use genesis_compute::ShardEngine;
 use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
-use std::sync::atomic::{AtomicU32, Ordering};
+
+use crate::network::io_server::{ExternalIoHeaderV2, IoMultiplexer};
+use crate::network::inter_node::{SpikeBatchHeaderV2, SpikeEventV2, InterNodeRouter};
 
 pub mod recovery;
 
@@ -15,6 +18,7 @@ pub enum ComputeCommand {
     RunBatch {
         tick_base: u32,
         batch_size: u32,
+        input_mask: Option<Vec<u32>>,
     },
     Shutdown,
 }
@@ -28,13 +32,16 @@ pub enum ComputeFeedback {
 pub struct NodeRuntime {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
-    pub bsp_barrier: Arc<BspBarrier>,
-    pub compute_dispatchers: std::sync::Mutex<HashMap<u32, Sender<ComputeCommand>>>,
+    pub bsp_barrier: Arc<Mutex<BspBarrier>>,
+    pub compute_dispatchers: Mutex<HashMap<u32, Sender<ComputeCommand>>>,
     pub feedback_sender: Sender<ComputeFeedback>,
     pub feedback_receiver: Receiver<ComputeFeedback>,
+    pub input_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<(ExternalIoHeaderV2, Vec<u32>)>>,
+    pub ghost_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<(SpikeBatchHeaderV2, Vec<SpikeEventV2>)>>,
     pub total_ticks: Arc<AtomicU32>,
     pub local_ip: std::net::Ipv4Addr,
     pub local_port: u16,
+    pub telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
 }
 
 impl NodeRuntime {
@@ -43,23 +50,34 @@ impl NodeRuntime {
         shards: Vec<(u32, ShardEngine)>,
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
-        bsp_barrier: Arc<BspBarrier>,
+        bsp_barrier: Arc<Mutex<BspBarrier>>,
+        telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
     ) -> Self {
-        let (feedback_tx, feedback_rx) = bounded(shards.len() + 32); // Overhead for recovery
+        let (feedback_tx, feedback_rx) = bounded(shards.len() + 32); 
         let total_ticks = Arc::new(AtomicU32::new(0));
+
+        let (input_tx, input_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (ghost_tx, ghost_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Spawn UDP Multiplexers (Contract §2.7)
+        tokio::spawn(IoMultiplexer::spawn_input_listener(8081, input_tx));
+        tokio::spawn(InterNodeRouter::spawn_ghost_listener(8083, ghost_tx));
 
         let node = Self {
             io_server,
             routing_table,
             bsp_barrier,
-            compute_dispatchers: std::sync::Mutex::new(HashMap::new()),
+            compute_dispatchers: Mutex::new(HashMap::new()),
             feedback_sender: feedback_tx,
             feedback_receiver: feedback_rx,
+            input_rx: Mutex::new(input_rx),
+            ghost_rx: Mutex::new(ghost_rx),
             total_ticks,
             local_ip,
             local_port,
+            telemetry_swapchain,
         };
 
         for (hash, shard) in shards {
@@ -69,30 +87,83 @@ impl NodeRuntime {
         node
     }
 
-    /// Spawns a dedicated OS thread for a shard and adds its dispatcher to the registry.
+    /// Spawns a dedicated OS thread for a shard.
     pub fn spawn_shard_thread(&self, hash: u32, mut shard: ShardEngine) {
         let (tx, rx) = bounded(1);
+        let telemetry = self.telemetry_swapchain.clone();
+        
+        // Allocate I/O buffers in VRAM for this shard
+        let sync_batch_ticks = 100; // TODO: Get from config
+        let max_spikes_per_tick = 100_000; // Matches ring_buffer.rs
+        let input_words_per_tick = (1024 + 31) / 32; // TODO: Get from manifest
+        let num_outputs = 0; // TODO: Get from manifest
+
+        let mut d_input = ptr::null_mut();
+        let mut d_spikes = ptr::null_mut();
+        let mut d_output = ptr::null_mut();
+
+        unsafe {
+            genesis_compute::ffi::cu_allocate_io_buffers(
+                input_words_per_tick * sync_batch_ticks,
+                max_spikes_per_tick * sync_batch_ticks,
+                num_outputs * sync_batch_ticks,
+                &mut d_input,
+                &mut d_spikes,
+                &mut d_output,
+            );
+        }
+
+        let io_buffers = Arc::new(genesis_compute::compute::shard::IoDeviceBuffers {
+            d_input_bitmask: d_input,
+            d_incoming_spikes: d_spikes,
+            d_output_history: d_output,
+            max_spikes_per_tick,
+            input_words_per_tick,
+            num_outputs,
+        });
+
         {
             let mut dispatchers = self.compute_dispatchers.lock().unwrap();
             dispatchers.insert(hash, tx);
         }
+        
         let f_tx = self.feedback_sender.clone();
+        let bsp_barrier = self.bsp_barrier.clone();
 
         thread::Builder::new()
             .name(format!("compute-{}", hash))
             .spawn(move || {
                 while let Ok(cmd) = rx.recv() {
                     match cmd {
-                        ComputeCommand::RunBatch { tick_base, batch_size } => {
-                            shard.step_day_phase(
+                        ComputeCommand::RunBatch { tick_base: _, batch_size, input_mask } => {
+                            let (incoming_spikes, spike_counts) = {
+                                let bsp = bsp_barrier.lock().unwrap();
+                                let schedule = bsp.get_read_schedule();
+                                (schedule.ghost_ids.clone(), schedule.counts.clone())
+                            };
+
+                            shard.step_day_phase_batch(
                                 batch_size,
-                                tick_base,
-                                1, 
-                                std::ptr::null(), 
-                                std::ptr::null_mut(), 
-                                std::ptr::null(), 
-                                &vec![0; batch_size as usize],
+                                &io_buffers,
+                                input_mask.as_deref(),
+                                Some(&incoming_spikes),
+                                &spike_counts,
+                                0, // virtual_offset
+                                0, // num_virtual_axons
+                                std::ptr::null(), // mapped_soma_ids_device
                             );
+
+                            // Capture telemetry spikes if any clients are connected
+                            if telemetry.is_active() {
+                                    // 1. Reset device-side count (if not already handled)
+                                    // 2. Launch extract kernel (if not already handled in step_day_phase_batch)
+                                    // 3. DMA D2H to Telemetry back_buffer
+                                    // 4. swap_and_ready
+                                    
+                                    // For now, we assume step_day_phase_batch or a manual kernel call fills telemetry_count
+                                    // Since telemetry is high-level, we'll use a simplified version for now:
+                                    // tele.swap_and_ready(count, tick_base as u64);
+                            }
 
                             if let Err(_) = f_tx.send(ComputeFeedback::BatchComplete { ticks_processed: batch_size }) {
                                 break;
@@ -104,66 +175,33 @@ impl NodeRuntime {
             }).expect("Failed to spawn compute thread");
     }
 
-    /// Spawns a background watchdog task that pings peers and initiates recovery on failure.
-    pub fn spawn_watchdog(&self) {
-        let routing_table = self.routing_table.clone();
-        let bsp_barrier = self.bsp_barrier.clone();
-        let io_server = self.io_server.clone();
+    /// The main Node Loop (BSP Orchestrator).
+    pub async fn run_node_loop(&self, batch_size: u32) {
+        let mut current_tick = 0;
 
-        tokio::spawn(async move {
-            let mut failure_counts: HashMap<u32, u32> = HashMap::new();
-            let mut interval = tokio::time::interval(Duration::from_millis(50));
-            
-            loop {
-                interval.tick().await;
-                
-                let hashes: Vec<u32> = bsp_barrier.schedules.keys().copied().collect();
-                
-                for hash in hashes {
-                    if let Some(addr) = routing_table.get_address(hash) {
-                        let mut ping = [0u8; 8];
-                        ping[0..4].copy_from_slice(&0x48425421u32.to_le_bytes()); // "HBT!"
-                        ping[4..8].copy_from_slice(&hash.to_le_bytes());
+        loop {
+            // [Architectural Invariant] BSP Barrier: Swap buffers for high-performance scheduling.
+            // This is the ONLY place where we lock the barrier in the hot loop.
+            {
+                let mut bsp = self.bsp_barrier.lock().unwrap();
+                bsp.sync_and_swap();
 
-                        if let Err(_) = io_server.socket.send_to(&ping, addr).await {
-                            let count = failure_counts.entry(hash).or_insert(0);
-                            *count += 1;
-                            
-                            if *count >= 3 {
-                                eprintln!("[Watchdog] Node 0x{:08X} at {} is DEAD. Isolate.", hash, addr);
-                                let mut dead = bsp_barrier.dead_zones.lock().unwrap();
-                                if !dead.contains(&hash) {
-                                    dead.push(hash);
-                                }
-                            }
-                        } else {
-                            failure_counts.insert(hash, 0);
-                        }
+                // [Drainage Invariant] Zero-Lock Drainage from UDP channels into the NEW write buffer.
+                let mut g_rx = self.ghost_rx.lock().unwrap();
+                let schedule = bsp.get_write_schedule();
+                while let Ok((_header, events)) = g_rx.try_recv() {
+                    for ev in events {
+                        schedule.push_spike(ev.tick_offset as usize, ev.ghost_id);
                     }
                 }
             }
-        });
-    }
 
-    /// The main Tokio loop (IO Multiplexer)
-    pub async fn run_node_loop(&self, batch_size: u32) {
-        let mut current_tick = 0;
-        let mut last_packet_counts: HashMap<u32, usize> = HashMap::new();
-
-        loop {
-            let timeout = Duration::from_millis(100); 
-            
-            match self.bsp_barrier.sync_and_swap(&last_packet_counts, timeout) {
-                Ok(_) => {
-                    for (&hash, schedule) in &self.bsp_barrier.schedules {
-                        last_packet_counts.insert(hash, schedule.packets_received.load(Ordering::Acquire));
-                    }
-                }
-                Err(dead_zones) => {
-                    eprintln!("[Node] Deadlock prevented! Zones failed: {:?}", dead_zones);
-                    for hash in dead_zones {
-                        unsafe { self.resurrect_shard(hash).await; }
-                    }
+            // Drain input bitmasks (Take the latest one for this batch)
+            let mut latest_input = None;
+            {
+                let mut i_rx = self.input_rx.lock().unwrap();
+                while let Ok((_header, mask)) = i_rx.try_recv() {
+                    latest_input = Some(mask);
                 }
             }
 
@@ -171,10 +209,12 @@ impl NodeRuntime {
             let num_dispatchers = {
                 let dispatchers_guard = self.compute_dispatchers.lock().unwrap();
                 let num = dispatchers_guard.len();
+                let input_clone = latest_input.clone();
                 for tx in dispatchers_guard.values() {
                     let _ = tx.send(ComputeCommand::RunBatch {
-                        tick_base: current_tick,
+                        tick_base: current_tick as u32,
                         batch_size,
+                        input_mask: input_clone.clone(),
                     });
                 }
                 num
@@ -200,7 +240,7 @@ mod tests {
     use crate::network::io_server::ExternalIoServer;
     use crate::network::bsp::BspBarrier;
     use crate::network::router::RoutingTable;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::net::Ipv4Addr;
 
     #[tokio::test]
@@ -212,9 +252,9 @@ mod tests {
             Arc::new(std::sync::atomic::AtomicBool::new(false)), 
             1024, 0, 0, dashboard, routing_table.clone(), socket
         ).unwrap());
-        let bsp_barrier = Arc::new(BspBarrier::new());
+        let bsp_barrier = Arc::new(Mutex::new(BspBarrier::new(100)));
         
-        let shard = ShardEngine::new(unsafe { std::mem::zeroed() }, std::ptr::null(), std::ptr::null(), 0, 0);
+        let shard = ShardEngine::new(unsafe { std::mem::zeroed() });
 
         let node = NodeRuntime::boot(
             vec![(0x1234, shard)], 

@@ -1,133 +1,150 @@
 use bevy::{
     prelude::*,
-    tasks::IoTaskPool,
+    render::{
+        render_resource::{StorageBuffer, ShaderType},
+        renderer::{RenderDevice, RenderQueue},
+    },
 };
-use crossbeam_channel::{bounded, Receiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use std::thread;
+use tokio::runtime::Builder;
 use futures_util::StreamExt;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use std::convert::TryInto;
 
-const WS_URL: &str = "ws://127.0.0.1:8002";
+const WS_URL: &str = "ws://127.0.0.1:8002/ws";
 
-/// ECS Event, который стреляет каждый раз, когда приходит батч спайков из Runtime.
 #[derive(Event, Clone)]
-pub struct SpikeFrame {
+pub struct SpikeFrameEvent {
     pub tick: u64,
     pub spike_ids: Vec<u32>,
 }
 
-/// Lock-Free ресивер в качестве ресурса ECS. 
-/// Позволяет читать данные из асинхронного таска без блокировок.
 #[derive(Resource)]
-pub struct TelemetryBridge {
-    pub rx: Receiver<SpikeFrame>,
+pub struct TelemetryReceiver(pub UnboundedReceiver<(u64, Vec<u32>)>);
+
+#[derive(ShaderType, Default, Clone)]
+pub struct SpikeData {
+    #[size(runtime)]
+    pub intensities: Vec<f32>,
+}
+
+#[derive(Resource, Default)]
+pub struct GpuSpikeBuffer {
+    pub buffer: StorageBuffer<SpikeData>,
+    pub initialized: bool,
 }
 
 pub struct TelemetryPlugin;
 
 impl Plugin for TelemetryPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SpikeFrame>()
-           .add_systems(Startup, spawn_telemetry_client)
-           .add_systems(Update, poll_telemetry_channel);
+        app.add_event::<SpikeFrameEvent>()
+            .init_resource::<GpuSpikeBuffer>()
+            .add_systems(Startup, setup_telemetry_socket)
+            .add_systems(Update, (drain_telemetry_socket, apply_telemetry_spikes).chain());
     }
 }
 
-fn spawn_telemetry_client(mut commands: Commands) {
-    // Используем ограниченный канал. Если IDE тормозит и не успевает рисовать кадры, 
-    // старые спайки лучше дропать, чем забивать оперативу до OOM.
-    let (tx, rx) = bounded::<SpikeFrame>(60); 
+pub fn setup_telemetry_socket(mut commands: Commands) {
+    let (tx, rx) = unbounded_channel();
 
-    commands.insert_resource(TelemetryBridge { rx });
-
-    let thread_pool = IoTaskPool::get();
-    
-    // Спавним асинхронную задачу вне Main Thread
-    thread_pool.spawn(async move {
-        // Важно: Bevy IoTaskPool не имеет tokio runtime,
-        // поэтому приходится создавать локальный для WebSocket I/O
-        use tokio::runtime::Builder;
-        
+    // Создаем выделенный поток ОС для сетевого реактора
+    thread::spawn(move || {
+        // Поднимаем изолированный Tokio Runtime
         let rt = Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("Failed to create tokio runtime");
-        
-        rt.block_on(async {
+            .expect("FATAL: Failed to build isolated Tokio runtime for Telemetry");
+
+        rt.block_on(async move {
             info!("Connecting to Genesis Telemetry at {}...", WS_URL);
-            
-            let ws_stream = match connect_async(WS_URL).await {
+            let mut ws_stream = match connect_async(WS_URL).await {
                 Ok((stream, _)) => stream,
                 Err(e) => {
                     error!("Telemetry WS connection failed: {}", e);
                     return;
                 }
             };
-            
-            info!("Telemetry connected. Awaiting frames...");
-            let (_, mut read) = ws_stream.split();
 
-            while let Some(message) = read.next().await {
-                if let Ok(Message::Binary(data)) = message {
-                    if let Some(frame) = decode_telemetry_frame(&data) {
-                        // Пытаемся пропихнуть кадр в канал. 
-                        // Если Main Thread отстает, кадр дропается (TrySendError). Это норма для real-time.
-                        let _ = tx.try_send(frame);
+            info!("Telemetry connected. Awaiting frames...");
+            while let Some(msg) = ws_stream.next().await {
+                if let Ok(Message::Binary(data)) = msg {
+                    if let Some((tick, spike_ids)) = decode_telemetry_frame(&data) {
+                        let _ = tx.send((tick, spike_ids));
                     }
                 }
             }
-            
-            warn!("Telemetry connection closed.");
         });
-    }).detach();
+    });
+
+    commands.insert_resource(TelemetryReceiver(rx));
 }
 
-/// Декодирование бинарного фрейма (08_ide.md §2.3)
-/// Формат:
-/// [0..4] Magic (b"SPIK")
-/// [4..12] Tick (u64, LE)
-/// [12..16] Spikes Count (u32, LE)
-/// [16..] Array of u32 (Dense Indices / Spike IDs)
-#[inline]
-fn decode_telemetry_frame(data: &[u8]) -> Option<SpikeFrame> {
-    if data.len() < 16 {
-        return None;
-    }
-
-    // Проверка Magic (Fast Fail)
-    let magic = &data[0..4];
-    if magic != b"SPIK" {
-        return None;
-    }
-
+fn decode_telemetry_frame(data: &[u8]) -> Option<(u64, Vec<u32>)> {
+    if data.len() < 16 { return None; }
+    
+    // SPIK magic check
+    if &data[0..4] != b"SPIK" { return None; }
+    
     let tick = u64::from_le_bytes(data[4..12].try_into().unwrap());
     let count = u32::from_le_bytes(data[12..16].try_into().unwrap()) as usize;
-
-    let payload = &data[16..];
-    if payload.len() < count * 4 {
-        error!("Corrupted telemetry frame: payload smaller than count");
-        return None;
-    }
-
-    // Zero-cost cast среза байт в слайс u32, затем аллокация в Vec.
-    // Выравнивание гарантируется безопасным копированием:
-    let spike_ids = payload
+    
+    if data.len() < 16 + count * 4 { return None; }
+    
+    let spikes = data[16..]
         .chunks_exact(4)
         .take(count)
-        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u32>>();
-
-    Some(SpikeFrame { tick, spike_ids })
+        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+        
+    Some((tick, spikes))
 }
 
-/// Система (Hot Loop), опрашивающая канал каждый кадр.
-/// Zero overhead, если канал пуст.
-fn poll_telemetry_channel(
-    bridge: Res<TelemetryBridge>,
-    mut event_writer: EventWriter<SpikeFrame>,
+pub fn drain_telemetry_socket(
+    mut receiver: ResMut<TelemetryReceiver>,
+    mut ev_writer: EventWriter<SpikeFrameEvent>,
 ) {
-    // Вычитываем все накопленные фреймы с прошлого кадра (обычно 1-2)
-    for frame in bridge.rx.try_iter() {
-        event_writer.send(frame);
+    while let Ok((tick, spike_ids)) = receiver.0.try_recv() {
+        ev_writer.send(SpikeFrameEvent { tick, spike_ids });
+    }
+}
+
+pub fn apply_telemetry_spikes(
+    mut events: EventReader<SpikeFrameEvent>,
+    mut gpu_buffer: ResMut<GpuSpikeBuffer>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    if !gpu_buffer.initialized {
+        // Initialize with default capacity (e.g. 500k neurons) if not done
+        // This normally happens when the connectome is loaded.
+        return;
+    }
+
+    let data = gpu_buffer.buffer.get_mut();
+    let mut is_dirty = false;
+
+    // 1. Быстрый Decay (линейный проход L1 Cache)
+    for glow in data.intensities.iter_mut() {
+        if *glow > 0.0 {
+            *glow = (*glow - 0.15).max(0.0);
+            is_dirty = true;
+        }
+    }
+
+    // 2. Инъекция (O(K))
+    for frame in events.read() {
+        for &id in &frame.spike_ids {
+            if let Some(glow) = data.intensities.get_mut(id as usize) {
+                *glow = 1.0;
+                is_dirty = true;
+            }
+        }
+    }
+
+    // 3. Асинхронная заливка в VRAM
+    if is_dirty {
+        gpu_buffer.buffer.write_buffer(&render_device, &render_queue);
     }
 }

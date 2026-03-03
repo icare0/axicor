@@ -26,3 +26,5 @@ libc = "0.2"
 rayon = "1.10"
 rand = "0.8"
 rand_chacha = "0.3"
+bytemuck = "1.14"
+genesis-compute = { path = "../genesis-compute" }

@@ -5,16 +5,17 @@ use bevy::{
     render::{render_resource::*, storage::ShaderStorageBuffer},
 };
 use bytemuck::{Pod, Zeroable};
-use crate::telemetry::SpikeFrame;
+use crate::telemetry::{SpikeFrameEvent, GpuSpikeBuffer, SpikeData};
+use crate::loader::{IdeState, LoadedGeometry};
 use crate::hud::SelectionState;
 
 #[repr(C)]
 #[allow(dead_code)]
 #[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
 pub struct NeuronInstance {
-    pub packed_pos: u32,
+    pub global_idx: u32,
     pub emissive: f32,
-    pub selected: u32, // 1 = выделен, 0 = нет
+    pub selected: u32,
 }
 
 #[derive(Component)]
@@ -60,6 +61,11 @@ pub struct GlobalSpikeMap {
     pub map: Vec<SpikeRoute>,
 }
 
+#[derive(Resource)]
+pub struct GpuGeometryBuffer {
+    pub buffer: Handle<ShaderStorageBuffer>,
+}
+
 #[derive(Clone, Copy, ShaderType, Debug, Default)]
 pub struct MaterialUniforms {
     pub base_color: LinearRgba,
@@ -75,6 +81,12 @@ pub struct NeuronInstancedMaterial {
 
     #[storage(1, read_only)]
     pub instances: Handle<ShaderStorageBuffer>,
+
+    #[storage(2, read_only)]
+    pub geometry: Handle<ShaderStorageBuffer>,
+
+    #[storage(3, read_only)]
+    pub telemetry: Handle<ShaderStorageBuffer>,
 }
 
 impl Material for NeuronInstancedMaterial {
@@ -97,12 +109,12 @@ impl Plugin for WorldViewPlugin {
             .add_systems(
                 Update,
                 (
-                    apply_telemetry_spikes,
                     sync_selection_to_instances,
                     sync_vram_buffers,
                     handle_view_mode_toggle,
                     handle_clipping_plane,
                     sync_neuron_vram_buffers,
+                    check_geometry_applied.run_if(resource_exists::<LoadedGeometry>),
                 )
                     .chain(),
             );
@@ -129,6 +141,8 @@ fn setup_world_rendering(
                 _padding: Vec3::ZERO,
             },
             instances,
+            geometry: Handle::default(),
+            telemetry: Handle::default(), 
         });
 
         commands.spawn((
@@ -154,7 +168,7 @@ fn get_type_color(type_id: u8) -> LinearRgba {
 
 fn apply_telemetry_spikes(
     mut query: Query<&mut NeuronLayerData>,
-    mut spike_events: EventReader<SpikeFrame>,
+    mut spike_events: EventReader<SpikeFrameEvent>,
     spike_map: Option<Res<GlobalSpikeMap>>,
 ) {
     let Some(global_map) = spike_map else { return };
@@ -198,6 +212,46 @@ fn apply_telemetry_spikes(
             layer.needs_buffer_update = true;
         }
     }
+}
+
+fn check_geometry_applied(
+    mut commands: Commands,
+    loaded: Res<LoadedGeometry>,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+    mut materials: ResMut<Assets<NeuronInstancedMaterial>>,
+    q_materials: Query<&MeshMaterial3d<NeuronInstancedMaterial>>,
+    mut q_layers: Query<&mut NeuronLayerData>,
+) {
+    info!("Initializing GPU Geometry Buffer for {} neurons", loaded.0.len());
+    
+    let buffer_handle = buffers.add(ShaderStorageBuffer::from(loaded.0.clone()));
+    commands.insert_resource(GpuGeometryBuffer { buffer: buffer_handle.clone() });
+
+    // Update all materials to use this geometry buffer
+    for mat_handle in q_materials.iter() {
+        if let Some(material) = materials.get_mut(&mat_handle.0) {
+            material.geometry = buffer_handle.clone();
+        }
+    }
+
+    for mut layer in q_layers.iter_mut() {
+        let type_id = layer.type_id;
+        layer.instances.clear();
+        for (global_idx, pos) in loaded.0.iter().enumerate() {
+            let p_type = pos[3] as u8;
+            if p_type == type_id {
+                layer.instances.push(NeuronInstance {
+                    global_idx: global_idx as u32,
+                    emissive: 0.0,
+                    selected: 0,
+                });
+            }
+        }
+        layer.needs_buffer_update = true;
+    }
+
+    // We keep LoadedGeometry for CPU side lookups (inspector)
+    info!("GPU Geometry Buffer initialized and applied to materials.");
 }
 
 /// Заливка из ECS-компонента в GPU-буфер.

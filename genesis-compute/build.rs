@@ -19,5 +19,6 @@ fn main() {
         // Жёстко привязываем хост-компилятор, чтобы избежать конфликтов с GCC 14
         .flag("-ccbin=g++-12")
         .file("src/cuda/bindings.cu")
+        .file("src/cuda/physics.cu")
         .compile("genesis_cuda");
 }

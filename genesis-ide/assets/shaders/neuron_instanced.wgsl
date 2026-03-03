@@ -1,7 +1,6 @@
 #import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_clip}
 
 struct NeuronInstance {
-    packed_pos: u32,
     emissive: f32,
     selected: u32,
 }
@@ -13,8 +12,14 @@ struct MaterialUniforms {
     _padding: vec3<f32>,
 };
 
+struct NeuronGeometry {
+    pos_and_type: vec4<f32>,
+};
+
 @group(2) @binding(0) var<uniform> material: MaterialUniforms;
 @group(2) @binding(1) var<storage, read> instances: array<NeuronInstance>;
+@group(2) @binding(2) var<storage, read> geometry: array<NeuronGeometry>;
+@group(2) @binding(3) var<storage, read> telemetry: array<f32>;
 
 struct Vertex {
     @location(0) position: vec3<f32>,
@@ -28,6 +33,7 @@ struct VertexOutput {
     @location(1) emissive: f32,
     @location(2) @interpolate(flat) selected: u32,
     @location(3) world_position: vec3<f32>,
+    @location(4) @interpolate(flat) instance_idx: u32,
 }
 
 @vertex
@@ -35,16 +41,10 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     
     let instance = instances[vertex.instance_idx];
+    let neuron_geo = geometry[vertex.instance_idx];
     
-    // Распаковка PackedPosition (X: 11, Y: 11, Z: 10)
-    // Voxel size = 25.0 um
-    let pos_x = f32(instance.packed_pos & 0x7FFu) * 25.0;
-    let pos_y = f32((instance.packed_pos >> 11u) & 0x7FFu) * 25.0;
-    let pos_z = f32((instance.packed_pos >> 22u) & 0x3FFu) * 25.0;
+    let world_offset = neuron_geo.pos_and_type.xyz;
     
-    let world_offset = vec3<f32>(pos_x, pos_y, pos_z);
-    
-    // Сдвигаем базовую геометрию сферы на распакованные координаты
     var final_pos = vertex.position + world_offset;
     let world_from_local = get_world_from_local(vertex.instance_idx);
     let world_pos = (world_from_local * vec4<f32>(final_pos, 1.0)).xyz;
@@ -54,6 +54,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.color = material.base_color;
     out.emissive = instance.emissive;
     out.selected = instance.selected;
+    out.instance_idx = vertex.instance_idx;
     
     return out;
 }
@@ -64,10 +65,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
+    // O(1) аппаратный lookup интенсивности спайка
+    let spike_glow = telemetry[in.instance_idx];
+
     var final_color: vec3<f32>;
 
     if material.view_mode == 0u {
-        // РЕЖИМ 0: Solid (Оригинальная логика)
+        // РЕЖИМ 0: Solid
         final_color = mix(in.color.rgb, vec3<f32>(1.0, 1.0, 1.0), in.emissive);
     } else {
         // РЕЖИМ 1: Activity (Heatmap)
@@ -81,7 +85,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color = heat;
     }
 
-    // Подсветка выделения (Cyan) поверх любого режима
+    // Инъекция свечения телеметрии (HDR вспышка)
+    let emissive_color = vec3<f32>(1.0, 0.3, 0.1); 
+    let telemetry_glow = emissive_color * spike_glow * 25.0;
+    final_color += telemetry_glow;
+
+    // Подсветка выделения
     if in.selected > 0u {
         final_color = mix(final_color, vec3<f32>(0.2, 0.8, 1.0), 0.6);
     }

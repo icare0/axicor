@@ -41,57 +41,32 @@ pub async fn send_geometry_request(
     Ok(resp)
 }
 
-/// A TCP Server that accepts structural graph updates (GeometryRequest)
-/// from neighboring shards and passes them via MPSC to the Orchestrator.
 pub struct GeometryServer {
     listener: TcpListener,
 }
 
 impl GeometryServer {
-    /// Binds the server to the provided SocketAddr.
     pub async fn bind(addr: SocketAddr) -> Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         Ok(Self { listener })
     }
 
-    /// Returns the active local socket address
-    pub fn local_addr(&self) -> Result<SocketAddr> {
-        Ok(self.listener.local_addr()?)
-    }
-
-    /// Spawns the server loop in a Tokio task which continuously serves GEOM frames to connected IDEs.
-    pub fn spawn(self) {
-        // Generate a dense grid of Mock PackedPositions (1024 neurons)
-        // PackedPosition: Type(4b) | Z(8b) | Y(10b) | X(10b)
-        let num_neurons = 1024;
-        let mut positions = Vec::with_capacity(num_neurons);
-        let grid_size = 10;
+    /// Spawns the server loop serving the provided [f32; 4] neuron data.
+    pub fn spawn(self, geometry_data: Vec<[f32; 4]>) {
+        let num_neurons = geometry_data.len();
         
-        for i in 0..num_neurons {
-            let x = (i % grid_size) as u32 * 2;
-            let y = ((i / grid_size) % grid_size) as u32 * 2;
-            let z = (i / (grid_size * grid_size)) as u32 * 2;
-            // Type is 0..3 cyclically
-            let t = (i % 4) as u32; 
-            
-            let packed = (x & 0x3FF) | ((y & 0x3FF) << 10) | ((z & 0xFF) << 20) | ((t & 0xF) << 28);
-            positions.push(packed);
-        }
-
-        let payload_size = num_neurons * 4;
-        let mut buf = Vec::with_capacity(12 + payload_size);
-        buf.extend_from_slice(&0x47454F4Du32.to_le_bytes()); // "GEOM"
-        buf.extend_from_slice(&1u32.to_le_bytes()); // version
-        buf.extend_from_slice(&(num_neurons as u32).to_le_bytes()); // num_neurons
+        let mut buf = Vec::with_capacity(8 + num_neurons * 16);
+        buf.extend_from_slice(b"GEOM"); 
+        buf.extend_from_slice(&(num_neurons as u32).to_le_bytes());
         
-        let pos_bytes = unsafe {
-            std::slice::from_raw_parts(positions.as_ptr() as *const u8, payload_size)
-        };
-        buf.extend_from_slice(pos_bytes);
+        // Zero-cost cast to bytes
+        let data_bytes = bytemuck::cast_slice(&geometry_data);
+        buf.extend_from_slice(data_bytes);
 
         let shared_payload = std::sync::Arc::new(buf);
 
         tokio::spawn(async move {
+            println!("[Geometry Server] Listening on TCP {}", self.listener.local_addr().unwrap());
             loop {
                 let (mut stream, _) = match self.listener.accept().await {
                     Ok(s) => s,
@@ -100,7 +75,13 @@ impl GeometryServer {
                 
                 let data = shared_payload.clone();
                 tokio::spawn(async move {
-                    let _ = stream.write_all(&data).await;
+                    // Wait for the "GEOM" request magic
+                    let mut magic = [0u8; 4];
+                    if let Ok(_) = stream.read_exact(&mut magic).await {
+                        if &magic == b"GEOM" {
+                            let _ = stream.write_all(&data).await;
+                        }
+                    }
                 });
             }
         });

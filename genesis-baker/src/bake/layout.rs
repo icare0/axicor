@@ -1,8 +1,10 @@
 use genesis_core::constants::{MAX_DENDRITE_SLOTS, AXON_SENTINEL};
 use genesis_core::layout::align_to_warp;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::Path;
 use std::fs::File;
+use bytemuck::cast_slice;
+use genesis_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
 
 /// Промежуточная SoA-структура на CPU перед дампом на диск.
 /// Гарантирует правильный padding для CUDA варпов.
@@ -19,12 +21,12 @@ pub struct ShardSoA {
     // Транспонированная матрица дендритов (Columnar Layout)
     pub dendrite_targets: Vec<u32>,
     pub dendrite_weights: Vec<i16>,
-    pub dendrite_timers: Vec<u8>,
+    pub dendrite_timers: Vec<u8>, // Transient: stored in baker but NOT in .state
 
     // Аксоны
     pub axon_heads: Vec<u32>,
-    pub axon_tips_uvw: Vec<u32>, // PackedTip
-    pub axon_dirs_xyz: Vec<u32>, // PackedDir
+    pub axon_tips_uvw: Vec<u32>, // PackedTip -> .geom
+    pub axon_dirs_xyz: Vec<u32>, // PackedDir -> .geom
 
     // Маппинг: soma_idx → axon_idx
     pub soma_to_axon: Vec<u32>,
@@ -45,9 +47,9 @@ impl ShardSoA {
             threshold_offset: vec![0; padded_n],
             refractory_timer: vec![0; padded_n],
 
-            dendrite_targets: vec![0; MAX_DENDRITE_SLOTS * padded_n],
-            dendrite_weights: vec![0; MAX_DENDRITE_SLOTS * padded_n],
-            dendrite_timers: vec![0; MAX_DENDRITE_SLOTS * padded_n],
+            dendrite_targets: vec![0; MAX_DENDRITES * padded_n],
+            dendrite_weights: vec![0; MAX_DENDRITES * padded_n],
+            dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
 
             // Хард-инвариант: пустые аксоны ОБЯЗАНЫ быть 0x80000000
             axon_heads: vec![AXON_SENTINEL; total_axons],
@@ -67,79 +69,78 @@ impl ShardSoA {
 
     /// Дамп SoA-структур в бинарные файлы. Zero-cost для загрузки в рантайме.
     pub fn dump_to_disk(&self, out_dir: &Path) {
-        // ⚠️ ИНВАРИАНТ ВЫРАВНИВАНИЯ (01_foundations.md §2.2)
-        debug_assert!(self.padded_n % 32 == 0, "CRITICAL: padded_n ({}) must be warp-aligned (multiple of 32)", self.padded_n);
-        
+        // [Warp Alignment Check]
+        assert!(self.padded_n % 32 == 0, "CRITICAL: padded_n must be multiple of 32");
+
         let state_path = out_dir.join("shard.state");
         let axons_path = out_dir.join("shard.axons");
+        let geom_path = out_dir.join("shard.geom");
 
-        let mut state_file = File::create(state_path).expect("Failed to create .state file");
-        let state_header = genesis_core::layout::StateFileHeader::new(
-            self.padded_n as u32, 
-            self.total_axons as u32
-        );
-        
-        self.write_state_blob(&mut state_file, &state_header).expect("Failed to write state blob");
+        // 1. .state (Somas + Dendrites)
+        write_state_blob(
+            &state_path,
+            self.padded_n,
+            &self.voltage,
+            &self.flags,
+            &self.threshold_offset,
+            &self.refractory_timer,
+            &self.soma_to_axon,
+            &self.dendrite_targets,
+            &self.dendrite_weights,
+        ).expect("Failed to write .state blob");
 
-        // 2. Дамп аксонов (.axons)
-        let mut axons_file = BufWriter::new(File::create(axons_path).expect("Failed to create .axons file"));
-        let header = genesis_core::layout::AxonsFileHeader::new(self.total_axons as u32);
-        axons_file.write_all(header.as_bytes()).unwrap();
+        // 2. .axons (Heads only)
+        write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write .axons blob");
 
-        write_raw_slice(&mut axons_file, &self.axon_tips_uvw);
-        write_raw_slice(&mut axons_file, &self.axon_dirs_xyz);
-    }
-
-    /// Zero-Copy Serializer (06_baker_io.md §2.1)
-    pub fn write_state_blob(&self, file: &mut File, header: &genesis_core::layout::StateFileHeader) -> std::io::Result<()> {
-        // [Contract §1.2.1] The file must be a byte-perfect image of VRAM.
-        // We write all arrays sequentially.
-        
-        let pn = self.padded_n;
-        let pa = self.total_axons;
-        let dc = MAX_DENDRITE_SLOTS * pn;
-
-        // 1. Заголовок
-        file.write_all(header.as_bytes())?;
-
-        // 2. Проливка сырой памяти (POD)
-        unsafe {
-            write_pod_slice(file, &self.voltage[..pn])?;
-            write_pod_slice(file, &self.flags[..pn])?;
-            write_pod_slice(file, &self.threshold_offset[..pn])?;
-            write_pod_slice(file, &self.refractory_timer[..pn])?;
-            write_pod_slice(file, &self.soma_to_axon[..pn])?;
-
-            // Транспонированные дендриты
-            write_pod_slice(file, &self.dendrite_targets[..dc])?;
-            write_pod_slice(file, &self.dendrite_weights[..dc])?;
-            write_pod_slice(file, &self.dendrite_timers[..dc])?;
-            
-            // Аксоны (Heads) - Fixed: must be pa (padded axons)
-            write_pod_slice(file, &self.axon_heads[..pa])?;
-        }
-        
-        Ok(())
+        // 3. .geom (Tips + Dirs for visualization and growth logic)
+        // Note: Not loaded into VRAM by ShardEngine, but needed by baker and telemetry
+        let mut geom_file = File::create(geom_path).expect("Failed to create .geom file");
+        geom_file.write_all(cast_slice(&self.axon_tips_uvw)).unwrap();
+        geom_file.write_all(cast_slice(&self.axon_dirs_xyz)).unwrap();
     }
 }
 
-/// Helper для записи сырых слайсов в файл (Zero-Copy)
-#[inline(always)]
-unsafe fn write_pod_slice<T>(file: &mut File, data: &[T]) -> std::io::Result<()> {
-    let bytes = std::slice::from_raw_parts(
-        data.as_ptr() as *const u8,
-        data.len() * std::mem::size_of::<T>()
-    );
-    file.write_all(bytes)
+/// Zero-Cost сборка бинарного блоба .state.
+/// Массивы обязаны быть длины `padded_n`.
+pub fn write_state_blob(
+    path: &Path,
+    padded_n: usize,
+    voltages: &[i32],
+    flags: &[u8],
+    thresholds: &[i32],
+    timers: &[u8],
+    soma_to_axon: &[u32],
+    dendrite_targets: &[u32], // Длина: padded_n * 128
+    dendrite_weights: &[i16], // Длина: padded_n * 128
+) -> std::io::Result<()> {
+    let (_, total_size) = calculate_state_blob_size(padded_n);
+    
+    // Преаллокация точного размера для предотвращения реаллокаций памяти
+    let mut blob = Vec::with_capacity(total_size);
+
+    // [Contract] Строгая последовательность укладки байт согласно ShardVramPtrs
+    blob.extend_from_slice(cast_slice(&voltages[..padded_n]));
+    blob.extend_from_slice(cast_slice(&flags[..padded_n]));
+    blob.extend_from_slice(cast_slice(&thresholds[..padded_n]));
+    blob.extend_from_slice(cast_slice(&timers[..padded_n]));
+    blob.extend_from_slice(cast_slice(&soma_to_axon[..padded_n]));
+    blob.extend_from_slice(cast_slice(&dendrite_targets[..padded_n * MAX_DENDRITES]));
+    blob.extend_from_slice(cast_slice(&dendrite_weights[..padded_n * MAX_DENDRITES]));
+
+    assert_eq!(blob.len(), total_size, "FATAL: State blob size mismatch before disk flush");
+
+    let mut file = File::create(path)?;
+    file.write_all(&blob)?;
+    Ok(())
 }
 
-/// Старый хелпер для BufWriter (остается для .axons)
-fn write_raw_slice<T>(writer: &mut BufWriter<File>, data: &[T]) {
-    let byte_slice = unsafe {
-        std::slice::from_raw_parts(
-            data.as_ptr() as *const u8,
-            data.len() * std::mem::size_of::<T>(),
-        )
-    };
-    writer.write_all(byte_slice).expect("Failed to write raw layout bytes");
+/// Выгрузка .axons блоба.
+pub fn write_axons_blob(
+    path: &Path,
+    axon_heads: &[u32], // Длина: total_axons
+) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(cast_slice(axon_heads))?;
+    Ok(())
 }
+

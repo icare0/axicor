@@ -7,6 +7,7 @@ use genesis_compute::memory::PinnedBuffer;
 use crate::network::router::RoutingTable;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use anyhow::{Context, Result};
 
 /// Lock-Free Double Buffering for External I/O.
 /// Isolates the asynchronous Tokio network thread from the synchronous GPU Orchestrator.
@@ -23,7 +24,7 @@ pub struct InputSwapchain {
 }
 
 impl InputSwapchain {
-    pub fn new(capacity: usize) -> Result<Self, String> {
+    pub fn new(capacity: usize) -> Result<Self> {
         let mut buffer_a = PinnedBuffer::new(capacity)?;
         let mut buffer_b = PinnedBuffer::new(capacity)?;
         
@@ -91,7 +92,7 @@ impl ExternalIoServer {
         dashboard: Arc<crate::tui::DashboardState>,
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         Ok(Self {
             is_sleeping,
             oversized_skips: AtomicU64::new(0),
@@ -281,5 +282,54 @@ mod tests {
         
         let new_addr: SocketAddr = "2.2.2.2:2222".parse().unwrap();
         assert_eq!(routing_table.get_address(zone_a), Some(new_addr));
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ExternalIoHeaderV2 {
+    pub zone_hash: u64,
+    pub matrix_hash: u64,
+}
+
+pub struct IoMultiplexer;
+
+impl IoMultiplexer {
+    /// Запускает неблокирующий UDP-сервер для приема входных битовых масок
+    pub async fn spawn_input_listener(
+        port: u16,
+        tx: tokio::sync::mpsc::UnboundedSender<(ExternalIoHeaderV2, Vec<u32>)>,
+    ) {
+        let sock = match UdpSocket::bind(("0.0.0.0", port)).await {
+            Ok(s) => Arc::new(s),
+            Err(e) => {
+                println!("Failed to bind UDP {}: {}", port, e);
+                return; // exit early without panic
+            }
+        };
+        
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65507]; // Максимальный UDP payload
+            loop {
+                if let Ok((size, _addr)) = sock.recv_from(&mut buf).await {
+                    if size < 16 { continue; } // Защита от мусора
+
+                    // Zero-Cost парсинг заголовка
+                    let header: ExternalIoHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
+                    
+                    // Извлечение payload (Input_Bitmask)
+                    let payload_bytes = &buf[16..size];
+                    
+                    // Защита от невыровненных пакетов
+                    if payload_bytes.len() % 4 != 0 { continue; }
+                    
+                    // Каст без аллокаций. Клонируем в Vec только валидные данные для передачи в канал.
+                    let payload: &[u32] = bytemuck::cast_slice(payload_bytes);
+                    
+                    if tx.send((header, payload.to_vec())).is_err() {
+                        break; // Оркестратор мертв, тушим слушатель
+                    }
+                }
+            }
+        });
     }
 }

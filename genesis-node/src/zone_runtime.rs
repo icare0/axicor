@@ -1,7 +1,7 @@
 // Removed Runtime import as we only need ZoneRuntime struct itself
 use genesis_core::config::{BlueprintsConfig, InstanceConfig};
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::network::bsp::PingPongSchedule;
+// Removed PingPongSchedule as we use BspBarrier now
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use genesis_core::config::manifest::GpuVariantParameters;
@@ -9,11 +9,9 @@ use genesis_core::config::manifest::GpuVariantParameters;
 pub struct ZoneRuntime {
     pub const_mem: [GpuVariantParameters; 16],
     pub is_sleeping: Arc<AtomicBool>,
-    pub ping_pong: Arc<PingPongSchedule>,
     pub config: InstanceConfig,
     pub sleep_requested: bool,
     pub prune_threshold: i16,
-    pub runtime: tokio::runtime::Runtime,
     pub name: String,
     pub artifact_dir: std::path::PathBuf,
     pub last_night_time: Instant,

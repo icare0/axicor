@@ -69,3 +69,49 @@ impl InterNodeChannel {
         );
     }
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SpikeBatchHeaderV2 {
+    pub src_zone_hash: u64,
+    pub dst_zone_hash: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SpikeEventV2 {
+    pub ghost_id: u32,
+    pub tick_offset: u32, // Выровнено до 8 байт для Coalesced Access
+}
+
+pub struct InterNodeRouter;
+
+impl InterNodeRouter {
+    /// Запускает слушатель межзональных спайков (Sender-Side Mapping)
+    pub async fn spawn_ghost_listener(
+        port: u16,
+        tx: tokio::sync::mpsc::UnboundedSender<(SpikeBatchHeaderV2, Vec<SpikeEventV2>)>,
+    ) {
+        let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
+        
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65507];
+            loop {
+                if let Ok((size, _addr)) = sock.recv_from(&mut buf).await {
+                    if size < 16 { continue; }
+                    
+                    let header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
+                    let payload_bytes = &buf[16..size];
+                    
+                    if payload_bytes.len() % 8 != 0 { continue; }
+                    
+                    let events: &[SpikeEventV2] = bytemuck::cast_slice(payload_bytes);
+                    
+                    if tx.send((header, events.to_vec())).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
