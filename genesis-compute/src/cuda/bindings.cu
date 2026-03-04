@@ -113,8 +113,10 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
   uint32_t offset = current_tick * max_spikes_per_tick + tid;
   uint32_t target_axon = schedule_buffer[offset];
 
-  // O(1) Инъекция без поиска (Sender-Side Mapping)
-  state.axon_heads[target_axon] = 0;
+  // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
+  if (target_axon < state.total_axons) {
+    state.axon_heads[target_axon] = 0;
+  }
 }
 
 // =====================================================================
@@ -130,174 +132,6 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
   // Мёртвые аксоны с AXON_SENTINEL (0x80000000) просто увеличивают своё
   // значение. 100% утилизация ALU без ветвлений.
   state.axon_heads[tid] += v_seg;
-}
-
-__global__ void update_neurons_kernel(const SoA_State state,
-                                      uint32_t padded_n) {
-  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= padded_n)
-    return;
-
-  uint8_t flag = state.flags[tid];
-  uint8_t type_idx = (flag >> 4) & 0xF;
-
-  // Broadcast Read: загрузка параметров физики из L1 за 1 такт
-  VariantParameters variant = VARIANT_LUT[type_idx];
-
-  // 1. Refractory Gate (Hard Limit)
-  uint8_t ref_timer = state.refractory_timer[tid];
-  if (ref_timer > 0) {
-    state.refractory_timer[tid] = ref_timer - 1;
-    // Очищаем бит спайка, если он был
-    state.flags[tid] = flag & 0xFE;
-    return; // EARLY EXIT: Выбрасываем поток из исполнения
-  }
-
-  // 2. Leakage & Homeostasis Soft Limit (Branchless clamp)
-  int32_t v = state.voltage[tid];
-  v -= variant.leak_rate;
-  if (v < variant.rest_potential)
-    v = variant.rest_potential;
-
-  int32_t t_offset = state.threshold_offset[tid];
-  t_offset -= variant.homeostasis_decay;
-  if (t_offset < 0)
-    t_offset = 0;
-
-  // 3. Dendrite Summation (Строгий Columnar Layout)
-  for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
-    uint32_t col_idx = slot * padded_n + tid; // 100% Coalesced Access
-    uint32_t target = state.dendrite_targets[col_idx];
-
-    if (target == 0)
-      break; // Сортировка гарантирует: пустые слоты только в хвосте
-
-    // Проверка синаптической рефрактерности
-    uint8_t d_timer = state.dendrite_timers[col_idx];
-    if (d_timer > 0) {
-      state.dendrite_timers[col_idx] = d_timer - 1;
-      continue;
-    }
-
-    // Распаковка target_packed: [31..28] Type | [27..8] AxonID | [7..0] SegIdx
-    uint32_t axon_idx = (target >> 8) & 0xFFFFF;
-    uint32_t seg_idx = target & 0xFF;
-
-    uint32_t head = state.axon_heads[axon_idx];
-    uint32_t dist = head - seg_idx;
-
-    // Active Tail Check.
-    // Если аксон мертв, head = 0x80000000. dist будет ~2 млрд, что >
-    // propagation_length.
-    if (dist <= variant.signal_propagation_length) {
-      v += state.dendrite_weights[col_idx];
-      state.dendrite_timers[col_idx] = variant.synapse_refractory_period;
-    }
-  }
-
-  // 4. Threshold & Fire Check
-  int32_t effective_thresh = variant.threshold + t_offset;
-  bool is_spiking = v >= effective_thresh;
-
-  if (is_spiking) {
-    v = variant.rest_potential;
-    state.refractory_timer[tid] = variant.refractory_period;
-    t_offset += variant.homeostasis_penalty;
-
-    // Рождение сигнала в локальном аксоне
-    uint32_t my_axon = state.soma_to_axon[tid];
-    state.axon_heads[my_axon] = 0;
-
-    // Телеметрия: пакуем ID спайка в плоский массив для IDE
-    uint32_t spike_idx = atomicAdd(state.telemetry_count, 1);
-    // Защита от переполнения (допустим, лимит 500_000 спайков за батч)
-    if (spike_idx < 500000) {
-      state.telemetry_spikes[spike_idx] = tid;
-    }
-  }
-
-  // 5. Write-back состояния
-  state.voltage[tid] = v;
-  state.threshold_offset[tid] = t_offset;
-  state.flags[tid] = (flag & 0xFE) | is_spiking;
-}
-
-// =====================================================================
-// Ядро 5: GSOP Пластичность (Timer-as-Contact-Flag)
-// Спецификация: 04_connectivity.md §2.2
-// =====================================================================
-#define LTM_SLOT_COUNT 80 // Первые 80 слотов — стабильная память (LTM)
-
-__global__ void apply_gsop_kernel(const SoA_State state, uint32_t padded_n) {
-  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= padded_n)
-    return;
-
-  uint8_t flag = state.flags[tid];
-
-  // БРУТАЛЬНЫЙ EARLY EXIT: Пластичность обсчитывается ТОЛЬКО в момент спайка
-  // сомы.
-  if ((flag & 0x01) == 0)
-    return;
-
-  uint8_t type_idx = (flag >> 4) & 0xF;
-  VariantParameters variant = VARIANT_LUT[type_idx];
-
-  for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
-    uint32_t col_idx = slot * padded_n + tid; // 100% Coalesced Memory Access
-    uint32_t target = state.dendrite_targets[col_idx];
-
-    if (target == 0)
-      break; // Сортировка гарантирует: пустые слоты только в хвосте
-
-    int16_t w = state.dendrite_weights[col_idx];
-    uint32_t abs_w = w >= 0 ? w : -w;
-
-    // Индекс кривой инерции (16 рангов по 2048 единиц веса)
-    uint32_t rank = abs_w >> 11;
-    if (rank > 15)
-      rank = 15;
-
-    int32_t inertia =
-        128 -
-        (rank * 8); // Инерция, жестко заданная формулой взамен старой таблицы
-    uint8_t timer = state.dendrite_timers[col_idx];
-
-    int32_t delta = 0;
-    // Timer-as-Contact-Flag: Если таймер равен рефрактерности синапса — значит
-    // этот дендрит касался активного хвоста сигнала именно в этом тике.
-    if (timer == variant.synapse_refractory_period) {
-      int32_t modulated_pot =
-          (variant.gsop_potentiation * current_dopamine) >> 8;
-      delta = (modulated_pot * inertia) >> 7; // Усиление (R-STDP Modulated)
-    } else {
-      delta = -((variant.gsop_depression * inertia) >> 7); // Ослабление (LTD)
-    }
-
-    int32_t new_w = w + delta;
-
-    // Slot-based decay (Градиентная стабильность LTM vs WM)
-    int32_t decay = (slot < LTM_SLOT_COUNT) ? variant.slot_decay_ltm
-                                            : variant.slot_decay_wm;
-
-    if (new_w > 0) {
-      new_w -= decay;
-      if (new_w < 0)
-        new_w = 0;
-    } else if (new_w < 0) {
-      new_w += decay;
-      if (new_w > 0)
-        new_w = 0;
-    }
-
-    // Clamp to i16 (Защита от переполнения)
-    if (new_w > 32767)
-      new_w = 32767;
-    if (new_w < -32768)
-      new_w = -32768;
-
-    state.dendrite_weights[col_idx] = (int16_t)new_w;
-  }
 }
 
 // =====================================================================
@@ -361,13 +195,24 @@ bool gpu_memcpy_host_to_device(void *dst, const void *src, size_t size) {
   return err == cudaSuccess;
 }
 void gpu_memcpy_device_to_host(void *dst, const void *src, size_t size) {
-  cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost);
+  cudaError_t err = cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost);
+  if (err != cudaSuccess) {
+    fprintf(stderr,
+            "[gpu_memcpy_device_to_host] CUDA ERROR: %s (src=%p, size=%zu)\n",
+            cudaGetErrorString(err), src, size);
+  }
 }
 
 void gpu_stream_synchronize(cudaStream_t stream) {
   cudaStreamSynchronize(stream);
 }
 
+void gpu_set_device(int32_t device_id) {
+  cudaError_t err = cudaSetDevice(device_id);
+  if (err != cudaSuccess) {
+    printf("FATAL CUDA ERROR in gpu_set_device: %s\n", cudaGetErrorString(err));
+  }
+}
 void gpu_device_synchronize() { cudaDeviceSynchronize(); }
 
 void gpu_synchronize() { cudaDeviceSynchronize(); }
@@ -422,21 +267,6 @@ void launch_propagate_axons(SoA_State vram, uint32_t v_seg) {
   uint32_t threads = 256;
   uint32_t blocks = (vram.total_axons + threads - 1) / threads;
   propagate_axons_kernel<<<blocks, threads, 0, 0>>>(vram, v_seg);
-}
-
-void launch_update_neurons(SoA_State vram, const void *constants_ptr,
-                           uint32_t current_tick) {
-  uint32_t threads = 256;
-  uint32_t blocks = (vram.padded_n + threads - 1) / threads;
-  // constants_ptr не используется ядрами напрямую (они используют VARIANT_LUT),
-  // но может понадобиться для hot-reload перед запуском.
-  update_neurons_kernel<<<blocks, threads, 0, 0>>>(vram, vram.padded_n);
-}
-
-void launch_apply_gsop(SoA_State vram) {
-  uint32_t threads = 256;
-  uint32_t blocks = (vram.padded_n + threads - 1) / threads;
-  apply_gsop_kernel<<<blocks, threads, 0, 0>>>(vram, vram.padded_n);
 }
 
 void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,

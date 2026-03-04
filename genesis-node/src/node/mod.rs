@@ -157,6 +157,10 @@ impl NodeRuntime {
         thread::Builder::new()
             .name(format!("compute-{}", hash))
             .spawn(move || {
+                // [DOD] Bind CUDA Primary Context to this OS thread.
+                // Without this, TLS is empty and driver can't see VRAM pointers.
+                unsafe { genesis_compute::ffi::gpu_set_device(0); }
+
                 let mapped_soma_ids = mapped_soma_ids_ptr as *const u32;
                 let mut batch_counter: u64 = 0;
                 while let Ok(cmd) = rx.recv() {

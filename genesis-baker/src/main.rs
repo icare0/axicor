@@ -369,6 +369,8 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 slot_decay_ltm: v.slot_decay_ltm as u8,
                 slot_decay_wm: v.slot_decay_wm as u8,
                 signal_propagation_length: v.signal_propagation_length as u8,
+                ltm_slot_count: 80, // default from blueprints
+                inertia_curve: v.inertia_curve,
             }
         }).collect(),
     };
@@ -392,17 +394,17 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 .unwrap_or_else(|_| panic!("Failed to copy {} to BrainDNA", dst_name));
         }
     }
-    println!("[baker] ✓ Written: BrainDNA Artifacts");
-
-    println!("[baker] Zone {} Done.", zone_name);
-    
     let packed_pos: Vec<u32> = positions.iter().map(|p| p.0).collect();
     let voxel_um = sim.simulation.voxel_size_um;
     let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
     let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
     let _size_vox = (world_w_vox as f32, world_d_vox as f32);
-    
-    Ok((shard.soma_to_axon.clone(), shard.total_axons, packed_pos, _size_vox))
+
+    // [DOD FIX] Оффсет для Ghost-аксонов должен начинаться сразу после локальных.
+    // axons.len() — это точное количество сгенерированных локальных аксонов зоны.
+    let local_axons_count = axons.len();
+
+    Ok((shard.soma_to_axon.clone(), local_axons_count, packed_pos, _size_vox))
 }
 
 /// Формат файла `.axons`:

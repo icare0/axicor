@@ -100,6 +100,7 @@ pub extern "C" fn gpu_memcpy_peer_async(
     true
 }
 
+#[no_mangle] pub extern "C" fn gpu_set_device(_device_id: i32) {}
 #[no_mangle] pub extern "C" fn gpu_device_synchronize() {}
 #[no_mangle] pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
 #[no_mangle] pub extern "C" fn gpu_synchronize() {}

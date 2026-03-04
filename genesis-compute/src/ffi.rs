@@ -157,6 +157,7 @@ extern "C" {
     ) -> bool;
 
     pub fn gpu_stream_synchronize(stream: CudaStream);
+    pub fn gpu_set_device(device_id: i32);
     pub fn gpu_device_synchronize();
     
     /// Barrier: blocks CPU until all previous commands in the default stream are done.

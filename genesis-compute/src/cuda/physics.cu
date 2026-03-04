@@ -71,7 +71,8 @@ __global__ void cu_inject_inputs_kernel(uint32_t *axon_heads,
 // ============================================================================
 __global__ void cu_apply_spike_batch_kernel(uint32_t *axon_heads,
                                             const uint32_t *incoming_spikes,
-                                            uint32_t num_incoming_spikes) {
+                                            uint32_t num_incoming_spikes,
+                                            uint32_t total_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_incoming_spikes)
     return;
@@ -80,8 +81,11 @@ __global__ void cu_apply_spike_batch_kernel(uint32_t *axon_heads,
   // локальный индекс в массиве axon_heads. Никаких трансляций ID.
   uint32_t ghost_id = incoming_spikes[tid];
 
-  // Сброс головы Ghost-аксона в 0 (рождение сигнала от соседа)
-  axon_heads[ghost_id] = 0;
+  // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
+  if (ghost_id < total_axons) {
+    // Сброс головы Ghost-аксона в 0 (рождение сигнала от соседа)
+    axon_heads[ghost_id] = 0;
+  }
 }
 
 // ============================================================================
@@ -133,7 +137,9 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     if (target_packed == 0)
       continue;
 
-    uint32_t target_id = target_packed & 0x00FFFFFF;
+    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
+    // Trap)
+    uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
 
     uint32_t head = vram.axon_heads[target_id];
@@ -152,6 +158,15 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   }
 
   current_voltage += i_in - p.leak_rate;
+
+  // [DOD] Branchless Clamp: floor at rest_potential to prevent infinite voltage
+  // debt If current_voltage < rest_potential, diff is negative, (diff >> 31) =
+  // 0xFFFFFFFF,
+  // ~(diff >> 31) = 0, so diff & 0 = 0. Result: current_voltage =
+  // rest_potential.
+  int32_t diff = current_voltage - p.rest_potential;
+  current_voltage = p.rest_potential + (diff & ~(diff >> 31));
+
   int32_t effective_threshold = p.threshold + thresh_offset;
 
   if (current_voltage >= effective_threshold) {
@@ -193,7 +208,9 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
     if (target_packed == 0)
       break; // Пустые слоты в хвосте
 
-    uint32_t target_id = target_packed & 0x00FFFFFF;
+    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
+    // Trap)
+    uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
     uint32_t head = vram.axon_heads[target_id];
 
@@ -289,7 +306,7 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
   if (num_incoming_spikes > 0 && incoming_spikes != nullptr) {
     int blocks_spikes = (num_incoming_spikes + threads - 1) / threads;
     cu_apply_spike_batch_kernel<<<blocks_spikes, threads>>>(
-        vram->axon_heads, incoming_spikes, num_incoming_spikes);
+        vram->axon_heads, incoming_spikes, num_incoming_spikes, total_axons);
   }
 
   // 3. PropagateAxons

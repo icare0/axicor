@@ -114,35 +114,57 @@ impl Bootloader {
             axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
             s2a_maps.insert(zone_hash, s2a);
 
-            // Resolve io.toml path early — needed for GXI safety check below
-            let io_config_path = if zone_entry.io.is_absolute() {
-                zone_entry.io.clone()
-            } else {
-                std::path::Path::new("/home/alex/Workflow/Genesis").join(&zone_entry.io)
-            };
+            // [DOD] Read baked BrainDNA/io.toml — the source of truth from Baker
+            let dna_dir = baked_dir.join("BrainDNA");
+            let io_config_path = dna_dir.join("io.toml");
 
-            let gxi_path = baked_dir.join("shard.gxi");
-            let num_virtual_axons = if gxi_path.exists() {
-                GxiFile::load(&gxi_path).total_pixels
-            } else {
-                // [DOD] If io.toml declares inputs but .gxi is missing, crash immediately.
-                // Silent fallback to 0 causes DMA buffer overflow → VRAM corruption.
-                if io_config_path.exists() {
-                    if let Ok(io_cfg) = genesis_core::config::io::IoConfig::load(&io_config_path) {
-                        if !io_cfg.inputs.is_empty() {
-                            panic!(
-                                "FATAL: Zone '{}' has inputs in io.toml but {:?} is missing!\n\
-                                 Fix baked_dir in brain.toml or re-run Baker.",
-                                zone_entry.name, gxi_path
-                            );
+            let mut expected_inputs = false;
+            let mut expected_outputs = false;
+            let mut matrix_offsets = HashMap::new();
+
+            if io_config_path.exists() {
+                if let Ok(io_config) = genesis_core::config::io::IoConfig::load(&io_config_path) {
+                    expected_inputs = !io_config.inputs.is_empty();
+                    expected_outputs = !io_config.outputs.is_empty();
+
+                    let mut current_bit_offset = 0u32;
+                    for input in &io_config.inputs {
+                        let hash = genesis_core::hash::fnv1a_32(input.name.as_bytes());
+                        matrix_offsets.insert(hash, (current_bit_offset / 8) as u32);
+                        current_bit_offset += input.width * input.height;
+                        current_bit_offset = (current_bit_offset + 31) & !31;
+                    }
+                    
+                    for output in &io_config.outputs {
+                        let hash = genesis_core::hash::fnv1a_32(output.name.as_bytes());
+                        if zone_entry.name == "MotorCortex" || zone_entry.name == "SensoryCortex" {
+                            output_routes.entry(zone_hash).or_insert_with(Vec::new)
+                                .push(("127.0.0.1:8082".to_string(), hash));
                         }
                     }
+                }
+            }
+
+            // --- GXI (Inputs) with stale file protection ---
+            let gxi_path = baked_dir.join("shard.gxi");
+            let num_virtual_axons = if expected_inputs {
+                if !gxi_path.exists() {
+                    panic!("FATAL: Zone '{}' expects inputs but {:?} is missing! Re-run Baker.", zone_entry.name, gxi_path);
+                }
+                GxiFile::load(&gxi_path).total_pixels
+            } else {
+                if gxi_path.exists() {
+                    println!("[Boot] Ignoring stale {:?} — BrainDNA/io.toml has no inputs.", gxi_path);
                 }
                 0
             };
 
+            // --- GXO (Outputs) with stale file protection ---
             let gxo_path = baked_dir.join("shard.gxo");
-            let (num_outputs, mapped_soma_ids_device) = if gxo_path.exists() {
+            let (num_outputs, mapped_soma_ids_device) = if expected_outputs {
+                if !gxo_path.exists() {
+                    panic!("FATAL: Zone '{}' expects outputs but {:?} is missing! Re-run Baker.", zone_entry.name, gxo_path);
+                }
                 let gxo = GxoFile::load(&gxo_path);
                 let ptr = unsafe { genesis_compute::ffi::gpu_malloc(gxo.soma_ids.len() * 4) } as *mut u32;
                 unsafe {
@@ -154,6 +176,9 @@ impl Bootloader {
                 }
                 (gxo.total_pixels, ptr as *const u32)
             } else {
+                if gxo_path.exists() {
+                    println!("[Boot] Ignoring stale {:?} — BrainDNA/io.toml has no outputs.", gxo_path);
+                }
                 (0, std::ptr::null())
             };
 
@@ -164,35 +189,9 @@ impl Bootloader {
             let geo_data: Vec<u32> = bytemuck::cast_slice(&pos_blob).to_vec();
             all_geo_data.extend(geo_data);
 
-            // [DOD] Dedicated InputSwapchain for this zone
             let input_words_per_tick = (num_virtual_axons + 31) / 32;
             let sync_batch_ticks = 100;
             let capacity = (input_words_per_tick * sync_batch_ticks * 4) as usize;
-            
-            let mut matrix_offsets = HashMap::new();
-            
-
-            if io_config_path.exists() {
-                if let Ok(io_config) = genesis_core::config::io::IoConfig::load(&io_config_path) {
-                    let mut current_bit_offset = 0u32;
-                    for input in &io_config.inputs {
-                        let hash = genesis_core::hash::fnv1a_32(input.name.as_bytes());
-                        // Offset is in BYTES within the one-tick-slice of the buffer
-                        matrix_offsets.insert(hash, (current_bit_offset / 8) as u32);
-                        current_bit_offset += input.width * input.height;
-                        // Align per-matrix boundary to 32 bits (4 bytes)
-                        current_bit_offset = (current_bit_offset + 31) & !31;
-                    }
-                    for output in &io_config.outputs {
-                        let hash = genesis_core::hash::fnv1a_32(output.name.as_bytes());
-                        // [DOD] Benchmark routing: for now hardcoded to 8082 for specific zones
-                        if zone_entry.name == "MotorCortex" || zone_entry.name == "SensoryCortex" {
-                            output_routes.entry(zone_hash).or_insert_with(Vec::new)
-                                .push(("127.0.0.1:8082".to_string(), hash));
-                        }
-                    }
-                }
-            }
 
             let io_ctx = crate::network::io_server::ZoneIoContext {
                 swapchain: std::sync::Arc::new(crate::network::io_server::InputSwapchain::new(capacity.max(4))?),

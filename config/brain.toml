@@ -29,7 +29,7 @@ to = "HiddenCortex"
 target_type = "All"
 width = 32
 height = 32
-growth_steps = 500
+growth_steps = 100
 
 # Ассоциативно-Моторный тракт (включаем UV-проекцию, 1024 волокна)
 [[connection]]

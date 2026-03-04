@@ -1,7 +1,7 @@
 [world]
-width_um = 1500
-depth_um = 1500
-height_um = 1500
+width_um = 2500
+depth_um = 2500
+height_um = 750
 
 [simulation]
 tick_duration_us = 100
