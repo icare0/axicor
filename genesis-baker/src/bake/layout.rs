@@ -6,6 +6,20 @@ use std::fs::File;
 use bytemuck::cast_slice;
 use genesis_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
 
+/// Строгий контракт данных локального шарда после Фазы A (до межзональных связей).
+pub struct CompiledShard {
+    pub zone_name: String,
+    pub local_axons_count: usize,
+    /// Маппинг Dense ID -> Axon ID
+    pub soma_to_axon_map: Vec<u32>,
+    /// Упакованные 32-битные координаты (X|Y|Z|Type)
+    pub packed_positions: Vec<u32>,
+    /// Физические размеры зоны в вокселях (W, D, H)
+    pub bounds_voxels: (u32, u32, u32),
+    /// Физические размеры в микронах (W, D) для UV-Атласа
+    pub bounds_um: (f32, f32),
+}
+
 /// Промежуточная SoA-структура на CPU перед дампом на диск.
 /// Гарантирует правильный padding для CUDA варпов.
 pub struct ShardSoA {

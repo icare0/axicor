@@ -112,6 +112,20 @@ impl ShardBounds {
         }
     }
 
+    /// [DOD FIX] Реальные границы конкретной зоны из shard.toml (в вокселях).
+    /// Аксон, пересёкший x_end, корректно создаст GhostPacket вместо
+    /// бесконечного блуждания до края глобального мира.
+    pub fn from_config(cfg: &genesis_core::config::InstanceConfig) -> Self {
+        Self {
+            x_start: cfg.world_offset.x,
+            x_end:   cfg.world_offset.x + cfg.dimensions.w,
+            y_start: cfg.world_offset.y,
+            y_end:   cfg.world_offset.y + cfg.dimensions.d,
+            z_start: cfg.world_offset.z,
+            z_end:   cfg.world_offset.z + cfg.dimensions.h,
+        }
+    }
+
     /// Проверяет, вышла ли точка за пределы шарда.
     #[inline]
     pub fn is_outside(&self, x: u32, y: u32, z: u32) -> bool {
@@ -372,7 +386,8 @@ pub fn grow_single_axon(
         let params = ConeParams {
             radius_um: type_params.steering_radius_um,
             fov_cos,
-            target_type: None, // TODO: Affinity -> target_type logic
+            owner_type: type_idx,                       // [DOD] Сырой 4-битный тип
+            type_affinity: type_params.type_affinity,   // Читаем из Blueprint
         };
         let current_packed = PackedPosition::new(
             current_pos.x.round() as u32,
@@ -523,7 +538,8 @@ pub fn inject_ghost_axons(
         let params = ConeParams {
             radius_um: max_search_radius_vox * voxel_um as f32,
             fov_cos,
-            target_type: None,
+            owner_type: packet.type_idx as u8,
+            type_affinity: 0.5, // Ghost-аксоны: нейтральное сродство
         };
         let mut exited_again = false;
         for step in 0..packet.remaining_steps {
@@ -708,4 +724,79 @@ mod tests {
         assert!(grown.is_empty());
         assert!(outgoing.is_empty());
     }
+}
+
+// =============================================================================
+// § Half-Duplex SHM Bridge: Входящие межзональные аксоны
+// =============================================================================
+
+/// Конвертирует сетевые AxonHandoverEvent (из SHM) в физические GhostPacket
+/// и продолжает их рост внутри нового шарда.
+pub fn inject_handover_events(
+    handovers: &[genesis_core::ipc::AxonHandoverEvent],
+    positions: &[PackedPosition],
+    layer_ranges: &[LayerZRange],
+    types: &[genesis_core::config::blueprints::NeuronType],
+    sim: &crate::parser::simulation::SimulationConfig,
+    shard_bounds: &ShardBounds,
+    master_seed: u64,
+) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
+    if handovers.is_empty() {
+        return (vec![], vec![]);
+    }
+
+    let voxel_um = sim.simulation.voxel_size_um;
+    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
+
+    // SpatialGrid для притяжения к существующим нейронам
+    let search_r = (sim.simulation.segment_length_voxels as f32 * 3.0).max(1.0).ceil() as u32;
+    let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(positions.to_vec(), search_r);
+
+    let mut grown_axons = Vec::with_capacity(handovers.len());
+    let mut outgoing_ghosts = Vec::new();
+
+    for (idx, ev) in handovers.iter().enumerate() {
+        let raw_dir = glam::Vec3::new(
+            ev.vector_x as f32 / 127.0,
+            ev.vector_y as f32 / 127.0,
+            ev.vector_z as f32 / 127.0,
+        );
+        let _entry_dir = if raw_dir.length_squared() > 0.001 {
+            raw_dir.normalize()
+        } else {
+            glam::Vec3::Z
+        };
+
+        let type_idx = (ev.type_mask as usize).min(types.len().saturating_sub(1));
+
+        // Точка входа в глобальных координатах
+        let entry_x = ev.entry_x as u32 + shard_bounds.x_start;
+        let entry_y = ev.entry_y as u32 + shard_bounds.y_start;
+        let entry_z = shard_bounds.z_start; 
+
+        // Seed детерминированный
+        let ghost_seed = master_seed.wrapping_add(idx as u64).wrapping_add(0x4748_5354_0000_0000);
+
+        let (axon, maybe_outgoing) = grow_single_axon(
+            entry_x, entry_y, entry_z,
+            usize::MAX, // Ghost
+            type_idx as u8,
+            types,
+            sim,
+            world_w_vox, world_d_vox, world_h_vox,
+            layer_ranges,
+            &spatial_grid,
+            shard_bounds,
+            ghost_seed,
+        );
+
+        grown_axons.push(axon);
+        if let Some(outgoing) = maybe_outgoing {
+            outgoing_ghosts.push(outgoing);
+        }
+    }
+
+    (grown_axons, outgoing_ghosts)
 }

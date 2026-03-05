@@ -169,7 +169,8 @@ extern "C" {
     pub fn update_global_dopamine(dopamine: i16, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
-        vram: VramState,
+        ptrs: *const ShardVramPtrs,
+        padded_n: u32,
         prune_threshold: i16,
     );
     

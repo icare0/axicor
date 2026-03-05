@@ -27,22 +27,30 @@ fn main() -> Result<()> {
     
     // Store compilation results for ghost connections linking
     // Tuple: (soma_to_axon_map, base_axons_count, packed_pos, size_um)
-    let mut compiled_zones: std::collections::HashMap<String, (Vec<u32>, usize, Vec<u32>, (f32, f32))> = std::collections::HashMap::new();
+    let mut compiled_zones: std::collections::HashMap<String, bake::layout::CompiledShard> = std::collections::HashMap::new();
 
     // 1. Compile all zones
     for (zone_idx, zone) in brain_config.zones.iter().enumerate() {
         println!("\n[baker] === Compiling Zone: {} ===", zone.name);
-        let result_tuple = compile(
+        // [DOD FIX] Путь к shard.toml хранится рядом с anatomy.toml
+        let shard_cfg_path = zone.anatomy.parent().unwrap().join("shard.toml");
+        
+        let workspace = parse_and_validate(
             &brain_config.simulation.config,
             &zone.blueprints,
             &zone.anatomy,
             &zone.io,
+            &shard_cfg_path,
             &zone.baked_dir,
             &zone.name,
             zone_idx as u16,
             200_000, // DEFAULT_GHOST_CAPACITY (§3.1)
         )?;
-        compiled_zones.insert(zone.name.clone(), result_tuple);
+
+        let (shard_soa, compiled_shard, v_seg, num_virtual) = build_local_topology(&workspace);
+        serialize_artifacts(&shard_soa, &workspace, num_virtual, v_seg)?;
+
+        compiled_zones.insert(zone.name.clone(), compiled_shard);
     }
     
     // 2. Generate Ghost Maps
@@ -51,11 +59,11 @@ fn main() -> Result<()> {
     }
     
     for conn in &brain_config.connections {
-        let src_tuple = compiled_zones.get(&conn.from).expect("Source zone missing");
-        let dst_tuple = compiled_zones.get(&conn.to).expect("Dest zone missing");
+        let src_shard = compiled_zones.get(&conn.from).expect("Source zone missing");
+        let dst_shard = compiled_zones.get(&conn.to).expect("Dest zone missing");
         
-        // Target offset is the end of the dest zone's local+virtual axons
-        let dst_ghost_offset = dst_tuple.1 as u32; 
+        // Target offset is the end of the dest zone's local axons
+        let dst_ghost_offset = dst_shard.local_axons_count as u32; 
         
         let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.from).unwrap().baked_dir;
         
@@ -65,8 +73,8 @@ fn main() -> Result<()> {
                 out_dir,
                 &conn.from,
                 &conn.to,
-                &src_tuple.2, // src_packed_pos
-                src_tuple.3,  // src_size_um
+                &src_shard.packed_positions, // src_packed_pos
+                src_shard.bounds_um,  // src_size_um
                 (w, h),       // conn_grid
                 dst_ghost_offset, // This should be based on destination!
                 42, 
@@ -75,7 +83,7 @@ fn main() -> Result<()> {
             let ghosts = bake::ghost_map::build_ghost_mapping(
                 &conn.from,
                 &conn.to,
-                &src_tuple.0,
+                &src_shard.soma_to_axon_map,
                 dst_ghost_offset,
             );
             bake::ghost_map::write_ghosts_file(out_dir, &conn.from, &conn.to, &ghosts);
@@ -91,8 +99,28 @@ fn main() -> Result<()> {
 
 
 
-fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<(Vec<u32>, usize, Vec<u32>, (f32, f32))> {
-    // --- 1. Parse ---
+pub struct BakeWorkspace {
+    pub sim: genesis_core::config::SimulationConfig,
+    pub const_mem: genesis_core::config::blueprints::GenesisConstantMemory,
+    pub neuron_types: Vec<genesis_core::config::blueprints::NeuronType>,
+    pub name_map: std::collections::HashMap<String, u8>,
+    pub anatomy: genesis_core::config::anatomy::AnatomyConfig,
+    pub io: genesis_core::config::io::IoConfig,
+    pub shard_cfg: genesis_core::config::InstanceConfig,
+    pub out_dir: PathBuf,
+    pub zone_name: String,
+    pub zone_idx: u16,
+    pub ghost_capacity: usize,
+    pub master_seed: u64,
+    // Original paths for DNA copying
+    pub sim_path: PathBuf,
+    pub bp_path: PathBuf,
+    pub an_path: PathBuf,
+    pub io_path: PathBuf,
+    pub shard_cfg_path: PathBuf,
+}
+
+fn parse_and_validate(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<BakeWorkspace> {
     println!("[baker] Parsing configs...");
     let sim = parser::simulation::parse(
         &std::fs::read_to_string(sim_path)
@@ -122,238 +150,79 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         io.outputs.len()
     );
 
-    // --- 2. Validate ---
     println!("[baker] Validating invariants...");
     validator::validate_all(&sim, &const_mem, &anatomy).context("Config validation failed")?;
     println!("[baker] ✓ All invariants passed");
 
-    // --- 3. Master seed ---
     let master_seed_str = &sim.simulation.master_seed;
     let master_seed = bake::seed::seed_from_str(master_seed_str);
     println!("[baker] Master seed: \"{}\"", master_seed_str);
 
-    // Ensure output directory exists before any writing
-    std::fs::create_dir_all(out_dir)
-        .with_context(|| format!("Cannot create output dir: {}", out_dir.display()))?;
+    let shard_cfg = genesis_core::config::InstanceConfig::load(shard_cfg_path)
+        .map_err(anyhow::Error::msg)?;
 
-    // --- 4. Place neurons ---
-    println!("[baker] Placing neurons...");
-    let mut type_name_pairs: Vec<(&String, &u8)> = name_map.iter().collect();
-    type_name_pairs.sort_by_key(|(_, &idx)| idx);
-    let type_names: Vec<String> = type_name_pairs.into_iter().map(|(n, _)| n.clone()).collect();
-    
-    let voxel_size_um = sim.simulation.voxel_size_um as f32;
-    let dims = bake::neuron_placement::ZoneDimensions {
-        width_um: sim.world.width_um as f32,
-        depth_um: sim.world.depth_um as f32,
-        height_um: sim.world.height_um as f32,
-    };
-    
-    let positions = bake::neuron_placement::generate_placement(
-        &anatomy,
-        &dims,
-        voxel_size_um,
-        sim.simulation.global_density,
+    Ok(BakeWorkspace {
+        sim,
+        const_mem,
+        neuron_types,
+        name_map,
+        anatomy,
+        io,
+        shard_cfg,
+        out_dir: out_dir.to_path_buf(),
+        zone_name: zone_name.to_string(),
+        zone_idx,
+        ghost_capacity,
         master_seed,
-        &type_names
-    );
-    println!("[baker] ✓ Placed {} neurons", positions.len());
+        sim_path: sim_path.to_path_buf(),
+        bp_path: bp_path.to_path_buf(),
+        an_path: an_path.to_path_buf(),
+        io_path: io_path.to_path_buf(),
+        shard_cfg_path: shard_cfg_path.to_path_buf(),
+    })
+}
 
-    // --- 5. Cone Tracing: grow axons ---
-    println!("[baker] Growing axons (Cone Tracing)...");
-    let layer_ranges = bake::axon_growth::compute_layer_ranges(&anatomy, &sim);
-    let shard_bounds = bake::axon_growth::ShardBounds::full_world(&sim);
-    let (mut axons, ghost_packets) = bake::axon_growth::grow_axons(
-        &positions,
-        &layer_ranges,
-        &neuron_types,
-        &sim,
-        &shard_bounds,
-        master_seed,
-    );
-    let local_axons_count = axons.len();
+fn build_local_topology(workspace: &BakeWorkspace) -> (bake::layout::ShardSoA, bake::layout::CompiledShard, u32, usize) {
+    bake::topology::build_local_topology_internal(
+        &workspace.sim,
+        &workspace.anatomy,
+        &workspace.shard_cfg,
+        &workspace.neuron_types,
+        &workspace.const_mem,
+        &workspace.name_map,
+        &workspace.io,
+        &workspace.zone_name,
+        workspace.master_seed,
+        workspace.ghost_capacity,
+    )
+}
 
-    // --- 5.2 External Inputs (Virtual Axons from io.toml) ---
-    let mut num_virtual = 0;
-    let mut baked_gxis = Vec::new();
-    if !io.inputs.is_empty() {
-        println!("[baker] Processing Input Maps for {}...", zone_name);
-        for matrix in &io.inputs {
-            let gxi = bake::input_map::build_gxi_mapping(
-                &matrix.name,
-                zone_name,
-                matrix.width,
-                matrix.height,
-                axons.len() as u32,
-                matrix.stride as u8,
-            );
-            num_virtual += gxi.axon_ids.len();
-            
-            // Virtual Axon Offset contract: append axon_ids as sentinel heads
-            for &axon_id in &gxi.axon_ids {
-                axons.push(bake::axon_growth::GrownAxon {
-                    soma_idx: usize::MAX,
-                    type_idx: 0,
-                    tip_x: 0, tip_y: 0, tip_z: 0,
-                    length_segments: 0,
-                    segments: vec![],
-                    last_dir: glam::Vec3::ZERO,
-                });
-                let _ = axon_id;
-            }
-            baked_gxis.push(gxi);
-        }
-        
-        bake::input_map::write_gxi_file(out_dir, &baked_gxis);
+fn serialize_artifacts(shard: &bake::layout::ShardSoA, workspace: &BakeWorkspace, num_virtual: usize, v_seg: u32) -> Result<()> {
+    std::fs::create_dir_all(&workspace.out_dir)
+        .with_context(|| format!("Cannot create output dir: {}", workspace.out_dir.display()))?;
 
-        println!(
-            "[baker] ✓ Written {}.gxi with {} virtual axons across {} matrices",
-            zone_name,
-            num_virtual,
-            baked_gxis.len()
-        );
-    }
-
-    let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
-
-    // --- 5.3 Output Readouts (Soma Readouts from io.toml) ---
-    let mut baked_gxos = Vec::new();
-    if !io.outputs.is_empty() {
-        println!("[baker] Processing Output Maps for {}...", zone_name);
-        let voxel_um = sim.simulation.voxel_size_um as f32;
-        let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
-        let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
-
-        for matrix in &io.outputs {
-            let gxo = bake::output_map::build_gxo_mapping(
-                &matrix.name,
-                zone_name,
-                matrix.width,
-                matrix.height,
-                world_w_vox,
-                world_d_vox,
-                &packed_positions,
-                matrix.stride as u8,
-            );
-            baked_gxos.push(gxo);
-        }
-        bake::output_map::write_gxo_file(out_dir, &baked_gxos);
-        println!("[baker] ✓ Written {}.gxo with {} matrices", zone_name, baked_gxos.len());
-    }
-    if !ghost_packets.is_empty() {
-        println!("[baker] ✓ {} ghost packet(s) detected — injecting into shard B...", ghost_packets.len());
-        let (mut ghost_axons, leftover) = bake::axon_growth::inject_ghost_axons(
-            &ghost_packets,
-            &positions,
-            &const_mem,
-            &sim,
-            &shard_bounds,
-            master_seed,
-        );
-        if !leftover.is_empty() {
-            println!("[baker] ⚠ {} ghost(s) exited shard B boundary (further shards not yet wired)", leftover.len());
-        }
-        println!("[baker] ✓ Injected {} ghost axons", ghost_axons.len());
-        axons.append(&mut ghost_axons);
-    }
-
-    // --- 5.5 Atlas Routing (White Matter) ---
-    // Временно отключено, будет переработано под новый IoConfig
-
-    println!("[baker] ✓ Total Grown: {} axons ({} local, {} virtual)", 
-        axons.len(), local_axons_count, num_virtual);
-
-    // --- 6. Build SoA state ---
-    let total_capacity = axons.len() + ghost_capacity;
-    let mut shard = bake::layout::ShardSoA::new(positions.len(), total_capacity);
-
-    // [DOD Invariant] Строгая трансляция типов и потенциалов покоя
-    for (i, pos) in positions.iter().enumerate() {
-        if pos.0 == 0 { continue; } // Пропускаем пустышки от Warp Alignment
-
-        let type_idx = pos.type_id();
-        let variant = &const_mem.variants[type_idx as usize];
-
-        shard.voltage[i] = variant.rest_potential;
-        
-        // Упаковываем 4-битный тип в старшие биты флага (Spec 07 §1.1)
-        // Бит 0 (is_spiking) остаётся 0 при инициализации
-        shard.flags[i] = type_idx << 4; 
-    }
-
-    // [DOD] Маппинг локальных аксонов к сомам. Без этого локальный спайк не родит сигнал!
-    for (axon_id, axon) in axons.iter().enumerate() {
-        if axon.soma_idx != std::usize::MAX { // Игнорируем Ghost/Virtual
-            shard.soma_to_axon[axon.soma_idx] = axon_id as u32;
-        }
-    }
-
-    // --- 7. Коннектом ---
-    println!("[baker] Connecting dendrites...");
-    let total_synapses = bake::dendrite_connect::connect_dendrites(
-        &mut shard,
-        &positions,
-        &axons,
-        &neuron_types,
-        master_seed,
-        2, // Радиус поиска в чанках сетки
-    );
-    
-    let avg = if !positions.is_empty() { total_synapses as f32 / positions.len() as f32 } else { 0.0 };
-    println!("[baker] ✓ Connected {} synapses ({:.1} avg per neuron)", total_synapses, avg);
-
-    // --- 8. Init axon heads ---
-    let physics = genesis_core::physics::compute_derived_physics(
-        sim.simulation.signal_speed_m_s,
-        sim.simulation.tick_duration_us,
-        sim.simulation.voxel_size_um,
-        sim.simulation.segment_length_voxels,
-    ).expect("v_seg validation failed. Run baker validation first.");
-    let v_seg = physics.v_seg;
-    for (i, ax) in axons.iter().enumerate() {
-        if i < shard.axon_heads.len() {
-            shard.axon_heads[i] = bake::axon_growth::init_axon_head(ax.length_segments, v_seg);
-            
-            // Записываем геометрию (Z|Y|X packing matching Spec)
-            shard.axon_tips_uvw[i] = (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
-            
-            // Записываем направление (i8 packing: X | Y | Z | 0)
-            let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
-        }
-    }
-    println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);
-
-    // --- 9. Dump to disk (Zero-Copy binary: raw bytes, no serde) ---
-
-
-    shard.soma_positions.copy_from_slice(&packed_positions[..positions.len()]);
-
-    shard.dump_to_disk(out_dir);
+    shard.dump_to_disk(&workspace.out_dir);
     println!("[baker] ✓ Written: shard.state + shard.axons");
 
-    // --- 10. Write Autonomous Manifest ---
-    let zone_hash_fnv = genesis_core::hash::fnv1a_32(zone_name.as_bytes());
+    let zone_hash_fnv = genesis_core::hash::fnv1a_32(workspace.zone_name.as_bytes());
     let manifest = genesis_core::config::manifest::ZoneManifest {
         magic: 0x47454E45, // "GENE"
         zone_hash: zone_hash_fnv,
         memory: genesis_core::config::manifest::ManifestMemory {
             padded_n: shard.soma_to_axon.len(),
             virtual_axons: num_virtual,
-            ghost_capacity: 200000, // Safe default for V1
+            ghost_capacity: workspace.ghost_capacity, // Expected usize if manifest changed, or cast if u32 required. Error said expected usize, found u32.
             v_seg: v_seg as u16,
         },
         network: genesis_core::config::manifest::ManifestNetwork {
-            slow_path_tcp: 8010 + zone_idx * 10,
-            external_udp_in: 8081 + zone_idx * 10,
-            external_udp_out: 8082 + zone_idx * 10,
+            slow_path_tcp: 8010 + workspace.zone_idx * 10,
+            external_udp_in: 8081 + workspace.zone_idx * 10,
+            external_udp_out: 8082 + workspace.zone_idx * 10,
             external_udp_out_target: None,
-            fast_path_udp_local: 9001 + zone_idx * 10,
-            fast_path_peers: if zone_idx == 0 { vec!["127.0.0.1:9011".to_string()] } else { vec!["127.0.0.1:9001".to_string()] },
+            fast_path_udp_local: 9001 + workspace.zone_idx * 10,
+            fast_path_peers: if workspace.zone_idx == 0 { vec!["127.0.0.1:9011".to_string()] } else { vec!["127.0.0.1:9001".to_string()] },
         },
-        variants: const_mem.variants.iter().enumerate().map(|(i, v)| {
+        variants: workspace.const_mem.variants.iter().enumerate().map(|(i, v)| {
             genesis_core::config::manifest::ManifestVariant {
                 id: i as u8,
                 name: format!("Variant_{}", i),
@@ -376,17 +245,18 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     };
     
     let manifest_toml = toml::to_string(&manifest).expect("Failed to serialize manifest");
-    let manifest_path = out_dir.join("manifest.toml");
+    let manifest_path = workspace.out_dir.join("manifest.toml");
     std::fs::write(&manifest_path, manifest_toml)?;
     println!("[baker] ✓ Written: manifest.toml");
 
-    let dna_dir = out_dir.join("BrainDNA");
+    let dna_dir = workspace.out_dir.join("BrainDNA");
     std::fs::create_dir_all(&dna_dir).expect("Failed to create BrainDNA directory");
     let configs = [
-        (sim_path, "simulation.toml"),
-        (bp_path, "blueprints.toml"),
-        (an_path, "anatomy.toml"),
-        (io_path, "io.toml"),
+        (&workspace.sim_path, "simulation.toml"),
+        (&workspace.bp_path, "blueprints.toml"),
+        (&workspace.an_path, "anatomy.toml"),
+        (&workspace.io_path, "io.toml"),
+        (&workspace.shard_cfg_path, "shard.toml"),
     ];
     for (src, dst_name) in configs {
         if src.exists() {
@@ -394,17 +264,8 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 .unwrap_or_else(|_| panic!("Failed to copy {} to BrainDNA", dst_name));
         }
     }
-    let packed_pos: Vec<u32> = positions.iter().map(|p| p.0).collect();
-    let voxel_um = sim.simulation.voxel_size_um;
-    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
-    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
-    let _size_vox = (world_w_vox as f32, world_d_vox as f32);
-
-    // [DOD FIX] Оффсет для Ghost-аксонов должен начинаться сразу после локальных.
-    // axons.len() — это точное количество сгенерированных локальных аксонов зоны.
-    let local_axons_count = axons.len();
-
-    Ok((shard.soma_to_axon.clone(), local_axons_count, packed_pos, _size_vox))
+    
+    Ok(())
 }
 
 /// Формат файла `.axons`:

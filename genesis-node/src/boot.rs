@@ -4,8 +4,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::collections::HashMap;
 use crossbeam::channel::bounded;
+use crossbeam::queue::SegQueue;
 
 use genesis_core::config::manifest::ZoneManifest;
+use genesis_core::hash::fnv1a_32;
 use genesis_compute::memory::{VramState, calculate_state_blob_size, compute_state_offsets};
 use genesis_compute::ShardEngine;
 use crate::zone_runtime::ZoneRuntime;
@@ -27,6 +29,7 @@ pub struct BootResult {
     pub geometry_server: GeometryServer,
     pub geometry_data: Vec<u32>,
     pub telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
+    pub egress_pool: Arc<crate::network::egress::EgressPool>,
 }
 
 /// Инициализирует ShardEngine прямым DMA-копированием из .state и .axons.
@@ -87,9 +90,14 @@ impl Bootloader {
         let brain_config: genesis_core::config::brain::BrainConfig = toml::from_str(&manifest_toml)
             .with_context(|| format!("Failed to parse brain manifest: {:?}", manifest_path))?;
 
+        // [DOD FIX] Путь уже включает "config/", читаем напрямую от корня
+        let sim_path = std::path::Path::new(&brain_config.simulation.config);
+        let sim_toml = std::fs::read_to_string(sim_path).context("Failed to read simulation.toml")?;
+        let sim_config: genesis_core::config::SimulationConfig = toml::from_str(&sim_toml).context("Failed to parse simulation.toml")?;
+        let night_interval = sim_config.simulation.night_interval_ticks as u64;
         let _baked_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
         
-        let mut engines = Vec::new();
+        let mut engines = Vec::<(u32, ShardEngine, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, Arc<SegQueue<genesis_core::ipc::AxonHandoverEvent>>)>::new();
         let mut io_contexts = Vec::new();
         let mut all_geo_data = Vec::new();
         let mut output_routes: HashMap<u32, Vec<(String, u32)>> = HashMap::new();
@@ -161,26 +169,21 @@ impl Bootloader {
 
             // --- GXO (Outputs) with stale file protection ---
             let gxo_path = baked_dir.join("shard.gxo");
-            let (num_outputs, mapped_soma_ids_device) = if expected_outputs {
+            // [DOD FIX] Читаем GXO данные на хосте — НЕ трогаем GPU в главном потоке Tokio.
+            // gpu_malloc случится внутри compute-потока после gpu_set_device(0).
+            let (num_outputs, mapped_soma_ids_host) = if expected_outputs {
                 if !gxo_path.exists() {
                     panic!("FATAL: Zone '{}' expects outputs but {:?} is missing! Re-run Baker.", zone_entry.name, gxo_path);
                 }
                 let gxo = GxoFile::load(&gxo_path);
-                let ptr = unsafe { genesis_compute::ffi::gpu_malloc(gxo.soma_ids.len() * 4) } as *mut u32;
-                unsafe {
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        ptr as *mut _,
-                        gxo.soma_ids.as_ptr() as *const _,
-                        gxo.soma_ids.len() * 4
-                    );
-                }
-                (gxo.total_pixels, ptr as *const u32)
+                (gxo.total_pixels, Some(gxo.soma_ids))
             } else {
                 if gxo_path.exists() {
                     println!("[Boot] Ignoring stale {:?} — BrainDNA/io.toml has no outputs.", gxo_path);
                 }
-                (0, std::ptr::null())
+                (0u32, None)
             };
+
 
             // Aggregate geometry data
             let pos_path = baked_dir.join("shard.pos");
@@ -189,17 +192,30 @@ impl Bootloader {
             let geo_data: Vec<u32> = bytemuck::cast_slice(&pos_blob).to_vec();
             all_geo_data.extend(geo_data);
 
+            // [DOD FIX] Strict DMA Buffer sizing
             let input_words_per_tick = (num_virtual_axons + 31) / 32;
-            let sync_batch_ticks = 100;
-            let capacity = (input_words_per_tick * sync_batch_ticks * 4) as usize;
+            let sync_batch_ticks = 100u32; // Константа из simulation.toml
+
+            // PinnedBuffer<u8> требует размер в байтах на ВЕСЬ батч!
+            let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
 
             let io_ctx = crate::network::io_server::ZoneIoContext {
-                swapchain: std::sync::Arc::new(crate::network::io_server::InputSwapchain::new(capacity.max(4))?),
+                swapchain: std::sync::Arc::new(
+                    crate::network::io_server::InputSwapchain::new(input_capacity_bytes)
+                        .expect("FATAL: Failed to allocate Pinned RAM for Input"),
+                ),
                 matrix_offsets,
             };
 
+            let instance_path = dna_dir.join("shard.toml");
+            let instance_config = genesis_core::config::InstanceConfig::load(&instance_path)
+                .unwrap_or_else(|_| panic!("Failed to load InstanceConfig from {:?}", instance_path));
+
+            // [DOD] Half-Duplex SHM: Очередь для хэндоверов конкретно этого шарда
+            let incoming_grow = Arc::new(SegQueue::new());
+
             io_contexts.push((zone_hash, io_ctx));
-            engines.push((zone_hash, engine, num_virtual_axons, num_outputs, mapped_soma_ids_device, baked_dir.clone()));
+            engines.push((zone_hash, engine, num_virtual_axons, num_outputs, mapped_soma_ids_host, baked_dir.clone(), instance_config, incoming_grow));
         }
 
         // 2. Сборка IntraGpuChannel (Ghost Routing)
@@ -228,7 +244,9 @@ impl Bootloader {
                 }
 
                 let channel = unsafe { IntraGpuChannel::from_slices(&src_axons, &dst_ghosts) };
-                intra_gpu_channels.push((src_hash, dst_hash, channel));
+                let src_ptr = *axon_head_ptrs.get(&src_hash).expect("Missing src axon_head_ptrs");
+                let dst_ptr = *axon_head_ptrs.get(&dst_hash).expect("Missing dst axon_head_ptrs");
+                intra_gpu_channels.push((src_ptr, dst_ptr, channel));
                 println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links)", conn.from, conn.to, src_axons.len());
             }
         }
@@ -275,7 +293,13 @@ impl Bootloader {
         let geometry_server = GeometryServer::bind(geo_addr).await?;
         let telemetry_swapchain = TelemetryServer::start(local_port + 2).await;
 
-        let bsp_barrier = Arc::new(std::sync::Mutex::new(BspBarrier::new(100)));
+        let bsp_barrier = Arc::new(BspBarrier::new(100, 1));
+
+        let inter_node_channels = Vec::new(); // Will be populated based on ghost routing for remote nodes
+        let egress_socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap());
+        let inter_node_router = Arc::new(crate::network::inter_node::InterNodeRouter::new(egress_socket, routing_table.clone()));
+
+        let egress_pool = Arc::new(crate::network::egress::EgressPool::new(1024));
 
         let node_runtime = NodeRuntime::boot(
             engines,
@@ -287,7 +311,11 @@ impl Bootloader {
             local_port,
             output_routes,
             intra_gpu_channels,
+            inter_node_channels,
+            inter_node_router,
             axon_head_ptrs,
+            egress_pool.clone(),
+            night_interval,
         );
 
         Ok(BootResult {
@@ -295,6 +323,7 @@ impl Bootloader {
             geometry_server,
             geometry_data: all_geo_data,
             telemetry_swapchain,
+            egress_pool,
         })
     }
 }

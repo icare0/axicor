@@ -2,9 +2,12 @@ use crossbeam::queue::SegQueue;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+// [DOD] AxonHandoverEvent определён в genesis-core для доступа из baker-daemon
+pub use genesis_core::ipc::AxonHandoverEvent;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GeometryRequest {
-    Handover(AxonHandoverEvent),
+    BulkHandover(Vec<AxonHandoverEvent>),
     Prune(u32),
 }
 
@@ -19,20 +22,6 @@ pub enum GeometryResponse {
 pub struct AxonHandoverPrune {
     pub magic: u32,         // 0x44454144 ("DEAD")
     pub ghost_id: u32,      
-}
-
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AxonHandoverEvent {
-    pub local_axon_id: u32,
-    pub entry_x: u16,
-    pub entry_y: u16,
-    pub vector_x: i8,
-    pub vector_y: i8,
-    pub vector_z: i8,
-    pub type_mask: u8,
-    pub remaining_length: u16,
-    pub _padding: u16,
 }
 
 #[repr(C, packed)]

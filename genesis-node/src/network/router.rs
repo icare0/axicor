@@ -107,7 +107,7 @@ impl InterNodeRouter {
 
     pub fn spawn_receiver_loop(
         socket: Arc<UdpSocket>, 
-        bsp_barrier: Arc<std::sync::Mutex<crate::network::bsp::BspBarrier>>,
+        bsp_barrier: Arc<crate::network::bsp::BspBarrier>,
     ) {
         tokio::spawn(async move {
             let mut buf = [0u8; 65535];
@@ -125,13 +125,10 @@ impl InterNodeRouter {
                     let events_ptr = unsafe { buf.as_ptr().add(std::mem::size_of::<SpikeBatchHeader>()) as *const SpikeEvent };
                     let events = unsafe { std::slice::from_raw_parts(events_ptr, events_count) };
                     
-                    {
-                        let mut bsp = bsp_barrier.lock().unwrap();
-                        let schedule = bsp.get_write_schedule();
-                        for event in events {
-                            // Using the new tick-based scheduler (Contract §12)
-                            schedule.push_spike(event.tick_offset as usize, event.ghost_axon_id);
-                        }
+                    let schedule = bsp_barrier.get_write_schedule();
+                    for event in events {
+                        // Using the new tick-based scheduler (Contract §12)
+                        schedule.push_spike(event.tick_offset as usize, event.ghost_axon_id);
                     }
                 }
             }

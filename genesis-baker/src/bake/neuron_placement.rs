@@ -1,8 +1,100 @@
-use std::collections::HashSet;
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng; // Быстрый и детерминированный алгоритм
 use genesis_core::types::PackedPosition;
 use genesis_core::config::anatomy::AnatomyConfig;
+use genesis_core::config::InstanceConfig;
+
+/// [DOD FIX] Размещение нейронов в глобальных координатах из shard.toml.
+/// Размеры (w/d/h) берутся напрямую из InstanceConfig — уже в вокселях.
+/// Координаты сдвигаются на world_offset, раздвигая зоны по оси X.
+pub fn generate_placement_from_config(
+    anatomy: &AnatomyConfig,
+    shard_cfg: &InstanceConfig,
+    global_density: f32,
+    master_seed: u64,
+    type_names: &[String],
+) -> Vec<PackedPosition> {
+    let max_x = shard_cfg.dimensions.w;
+    let max_y = shard_cfg.dimensions.d;
+    let max_z = shard_cfg.dimensions.h;
+
+    let off_x = shard_cfg.world_offset.x;
+    let off_y = shard_cfg.world_offset.y;
+    let off_z = shard_cfg.world_offset.z;
+
+    // [Spec 03 §1.3] PackedPosition: X — 11 бит (max 2047), Z — 6 бит (max 63)
+    assert!(off_x + max_x <= 0x7FF, "Zone X range exceeds 11-bit limit (2047 voxels): off_x={} w={}", off_x, max_x);
+    assert!(off_y + max_y <= 0x7FF, "Zone Y range exceeds 11-bit limit (2047 voxels): off_y={} d={}", off_y, max_y);
+    assert!(off_z + max_z <= 0x3F,  "Zone Z range exceeds 6-bit limit (63 voxels): off_z={} h={}", off_z, max_z);
+
+    let total_voxels = max_x * max_y * max_z;
+    let total_capacity = (total_voxels as f32 * global_density).floor() as usize;
+
+    let mut positions = Vec::with_capacity(total_capacity);
+    let mut rng = ChaCha8Rng::seed_from_u64(master_seed);
+    let mut current_z_pct = 0.0;
+
+    for layer in &anatomy.layers {
+        let z_start_local = (current_z_pct * max_z as f32).floor() as u32;
+        let z_end_local   = ((current_z_pct + layer.height_pct) * max_z as f32).floor() as u32;
+        current_z_pct += layer.height_pct;
+
+        let layer_budget = (layer.population_pct * total_capacity as f32).floor() as usize;
+        if layer_budget == 0 { continue; }
+
+        let layer_volume = max_x * max_y * (z_end_local - z_start_local).max(1);
+        let mut pool: Vec<u32> = (0..layer_volume).collect();
+        // 100% Детерминированное перемешивание In-Place
+        pool.shuffle(&mut rng);
+
+        let most_frequent_type_name = layer.composition.iter()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(k, _)| k.clone())
+            .unwrap_or_default();
+        let fallback_type_id = type_names.iter().position(|n| n == &most_frequent_type_name).unwrap_or(0) as u8;
+
+        let mut type_pool = Vec::with_capacity(layer_budget);
+        for (type_name, &quota) in &layer.composition {
+            let count = (quota * layer_budget as f32).floor() as usize;
+            let type_id = type_names.iter().position(|n| n == type_name).unwrap_or(0) as u8;
+            for _ in 0..count { type_pool.push(type_id); }
+        }
+        while type_pool.len() < layer_budget { type_pool.push(fallback_type_id); }
+
+        for type_id in type_pool {
+            // O(1) извлечение без коллизий
+            let flat_idx = pool.pop().expect("FATAL: Density > 100% or Math Error");
+            
+            // O(1) Распаковка локальных координат
+            let lz = z_start_local + (flat_idx / (max_x * max_y));
+            let rem = flat_idx % (max_x * max_y);
+            let ly = rem / max_x;
+            let lx = rem % max_x;
+
+            // Перевод в глобальные координаты
+            let gx = lx + off_x;
+            let gy = ly + off_y;
+            let gz = lz + off_z;
+
+            // Упаковка
+            positions.push(PackedPosition::pack_raw(gx, gy, gz, type_id));
+        }
+    }
+
+    // Warp Alignment padding (Invariant 2)
+    let remainder = positions.len() % 32;
+    if remainder != 0 {
+        for _ in 0..32 - remainder {
+            positions.push(PackedPosition::pack_raw(0, 0, 0, 0));
+        }
+    }
+
+    // Z-sort (Invariant 7: Determinism + IndexMapping)
+    positions.sort_by_key(|p| p.z());
+    positions
+}
+
 
 pub struct ZoneDimensions {
     pub width_um: f32,
@@ -33,7 +125,6 @@ pub fn generate_placement(
     let total_capacity = (total_voxels as f32 * global_density).floor() as usize;
 
     let mut positions = Vec::with_capacity(total_capacity);
-    let mut occupancy = HashSet::with_capacity(total_capacity);
     
     // Инициализируем детерминированный генератор
     let mut rng = ChaCha8Rng::seed_from_u64(master_seed);
@@ -49,6 +140,11 @@ pub fn generate_placement(
 
         let layer_budget = (layer.population_pct * total_capacity as f32).floor() as usize;
         if layer_budget == 0 { continue; }
+
+        let layer_volume = max_x * max_y * (z_end - z_start).max(1);
+        let mut pool: Vec<u32> = (0..layer_volume).collect();
+        // 100% Детерминированное перемешивание In-Place
+        pool.shuffle(&mut rng);
 
         // Поиск самого частого типа для добивания остатка
         let most_frequent_type_name = layer.composition.iter()
@@ -72,32 +168,16 @@ pub fn generate_placement(
             type_pool.push(fallback_type_id);
         }
 
-        // 4. Размещаем нейроны со строгим контролем коллизий (Reject-Sampling)
+        // 4. Размещаем нейроны со строгим контролем коллизий
         for type_id in type_pool {
-            let mut attempt = 0;
-            loop {
-                let x = rng.gen_range(0..max_x);
-                let y = rng.gen_range(0..max_y);
-                let z = rng.gen_range(z_start..z_end.max(z_start + 1)); // Защита от нулевой толщины
-                
-                // Пространственный хэш вокселя (28 бит)
-                let voxel_hash = x | (y << 11) | (z << 22);
+            let flat_idx = pool.pop().expect("FATAL: Density > 100% or Math Error");
+            
+            let z = z_start + (flat_idx / (max_x * max_y));
+            let rem = flat_idx % (max_x * max_y);
+            let y = rem / max_x;
+            let x = rem % max_x;
 
-                if occupancy.insert(voxel_hash) {
-                    positions.push(PackedPosition::pack_raw(x, y, z, type_id));
-                    break;
-                }
-
-                attempt += 1;
-                if attempt > 100 {
-                    panic!(
-                        "[Baker] FATAL: Occupancy collision limit reached! \
-                        Density is too high for layer at Z: {}-{}. \
-                        Increase voxel_size or reduce global_density.",
-                        z_start, z_end
-                    );
-                }
-            }
+            positions.push(PackedPosition::pack_raw(x, y, z, type_id));
         }
     }
 
@@ -118,4 +198,56 @@ pub fn generate_placement(
     positions.sort_by_key(|p| p.z());
 
     positions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use genesis_core::config::anatomy::LayerConfig;
+
+    #[test]
+    fn test_extreme_density_placement() {
+        let mut composition = std::collections::HashMap::new();
+        composition.insert("Excitatory".into(), 1.0);
+
+        let anatomy = AnatomyConfig {
+            layers: vec![
+                LayerConfig {
+                    name: "L1".into(),
+                    height_pct: 1.0,
+                    population_pct: 1.0,
+                    composition,
+                }
+            ],
+        };
+
+        let dims = ZoneDimensions {
+            width_um: 50.0,
+            depth_um: 50.0,
+            height_um: 50.0,
+        };
+        // Ensure max voxel limits don't panic while checking Extreme density.
+        let voxel_size = 10.0; 
+        // -> max_x = 5, max_y = 5, max_z = 5 -> total 125 
+
+        let type_names = vec!["NullType".into(), "Excitatory".into()];
+
+        let positions = generate_placement(
+            &anatomy,
+            &dims,
+            voxel_size,
+            1.0, // 100% density
+            0,
+            &type_names
+        );
+
+        // Before padding: 125 positions.
+        // Remainder: 125 % 32 = 29 -> padding needed: 3.
+        // Total positions: 125 + 3 = 128
+        assert_eq!(positions.len(), 128);
+
+        // Verify that there are exactly 125 non-dummy neurons.
+        let real_neurons = positions.iter().filter(|p| p.0 != 0).count();
+        assert_eq!(real_neurons, 125);
+    }
 }

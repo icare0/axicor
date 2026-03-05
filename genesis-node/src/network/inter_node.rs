@@ -84,13 +84,78 @@ pub struct SpikeEventV2 {
     pub tick_offset: u32, // Выровнено до 8 байт для Coalesced Access
 }
 
-pub struct InterNodeRouter;
+pub struct InterNodeRouter {
+    pub socket: std::sync::Arc<tokio::net::UdpSocket>,
+    pub routing_table: std::sync::Arc<crate::network::router::RoutingTable>,
+}
 
 impl InterNodeRouter {
+    pub fn new(socket: std::sync::Arc<tokio::net::UdpSocket>, routing_table: std::sync::Arc<crate::network::router::RoutingTable>) -> Self {
+        Self { socket, routing_table }
+    }
+
+    /// Отправляет батч спайков через UDP (Zero-Copy)
+    pub async fn flush_outgoing_batch(
+        &self, 
+        target_zone_hash: u32, 
+        events: &[crate::network::SpikeEvent]
+    ) {
+        if let Some(target_addr) = self.routing_table.get_address(target_zone_hash) {
+            let header = SpikeBatchHeaderV2 {
+                src_zone_hash: 0, // Не используется для Ingress, заполняем нулем
+                dst_zone_hash: target_zone_hash as u64,
+            };
+            
+            // В сыром виде мы отправляем Header (16 байт) + Slice events (8 байт на ивент)
+            // Избегаем аллокаций - используем std::io::IoSlice или копируем в thread-local буфер
+            // Для упрощения (т.к. UDP отправляет одним пакетом), формируем буфер здесь:
+            let mut packet = Vec::with_capacity(16 + events.len() * std::mem::size_of::<crate::network::SpikeEvent>());
+            packet.extend_from_slice(bytemuck::bytes_of(&header));
+            packet.extend_from_slice(bytemuck::cast_slice(events));
+            
+            let _ = self.socket.send_to(&packet, target_addr).await;
+        }
+    }
+
+    /// Zero-Cost отправка батча спайков через Lock-Free Egress Pool
+    pub fn flush_outgoing_batch_pool(
+        &self, 
+        pool: &crate::network::egress::EgressPool,
+        target_zone_hash: u32, 
+        events: &[crate::network::SpikeEvent]
+    ) {
+        if events.is_empty() { return; }
+        let Some(target_addr) = self.routing_table.get_address(target_zone_hash) else { return; };
+        
+        let header = SpikeBatchHeaderV2 {
+            src_zone_hash: 0, // Не используется для Ingress, заполняем нулем
+            dst_zone_hash: target_zone_hash as u64,
+        };
+        
+        let header_bytes = bytemuck::bytes_of(&header);
+        let events_bytes = bytemuck::cast_slice(events);
+        let total_len = header_bytes.len() + events_bytes.len();
+        
+        // 1. O(1) Lock-free резервация
+        let mut msg = pool.free_queue.pop().expect("FATAL: Egress pool exhausted! Network is too slow.");
+        
+        // 2. Zero-cost копирование (L1/L2 Cache)
+        unsafe {
+            let ptr = msg.buffer.as_mut_ptr();
+            std::ptr::copy_nonoverlapping(header_bytes.as_ptr(), ptr, header_bytes.len());
+            std::ptr::copy_nonoverlapping(events_bytes.as_ptr(), ptr.add(header_bytes.len()), events_bytes.len());
+        }
+        
+        msg.size = total_len;
+        msg.target = target_addr;
+        
+        // 3. O(1) Lock-free передача
+        pool.ready_queue.push(msg).unwrap();
+    }
     /// Запускает слушатель межзональных спайков (Sender-Side Mapping)
     pub async fn spawn_ghost_listener(
         port: u16,
-        tx: tokio::sync::mpsc::UnboundedSender<(SpikeBatchHeaderV2, Vec<SpikeEventV2>)>,
+        bsp_barrier: std::sync::Arc<crate::network::bsp::BspBarrier>,
     ) {
         let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
         
@@ -100,16 +165,20 @@ impl InterNodeRouter {
                 if let Ok((size, _addr)) = sock.recv_from(&mut buf).await {
                     if size < 16 { continue; }
                     
-                    let header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
+                    let _header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
                     let payload_bytes = &buf[16..size];
                     
                     if payload_bytes.len() % 8 != 0 { continue; }
                     
                     let events: &[SpikeEventV2] = bytemuck::cast_slice(payload_bytes);
                     
-                    if tx.send((header, events.to_vec())).is_err() {
-                        break;
+                    let schedule = bsp_barrier.get_write_schedule();
+                    for ev in events {
+                        schedule.push_spike(ev.tick_offset as usize, ev.ghost_id);
                     }
+                    
+                    // Увеличиваем счетчик полученных пакетов для BSP барьера
+                    bsp_barrier.packets_received.fetch_add(1, std::sync::atomic::Ordering::Release);
                 }
             }
         });

@@ -12,6 +12,7 @@ pub mod replication;
 pub mod bsp;
 pub mod inter_node;
 pub mod io_server;
+pub mod egress;
 
 use bytemuck::{Pod, Zeroable};
 

@@ -13,6 +13,8 @@ fn main() {
         .cuda(true)
         .flag("-O3")
         .flag("-use_fast_math")
+        // [DOD FIX] Per-Thread Default Stream: каждый OS-поток получает свой CUDA-стрим.
+        .flag("-default-stream=per-thread")
         // TODO for 1080ti: Если у тебя архитектура отличная от Ampere (RTX 30xx/A100),
         // поменяй sm_80 на свою (например, sm_75 для Turing, sm_89 для Ada)
         .flag("-arch=sm_61")

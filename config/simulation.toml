@@ -1,17 +1,17 @@
 [world]
 width_um = 2500
 depth_um = 2500
-height_um = 750
+height_um = 1550
 
 [simulation]
 tick_duration_us = 100
 total_ticks = 10000
 master_seed = "GENESIS"
-global_density = 0.04
-voxel_size_um = 25.0
-signal_speed_m_s = 1.0
-segment_length_voxels = 2
+global_density = 0.1
+voxel_size_um = 25.0      # 2500 / 40 = 62 вокселя — в рамках 6-bit Z лимита (max 63)
+signal_speed_m_s = 0.5
+segment_length_voxels = 1
 sync_batch_ticks = 100
-night_interval_ticks = 1000
-num_virtual_axons = 1024
-axon_growth_max_steps = 1500
+night_interval_ticks = 30000
+num_virtual_axons = 4000
+axon_growth_max_steps = 2500

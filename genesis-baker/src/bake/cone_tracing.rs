@@ -4,8 +4,9 @@ use crate::bake::spatial_grid::SpatialGrid;
 
 pub struct ConeParams {
     pub radius_um: f32,
-    pub fov_cos: f32, // cos(FOV / 2.0). Если FOV = 60°, то cos(30°) ≈ 0.866
-    pub target_type: Option<u8>,
+    pub fov_cos: f32,       // cos(FOV / 2.0). Если FOV = 60°, то cos(30°) ≈ 0.866
+    pub owner_type: u8,     // [DOD] Сырой 4-битный тип владельца аксона
+    pub type_affinity: f32, // [DOD] 0.0=тянется к чужим, 0.5=нейтрально, 1.0=к своим
 }
 
 /// Zero-Cost распаковка из 32 бит в f32 вектор (микрометры)
@@ -27,7 +28,7 @@ pub fn calculate_v_attract(
     voxel_size_um: f32,
 ) -> Vec3 {
     let origin_vec = unpack_to_vec3(origin_pos, voxel_size_um);
-    
+
     // Переводим радиус поиска из мкм в чанки для SpatialGrid
     let radius_cells = (params.radius_um / (grid.cell_size as f32 * voxel_size_um)).ceil() as i32;
 
@@ -36,20 +37,15 @@ pub fn calculate_v_attract(
     // O(K) Zero-allocation spatial query
     grid.for_each_in_radius(&origin_pos, radius_cells, |dense_id| {
         let neighbor_pos = grid.get_position(dense_id);
-        
-        // 1. Быстрый аппаратный фильтр по маске типа (0 бит float-математики)
-        if let Some(t) = params.target_type {
-            if neighbor_pos.type_id() != t { return; }
-        }
 
-        // 2. Игнорируем себя (коллизия координат)
+        // Игнорируем себя (коллизия координат)
         if neighbor_pos.0 == origin_pos.0 { return; }
 
         let target_vec = unpack_to_vec3(neighbor_pos, voxel_size_um);
         let diff = target_vec - origin_vec;
         let dist_sq = diff.length_squared();
 
-        // 3. Быстрое отсечение по сфере (через квадрат, никаких sqrt!)
+        // Быстрое отсечение по сфере (Squared — никаких sqrt!)
         if dist_sq > params.radius_um * params.radius_um || dist_sq == 0.0 {
             return;
         }
@@ -57,12 +53,20 @@ pub fn calculate_v_attract(
         let dist = dist_sq.sqrt();
         let dir_to_target = diff / dist;
 
-        // 4. Отсечение по Конусу (Cone Frustum Culling)
-        // Dot Product = 1 такт ALU. Если dot > cos(FOV), мы смотрим на цель.
+        // Отсечение по Конусу (Cone Frustum Culling)
         let dot = current_dir.dot(dir_to_target);
         if dot > params.fov_cos {
-            // 5. Взвешивание (Weighting). Inverse Square Law: чем ближе цель, тем сильнее тянет.
-            let weight = 1.0 / (dist_sq + 1.0); // +1.0 защита от NaN
+            // [DOD] Branchless Type Affinity Math
+            // is_same = 1.0 если типы совпадают, 0.0 если различаются
+            let is_same = (neighbor_pos.type_id() == params.owner_type) as i32 as f32;
+
+            // При is_same=1.0 → берём affinity
+            // При is_same=0.0 → берём (1.0 - affinity)
+            // ×2.0: при affinity=0.5 нейтральный множитель = 1.0 для всех
+            let affinity_mod = (is_same * params.type_affinity
+                + (1.0 - is_same) * (1.0 - params.type_affinity)) * 2.0;
+
+            let weight = (1.0 / (dist_sq + 1.0)) * affinity_mod;
             v_attract += dir_to_target * weight;
         }
     });

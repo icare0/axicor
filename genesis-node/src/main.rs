@@ -71,10 +71,35 @@ fn main() -> Result<()> {
         // Spawn Geometry Server
         boot_result.geometry_server.spawn(boot_result.geometry_data);
 
-        // 6. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
-        // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
-        boot_result.node_runtime.run_node_loop(cli.batch_size).await;
+        // 6. Spawn Dedicated OS Thread for Lock-Free UDP Egress
+        let worker_pool = boot_result.egress_pool.clone();
+        std::thread::Builder::new()
+            .name("genesis-egress-tx".into())
+            .spawn(move || {
+                let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+                loop {
+                    if let Some(msg) = worker_pool.ready_queue.pop() {
+                        let _ = socket.send_to(&msg.buffer[..msg.size], msg.target);
+                        worker_pool.free_queue.push(msg).unwrap();
+                    } else {
+                        // Выжигаем квант процессора без контекста ОС
+                        std::hint::spin_loop();
+                    }
+                }
+            }).expect("Fatal: Failed to spawn egress worker thread");
 
+        // 7. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
+        // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
+        let node = boot_result.node_runtime;
+        std::thread::Builder::new()
+            .name("genesis-orchestrator".into())
+            .spawn(move || {
+                node.run_node_loop(cli.batch_size);
+            })
+            .expect("Fatal: Failed to spawn orchestrator OS thread");
+
+        // 8. Park the Tokio main thread so daemon tasks stay alive
+        std::thread::park();
         Ok(())
     })
 }

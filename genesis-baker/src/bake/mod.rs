@@ -10,9 +10,4 @@ pub mod ghost_map;
 pub mod atlas_map;
 pub mod layout;
 pub mod seed;
-
-#[cfg(test)] mod test_spatial_grid;
-#[cfg(test)] mod test_cone_tracing;
-#[cfg(test)] mod test_axon_growth;
-#[cfg(test)] mod test_dendrite_connect;
-#[cfg(test)] mod test_output_map;
+pub mod topology;

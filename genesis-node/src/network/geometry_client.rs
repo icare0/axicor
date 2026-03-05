@@ -2,9 +2,9 @@ use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot};
+use std::sync::Arc;
 
-use super::slow_path::{GeometryRequest, GeometryResponse};
+use super::slow_path::{GeometryRequest, GeometryResponse, SlowPathQueues};
 
 /// Connects to a GeometryServer, sends a request, and waits for a response.
 pub async fn send_geometry_request(
@@ -43,27 +43,31 @@ pub async fn send_geometry_request(
 
 pub struct GeometryServer {
     listener: TcpListener,
+    pub slow_path_queues: Arc<SlowPathQueues>,
 }
 
 impl GeometryServer {
     pub async fn bind(addr: SocketAddr) -> Result<Self> {
         let listener = TcpListener::bind(addr).await?;
-        Ok(Self { listener })
+        Ok(Self { 
+            listener,
+            slow_path_queues: Arc::new(SlowPathQueues::new()),
+        })
     }
 
-    /// Spawns the server loop serving the provided u32 neuron data.
+    /// Spawns the server loop serving the provided u32 neuron data and parsing requests.
     pub fn spawn(self, geometry_data: Vec<u32>) {
         let num_neurons = geometry_data.len();
         
+        // Prepare legacy IDE telemetry payload
         let mut buf = Vec::with_capacity(8 + num_neurons * 4);
         buf.extend_from_slice(b"GEOM"); 
         buf.extend_from_slice(&(num_neurons as u32).to_le_bytes());
-        
-        // Zero-cost cast to bytes
         let data_bytes = bytemuck::cast_slice(&geometry_data);
         buf.extend_from_slice(data_bytes);
+        let shared_payload = Arc::new(buf);
 
-        let shared_payload = std::sync::Arc::new(buf);
+        let slow_path_queues = self.slow_path_queues.clone();
 
         tokio::spawn(async move {
             println!("[Geometry Server] Listening on TCP {}", self.listener.local_addr().unwrap());
@@ -74,12 +78,41 @@ impl GeometryServer {
                 };
                 
                 let data = shared_payload.clone();
+                let queues = slow_path_queues.clone();
+                
                 tokio::spawn(async move {
-                    // Wait for the "GEOM" request magic
-                    let mut magic = [0u8; 4];
-                    if let Ok(_) = stream.read_exact(&mut magic).await {
-                        if &magic == b"GEOM" {
-                            let _ = stream.write_all(&data).await;
+                    let mut len_buf = [0u8; 4];
+                    if stream.read_exact(&mut len_buf).await.is_err() { return; }
+
+                    // Legacy GEOM request from IDE
+                    if &len_buf == b"GEOM" {
+                        let _ = stream.write_all(&data).await;
+                        return;
+                    }
+
+                    // BulkHandover request
+                    let req_len = u32::from_le_bytes(len_buf) as usize;
+                    if req_len > 10_000_000 { return; } // Safety limit 10MB
+                    
+                    let mut req_buf = vec![0u8; req_len];
+                    if stream.read_exact(&mut req_buf).await.is_err() { return; }
+
+                    if let Ok(req) = bincode::deserialize::<GeometryRequest>(&req_buf) {
+                        match req {
+                            GeometryRequest::BulkHandover(events) => {
+                                for ev in events {
+                                    queues.incoming_grow.push(ev);
+                                }
+                            }
+                            GeometryRequest::Prune(_) => {}
+                        }
+
+                        // Send Ack
+                        let resp = GeometryResponse::Ok;
+                        if let Ok(resp_encoded) = bincode::serialize(&resp) {
+                            let resp_len = resp_encoded.len() as u32;
+                            let _ = stream.write_all(&resp_len.to_le_bytes()).await;
+                            let _ = stream.write_all(&resp_encoded).await;
                         }
                     }
                 });

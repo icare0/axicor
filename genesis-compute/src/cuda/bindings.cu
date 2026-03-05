@@ -293,7 +293,15 @@ __global__ void ghost_sync_kernel(const uint32_t *src_axon_heads,
     return;
   uint32_t src_idx = src_indices[tid];
   uint32_t dst_idx = dst_indices[tid];
-  dst_axon_heads[dst_idx] = src_axon_heads[src_idx];
+
+  // [DOD FIX] Аппаратная защита от отравленных индексов.
+  // Легальный axon_id << 2^31. Всё что >= 0x80000000:
+  //   0x80000000 = AXON_SENTINEL (мёртвый аксон)
+  //   0xFFFFFFFF = u32::MAX (сома без аксона, soma_to_axon default)
+  // Такой src_idx → out-of-bounds в VRAM → Page Fault → Context Poison.
+  if (src_idx < 0x80000000u) {
+    dst_axon_heads[dst_idx] = src_axon_heads[src_idx];
+  }
 }
 
 void launch_ghost_sync(const uint32_t *src_heads, uint32_t *dst_heads,
@@ -434,22 +442,8 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n,
 }
 
 extern "C" {
-void launch_sort_and_prune(uint32_t padded_n, uint32_t *dendrite_targets,
-                           int16_t *dendrite_weights, uint8_t *dendrite_timers,
-                           int16_t prune_threshold, cudaStream_t stream) {
-  uint32_t threads = 32;
-  uint32_t blocks = (padded_n + threads - 1) / threads;
-  if (blocks == 0 && padded_n > 0)
-    blocks = 1;
-
-  SoA_State state;
-  state.dendrite_targets = dendrite_targets;
-  state.dendrite_weights = dendrite_weights;
-  state.dendrite_timers = dendrite_timers;
-
-  sort_and_prune_kernel<<<blocks, threads, 0, stream>>>(state, padded_n,
-                                                        prune_threshold);
-}
+// launch_sort_and_prune с полной сигнатурой определен ниже (requires
+// ShardVramPtrs)
 } // last existing extern "C"
 
 // =====================================================================
@@ -610,8 +604,26 @@ void cu_free_shard(ShardVramPtrs *vram) {
     vram->axon_heads = nullptr;
   }
 }
+}
 
-} // extern "C" (ShardVramPtrs block)
+// =====================================================================
+// Night Phase: Sort & Prune (requires ShardVramPtrs, defined above)
+// Один блок = один нейрон (32 потока). Идеальная утилизация Shared Memory.
+// Без stream — ночная фаза синхронна.
+// =====================================================================
+extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
+                                      uint32_t padded_n,
+                                      int16_t prune_threshold) {
+  uint32_t threads = 32;
+  uint32_t blocks = padded_n;
+
+  SoA_State state = {};
+  state.dendrite_targets = ptrs->dendrite_targets;
+  state.dendrite_weights = ptrs->dendrite_weights;
+  state.dendrite_timers = ptrs->dendrite_timers;
+
+  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n, prune_threshold);
+}
 
 // ============================================================================
 // I/O VRAM Allocations & DMA Transfers

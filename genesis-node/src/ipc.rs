@@ -14,7 +14,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION};
+use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION, NightPhaseRequest, NightPhaseResponse};
+use serde_json;
 
 // POSIX SHM wrappers (libc calls)
 use std::ffi::CString;
@@ -23,8 +24,8 @@ use std::ffi::CString;
 pub struct BakerClient {
     zone_id: u16,
     socket_path: std::path::PathBuf,
-    shm_ptr: *mut u8,
-    shm_len: usize,
+    pub shm_ptr: *mut u8,
+    pub shm_len: usize,
 }
 
 // SAFETY: BakerClient is not Send/Sync by default due to raw pointer.
@@ -94,51 +95,36 @@ impl BakerClient {
     /// 2. Signal daemon (`night_start`)
     /// 3. Wait for `night_done` (or `error`) with timeout
     /// 4. Return updated targets from SHM
+    /// Run one Night Phase Sprouting cycle:
+    /// 1. Signal daemon (`night_start`) via JSON NightPhaseRequest
+    /// 2. Daemon mutates SHM directly
+    /// 3. Wait for `night_done` (or `error`) with timeout
     pub fn run_night(
         &mut self,
-        weights: &[i16],
-        targets: &[u32],
+        handovers: &[genesis_core::ipc::AxonHandoverEvent],
         padded_n: usize,
         timeout: Duration,
-    ) -> Result<Vec<u32>> {
-        // ── 1. Copy weights+targets into SHM ──
-        let hdr = self.header();
-        anyhow::ensure!(hdr.padded_n as usize == padded_n, "SHM padded_n mismatch");
+    ) -> Result<()> {
+        // ── 1. Prepare Request ──
+        let shm_path = format!("/dev/shm{}", shm_name(self.zone_id));
+        let req = genesis_core::ipc::NightPhaseRequest {
+            zone_name: format!("zone_{}", self.zone_id), // TODO: get real name
+            shm_path,
+            padded_n,
+            weights_offset: self.header().weights_offset as usize,
+            targets_offset: self.header().targets_offset as usize,
+            handovers: handovers.to_vec(),
+        };
 
-        let w_off = hdr.weights_offset as usize;
-        let t_off = hdr.targets_offset as usize;
-        let w_bytes = weights.len() * std::mem::size_of::<i16>();
-        let t_bytes = targets.len() * std::mem::size_of::<u32>();
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                weights.as_ptr() as *const u8,
-                self.shm_ptr.add(w_off),
-                w_bytes,
-            );
-            std::ptr::copy_nonoverlapping(
-                targets.as_ptr() as *const u8,
-                self.shm_ptr.add(t_off),
-                t_bytes,
-            );
-        }
-
-        // ── 2. Transition state → NightStart ──
-        self.set_state(ShmState::NightStart);
-
-        // ── 3. Connect to daemon socket and send night_start ──
+        // ── 2. Connect to daemon socket and send request ──
         let mut stream = UnixStream::connect(&self.socket_path)
             .with_context(|| format!("Cannot connect to baker socket {:?}", self.socket_path))?;
         stream
             .set_read_timeout(Some(timeout))
             .context("set_read_timeout")?;
 
-        writeln!(
-            stream,
-            r#"{{"cmd":"night_start","zone_id":{},"epoch":{}}}"#,
-            self.zone_id,
-            self.header().epoch
-        )?;
+        let msg = serde_json::to_string(&req)?;
+        writeln!(stream, "{}", msg)?;
         stream.flush()?;
 
         // ── 4. Wait for response ──
@@ -146,27 +132,16 @@ impl BakerClient {
         let mut line = String::new();
         reader.read_line(&mut line).context("Waiting for baker response")?;
 
-        if line.contains("night_done") {
-            // ── 5. Read updated targets from SHM ──
-            let slot_n = padded_n * 128;
-            let mut new_targets = vec![0u32; slot_n];
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    self.shm_ptr.add(t_off) as *const u32,
-                    new_targets.as_mut_ptr(),
-                    slot_n,
-                );
-            }
+        let resp: genesis_core::ipc::NightPhaseResponse = serde_json::from_str(&line)
+            .context("Parsing baker response")?;
 
+        if resp.status == "success" {
             // Reset state → Idle
             self.set_state(ShmState::Idle);
-            Ok(new_targets)
-        } else if line.contains("error") {
-            self.set_state(ShmState::Idle);
-            bail!("Baker daemon returned error: {}", line.trim());
+            Ok(())
         } else {
             self.set_state(ShmState::Idle);
-            bail!("Baker daemon unexpected response: {}", line.trim());
+            bail!("Baker daemon returned error: {}", resp.status);
         }
     }
 

@@ -1,0 +1,457 @@
+use std::sync::Arc;
+use std::thread;
+use std::ptr;
+use crossbeam::channel::Receiver;
+use genesis_compute::ShardEngine;
+use genesis_core::config::InstanceConfig;
+use genesis_core::ipc::{AxonHandoverEvent, shm_name, shm_size, ShmHeader, ShmState};
+use memmap2::MmapMut;
+use std::fs::OpenOptions;
+use crate::network::bsp::BspBarrier;
+use crate::network::io_server::InputSwapchain;
+use super::{ComputeCommand, ComputeFeedback};
+
+pub struct ThreadWorkspace {
+    pub shm_buffer: MmapMut,
+    pub weights_offset: usize,
+    pub targets_offset: usize,
+    pub handovers_offset: usize,
+    pub checkpoint_buffer: Vec<u8>,
+}
+
+impl ThreadWorkspace {
+    pub fn new(zone_id: u16, padded_n: usize) -> Self {
+        let name = shm_name(zone_id);
+        let path = format!("/dev/shm{}", name);
+        
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .expect("Failed to create SHM file");
+        
+        let total_size = shm_size(padded_n);
+        file.set_len(total_size as u64).expect("Failed to set SHM size");
+        
+        let mut mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap SHM") };
+        
+        // Инициализируем заголовок контракта (Node владеет жизненным циклом)
+        let header = ShmHeader::new(zone_id, padded_n as u32, 0); 
+        unsafe {
+            std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header);
+        }
+
+        Self {
+            weights_offset: header.weights_offset as usize,
+            targets_offset: header.targets_offset as usize,
+            handovers_offset: header.handovers_offset as usize,
+            shm_buffer: mmap,
+            checkpoint_buffer: vec![0u8; 0], // Will be resized in spawn
+        }
+    }
+
+    pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i16] {
+        let len = padded_n * 128;
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.weights_offset) as *mut i16,
+                len,
+            )
+        }
+    }
+
+    pub fn targets_slice_mut(&mut self, padded_n: usize) -> &mut [u32] {
+        let len = padded_n * 128;
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.targets_offset) as *mut u32,
+                len,
+            )
+        }
+    }
+}
+
+// ФАЗА 1: Выполнение GPU батча (Day Phase)
+#[inline(always)]
+fn execute_day_phase(
+    shard: &mut ShardEngine,
+    batch_size: u32,
+    global_dopamine: i16,
+    bsp_barrier: &Arc<BspBarrier>,
+    my_io_ctx: &Arc<InputSwapchain>,
+    io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
+    num_virtual_axons: u32,
+    mapped_soma_ids: *const u32,
+) {
+    let sync_batch_ticks = 100u32;
+    let input_words_per_tick = (num_virtual_axons + 31) / 32;
+
+    unsafe {
+        genesis_compute::ffi::update_global_dopamine(
+            global_dopamine, 
+            std::ptr::null_mut()
+        );
+    }
+
+    let schedule = bsp_barrier.get_read_schedule();
+    
+    // [DOD FIX] Zero-cost, 100% безопасное взятие слайсов из Pinned RAM
+    let incoming_slice = schedule.ghost_ids.as_slice();
+    let counts_slice_atomic = schedule.counts.as_slice();
+    let counts_slice = unsafe {
+        // AtomicU32 and u32 have identical memory layout.
+        std::slice::from_raw_parts(counts_slice_atomic.as_ptr() as *const u32, counts_slice_atomic.len())
+    };
+
+    let input_ptr = my_io_ctx.consume_for_gpu();
+    let input_slice = if !input_ptr.is_null() && input_words_per_tick > 0 {
+        unsafe {
+            Some(std::slice::from_raw_parts(
+                input_ptr as *const u32,
+                (input_words_per_tick * batch_size) as usize,
+            ))
+        }
+    } else {
+        None
+    };
+
+    let virtual_offset = shard.vram.total_axons - num_virtual_axons;
+
+    shard.step_day_phase_batch(
+        batch_size,
+        io_buffers,
+        input_slice,
+        Some(incoming_slice),
+        counts_slice,
+        virtual_offset,
+        num_virtual_axons,
+        mapped_soma_ids,
+    );
+}
+
+// ФАЗА 2: Чтение выходов
+#[inline(always)]
+fn download_outputs(
+    num_outputs: u32,
+    pinned_out: &mut genesis_compute::memory::PinnedBuffer<u8>,
+    io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
+    output_bytes: usize,
+) {
+    if num_outputs > 0 {
+        unsafe {
+            genesis_compute::ffi::gpu_memcpy_device_to_host(
+                pinned_out.as_mut_ptr() as *mut _,
+                io_buffers.d_output_history as *const _,
+                output_bytes,
+            );
+        }
+    }
+}
+
+// ФАЗА 3: Периодический сброс на диск (I/O)
+#[inline(always)]
+fn save_hot_checkpoint(shard: &ShardEngine, hash: u32, baked_dir: &std::path::Path, buffer: &mut [u8]) {
+    unsafe {
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            buffer.as_mut_ptr() as *mut _,
+            shard.vram.ptrs.soma_voltage as *const _,
+            buffer.len(),
+        );
+    }
+
+    let chk_path = baked_dir.join("checkpoint.state");
+    let tmp_path = baked_dir.join("checkpoint.state.tmp");
+
+    if std::fs::write(&tmp_path, &buffer).is_ok() {
+        let _ = std::fs::rename(&tmp_path, &chk_path);
+        println!("💾 [Shard {:08X}] State checkpoint saved: {} MB", hash, buffer.len() / 1024 / 1024);
+    }
+}
+
+// ФАЗА 4: Обслуживание графа (Night Phase)
+#[inline(always)]
+fn execute_night_phase(
+    shard: &mut ShardEngine,
+    hash: u32,
+    zone_idx: u16,
+    socket_path: &std::path::Path,
+    baker_client: &mut Option<crate::ipc::BakerClient>,
+    incoming_grow: &Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
+    shard_config: &InstanceConfig,
+    rt_handle: &tokio::runtime::Handle,
+    workspace: &mut ThreadWorkspace,
+) {
+    let padded_n = shard.vram.padded_n as usize;
+    let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
+
+    unsafe {
+        // 1. GPU Defragmentation & Prune
+        genesis_compute::ffi::launch_sort_and_prune(
+            &shard.vram.ptrs,
+            shard.vram.padded_n,
+            15,
+        );
+        genesis_compute::ffi::gpu_device_synchronize();
+
+        // 2. D2H: Dendrite matrices DIRECTLY to SHM
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.dendrite_weights as *const _,
+            dendrites_count * std::mem::size_of::<i16>(),
+        );
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.dendrite_targets as *const _,
+            dendrites_count * std::mem::size_of::<u32>(),
+        );
+    }
+
+    // 3. Sprouting (Late Binding)
+    if baker_client.is_none() {
+        *baker_client = crate::ipc::BakerClient::connect(zone_idx, socket_path)
+            .map_err(|e| println!("⚠️ [Shard {:08X}] IPC Connect failed: {}. Will retry next night.", hash, e))
+            .ok();
+    }
+
+    if let Some(client) = baker_client.as_mut() {
+        println!("   ↳ SHM Handover to Baker Daemon (zone {})...", zone_idx);
+
+        let mut incoming_handovers = Vec::new();
+        while let Some(ev) = incoming_grow.pop() {
+            incoming_handovers.push(ev);
+            if incoming_handovers.len() >= genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
+                break;
+            }
+        }
+        if !incoming_handovers.is_empty() {
+            println!("   ↳ Draining {} Ghost Axons into SHM", incoming_handovers.len());
+        }
+
+        match client.run_night(
+            &incoming_handovers,
+            padded_n,
+            std::time::Duration::from_secs(10),
+        ) {
+            Ok(()) => {
+                unsafe {
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.dendrite_targets as *mut _,
+                        workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
+                        dendrites_count * std::mem::size_of::<u32>(),
+                    );
+                    genesis_compute::ffi::gpu_device_synchronize();
+                }
+
+                dispatch_handovers(client, shard_config, rt_handle);
+                println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
+            }
+            Err(e) => {
+                println!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
+                *baker_client = None;
+            }
+        }
+    } else {
+        println!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
+    }
+}
+
+// Абстракция для отправки Spatial Geometry Routing внутри Night Phase
+#[inline(always)]
+fn dispatch_handovers(
+    client: &crate::ipc::BakerClient,
+    shard_config: &InstanceConfig,
+    rt_handle: &tokio::runtime::Handle,
+) {
+    let shm_hdr = unsafe { std::ptr::read(client.shm_ptr as *const genesis_core::ipc::ShmHeader) };
+    let handovers_slice = unsafe {
+        std::slice::from_raw_parts(
+            client.shm_ptr.add(shm_hdr.handovers_offset as usize) as *const crate::network::slow_path::AxonHandoverEvent,
+            shm_hdr.handovers_count as usize,
+        )
+    };
+
+    let mut x_plus = Vec::new();
+    let mut x_minus = Vec::new();
+    let mut y_plus = Vec::new();
+    let mut y_minus = Vec::new();
+
+    let max_x = shard_config.dimensions.w as u16;
+    let max_y = shard_config.dimensions.d as u16;
+
+    for ev in handovers_slice {
+        if ev.entry_x >= max_x {
+            x_plus.push(*ev);
+        } else if ev.entry_x == 0 {
+            x_minus.push(*ev);
+        } else if ev.entry_y >= max_y {
+            y_plus.push(*ev);
+        } else if ev.entry_y == 0 {
+            y_minus.push(*ev);
+        }
+    }
+
+    let mut routes_to_execute: Vec<(String, Vec<crate::network::slow_path::AxonHandoverEvent>)> = Vec::new();
+    let neighbors = &shard_config.neighbors;
+    if !x_plus.is_empty() {
+        if let Some(ref addr) = neighbors.x_plus {
+            routes_to_execute.push((addr.clone(), x_plus));
+        }
+    }
+    if !x_minus.is_empty() {
+        if let Some(ref addr) = neighbors.x_minus {
+            routes_to_execute.push((addr.clone(), x_minus));
+        }
+    }
+    if !y_plus.is_empty() {
+        if let Some(ref addr) = neighbors.y_plus {
+            routes_to_execute.push((addr.clone(), y_plus));
+        }
+    }
+    if !y_minus.is_empty() {
+        if let Some(ref addr) = neighbors.y_minus {
+            routes_to_execute.push((addr.clone(), y_minus));
+        }
+    }
+
+    for (addr_str, batch) in routes_to_execute {
+        rt_handle.spawn(async move {
+            if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
+                let req = crate::network::slow_path::GeometryRequest::BulkHandover(batch);
+                let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
+            }
+        });
+    }
+}
+
+// Инициализация VRAM буферов
+fn init_io_buffers(
+    num_virtual_axons: u32,
+    max_spikes_per_tick: u32,
+    num_outputs: u32,
+    sync_batch_ticks: u32,
+) -> genesis_compute::compute::shard::IoDeviceBuffers {
+    let input_words_per_tick = (num_virtual_axons + 31) / 32;
+    let mut d_input = ptr::null_mut();
+    let mut d_spikes = ptr::null_mut();
+    let mut d_output = ptr::null_mut();
+    unsafe {
+        genesis_compute::ffi::cu_allocate_io_buffers(
+            input_words_per_tick * sync_batch_ticks,
+            max_spikes_per_tick * sync_batch_ticks,
+            num_outputs * sync_batch_ticks,
+            &mut d_input,
+            &mut d_spikes,
+            &mut d_output,
+        );
+    }
+    genesis_compute::compute::shard::IoDeviceBuffers {
+        d_input_bitmask: d_input,
+        d_incoming_spikes: d_spikes,
+        d_output_history: d_output,
+        max_spikes_per_tick,
+        input_words_per_tick,
+        num_outputs,
+    }
+}
+
+pub fn spawn_shard_thread(
+    hash: u32,
+    mut shard: ShardEngine,
+    num_virtual_axons: u32,
+    num_outputs: u32,
+    mapped_soma_ids_host: Option<Vec<u32>>,
+    baked_dir: std::path::PathBuf,
+    shard_config: InstanceConfig,
+    zone_idx: u16,
+    incoming_grow: std::sync::Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
+    rt_handle: tokio::runtime::Handle,
+    night_interval: u64,
+    rx: Receiver<ComputeCommand>,
+    f_tx: crossbeam::channel::Sender<ComputeFeedback>,
+    bsp_barrier: Arc<BspBarrier>,
+    my_io_ctx: Arc<InputSwapchain>,
+) {
+    let _sync_batch_ticks = 100u32;
+    let max_spikes_per_tick = 100_000u32;
+    let output_bytes = (num_outputs * sync_batch_ticks) as usize;
+
+    thread::Builder::new()
+        .name(format!("compute-{}", hash))
+        .spawn(move || {
+            // 1. Инициализация аппаратного контекста
+            unsafe { genesis_compute::ffi::gpu_set_device(0); }
+
+            let mapped_soma_ids: *const u32 = if let Some(ref host_ids) = mapped_soma_ids_host {
+                let bytes = host_ids.len() * 4;
+                let ptr = unsafe { genesis_compute::ffi::gpu_malloc(bytes) } as *mut u32;
+                unsafe {
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        ptr as *mut _,
+                        host_ids.as_ptr() as *const _,
+                        bytes,
+                    );
+                }
+                ptr as *const u32
+            } else {
+                std::ptr::null()
+            };
+
+            let io_buffers = init_io_buffers(num_virtual_axons, max_spikes_per_tick, num_outputs, sync_batch_ticks);
+            let mut pinned_out = genesis_compute::memory::PinnedBuffer::<u8>::new(output_bytes).unwrap();
+            let mut baker_client: Option<crate::ipc::BakerClient> = None;
+            let socket_path = genesis_core::ipc::default_socket_path(zone_idx);
+            
+            let padded_n = shard.vram.padded_n as usize;
+            let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
+            let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
+
+            // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
+            let mut workspace = ThreadWorkspace::new(zone_idx, padded_n);
+            workspace.checkpoint_buffer = vec![0u8; state_size];
+
+            let mut batch_counter: u64 = 0;
+
+            // 2. Плоский горячий цикл
+            while let Ok(cmd) = rx.recv() {
+                match cmd {
+                    ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine } => {
+                        // ФАЗА 1: Выполнение GPU батча (Day Phase)
+                        execute_day_phase(
+                            &mut shard, batch_size, global_dopamine, &bsp_barrier,
+                            &my_io_ctx, &io_buffers, num_virtual_axons, mapped_soma_ids,
+                        );
+
+                        // ФАЗА 2: Чтение выходов
+                        download_outputs(num_outputs, &mut pinned_out, &io_buffers, output_bytes);
+
+                        // ФАЗА 3: Периодический сброс на диск (I/O)
+                        if batch_counter > 0 && batch_counter % 500 == 0 {
+                            save_hot_checkpoint(&shard, hash, &baked_dir, &mut workspace.checkpoint_buffer);
+                        }
+
+                        // ФАЗА 4: Обслуживание графа (Night Phase)
+                        let current_tick_count = (batch_counter + 1) * batch_size as u64;
+                        if night_interval > 0 && current_tick_count % night_interval == 0 {
+                            execute_night_phase(
+                                &mut shard, hash, zone_idx, std::path::Path::new(&socket_path), &mut baker_client,
+                                &incoming_grow, &shard_config, &rt_handle, &mut workspace
+                            );
+                        }
+
+                        // Отправка отчета оркестратору
+                        if f_tx.send(ComputeFeedback::BatchComplete {
+                            ticks_processed: batch_size,
+                            zone_hash: hash,
+                            pinned_out_ptr: pinned_out.as_ptr() as usize,
+                            output_bytes,
+                        }).is_err() { break; }
+
+                        batch_counter += 1;
+                    }
+                    ComputeCommand::Shutdown => break,
+                }
+            }
+        }).expect("Failed to spawn compute thread");
+}

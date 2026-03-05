@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use genesis_core::types::PackedPosition;
+use crate::bake::axon_growth::GrownAxon;
 
 /// Пространственный хэш для O(1) поиска соседей.
 /// Хранит только dense_id (индексы в массиве PackedPosition).
@@ -78,5 +79,75 @@ impl SpatialGrid {
     
     pub fn positions_len(&self) -> usize {
         self.positions.len()
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct SegmentRef {
+    pub axon_id: u32,
+    pub seg_idx: u16,
+    pub type_idx: u8,
+}
+
+pub struct AxonSegmentGrid {
+    pub cell_size: u32,
+    cells: HashMap<u64, Vec<SegmentRef>>,
+}
+
+impl AxonSegmentGrid {
+    pub fn build_from_axons(axons: &[GrownAxon], cell_size_voxels: u32) -> Self {
+        let cell_size = cell_size_voxels.max(1);
+        let est_segs: usize = axons.iter().map(|a| a.segments.len()).sum();
+        let mut cells: HashMap<u64, Vec<SegmentRef>> = HashMap::with_capacity(est_segs / 10 + 1);
+        
+        for (axon_id, axon) in axons.iter().enumerate() {
+            let type_idx = axon.type_idx as u8;
+            for (seg_idx, &packed) in axon.segments.iter().enumerate() {
+                let pos = PackedPosition(packed);
+                let cx = (pos.x() as u32) / cell_size;
+                let cy = (pos.y() as u32) / cell_size;
+                let cz = (pos.z() as u32) / cell_size;
+                
+                let hash = SpatialGrid::hash_cell(cx, cy, cz);
+                cells.entry(hash).or_default().push(SegmentRef {
+                    axon_id: axon_id as u32,
+                    seg_idx: seg_idx as u16,
+                    type_idx,
+                });
+            }
+        }
+        
+        Self {
+            cell_size,
+            cells,
+        }
+    }
+
+    #[inline(always)]
+    pub fn for_each_in_radius<F>(&self, pos: &PackedPosition, radius_cells: i32, mut f: F)
+    where
+        F: FnMut(&SegmentRef),
+    {
+        let cx = (pos.x() as u32 / self.cell_size) as i32;
+        let cy = (pos.y() as u32 / self.cell_size) as i32;
+        let cz = (pos.z() as u32 / self.cell_size) as i32;
+
+        for z in (cz - radius_cells)..=(cz + radius_cells) {
+            if z < 0 { continue; }
+            for y in (cy - radius_cells)..=(cy + radius_cells) {
+                if y < 0 { continue; }
+                for x in (cx - radius_cells)..=(cx + radius_cells) {
+                    if x < 0 { continue; }
+
+                    let hash = SpatialGrid::hash_cell(x as u32, y as u32, z as u32);
+                    if let Some(refs) = self.cells.get(&hash) {
+                        for segment_ref in refs {
+                            f(segment_ref);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
