@@ -22,18 +22,7 @@ use crate::output::GxoFile;
 use crate::network::ghosts::load_ghosts;
 use crate::network::intra_gpu::IntraGpuChannel;
 
-type BootShard = (
-    u32,                             // zone_hash
-    ShardEngine,                     // engine
-    u32,                             // num_virtual_axons
-    u32,                             // virtual_offset
-    u32,                             // num_outputs
-    Option<Vec<u32>>,                // mapped_soma_ids_host
-    std::path::PathBuf,              // baked_dir
-    genesis_core::config::InstanceConfig,
-    Arc<SegQueue<genesis_core::ipc::AxonHandoverEvent>>,
-    u32,                             // v_seg
-);
+type BootShard = crate::node::shard_thread::ShardDescriptor;
 
 pub struct Bootloader;
 
@@ -316,7 +305,18 @@ impl Bootloader {
 
         let v_seg = zone_manifest.memory.v_seg as u32;
 
-        engines.push((zone_hash, engine, num_virtual_axons, virtual_offset, num_outputs, mapped_soma_ids_host, baked_dir, instance_config, incoming_grow, v_seg));
+        engines.push(BootShard {
+            hash: zone_hash,
+            engine,
+            num_virtual_axons,
+            virtual_offset,
+            num_outputs,
+            mapped_soma_ids_host,
+            baked_dir,
+            config: instance_config,
+            v_seg,
+            incoming_grow,
+        });
         io_contexts.push((zone_hash, io_ctx));
 
         Ok((engines, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes))

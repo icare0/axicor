@@ -11,6 +11,31 @@ use crate::network::bsp::BspBarrier;
 use crate::network::io_server::InputSwapchain;
 use super::{ComputeCommand, ComputeFeedback};
 
+/// [Phase 23] Static shard geometry/physics — owns all per-shard data.
+pub struct ShardDescriptor {
+    pub hash: u32,
+    pub engine: ShardEngine,
+    pub num_virtual_axons: u32,
+    pub virtual_offset: u32,
+    pub num_outputs: u32,
+    pub mapped_soma_ids_host: Option<Vec<u32>>,
+    pub baked_dir: std::path::PathBuf,
+    pub config: InstanceConfig,
+    pub v_seg: u32,
+    pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
+}
+
+/// [Phase 23] Shared orchestrator resources — cheap Clone via Arc.
+#[derive(Clone)]
+pub struct NodeContext {
+    pub bsp_barrier: Arc<BspBarrier>,
+    pub io_ctx: Arc<InputSwapchain>,
+    pub rt_handle: tokio::runtime::Handle,
+    pub night_interval: u64,
+    pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
+}
+
+
 pub struct ThreadWorkspace {
     pub shm_buffer: MmapMut,
     pub weights_offset: usize,
@@ -367,26 +392,16 @@ fn init_io_buffers(
 }
 
 pub fn spawn_shard_thread(
-    hash: u32,
-    mut shard: ShardEngine,
-    num_virtual_axons: u32,
-    virtual_offset: u32,
-    num_outputs: u32,
-    mapped_soma_ids_host: Option<Vec<u32>>,
-    baked_dir: std::path::PathBuf,
-    shard_config: InstanceConfig,
-    incoming_grow: std::sync::Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
-    rt_handle: tokio::runtime::Handle,
-    night_interval: u64,
+    mut desc: ShardDescriptor,
+    ctx: NodeContext,
     rx: Receiver<ComputeCommand>,
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
-    bsp_barrier: Arc<BspBarrier>,
-    my_io_ctx: Arc<InputSwapchain>,
-    v_seg: u32,
 ) {
     let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
-    let output_bytes = (num_outputs * sync_batch_ticks) as usize;
+    let output_bytes = (desc.num_outputs * sync_batch_ticks) as usize;
+
+    let hash = desc.hash;
 
     thread::Builder::new()
         .name(format!("compute-{}", hash))
@@ -394,7 +409,7 @@ pub fn spawn_shard_thread(
             // 1. Инициализация аппаратного контекста
             unsafe { genesis_compute::ffi::gpu_set_device(0); }
 
-            let mapped_soma_ids: *const u32 = if let Some(ref host_ids) = mapped_soma_ids_host {
+            let mapped_soma_ids: *const u32 = if let Some(ref host_ids) = desc.mapped_soma_ids_host {
                 let bytes = host_ids.len() * 4;
                 let ptr = unsafe { genesis_compute::ffi::gpu_malloc(bytes) } as *mut u32;
                 unsafe {
@@ -409,12 +424,12 @@ pub fn spawn_shard_thread(
                 std::ptr::null()
             };
 
-            let io_buffers = init_io_buffers(num_virtual_axons, max_spikes_per_tick, num_outputs, sync_batch_ticks);
+            let io_buffers = init_io_buffers(desc.num_virtual_axons, max_spikes_per_tick, desc.num_outputs, sync_batch_ticks);
             let mut pinned_out = genesis_compute::memory::PinnedBuffer::<u8>::new(output_bytes).unwrap();
             let mut baker_client: Option<crate::ipc::BakerClient> = None;
             let socket_path = genesis_core::ipc::default_socket_path(hash);
             
-            let padded_n = shard.vram.padded_n as usize;
+            let padded_n = desc.engine.vram.padded_n as usize;
             let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
@@ -430,24 +445,24 @@ pub fn spawn_shard_thread(
                     ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine } => {
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
-                            &mut shard, batch_size, global_dopamine, &bsp_barrier,
-                            &my_io_ctx, &io_buffers, virtual_offset, num_virtual_axons, mapped_soma_ids, v_seg, batch_counter
+                            &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
+                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter
                         );
 
                         // ФАЗА 2: Чтение выходов
-                        download_outputs(num_outputs, &mut pinned_out, &io_buffers, output_bytes);
+                        download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes);
 
                         // ФАЗА 3: Периодический сброс на диск (I/O)
                         if batch_counter > 0 && batch_counter % 500 == 0 {
-                            save_hot_checkpoint(&shard, hash, &baked_dir, &mut workspace.checkpoint_buffer);
+                            save_hot_checkpoint(&desc.engine, hash, &desc.baked_dir, &mut workspace.checkpoint_buffer);
                         }
 
                         // ФАЗА 4: Обслуживание графа (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
-                        if night_interval > 0 && current_tick_count % night_interval == 0 {
+                        if ctx.night_interval > 0 && current_tick_count % ctx.night_interval == 0 {
                             execute_night_phase(
-                                &mut shard, hash, std::path::Path::new(&socket_path), &mut baker_client,
-                                &incoming_grow, &shard_config, &rt_handle, &mut workspace
+                                &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
+                                &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace
                             );
                         }
 
@@ -466,3 +481,4 @@ pub fn spawn_shard_thread(
             }
         }).expect("Failed to spawn compute thread");
 }
+

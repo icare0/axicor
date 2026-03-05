@@ -71,7 +71,7 @@ fn main() -> Result<()> {
         println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
 
         // Spawn IO Receiver Loop
-        let io_server = boot_result.node_runtime.io_server.clone();
+        let io_server = boot_result.node_runtime.services.io_server.clone();
         tokio::spawn(async move {
             io_server.run_rx_loop().await;
         });

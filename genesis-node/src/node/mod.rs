@@ -31,10 +31,32 @@ pub enum ComputeFeedback {
     },
 }
 
-pub struct NodeRuntime {
+/// [Phase 23] Network channel topology — raw pointers, inter/intra GPU channels.
+pub struct NetworkTopology {
+    pub intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
+    pub inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
+    pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
+    pub egress_pool: Arc<crate::network::egress::EgressPool>,
+    pub axon_head_ptrs: HashMap<u32, *mut u32>,
+}
+
+// Safety: raw pointers in NetworkTopology are pinned GPU pointers owned by ShardEngine.
+// They are valid for the lifetime of the VRAM allocation and are only accessed from
+// the orchestrator thread (run_node_loop), which is single-threaded.
+unsafe impl Send for NetworkTopology {}
+unsafe impl Sync for NetworkTopology {}
+
+/// [Phase 23] Shared infrastructure services.
+pub struct NodeServices {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
+    pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
+}
+
+pub struct NodeRuntime {
+    pub services: NodeServices,
+    pub network: NetworkTopology,
     pub compute_dispatchers: HashMap<u32, Sender<ComputeCommand>>,
     pub feedback_sender: Sender<ComputeFeedback>,
     pub feedback_receiver: Receiver<ComputeFeedback>,
@@ -43,16 +65,10 @@ pub struct NodeRuntime {
     pub local_port: u16,
     /// [DOD] Маршруты выходов: zone_hash -> (TargetAddr, matrix_hash)
     pub output_routes: HashMap<u32, Vec<(String, u32)>>,
-    pub intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
-    pub inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
-    pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
-    pub axon_head_ptrs: HashMap<u32, *mut u32>,
-    pub egress_pool: Arc<crate::network::egress::EgressPool>,
     // [DOD] Владение дочерними процессами (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
     // [DOD] Night Phase интервал в тиках
     pub night_interval: u64,
-    pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
 }
@@ -62,7 +78,7 @@ unsafe impl Sync for NodeRuntime {}
 
 impl NodeRuntime {
     pub fn boot(
-        shards: Vec<(u32, ShardEngine, u32, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>, u32)>,
+        shards: Vec<crate::node::shard_thread::ShardDescriptor>,
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
         bsp_barrier: Arc<BspBarrier>,
@@ -89,10 +105,10 @@ impl NodeRuntime {
 
         let mut compute_dispatchers = HashMap::new();
         let mut shard_receivers = HashMap::new();
-        for (hash, ..) in &shards {
+        for desc in &shards {
             let (tx, rx) = bounded(1);
-            compute_dispatchers.insert(*hash, tx);
-            shard_receivers.insert(*hash, rx);
+            compute_dispatchers.insert(desc.hash, tx);
+            shard_receivers.insert(desc.hash, rx);
         }
 
         let rt_handle = tokio::runtime::Handle::current();
@@ -101,7 +117,10 @@ impl NodeRuntime {
         let mut virtual_offset_map = HashMap::new();
 
         // [DOD] Consume shards to spawn threads
-        for (hash, shard, v_axons, v_offset, outputs, soma_ids_host, baked_dir, instance_config, incoming_grow, v_seg) in shards {
+        for desc in shards {
+            let hash = desc.hash;
+            let v_seg = desc.v_seg;
+            let v_offset = desc.virtual_offset;
             let rx = shard_receivers.remove(&hash).unwrap();
             zone_v_segs.insert(hash, v_seg);
             virtual_offset_map.insert(hash, v_offset);
@@ -110,18 +129,35 @@ impl NodeRuntime {
                 .find(|(h, _)| *h == hash)
                 .map(|(_, ctx)| ctx.swapchain.clone())
                 .expect("FATAL: IO Context for zone not found");
+
+            let ctx = crate::node::shard_thread::NodeContext {
+                bsp_barrier: bsp_barrier.clone(),
+                io_ctx: my_io_ctx,
+                rt_handle: rt_handle.clone(),
+                night_interval,
+                incoming_grow: desc.incoming_grow.clone(),
+            };
                 
             crate::node::shard_thread::spawn_shard_thread(
-                hash, shard, v_axons, v_offset, outputs, soma_ids_host, baked_dir, instance_config,
-                incoming_grow, rt_handle.clone(), night_interval, rx, feedback_tx.clone(),
-                bsp_barrier.clone(), my_io_ctx, v_seg
+                desc, ctx, rx, feedback_tx.clone(),
             );
         }
 
+
         let node = Self {
-            io_server,
-            routing_table,
-            bsp_barrier,
+            services: NodeServices {
+                io_server,
+                routing_table,
+                bsp_barrier,
+                reporter,
+            },
+            network: NetworkTopology {
+                intra_gpu_channels,
+                inter_node_channels,
+                inter_node_router,
+                egress_pool,
+                axon_head_ptrs,
+            },
             compute_dispatchers,
             feedback_sender: feedback_tx,
             feedback_receiver: feedback_rx,
@@ -129,14 +165,8 @@ impl NodeRuntime {
             local_ip,
             local_port,
             output_routes,
-            intra_gpu_channels,
-            inter_node_channels,
-            inter_node_router,
-            axon_head_ptrs,
-            egress_pool,
             daemons: Mutex::new(daemons),
             night_interval,
-            reporter,
             zone_v_segs,
             virtual_offset_map,
         };
@@ -145,22 +175,22 @@ impl NodeRuntime {
     }
 
     fn spawn_baker_daemons(
-        shards: &Vec<(u32, ShardEngine, u32, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>, u32)>,
+        shards: &[crate::node::shard_thread::ShardDescriptor],
     ) -> Vec<Child> {
         let mut daemons = Vec::with_capacity(shards.len());
         let exe_path = env::current_exe().expect("FATAL: Failed to get current exe path");
         let daemon_path = exe_path.with_file_name("genesis-baker-daemon");
 
-        for (hash, _, _, _, _, _, baked_dir, _, _, _) in shards {
-            let socket_path = genesis_core::ipc::default_socket_path(*hash);
+        for desc in shards {
+            let socket_path = genesis_core::ipc::default_socket_path(desc.hash);
             let _ = std::fs::remove_file(&socket_path);
 
-            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?}", hash, baked_dir);
+            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?}", desc.hash, desc.baked_dir);
             let child = Command::new(&daemon_path)
                 .arg("--zone-hash")
-                .arg(hash.to_string())
+                .arg(desc.hash.to_string())
                 .arg("--baked-dir")
-                .arg(baked_dir)
+                .arg(&desc.baked_dir)
                 .spawn()
                 .expect("FATAL: Failed to spawn genesis-baker-daemon. Was it compiled?");
             
@@ -185,18 +215,18 @@ impl NodeRuntime {
 
         loop {
             // 1. Wait for Ingress data (Strict BSP network sync)
-            self.bsp_barrier.wait_for_data_sync();
+            self.services.bsp_barrier.wait_for_data_sync();
             
             // 2. Synchronize BSP and consume Ghost events
-            self.bsp_barrier.sync_and_swap();
+            self.services.bsp_barrier.sync_and_swap();
 
             // 3. Swap IO Buffers (Acquire semantics)
-            for (_, io_ctx) in &self.io_server.io_contexts {
+            for (_, io_ctx) in &self.services.io_server.io_contexts {
                 io_ctx.swapchain.swap();
             }
 
             // 4. Dispatch batches to compute shards
-            let current_dopamine = self.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
+            let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && log_counter % 100 == 0 {
                 println!("💉 [Node] Dopamine: {}", current_dopamine);
             }
@@ -222,8 +252,8 @@ impl NodeRuntime {
                                 // Ship outputs to network targets
                                 if let Some(routes) = self.output_routes.get(&zone_hash) {
                                     for (addr, m_hash) in routes {
-                                        self.io_server.send_output_batch_pool(
-                                            &self.egress_pool,
+                                        self.services.io_server.send_output_batch_pool(
+                                            &self.network.egress_pool,
                                             &addr, 
                                             zone_hash,
                                             *m_hash,
@@ -239,11 +269,11 @@ impl NodeRuntime {
             }
 
             // [DOD] 6. Intra-GPU Ghost Sync + Inter-Node Extraction
-            for (src_ptr, dst_ptr, channel) in &self.intra_gpu_channels {
+            for (src_ptr, dst_ptr, channel) in &self.network.intra_gpu_channels {
                 unsafe { channel.sync_ghosts(*src_ptr, *dst_ptr, std::ptr::null_mut()); }
             }
 
-            for (src_ptr, channel) in &self.inter_node_channels {
+            for (src_ptr, channel) in &self.network.inter_node_channels {
                 // [DOD] v_seg must be passed for accurate spike timing extraction
                 let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
                 unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
@@ -253,12 +283,12 @@ impl NodeRuntime {
             unsafe { genesis_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
 
             // [DOD] 8. Inter-Node Fast Path (Egress)
-            for (_, channel) in &self.inter_node_channels {
+            for (_, channel) in &self.network.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
                 
                 if out_count > 0 {
                     println!("🚀 [Egress] Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
-                    self.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
+                    self.services.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
 
                 // [DOD FIX] BSP Heartbeat: ВСЕГДА формируем и отправляем пакет, даже если out_count == 0.
@@ -266,8 +296,8 @@ impl NodeRuntime {
                 let events_slice = unsafe { 
                     std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize) 
                 };
-                self.inter_node_router.flush_outgoing_batch_pool(
-                    &self.egress_pool, 
+                self.network.inter_node_router.flush_outgoing_batch_pool(
+                    &self.network.egress_pool, 
                     channel.src_zone_hash,
                     channel.target_zone_hash, 
                     events_slice
@@ -276,7 +306,7 @@ impl NodeRuntime {
 
             current_tick += batch_size;
             log_counter  += 1;
-            self.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            self.services.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
         }
     }
 }
