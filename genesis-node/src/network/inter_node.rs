@@ -4,6 +4,7 @@ use std::ptr;
 
 pub struct InterNodeChannel {
     pub target_zone_hash: u32,
+    pub src_zone_hash: u32,
     pub src_indices_host: Vec<u32>,
     pub src_indices_d: *mut u32,
     pub dst_ghost_ids_d: *mut u32,
@@ -17,22 +18,19 @@ pub struct InterNodeChannel {
 unsafe impl Send for InterNodeChannel {}
 unsafe impl Sync for InterNodeChannel {}
 
-impl Clone for InterNodeChannel {
-    fn clone(&self) -> Self {
-        Self {
-            target_zone_hash: self.target_zone_hash,
-            src_indices_host: self.src_indices_host.clone(),
-            src_indices_d: self.src_indices_d,
-            dst_ghost_ids_d: self.dst_ghost_ids_d,
-            count: self.count,
-            out_events_pinned: self.out_events_pinned,
-            out_count_pinned: self.out_count_pinned,
+impl Drop for InterNodeChannel {
+    fn drop(&mut self) {
+        unsafe {
+            genesis_compute::ffi::gpu_free(self.src_indices_d as *mut _);
+            genesis_compute::ffi::gpu_free(self.dst_ghost_ids_d as *mut _);
+            genesis_compute::ffi::gpu_host_free(self.out_events_pinned as *mut _);
+            genesis_compute::ffi::gpu_host_free(self.out_count_pinned as *mut _);
         }
     }
 }
 
 impl InterNodeChannel {
-    pub unsafe fn new(target_zone_hash: u32, src_indices: &[u32], dst_ghost_ids: &[u32]) -> Self {
+    pub unsafe fn new(src_zone_hash: u32, target_zone_hash: u32, src_indices: &[u32], dst_ghost_ids: &[u32]) -> Self {
         let count = src_indices.len() as u32;
         
         let src_d = ffi::gpu_malloc((count as usize) * 4) as *mut u32;
@@ -46,6 +44,7 @@ impl InterNodeChannel {
         
         Self {
             target_zone_hash,
+            src_zone_hash,
             src_indices_host: src_indices.to_vec(),
             src_indices_d: src_d,
             dst_ghost_ids_d: dst_d,
@@ -55,7 +54,7 @@ impl InterNodeChannel {
         }
     }
 
-    pub unsafe fn extract_spikes(&self, axon_heads: *const u32, sync_batch_ticks: u32, stream: ffi::CudaStream) {
+    pub unsafe fn extract_spikes(&self, axon_heads: *const u32, sync_batch_ticks: u32, v_seg: u32, stream: ffi::CudaStream) {
         if self.count == 0 { return; }
         genesis_compute::ffi::launch_extract_outgoing_spikes(
             axon_heads,
@@ -63,6 +62,7 @@ impl InterNodeChannel {
             self.dst_ghost_ids_d,
             self.count,
             sync_batch_ticks,
+            v_seg,
             self.out_events_pinned as *mut std::ffi::c_void,
             self.out_count_pinned,
             stream
@@ -121,35 +121,36 @@ impl InterNodeRouter {
     pub fn flush_outgoing_batch_pool(
         &self, 
         pool: &crate::network::egress::EgressPool,
+        src_zone_hash: u32,
         target_zone_hash: u32, 
         events: &[crate::network::SpikeEvent]
     ) {
-        if events.is_empty() { return; }
         let Some(target_addr) = self.routing_table.get_address(target_zone_hash) else { return; };
         
-        let header = SpikeBatchHeaderV2 {
-            src_zone_hash: 0, // Не используется для Ingress, заполняем нулем
-            dst_zone_hash: target_zone_hash as u64,
+        let mut msg = loop {
+            if let Some(m) = pool.free_queue.pop() {
+                break m;
+            }
+            std::hint::spin_loop();
         };
-        
-        let header_bytes = bytemuck::bytes_of(&header);
-        let events_bytes = bytemuck::cast_slice(events);
-        let total_len = header_bytes.len() + events_bytes.len();
-        
-        // 1. O(1) Lock-free резервация
-        let mut msg = pool.free_queue.pop().expect("FATAL: Egress pool exhausted! Network is too slow.");
-        
-        // 2. Zero-cost копирование (L1/L2 Cache)
+
         unsafe {
-            let ptr = msg.buffer.as_mut_ptr();
-            std::ptr::copy_nonoverlapping(header_bytes.as_ptr(), ptr, header_bytes.len());
-            std::ptr::copy_nonoverlapping(events_bytes.as_ptr(), ptr.add(header_bytes.len()), events_bytes.len());
+            let header = msg.buffer.as_mut_ptr() as *mut SpikeBatchHeaderV2;
+            (*header).src_zone_hash = src_zone_hash as u64;
+            (*header).dst_zone_hash = target_zone_hash as u64;
+
+            let events_bytes = bytemuck::cast_slice(events);
+            if !events_bytes.is_empty() {
+                std::ptr::copy_nonoverlapping(
+                    events_bytes.as_ptr(),
+                    msg.buffer.as_mut_ptr().add(16),
+                    events_bytes.len()
+                );
+            }
+            msg.size = 16 + events_bytes.len();
         }
         
-        msg.size = total_len;
         msg.target = target_addr;
-        
-        // 3. O(1) Lock-free передача
         pool.ready_queue.push(msg).unwrap();
     }
     /// Запускает слушатель межзональных спайков (Sender-Side Mapping)

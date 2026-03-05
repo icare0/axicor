@@ -25,8 +25,15 @@ impl BspBarrier {
     }
 
     pub fn wait_for_data_sync(&self) {
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(50); // Ждем максимум 50мс
+
         // Ждем, пока Ingress UDP-сервер не запишет пакеты от всех соседей
         while self.packets_received.load(Ordering::Acquire) < self.expected_peers {
+            if start.elapsed() > timeout {
+                println!("⚠️ [BSP] UDP Drop Detected! Forcing barrier bypass to prevent deadlock.");
+                break;
+            }
             // [DOD] Выжигаем токены CPU минимально, не отдавая тред ОС
             std::hint::spin_loop();
         }

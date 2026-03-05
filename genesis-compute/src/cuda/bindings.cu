@@ -329,7 +329,7 @@ __global__ void extract_outgoing_spikes_kernel(
     const uint32_t *axon_heads,
     const uint32_t *src_indices,   // Локальные ID экспортируемых аксонов
     const uint32_t *dst_ghost_ids, // Их ID на удаленной машине
-    uint32_t count, uint32_t sync_batch_ticks,
+    uint32_t count, uint32_t sync_batch_ticks, uint32_t v_seg,
     SpikeEvent *out_events, // Указатель на Pinned RAM (Mapped)
     uint32_t *out_count     // Указатель на Pinned RAM (Mapped)
 ) {
@@ -340,15 +340,19 @@ __global__ void extract_outgoing_spikes_kernel(
   uint32_t local_axon = src_indices[tid];
   uint32_t head = axon_heads[local_axon];
 
-  // Математика сдвига: если head < размера батча, значит спайк родился в ЭТОМ
-  // батче.
-  if (head < sync_batch_ticks) {
+  // [DOD] Защита: пропускаем мертвые аксоны (AXON_SENTINEL >= 0x80000000)
+  if (head >= 0x70000000u) return;
+
+  // Математика сдвига: head = тики_после_спайка * v_seg
+  uint32_t ticks_since_spike = head / v_seg;
+
+  if (ticks_since_spike < sync_batch_ticks) {
     // Атомарно занимаем слот в выходном буфере (Zero-cost atomic в L2)
     uint32_t out_idx = atomicAdd(out_count, 1);
 
     out_events[out_idx].ghost_id = dst_ghost_ids[tid];
     // Восстанавливаем точный тик, на котором произошел спайк
-    out_events[out_idx].tick_offset = sync_batch_ticks - 1 - head;
+    out_events[out_idx].tick_offset = sync_batch_ticks - 1 - ticks_since_spike;
   }
 }
 
@@ -356,6 +360,7 @@ void launch_extract_outgoing_spikes(const uint32_t *axon_heads,
                                     const uint32_t *src_indices,
                                     const uint32_t *dst_ghost_ids,
                                     uint32_t count, uint32_t sync_batch_ticks,
+                                    uint32_t v_seg,
                                     void *out_events, uint32_t *out_count,
                                     cudaStream_t stream) {
   uint32_t threads = 256;
@@ -365,7 +370,7 @@ void launch_extract_outgoing_spikes(const uint32_t *axon_heads,
   cudaMemsetAsync(out_count, 0, sizeof(uint32_t), stream);
 
   extract_outgoing_spikes_kernel<<<blocks, threads, 0, stream>>>(
-      axon_heads, src_indices, dst_ghost_ids, count, sync_batch_ticks,
+      axon_heads, src_indices, dst_ghost_ids, count, sync_batch_ticks, v_seg,
       (SpikeEvent *)out_events, out_count);
 }
 } // end extern "C"

@@ -80,13 +80,26 @@ impl ManifestVariant {
     }
 }
 
+use crate::config::brain::SimulationConfigRef;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZoneManifest {
     pub magic: u32,
     pub zone_hash: u32,
+    pub simulation: Option<SimulationConfigRef>,
     pub memory: ManifestMemory,
     pub network: ManifestNetwork,
-    pub variants: Vec<ManifestVariant>, // Вектор легален для TOML парсера
+    pub variants: Vec<ManifestVariant>,
+    #[serde(default)]
+    pub connections: Vec<ManifestConnection>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ManifestConnection {
+    pub from: String,
+    pub to: String,
+    pub width: Option<u16>,
+    pub height: Option<u16>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

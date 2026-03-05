@@ -26,11 +26,13 @@ type BootShard = (
     u32,                             // zone_hash
     ShardEngine,                     // engine
     u32,                             // num_virtual_axons
+    u32,                             // virtual_offset
     u32,                             // num_outputs
     Option<Vec<u32>>,                // mapped_soma_ids_host
     std::path::PathBuf,              // baked_dir
     genesis_core::config::InstanceConfig,
     Arc<SegQueue<genesis_core::ipc::AxonHandoverEvent>>,
+    u32,                             // v_seg
 );
 
 pub struct Bootloader;
@@ -98,32 +100,49 @@ impl Bootloader {
         let root_dir = manifest_path.parent().unwrap_or(Path::new("."));
         
         // 1. Data/Config Phase: Load brain and simulation configs
-        let (brain_config, sim_config) = Self::parse_manifests(manifest_path, root_dir)?;
+        let (zone_manifest, sim_config) = Self::parse_manifests(manifest_path, root_dir)?;
         let night_interval = sim_config.simulation.night_interval_ticks as u64;
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
-            Self::load_shards_into_vram(&brain_config, root_dir)?;
+            Self::load_shards_into_vram(&zone_manifest, root_dir)?;
 
-        let first_manifest = Self::load_zone_manifest(root_dir, &brain_config.zones)?;
+        let first_manifest = zone_manifest.clone();
         unsafe { Self::flash_hardware_physics(&first_manifest)? };
 
         // 3. Topology Interconnect: Build local and remote routing channels
         let (intra_gpu_channels, inter_node_channels, expected_peers) = 
-            Self::build_routing_channels(&brain_config, root_dir, &s2a_maps, &axon_head_ptrs)?;
+            Self::build_routing_channels(&zone_manifest, root_dir, &s2a_maps, &axon_head_ptrs)?;
+
+        // [DOD FIX] Прошиваем таблицу маршрутизации для межзонального Egress
+        let mut initial_routes = HashMap::new();
+        for conn in &first_manifest.connections {
+            let src_hash = genesis_core::hash::fnv1a_32(conn.from.as_bytes());
+            let dst_hash = genesis_core::hash::fnv1a_32(conn.to.as_bytes());
+            
+            // Если мы являемся отправителем в этой связи
+            if src_hash == first_manifest.zone_hash {
+                // Берем первый доступный IP пира из манифеста (сгенерированный Baker'ом)
+                if let Some(peer_addr) = first_manifest.network.fast_path_peers.first() {
+                    let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP in manifest");
+                    initial_routes.insert(dst_hash, addr);
+                    println!("[Boot] Statically mapped route: 0x{:08X} -> {}", dst_hash, addr);
+                }
+            }
+        }
+        let routing_table = Arc::new(RoutingTable::new(initial_routes));
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone()).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers));
-        tokio::spawn(crate::network::inter_node::InterNodeRouter::spawn_ghost_listener(8083, bsp_barrier.clone()));
 
         let node_runtime = NodeRuntime::boot(
             shards,
             io_server,
-            Arc::new(RoutingTable::new(HashMap::new())),
+            routing_table,
             bsp_barrier,
             telemetry_swapchain.clone(),
             std::net::Ipv4Addr::new(127, 0, 0, 1),
@@ -147,18 +166,23 @@ impl Bootloader {
         })
     }
 
-    fn parse_manifests(manifest_path: &Path, _root_dir: &Path) -> Result<(genesis_core::config::brain::BrainConfig, genesis_core::config::SimulationConfig)> {
+    fn parse_manifests(manifest_path: &Path, _root_dir: &Path) -> Result<(ZoneManifest, genesis_core::config::SimulationConfig)> {
         let manifest_toml = std::fs::read_to_string(manifest_path)
             .with_context(|| format!("Failed to read manifest: {:?}", manifest_path))?;
         
-        let brain_config: genesis_core::config::brain::BrainConfig = toml::from_str(&manifest_toml)
-            .with_context(|| format!("Failed to parse brain manifest: {:?}", manifest_path))?;
+        let zone_manifest: ZoneManifest = toml::from_str(&manifest_toml)
+            .with_context(|| format!("Failed to parse zone manifest: {:?}", manifest_path))?;
 
-        let sim_path = std::path::Path::new(&brain_config.simulation.config);
-        let sim_toml = std::fs::read_to_string(sim_path).context("Failed to read simulation.toml")?;
-        let sim_config: genesis_core::config::SimulationConfig = toml::from_str(&sim_toml).context("Failed to parse simulation.toml")?;
+        let sim_ref = zone_manifest.simulation.as_ref().context("ZoneManifest missing simulation reference")?;
+        let sim_path = manifest_path.parent().unwrap().join(&sim_ref.config);
         
-        Ok((brain_config, sim_config))
+        println!("[Boot] Loading Simulation Config from: {:?}", sim_path);
+        let sim_toml = std::fs::read_to_string(&sim_path)
+            .with_context(|| format!("Failed to read simulation.toml at {:?}", sim_path))?;
+        let sim_config: genesis_core::config::SimulationConfig = toml::from_str(&sim_toml)
+            .context("Failed to parse simulation.toml")?;
+        
+        Ok((zone_manifest, sim_config))
     }
 
     fn load_zone_manifest(root_dir: &Path, zones: &[genesis_core::config::brain::ZoneEntry]) -> Result<ZoneManifest> {
@@ -187,7 +211,7 @@ impl Bootloader {
         Ok(())
     }
 
-    fn load_shards_into_vram(brain_config: &genesis_core::config::brain::BrainConfig, root_dir: &Path) 
+    fn load_shards_into_vram(zone_manifest: &ZoneManifest, root_dir: &Path) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut u32>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
     {
         let mut engines = Vec::new();
@@ -197,104 +221,109 @@ impl Bootloader {
         let mut axon_head_ptrs = HashMap::new();
         let mut s2a_maps = HashMap::new();
 
-        for zone_entry in &brain_config.zones {
-            let baked_dir = if zone_entry.baked_dir.is_absolute() {
-                zone_entry.baked_dir.clone()
-            } else {
-                root_dir.join(&zone_entry.baked_dir)
-            };
+        // Since we are booting from a ZoneManifest, it represents ONE local zone.
+        let baked_dir = root_dir.to_path_buf();
+        let zone_hash = zone_manifest.zone_hash;
 
-            println!("[Boot] Loading Zone: {} at {:?}", zone_entry.name, baked_dir);
-            let (engine, s2a) = boot_shard_from_disk(&baked_dir)?;
-            let zone_hash = genesis_core::hash::fnv1a_32(zone_entry.name.as_bytes());
+        println!("[Boot] Loading Local Zone at {:?}", baked_dir);
+        let (engine, s2a) = boot_shard_from_disk(&baked_dir)?;
 
-            axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
-            s2a_maps.insert(zone_hash, s2a);
+        axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
+        s2a_maps.insert(zone_hash, s2a);
 
-            let dna_dir = baked_dir.join("BrainDNA");
-            let io_config_path = dna_dir.join("io.toml");
+        let dna_dir = baked_dir.join("BrainDNA");
+        let io_config_path = dna_dir.join("io.toml");
 
-            let mut expected_inputs = false;
-            let mut expected_outputs = false;
-            let mut matrix_offsets = HashMap::new();
+        let mut expected_inputs = false;
+        let mut expected_outputs = false;
+        let mut matrix_offsets = HashMap::new();
 
-            if io_config_path.exists() {
-                if let Ok(io_config) = genesis_core::config::io::IoConfig::load(&io_config_path) {
-                    expected_inputs = !io_config.inputs.is_empty();
-                    expected_outputs = !io_config.outputs.is_empty();
+        if io_config_path.exists() {
+            if let Ok(io_config) = genesis_core::config::io::IoConfig::load(&io_config_path) {
+                expected_inputs = !io_config.inputs.is_empty();
+                expected_outputs = !io_config.outputs.is_empty();
 
-                    let mut current_bit_offset = 0u32;
-                    for input in &io_config.inputs {
-                        let hash = genesis_core::hash::fnv1a_32(input.name.as_bytes());
-                        matrix_offsets.insert(hash, (current_bit_offset / 8) as u32);
-                        current_bit_offset += input.width * input.height;
-                        current_bit_offset = (current_bit_offset + 31) & !31;
-                    }
+                let mut current_bit_offset = 0u32;
+                for input in &io_config.inputs {
+                    let hash = genesis_core::hash::fnv1a_32(input.name.as_bytes());
+                    matrix_offsets.insert(hash, (current_bit_offset / 8) as u32);
+                    current_bit_offset += input.width * input.height;
+                    current_bit_offset = (current_bit_offset + 31) & !31;
+                }
+                
+                for output in &io_config.outputs {
+                    let hash = genesis_core::hash::fnv1a_32(output.name.as_bytes());
+                    let source_hash = genesis_core::hash::fnv1a_32(output.source_zone.as_bytes());
                     
-                    for output in &io_config.outputs {
-                        let hash = genesis_core::hash::fnv1a_32(output.name.as_bytes());
-                        if zone_entry.name == "MotorCortex" || zone_entry.name == "SensoryCortex" {
-                            output_routes.entry(zone_hash).or_insert_with(Vec::new)
-                                .push(("127.0.0.1:8082".to_string(), hash));
-                        }
+                    if source_hash == zone_hash {
+                        // For CartPole E2E, we route all motor outputs to the Python client on port 8092
+                        output_routes.entry(zone_hash).or_insert_with(Vec::new)
+                            .push(("127.0.0.1:8092".to_string(), hash));
+                        println!("[Boot] Registered Output Route: {} (0x{:08X}) -> 127.0.0.1:8092", output.name, hash);
                     }
                 }
             }
-
-            let gxi_path = baked_dir.join("shard.gxi");
-            let num_virtual_axons = if expected_inputs {
-                if !gxi_path.exists() {
-                    anyhow::bail!("FATAL: Zone '{}' expects inputs but {:?} is missing!", zone_entry.name, gxi_path);
-                }
-                GxiFile::load(&gxi_path).total_pixels
-            } else {
-                0
-            };
-
-            let gxo_path = baked_dir.join("shard.gxo");
-            let (num_outputs, mapped_soma_ids_host) = if expected_outputs {
-                if !gxo_path.exists() {
-                    anyhow::bail!("FATAL: Zone '{}' expects outputs but {:?} is missing!", zone_entry.name, gxo_path);
-                }
-                let gxo = GxoFile::load(&gxo_path);
-                (gxo.total_pixels, Some(gxo.soma_ids))
-            } else {
-                (0, None)
-            };
-
-            let pos_path = baked_dir.join("shard.pos");
-            let pos_blob = std::fs::read(&pos_path)
-                .with_context(|| format!("Failed to read shard.pos: {:?}", pos_path))?;
-            let geo_data: Vec<u32> = bytemuck::cast_slice(&pos_blob).to_vec();
-            all_geo_data.extend(geo_data);
-
-            let sync_batch_ticks = 100u32;
-            let input_words_per_tick = (num_virtual_axons + 31) / 32;
-            let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
-
-            let io_ctx = crate::network::io_server::ZoneIoContext {
-                swapchain: std::sync::Arc::new(
-                    crate::network::io_server::InputSwapchain::new(input_capacity_bytes)
-                        .expect("FATAL: Failed to allocate Pinned RAM for Input"),
-                ),
-                matrix_offsets,
-            };
-
-            let instance_path = dna_dir.join("shard.toml");
-            let instance_config = genesis_core::config::InstanceConfig::load(&instance_path)
-                .map_err(anyhow::Error::msg)
-                .with_context(|| format!("Failed to load InstanceConfig from {:?}", instance_path))?;
-
-            let incoming_grow = Arc::new(SegQueue::new());
-            io_contexts.push((zone_hash, io_ctx));
-            engines.push((zone_hash, engine, num_virtual_axons, num_outputs, mapped_soma_ids_host, baked_dir, instance_config, incoming_grow));
         }
+
+        let gxi_path = baked_dir.join("shard.gxi");
+        let (num_virtual_axons, virtual_offset) = if expected_inputs {
+            if !gxi_path.exists() {
+                anyhow::bail!("FATAL: Zone expects inputs but {:?} is missing!", gxi_path);
+            }
+            let gxi = GxiFile::load(&gxi_path);
+            // [DOD FIX] Берем абсолютный смещенный индекс первого виртуального аксона
+            let offset = gxi.axon_ids.first().copied().unwrap_or(0);
+            (gxi.total_pixels, offset)
+        } else {
+            (0, 0)
+        };
+
+        let gxo_path = baked_dir.join("shard.gxo");
+        let (num_outputs, mapped_soma_ids_host) = if expected_outputs {
+            if !gxo_path.exists() {
+                anyhow::bail!("FATAL: Zone expects outputs but {:?} is missing!", gxo_path);
+            }
+            let gxo = GxoFile::load(&gxo_path);
+            (gxo.total_pixels, Some(gxo.soma_ids))
+        } else {
+            (0, None)
+        };
+
+        let pos_path = baked_dir.join("shard.pos");
+        let pos_blob = std::fs::read(&pos_path)
+            .with_context(|| format!("Failed to read shard.pos: {:?}", pos_path))?;
+        let geo_data: Vec<u32> = bytemuck::cast_slice(&pos_blob).to_vec();
+        all_geo_data.extend(geo_data);
+
+        let sync_batch_ticks = 100u32;
+        let input_words_per_tick = (num_virtual_axons + 31) / 32;
+        let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
+
+        let io_ctx = crate::network::io_server::ZoneIoContext {
+            swapchain: std::sync::Arc::new(
+                crate::network::io_server::InputSwapchain::new(input_capacity_bytes)
+                    .expect("FATAL: Failed to allocate Pinned RAM for Input"),
+            ),
+            matrix_offsets,
+        };
+
+        let instance_path = dna_dir.join("shard.toml");
+        let instance_config = genesis_core::config::InstanceConfig::load(&instance_path)
+            .map_err(anyhow::Error::msg)
+            .with_context(|| format!("Failed to load InstanceConfig from {:?}", instance_path))?;
+
+        let incoming_grow = Arc::new(SegQueue::new());
+
+        let v_seg = zone_manifest.memory.v_seg as u32;
+
+        engines.push((zone_hash, engine, num_virtual_axons, virtual_offset, num_outputs, mapped_soma_ids_host, baked_dir, instance_config, incoming_grow, v_seg));
+        io_contexts.push((zone_hash, io_ctx));
 
         Ok((engines, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes))
     }
 
     fn build_routing_channels(
-        brain_config: &genesis_core::config::brain::BrainConfig,
+        zone_manifest: &ZoneManifest,
         root_dir: &Path,
         s2a_maps: &HashMap<u32, Vec<u32>>,
         axon_head_ptrs: &HashMap<u32, *mut u32>
@@ -307,7 +336,7 @@ impl Bootloader {
         let mut inter_node = Vec::new();
         let mut expected_peers = 0;
 
-        for conn in &brain_config.connections {
+        for conn in &zone_manifest.connections {
             let src_hash = genesis_core::hash::fnv1a_32(conn.from.as_bytes());
             let dst_hash = genesis_core::hash::fnv1a_32(conn.to.as_bytes());
 
@@ -321,8 +350,7 @@ impl Bootloader {
 
             if !is_src_local { continue; } // Outbound routing from remote source doesn't concern us
 
-            let src_zone_entry = brain_config.zones.iter().find(|z| z.name == conn.from).unwrap();
-            let src_baked_dir = root_dir.join(&src_zone_entry.baked_dir);
+            let src_baked_dir = root_dir.to_path_buf();
             let ghosts_path = src_baked_dir.join(format!("{}_{}.ghosts", conn.from, conn.to));
 
             if ghosts_path.exists() {
@@ -348,7 +376,7 @@ impl Bootloader {
                     println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links)", conn.from, conn.to, src_axons.len());
                 } else {
                     // Network Fast Path Egress
-                    let channel = unsafe { crate::network::inter_node::InterNodeChannel::new(dst_hash, &src_axons, &dst_ghosts) };
+                    let channel = unsafe { crate::network::inter_node::InterNodeChannel::new(src_hash, dst_hash, &src_axons, &dst_ghosts) };
                     inter_node.push((src_ptr, channel));
                     println!("[Boot] Built InterNodeChannel: {} -> Remote(0x{:08X}) ({} links)", conn.from, dst_hash, src_axons.len());
                 }
@@ -359,10 +387,10 @@ impl Bootloader {
 
     async fn setup_networking(
         first_manifest: &ZoneManifest,
-        io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>
+        io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>,
+        routing_table: Arc<RoutingTable>
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
-        let routing_table = Arc::new(RoutingTable::new(HashMap::new()));
 
         let io_socket = tokio::net::UdpSocket::bind(&format!("0.0.0.0:{}", first_manifest.network.external_udp_in)).await?;
         let io_server = Arc::new(ExternalIoServer::new(

@@ -259,7 +259,13 @@ impl ExternalIoServer {
             panic!("Output batch exceeds UDP MTU.");
         }
 
-        let mut msg = pool.free_queue.pop().expect("FATAL: Egress pool exhausted! Network is too slow.");
+        // [DOD FIX] Hardware Backpressure (вместо паники)
+        let mut msg = loop {
+            if let Some(m) = pool.free_queue.pop() {
+                break m;
+            }
+            std::hint::spin_loop(); // Замедляем GPU, если сеть (NIC) не успевает
+        };
 
         unsafe {
             let header = msg.buffer.as_mut_ptr() as *mut ExternalIoHeader;

@@ -173,8 +173,12 @@ use crate::constants::{TARGET_AXON_MASK, TARGET_SEG_SHIFT};
 #[inline(always)]
 pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
     // Axon_ID: 24 bits, Segment_Offset: 8 bits
-    debug_assert!(axon_id < TARGET_AXON_MASK, "CRITICAL: Axon ID exceeds 24 bits");
-    debug_assert!(segment_offset < 256, "CRITICAL: Segment offset exceeds 8 bits");
+    if axon_id >= TARGET_AXON_MASK {
+        panic!("CRITICAL: Axon ID exceeds 24 bits");
+    }
+    if segment_offset >= 256 {
+        panic!("CRITICAL: Segment offset exceeds 8 bits");
+    }
     
     // Сдвигаем axon_id на +1
     (segment_offset << TARGET_SEG_SHIFT) | ((axon_id + 1) & TARGET_AXON_MASK)

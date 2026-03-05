@@ -1,11 +1,11 @@
 /// genesis-runtime IPC client — communicates with genesis-baker-daemon.
 ///
 /// Transport:
-///   - Data:    POSIX SHM `/genesis_shard_{zone_id}` (mmap, no copies)
+///   - Data:    POSIX SHM `/genesis_shard_{zone_hash:08X}` (mmap, no copies)
 ///   - Control: Unix domain socket (JSON-line, single command per Night Phase)
 ///
 /// Usage:
-///   1. Call `BakerClient::connect(zone_id, socket_path)` at startup.
+///   1. Call `BakerClient::connect(zone_hash, socket_path)` at startup.
 ///   2. Call `run_night(weights, targets, padded_n, timeout)` during Night Phase.
 ///   3. Returns updated targets (with sprouted connections filled in).
 use std::io::{Read, Write};
@@ -21,7 +21,7 @@ use std::ffi::CString;
 
 /// Runtime-side IPC client for the baker daemon.
 pub struct BakerClient {
-    zone_id: u16,
+    zone_hash: u32,
     socket_path: std::path::PathBuf,
     pub shm_ptr: *mut u8,
     pub shm_len: usize,
@@ -36,8 +36,8 @@ unsafe impl Sync for BakerClient {}
 impl BakerClient {
     /// Open and mmap the SHM segment, then validate the header written by daemon.
     /// The daemon must already be running and have created the SHM before this is called.
-    pub fn connect(zone_id: u16, socket_path: &Path) -> Result<Self> {
-        let name = shm_name(zone_id);
+    pub fn connect(zone_hash: u32, socket_path: &Path) -> Result<Self> {
+        let name = shm_name(zone_hash);
         let c_name = CString::new(name.as_str()).unwrap();
 
         // Open existing SHM segment (daemon creates it at startup)
@@ -82,7 +82,7 @@ impl BakerClient {
         }
 
         Ok(Self {
-            zone_id,
+            zone_hash,
             socket_path: socket_path.to_path_buf(),
             shm_ptr: ptr as *mut u8,
             shm_len,
@@ -125,7 +125,7 @@ impl BakerClient {
 
         let req = genesis_core::ipc::BakeRequest {
             magic: genesis_core::ipc::BAKE_MAGIC,
-            zone_hash: 0, // У демона уже есть SHM, можно передавать hash для логов
+            zone_hash: self.zone_hash,
             current_tick: 0, 
             prune_threshold: 15, // TODO: брать из конфига
             _padding: 0,

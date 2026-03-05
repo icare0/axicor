@@ -87,6 +87,9 @@ fn main() -> Result<()> {
                 let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
                 loop {
                     if let Some(msg) = worker_pool.ready_queue.pop() {
+                        if msg.target.port() == 8092 {
+                            println!("📤 [Egress Thread] Sending {} bytes to {}", msg.size, msg.target);
+                        }
                         let _ = socket.send_to(&msg.buffer[..msg.size], msg.target);
                         worker_pool.free_queue.push(msg).unwrap();
                     } else {

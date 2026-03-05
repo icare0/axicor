@@ -53,6 +53,8 @@ pub struct NodeRuntime {
     // [DOD] Night Phase интервал в тиках
     pub night_interval: u64,
     pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
+    pub zone_v_segs: HashMap<u32, u32>,
+    pub virtual_offset_map: HashMap<u32, u32>,
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -60,7 +62,7 @@ unsafe impl Sync for NodeRuntime {}
 
 impl NodeRuntime {
     pub fn boot(
-        shards: Vec<(u32, ShardEngine, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>)>,
+        shards: Vec<(u32, ShardEngine, u32, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>, u32)>,
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
         bsp_barrier: Arc<BspBarrier>,
@@ -80,7 +82,7 @@ impl NodeRuntime {
         let total_ticks = Arc::new(AtomicU32::new(0));
 
         let bsp_listener_clone = bsp_barrier.clone();
-        tokio::spawn(InterNodeRouter::spawn_ghost_listener(8083, bsp_listener_clone));
+        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone));
 
         // [DOD] Structured Concurrency: Оркестратор спавнит демонов сам
         let daemons = Self::spawn_baker_daemons(&shards);
@@ -95,9 +97,14 @@ impl NodeRuntime {
 
         let rt_handle = tokio::runtime::Handle::current();
         
-        let mut zone_idx: u16 = 0;
-        for (hash, shard, v_axons, outputs, soma_ids_host, baked_dir, instance_config, incoming_grow) in shards {
+        let mut zone_v_segs = HashMap::new();
+        let mut virtual_offset_map = HashMap::new();
+
+        // [DOD] Consume shards to spawn threads
+        for (hash, shard, v_axons, v_offset, outputs, soma_ids_host, baked_dir, instance_config, incoming_grow, v_seg) in shards {
             let rx = shard_receivers.remove(&hash).unwrap();
+            zone_v_segs.insert(hash, v_seg);
+            virtual_offset_map.insert(hash, v_offset);
             
             let my_io_ctx = io_server.io_contexts.iter()
                 .find(|(h, _)| *h == hash)
@@ -105,11 +112,10 @@ impl NodeRuntime {
                 .expect("FATAL: IO Context for zone not found");
                 
             crate::node::shard_thread::spawn_shard_thread(
-                hash, shard, v_axons, outputs, soma_ids_host, baked_dir, instance_config,
-                zone_idx, incoming_grow, rt_handle.clone(), night_interval, rx, feedback_tx.clone(),
-                bsp_barrier.clone(), my_io_ctx
+                hash, shard, v_axons, v_offset, outputs, soma_ids_host, baked_dir, instance_config,
+                incoming_grow, rt_handle.clone(), night_interval, rx, feedback_tx.clone(),
+                bsp_barrier.clone(), my_io_ctx, v_seg
             );
-            zone_idx += 1;
         }
 
         let node = Self {
@@ -131,30 +137,28 @@ impl NodeRuntime {
             daemons: Mutex::new(daemons),
             night_interval,
             reporter,
+            zone_v_segs,
+            virtual_offset_map,
         };
 
         node
     }
 
     fn spawn_baker_daemons(
-        shards: &Vec<(u32, ShardEngine, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>)>,
+        shards: &Vec<(u32, ShardEngine, u32, u32, u32, Option<Vec<u32>>, std::path::PathBuf, genesis_core::config::InstanceConfig, std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverEvent>>, u32)>,
     ) -> Vec<Child> {
         let mut daemons = Vec::with_capacity(shards.len());
         let exe_path = env::current_exe().expect("FATAL: Failed to get current exe path");
         let daemon_path = exe_path.with_file_name("genesis-baker-daemon");
 
-        for i in 0..shards.len() {
-            let zone_idx = i as u16;
-            let baked_dir = &shards[i].5; // [DOD FIX] Извлекаем путь к скомпилированной зоне
-
-            // Выжигаем мусорные сокеты от прошлых некорректных завершений
-            let socket_path = genesis_core::ipc::default_socket_path(zone_idx);
+        for (hash, _, _, _, _, _, baked_dir, _, _, _) in shards {
+            let socket_path = genesis_core::ipc::default_socket_path(*hash);
             let _ = std::fs::remove_file(&socket_path);
 
-            println!("[Orchestrator] Spawning CPU Baker Daemon for zone {} at {:?}", zone_idx, baked_dir);
+            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?}", hash, baked_dir);
             let child = Command::new(&daemon_path)
-                .arg("--zone")
-                .arg(zone_idx.to_string())
+                .arg("--zone-hash")
+                .arg(hash.to_string())
                 .arg("--baked-dir")
                 .arg(baked_dir)
                 .spawn()
@@ -240,7 +244,9 @@ impl NodeRuntime {
             }
 
             for (src_ptr, channel) in &self.inter_node_channels {
-                unsafe { channel.extract_spikes(*src_ptr, batch_size, std::ptr::null_mut()); }
+                // [DOD] v_seg must be passed for accurate spike timing extraction
+                let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
+                unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
             }
             
             // [DOD] 7. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
@@ -249,14 +255,23 @@ impl NodeRuntime {
             // [DOD] 8. Inter-Node Fast Path (Egress)
             for (_, channel) in &self.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
+                
                 if out_count > 0 {
-                    let events_slice = unsafe { 
-                        std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize) 
-                    };
-                    // Zero-Copy отправка по UDP
-                    self.inter_node_router.flush_outgoing_batch_pool(&self.egress_pool, channel.target_zone_hash, events_slice);
+                    println!("🚀 [Egress] Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
                     self.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
+
+                // [DOD FIX] BSP Heartbeat: ВСЕГДА формируем и отправляем пакет, даже если out_count == 0.
+                // Это пробивает барьер wait_for_data_sync на принимающей стороне.
+                let events_slice = unsafe { 
+                    std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize) 
+                };
+                self.inter_node_router.flush_outgoing_batch_pool(
+                    &self.egress_pool, 
+                    channel.src_zone_hash,
+                    channel.target_zone_hash, 
+                    events_slice
+                );
             }
 
             current_tick += batch_size;

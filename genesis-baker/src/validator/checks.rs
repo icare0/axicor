@@ -9,6 +9,15 @@ pub fn validate_all(
     const_mem: &GenesisConstantMemory,
     anatomy: &Anatomy,
 ) -> anyhow::Result<()> {
+    // [DOD FIX] Hardware limits check
+    if sim.simulation.axon_growth_max_steps > 255 {
+        anyhow::bail!(
+            "CRITICAL: simulation.axon_growth_max_steps ({}) exceeds 8-bit limit (255). 
+             PackedTarget memory layout cannot store segment offsets larger than 255.",
+             sim.simulation.axon_growth_max_steps
+        );
+    }
+
     // 1. Инвариант Времени и Пространства
     validate_physics_constraints(
         sim.simulation.signal_speed_m_s,

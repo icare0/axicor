@@ -180,6 +180,7 @@ extern "C" {
         dst_ghost_ids: *const u32,
         count: u32,
         sync_batch_ticks: u32,
+        v_seg: u32,
         out_events: *mut c_void,
         out_count: *mut u32,
         stream: CudaStream,

@@ -20,8 +20,8 @@ pub struct ThreadWorkspace {
 }
 
 impl ThreadWorkspace {
-    pub fn new(zone_id: u16, padded_n: usize) -> Self {
-        let name = shm_name(zone_id);
+    pub fn new(zone_hash: u32, padded_n: usize) -> Self {
+        let name = shm_name(zone_hash);
         let path = format!("/dev/shm{}", name);
         
         let file = OpenOptions::new()
@@ -38,7 +38,7 @@ impl ThreadWorkspace {
         let mut mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap SHM") };
         
         // Инициализируем заголовок контракта (Node владеет жизненным циклом)
-        let header = ShmHeader::new(zone_id, padded_n as u32, 0); 
+        let header = ShmHeader::new(zone_hash, padded_n as u32, 0); 
         unsafe {
             std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header);
         }
@@ -82,8 +82,11 @@ fn execute_day_phase(
     bsp_barrier: &Arc<BspBarrier>,
     my_io_ctx: &Arc<InputSwapchain>,
     io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
+    virtual_offset: u32,
     num_virtual_axons: u32,
     mapped_soma_ids: *const u32,
+    v_seg: u32,
+    batch_counter: u64,
 ) {
     let sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 31) / 32;
@@ -117,7 +120,15 @@ fn execute_day_phase(
         None
     };
 
-    let virtual_offset = shard.vram.total_axons - num_virtual_axons;
+    if batch_counter % 10 == 0 {
+        println!("🔍 [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
+        if let Some(slice) = input_slice {
+            let active = slice.iter().any(|&w| w != 0);
+            if active {
+                println!("🔥 [Shard I/O] Input active!");
+            }
+        }
+    }
 
     shard.step_day_phase_batch(
         batch_size,
@@ -128,6 +139,7 @@ fn execute_day_phase(
         virtual_offset,
         num_virtual_axons,
         mapped_soma_ids,
+        v_seg,
     );
 }
 
@@ -175,7 +187,6 @@ fn save_hot_checkpoint(shard: &ShardEngine, hash: u32, baked_dir: &std::path::Pa
 fn execute_night_phase(
     shard: &mut ShardEngine,
     hash: u32,
-    zone_idx: u16,
     socket_path: &std::path::Path,
     baker_client: &mut Option<crate::ipc::BakerClient>,
     incoming_grow: &Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
@@ -210,7 +221,7 @@ fn execute_night_phase(
 
     // 3. Sprouting (Late Binding)
     if baker_client.is_none() {
-        *baker_client = crate::ipc::BakerClient::connect(zone_idx, socket_path).ok();
+        *baker_client = crate::ipc::BakerClient::connect(hash, socket_path).ok();
     }
 
     if let Some(client) = baker_client.as_mut() {
@@ -359,11 +370,11 @@ pub fn spawn_shard_thread(
     hash: u32,
     mut shard: ShardEngine,
     num_virtual_axons: u32,
+    virtual_offset: u32,
     num_outputs: u32,
     mapped_soma_ids_host: Option<Vec<u32>>,
     baked_dir: std::path::PathBuf,
     shard_config: InstanceConfig,
-    zone_idx: u16,
     incoming_grow: std::sync::Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
     rt_handle: tokio::runtime::Handle,
     night_interval: u64,
@@ -371,6 +382,7 @@ pub fn spawn_shard_thread(
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
     bsp_barrier: Arc<BspBarrier>,
     my_io_ctx: Arc<InputSwapchain>,
+    v_seg: u32,
 ) {
     let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
@@ -400,14 +412,14 @@ pub fn spawn_shard_thread(
             let io_buffers = init_io_buffers(num_virtual_axons, max_spikes_per_tick, num_outputs, sync_batch_ticks);
             let mut pinned_out = genesis_compute::memory::PinnedBuffer::<u8>::new(output_bytes).unwrap();
             let mut baker_client: Option<crate::ipc::BakerClient> = None;
-            let socket_path = genesis_core::ipc::default_socket_path(zone_idx);
+            let socket_path = genesis_core::ipc::default_socket_path(hash);
             
             let padded_n = shard.vram.padded_n as usize;
             let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
-            let mut workspace = ThreadWorkspace::new(zone_idx, padded_n);
+            let mut workspace = ThreadWorkspace::new(hash, padded_n);
             workspace.checkpoint_buffer = vec![0u8; state_size];
 
             let mut batch_counter: u64 = 0;
@@ -419,7 +431,7 @@ pub fn spawn_shard_thread(
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
                             &mut shard, batch_size, global_dopamine, &bsp_barrier,
-                            &my_io_ctx, &io_buffers, num_virtual_axons, mapped_soma_ids,
+                            &my_io_ctx, &io_buffers, virtual_offset, num_virtual_axons, mapped_soma_ids, v_seg, batch_counter
                         );
 
                         // ФАЗА 2: Чтение выходов
@@ -434,7 +446,7 @@ pub fn spawn_shard_thread(
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
                         if night_interval > 0 && current_tick_count % night_interval == 0 {
                             execute_night_phase(
-                                &mut shard, hash, zone_idx, std::path::Path::new(&socket_path), &mut baker_client,
+                                &mut shard, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &incoming_grow, &shard_config, &rt_handle, &mut workspace
                             );
                         }

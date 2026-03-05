@@ -1,9 +1,8 @@
-use serde::Deserialize;
 use std::path::PathBuf;
 use std::fs;
 
 /// Root configuration describing the whole brain (multi-zone setup).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BrainConfig {
     #[serde(default)]
     pub simulation: SimulationConfigRef,
@@ -15,12 +14,14 @@ pub struct BrainConfig {
     pub connections: Vec<ConnectionEntry>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct SimulationConfigRef {
     pub config: PathBuf,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ZoneEntry {
     pub name: String,
     pub blueprints: PathBuf,
@@ -29,7 +30,7 @@ pub struct ZoneEntry {
     pub baked_dir: PathBuf,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConnectionEntry {
     pub from: String,
     pub to: String,

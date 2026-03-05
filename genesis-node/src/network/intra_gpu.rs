@@ -29,16 +29,11 @@ pub struct IntraGpuChannel {
 unsafe impl Send for IntraGpuChannel {}
 unsafe impl Sync for IntraGpuChannel {}
 
-impl Clone for IntraGpuChannel {
-    fn clone(&self) -> Self {
-        Self {
-            src_indices_host:  self.src_indices_host.clone(),
-            dst_indices_host:  self.dst_indices_host.clone(),
-            src_zone_indices:  self.src_zone_indices.clone(),
-            dst_zone_indices:  self.dst_zone_indices.clone(),
-            src_indices_d: self.src_indices_d,
-            dst_indices_d: self.dst_indices_d,
-            count: self.count,
+impl Drop for IntraGpuChannel {
+    fn drop(&mut self) {
+        unsafe {
+            genesis_compute::ffi::gpu_free(self.src_indices_d as *mut _);
+            genesis_compute::ffi::gpu_free(self.dst_indices_d as *mut _);
         }
     }
 }

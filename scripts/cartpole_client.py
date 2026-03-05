@@ -19,7 +19,7 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)  # 20
 
 GENESIS_IP  = "127.0.0.1"
 PORT_OUT    = 8081   # Node receives input here
-PORT_IN     = 8082   # Node sends output here
+PORT_IN     = 8092   # Node sends output here (MotorCortex)
 BATCH_TICKS = 100
 NUM_NEURONS = 16     # neurons per variable
 
@@ -83,12 +83,12 @@ def decode_output(payload: bytes) -> tuple[int, int]:
 
 
 def main() -> None:
-    env  = gym.make("CartPole-v1", render_mode="human")
+    env  = gym.make("CartPole-v1", render_mode=None)
     obs, _ = env.reset()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("0.0.0.0", PORT_IN))
-    sock.settimeout(0.5)
+    sock.settimeout(0.01)
 
     print("🧠 [Genesis] CartPole I/O Loop Started")
     print(f"   TX → {GENESIS_IP}:{PORT_OUT}  |  RX ← 0.0.0.0:{PORT_IN}")

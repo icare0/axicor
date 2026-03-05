@@ -36,6 +36,7 @@ fn main() -> Result<()> {
         let shard_cfg_path = zone.anatomy.parent().unwrap().join("shard.toml");
         
         let workspace = parse_and_validate(
+            &brain_config,
             &brain_config.simulation.config,
             &zone.blueprints,
             &zone.anatomy,
@@ -118,9 +119,10 @@ pub struct BakeWorkspace {
     pub an_path: PathBuf,
     pub io_path: PathBuf,
     pub shard_cfg_path: PathBuf,
+    pub brain_config: genesis_core::config::brain::BrainConfig,
 }
 
-fn parse_and_validate(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<BakeWorkspace> {
+fn parse_and_validate(brain_config: &genesis_core::config::brain::BrainConfig, sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<BakeWorkspace> {
     println!("[baker] Parsing configs...");
     let sim = parser::simulation::parse(
         &std::fs::read_to_string(sim_path)
@@ -179,6 +181,7 @@ fn parse_and_validate(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: 
         an_path: an_path.to_path_buf(),
         io_path: io_path.to_path_buf(),
         shard_cfg_path: shard_cfg_path.to_path_buf(),
+        brain_config: brain_config.clone(),
     })
 }
 
@@ -208,6 +211,9 @@ fn serialize_artifacts(shard: &bake::layout::ShardSoA, workspace: &BakeWorkspace
     let manifest = genesis_core::config::manifest::ZoneManifest {
         magic: 0x47454E45, // "GENE"
         zone_hash: zone_hash_fnv,
+        simulation: Some(genesis_core::config::brain::SimulationConfigRef {
+            config: std::path::PathBuf::from("BrainDNA/simulation.toml"),
+        }),
         memory: genesis_core::config::manifest::ManifestMemory {
             padded_n: shard.soma_to_axon.len(),
             virtual_axons: num_virtual,
@@ -222,6 +228,15 @@ fn serialize_artifacts(shard: &bake::layout::ShardSoA, workspace: &BakeWorkspace
             fast_path_udp_local: 9001 + workspace.zone_idx * 10,
             fast_path_peers: if workspace.zone_idx == 0 { vec!["127.0.0.1:9011".to_string()] } else { vec!["127.0.0.1:9001".to_string()] },
         },
+        connections: workspace.brain_config.connections.iter()
+            .filter(|c| c.from == workspace.zone_name || c.to == workspace.zone_name)
+            .map(|c| genesis_core::config::manifest::ManifestConnection {
+                from: c.from.clone(),
+                to: c.to.clone(),
+                width: c.width,
+                height: c.height,
+            })
+            .collect(),
         variants: workspace.const_mem.variants.iter().enumerate().map(|(i, v)| {
             genesis_core::config::manifest::ManifestVariant {
                 id: i as u8,

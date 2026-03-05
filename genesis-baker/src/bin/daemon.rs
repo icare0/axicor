@@ -47,7 +47,7 @@ struct NightPhaseContext {
 #[derive(Parser)]
 struct Cli {
     #[arg(long)]
-    zone: u16,
+    zone_hash: u32,
     #[arg(long)]
     baked_dir: PathBuf,
     #[arg(long)]
@@ -56,7 +56,7 @@ struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let zone_id = cli.zone;
+    let zone_hash = cli.zone_hash;
 
     // Путь к brain.toml для поиска blueprints.toml
     let brain_toml: PathBuf = cli.brain.unwrap_or_else(|| PathBuf::from("config/brain.toml"));
@@ -79,7 +79,7 @@ fn main() {
     let shm_len = 64 + weights_size + targets_size + handovers_size;
 
     // 3. Создаем POSIX Shared Memory (O_CREAT | O_TRUNC выжигает старые данные)
-    let c_name = std::ffi::CString::new(shm_name(cli.zone)).unwrap();
+    let c_name = std::ffi::CString::new(shm_name(cli.zone_hash)).unwrap();
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR | libc::O_TRUNC, 0o666) };
     if fd < 0 { panic!("Daemon failed to create SHM"); }
     unsafe { libc::ftruncate(fd, shm_len as libc::off_t) };
@@ -87,23 +87,23 @@ fn main() {
     let ptr = unsafe { libc::mmap(std::ptr::null_mut(), shm_len as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0) };
     
     // 4. Инициализируем заголовок контракта
-    let header = ShmHeader::new(cli.zone, padded_n, total_axons);
+    let header = ShmHeader::new(cli.zone_hash, padded_n, total_axons);
     unsafe { std::ptr::write(ptr as *mut ShmHeader, header) };
 
     unsafe { libc::close(fd) };
 
-    println!("[Baker Daemon {}] SHM Allocated: {} MB. Listening for IPC...", cli.zone, shm_len / 1024 / 1024);
+    println!("[Baker Daemon {:08X}] SHM Allocated: {} MB. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024);
 
     // Загружаем blueprints.toml для Dale's Law
     let blueprints = load_blueprints(&brain_toml);
 
-    println!("🧠 Genesis Baker Daemon starting (zone_id={})", zone_id);
+    println!("🧠 Genesis Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
     let night_ctx = build_night_context(&cli.baked_dir, &brain_toml);
 
-    let socket_path = default_socket_path(zone_id);
+    let socket_path = default_socket_path(zone_hash);
 
     // Удаляем старый сокет если остался от прошлого запуска
     let _ = std::fs::remove_file(&socket_path);
@@ -118,7 +118,7 @@ fn main() {
         match stream {
             Ok(stream) => {
                 let bp_ref = blueprints.as_ref();
-                if let Err(e) = handle_night_phase(stream, zone_id, bp_ref, night_ctx.as_ref(), ptr as *mut u8) {
+                if let Err(e) = handle_night_phase(stream, zone_hash, bp_ref, night_ctx.as_ref(), ptr as *mut u8) {
                     eprintln!("❌ Night Phase error: {}", e);
                 }
             }
@@ -293,7 +293,7 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
 
 fn handle_night_phase(
     mut stream: UnixStream,
-    _zone_id: u16,
+    _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
     _ctx: Option<&NightPhaseContext>,
     shm_ptr: *mut u8,

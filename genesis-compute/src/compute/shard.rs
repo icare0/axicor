@@ -39,6 +39,7 @@ impl ShardEngine {
         virtual_offset: u32,
         num_virtual_axons: u32,
         mapped_soma_ids_device: *const u32, // Загружается при старте шарда
+        v_seg: u32,
     ) {
         // 1. Bulk DMA H2D (Входы и Сетевые Спайки)
         let total_input_words = io_buffers.input_words_per_tick * sync_batch_ticks;
@@ -56,7 +57,6 @@ impl ShardEngine {
         }
 
         // 2. Hot Loop по тикам
-        let v_seg = 1; // Скорость в сегментах
 
         for tick in 0..sync_batch_ticks {
             // Вычисляем O(1) смещения для указателей на текущий тик

@@ -1,7 +1,7 @@
 /// Night Phase IPC — Shared Memory layout between genesis-runtime and
 /// genesis-baker-daemon.
 ///
-/// SHM name: `/genesis_shard_{zone_id}`
+/// SHM name: `/genesis_shard_{zone_hash:08X}`
 /// Layout:
 ///   [0..64)   ShmHeader  (fixed, repr C, 64 bytes)
 ///   [64..)    weights: i16 × 128 × padded_n  (little-endian)
@@ -25,7 +25,6 @@ pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 use serde::{Serialize, Deserialize};
 
 /// Сетевой пакет межзональной передачи аксона (Half-Duplex SHM Data Plane).
-/// Используется как в genesis-node (генерация) так и в genesis-baker-daemon (потребление).
 /// MUST remain exactly 16 bytes — SHM layout depends on this.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,48 +44,56 @@ const _: () = assert!(
     "AxonHandoverEvent must be 16 bytes for SHM layout"
 );
 
-/// Header at the very start of the SHM segment.
-/// MUST remain exactly 64 bytes.
+pub fn shm_name(zone_hash: u32) -> String {
+    format!("/genesis_shard_{:08X}", zone_hash)
+}
+
+pub fn default_socket_path(zone_hash: u32) -> String {
+    format!("/tmp/genesis_baker_{:08X}.sock", zone_hash)
+}
+
+pub const fn shm_size(padded_n: usize) -> usize {
+    let weights_bytes = padded_n * 128 * 2;
+    let targets_bytes = padded_n * 128 * 4;
+    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * 16;
+    64 + weights_bytes + targets_bytes + handovers_bytes
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShmHeader {
     pub magic: u32,             // 0..4
     pub version: u8,            // 4..5
     pub state: u8,              // 5..6
-    pub zone_id: u16,           // 6..8
+    pub _pad: u16,              // 6..8 (бывший zone_id)
     pub padded_n: u32,          // 8..12
     pub dendrite_slots: u32,    // 12..16
     pub weights_offset: u32,    // 16..20
     pub targets_offset: u32,    // 20..24
-    
-    // Выровнено по 8 байт (offset 24)
     pub epoch: u64,             // 24..32
     pub total_axons: u32,       // 32..36
-    
-    // [DOD FIX] Возвращаем 4-байтные оффсеты на законное место
     pub handovers_offset: u32,  // 36..40
     pub handovers_count: u32,   // 40..44
-    pub _padding: [u8; 20],     // 44..64 (Добиваем до 64 байт одной кэш-линии)
+    pub zone_hash: u32,         // 44..48 [DOD FIX: Уникальный ID]
+    pub _padding: [u8; 16],     // 48..64 (Выравнивание кэш-линии)
 }
+
 
 const _: () = assert!(std::mem::size_of::<ShmHeader>() == 64, "ShmHeader MUST be 64 bytes");
 
 impl ShmHeader {
-    /// Construct a valid header for a new SHM segment.
-    pub fn new(zone_id: u16, padded_n: u32, total_axons: u32) -> Self {
+    pub fn new(zone_hash: u32, padded_n: u32, total_axons: u32) -> Self {
         let weights_offset = std::mem::size_of::<ShmHeader>() as u32;
-        let weights_bytes = padded_n * 128 * std::mem::size_of::<i16>() as u32;
+        let weights_bytes = padded_n * 128 * 2;
         let targets_offset = weights_offset + weights_bytes;
-        
-        // Offset for Zero-Copy handovers array
-        let targets_bytes = padded_n * 128 * std::mem::size_of::<u32>() as u32;
+        let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;
 
         Self {
             magic: SHM_MAGIC,
             version: SHM_VERSION,
             state: ShmState::Idle as u8,
-            zone_id,
+            _pad: 0,
             padded_n,
             dendrite_slots: 128,
             weights_offset,
@@ -95,7 +102,8 @@ impl ShmHeader {
             total_axons,
             handovers_offset,
             handovers_count: 0,
-            _padding: [0; 20],
+            zone_hash,
+            _padding: [0; 16],
         }
     }
 
@@ -141,27 +149,6 @@ impl ShmState {
             _ => None,
         }
     }
-}
-
-/// Total SHM segment size in bytes for a given padded neuron count.
-///
-/// Layout: header (64B) + weights (i16 × 128 × N) + targets (u32 × 128 × N) + handovers (16 × MAX_HANDOVERS)
-pub fn shm_size(padded_n: usize) -> usize {
-    std::mem::size_of::<ShmHeader>()
-        + padded_n * 128 * std::mem::size_of::<i16>()
-        + padded_n * 128 * std::mem::size_of::<u32>()
-        + MAX_HANDOVERS_PER_NIGHT * 16
-}
-
-// Canonical POSIX SHM name for a given zone.
-// Example: zone_id=4 → "/genesis_shard_4"
-pub fn shm_name(zone_id: u16) -> String {
-    format!("/genesis_shard_{zone_id}")
-}
-
-// Default Unix socket path for baker daemon control channel.
-pub fn default_socket_path(zone_id: u16) -> String {
-    format!("/tmp/genesis_baker_{zone_id}.sock")
 }
 
 // ---------------------------------------------------------------------------

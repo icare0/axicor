@@ -14,4 +14,4 @@ segment_length_voxels = 1
 sync_batch_ticks = 100
 night_interval_ticks = 30000
 num_virtual_axons = 4000
-axon_growth_max_steps = 2500
+axon_growth_max_steps = 255
