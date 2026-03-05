@@ -1,5 +1,4 @@
 pub mod boot;
-pub mod tui;
 pub mod network;
 pub mod node;
 pub mod orchestrator;
@@ -49,15 +48,24 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
-        // 0. Initialize CLI Dashboard
-        let dashboard = Arc::new(crate::tui::DashboardState::new(true));
-        let app = crate::tui::app::DashboardApp::new(dashboard.clone());
-        app.spawn();
+        // 0. Initialize CLI Monitor
+        let reporter = Arc::new(crate::simple_reporter::SimpleReporter::new());
+        let reporter_clone = reporter.clone();
+
+        // CLI Monitor Thread
+        std::thread::Builder::new()
+            .name("genesis-cli-monitor".into())
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    reporter_clone.print_status();
+                }
+            }).expect("Fatal: Failed to spawn monitor thread");
 
         println!("[Node] Starting Genesis Distributed Daemon...");
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node(&cli.manifest, dashboard.clone()).await
+        let boot_result = Bootloader::boot_node(&cli.manifest, reporter.clone()).await
             .context("Node Bootstrap Failed")?;
 
         println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");

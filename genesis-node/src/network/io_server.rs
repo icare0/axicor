@@ -86,7 +86,6 @@ impl InputSwapchain {
 pub struct ExternalIoServer {
     pub is_sleeping: Arc<AtomicBool>,
     pub oversized_skips: AtomicU64,
-    pub dashboard: Arc<crate::tui::DashboardState>,
     pub routing_table: Arc<RoutingTable>,
     pub socket: Arc<UdpSocket>,
     
@@ -105,7 +104,6 @@ impl ExternalIoServer {
     pub fn new(
         is_sleeping: Arc<AtomicBool>, 
         io_contexts: Vec<(u32, ZoneIoContext)>,
-        dashboard: Arc<crate::tui::DashboardState>,
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
     ) -> Result<Self> {
@@ -113,7 +111,6 @@ impl ExternalIoServer {
             is_sleeping,
             oversized_skips: AtomicU64::new(0),
             io_contexts,
-            dashboard,
             routing_table,
             socket,
             global_dopamine: Arc::new(std::sync::atomic::AtomicI32::new(0)),
@@ -133,7 +130,6 @@ impl ExternalIoServer {
 
     /// Processes a raw UDP payload according to Spec §12.
     pub fn process_incoming_udp(&self, payload: &[u8]) {
-        self.dashboard.udp_in_packets.fetch_add(1, Ordering::Relaxed);
 
         // [Contract §12.3] Biological Drop
         if self.is_sleeping.load(Ordering::Acquire) {
@@ -142,7 +138,7 @@ impl ExternalIoServer {
 
         // [Contract §12.2] EMSGSIZE Protection
         if payload.len() > MAX_UDP_PAYLOAD {
-            self.dashboard.oversized_skips.fetch_add(1, Ordering::Relaxed);
+            self.oversized_skips.fetch_add(1, Ordering::Relaxed);
             return;
         }
 
@@ -246,8 +242,6 @@ impl ExternalIoServer {
 
         let _ = self.socket.send_to(&tx_buffer[..total_size], target_addr).await;
         // println!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
-        
-        self.dashboard.udp_out_packets.fetch_add(1, Ordering::Relaxed);
     }
     /// O(1) Отправка Output_History через Lock-Free Egress Pool
     pub fn send_output_batch_pool(
@@ -286,8 +280,6 @@ impl ExternalIoServer {
         msg.size = total_size;
         msg.target = target_addr;
         pool.ready_queue.push(msg).unwrap();
-        
-        self.dashboard.udp_out_packets.fetch_add(1, Ordering::Relaxed);
     }
     /// Main loop for the UDP Input Server (Port 8081).
     pub async fn run_input_loop(self: Arc<Self>, addr: &str) -> std::io::Result<()> {

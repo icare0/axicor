@@ -8,14 +8,13 @@
 ///   1. Call `BakerClient::connect(zone_id, socket_path)` at startup.
 ///   2. Call `run_night(weights, targets, padded_n, timeout)` during Night Phase.
 ///   3. Returns updated targets (with sprouted connections filled in).
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION, NightPhaseRequest, NightPhaseResponse};
-use serde_json;
+use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION};
 
 // POSIX SHM wrappers (libc calls)
 use std::ffi::CString;
@@ -96,52 +95,62 @@ impl BakerClient {
     /// 3. Wait for `night_done` (or `error`) with timeout
     /// 4. Return updated targets from SHM
     /// Run one Night Phase Sprouting cycle:
-    /// 1. Signal daemon (`night_start`) via JSON NightPhaseRequest
-    /// 2. Daemon mutates SHM directly
-    /// 3. Wait for `night_done` (or `error`) with timeout
+    /// 1. Zero-Copy Write Handovers into Shared Memory
+    /// 2. Binary Trigger (16 bytes) - Fast Path
+    /// 3. Wait for Binary Ack (4 bytes)
     pub fn run_night(
         &mut self,
         handovers: &[genesis_core::ipc::AxonHandoverEvent],
-        padded_n: usize,
+        _padded_n: usize,
         timeout: Duration,
     ) -> Result<()> {
-        // ── 1. Prepare Request ──
-        let shm_path = format!("/dev/shm{}", shm_name(self.zone_id));
-        let req = genesis_core::ipc::NightPhaseRequest {
-            zone_name: format!("zone_{}", self.zone_id), // TODO: get real name
-            shm_path,
-            padded_n,
-            weights_offset: self.header().weights_offset as usize,
-            targets_offset: self.header().targets_offset as usize,
-            handovers: handovers.to_vec(),
-        };
+        if handovers.len() > genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
+            bail!("Too many handovers: {} > {}", handovers.len(), genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT);
+        }
 
-        // ── 2. Connect to daemon socket and send request ──
+        // ── 1. Zero-Copy Write Handovers into Shared Memory ──
+        unsafe {
+            let hdr_ptr = self.shm_ptr as *mut ShmHeader;
+            let dest = self.shm_ptr.add((*hdr_ptr).handovers_offset as usize) as *mut genesis_core::ipc::AxonHandoverEvent;
+            
+            // Прямое копирование из RAM в SHM, видимую демоном (DMA-style)
+            std::ptr::copy_nonoverlapping(handovers.as_ptr(), dest, handovers.len());
+            (*hdr_ptr).handovers_count = handovers.len() as u32;
+        }
+
+        // ── 2. Binary Trigger (16 bytes) - Fast Path ──
         let mut stream = UnixStream::connect(&self.socket_path)
             .with_context(|| format!("Cannot connect to baker socket {:?}", self.socket_path))?;
-        stream
-            .set_read_timeout(Some(timeout))
-            .context("set_read_timeout")?;
+        stream.set_read_timeout(Some(timeout))?;
 
-        let msg = serde_json::to_string(&req)?;
-        writeln!(stream, "{}", msg)?;
+        let req = genesis_core::ipc::BakeRequest {
+            magic: genesis_core::ipc::BAKE_MAGIC,
+            zone_hash: 0, // У демона уже есть SHM, можно передавать hash для логов
+            current_tick: 0, 
+            prune_threshold: 15, // TODO: брать из конфига
+            _padding: 0,
+        };
+
+        unsafe {
+            let req_bytes = std::slice::from_raw_parts(
+                &req as *const _ as *const u8, 
+                std::mem::size_of::<genesis_core::ipc::BakeRequest>()
+            );
+            stream.write_all(req_bytes)?;
+        }
         stream.flush()?;
 
-        // ── 4. Wait for response ──
-        let mut reader = BufReader::new(&stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).context("Waiting for baker response")?;
+        // ── 3. Wait for Binary Ack (4 bytes) ──
+        let mut ack = [0u8; 4];
+        stream.read_exact(&mut ack).context("Waiting for baker BKOK")?;
+        let magic_resp = u32::from_le_bytes(ack);
 
-        let resp: genesis_core::ipc::NightPhaseResponse = serde_json::from_str(&line)
-            .context("Parsing baker response")?;
-
-        if resp.status == "success" {
-            // Reset state → Idle
+        if magic_resp == genesis_core::ipc::BAKE_READY_MAGIC {
             self.set_state(ShmState::Idle);
             Ok(())
         } else {
             self.set_state(ShmState::Idle);
-            bail!("Baker daemon returned error: {}", resp.status);
+            bail!("Baker daemon returned error magic: {:08X}", magic_resp);
         }
     }
 

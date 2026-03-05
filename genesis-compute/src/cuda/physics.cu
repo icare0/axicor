@@ -135,7 +135,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     uint32_t target_packed = vram.dendrite_targets[col_idx];
 
     if (target_packed == 0)
-      continue;
+      break;
 
     // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
     // Trap)

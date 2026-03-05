@@ -153,40 +153,15 @@ pub fn shm_size(padded_n: usize) -> usize {
         + MAX_HANDOVERS_PER_NIGHT * 16
 }
 
-/// Canonical POSIX SHM name for a given zone.
-/// Example: zone_id=4 → "/genesis_shard_4"
+// Canonical POSIX SHM name for a given zone.
+// Example: zone_id=4 → "/genesis_shard_4"
 pub fn shm_name(zone_id: u16) -> String {
     format!("/genesis_shard_{zone_id}")
 }
 
-/// Default Unix socket path for baker daemon control channel.
+// Default Unix socket path for baker daemon control channel.
 pub fn default_socket_path(zone_id: u16) -> String {
     format!("/tmp/genesis_baker_{zone_id}.sock")
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NightPhaseRequest {
-    pub zone_name: String,
-    pub shm_path: String,
-    pub padded_n: usize,
-    pub weights_offset: usize,
-    pub targets_offset: usize,
-    pub handovers: Vec<AxonHandoverEvent>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NightPhaseResponse {
-    pub status: String,
-    pub total_axons: usize,
-    pub compiled_shard_meta: CompiledShardMeta,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CompiledShardMeta {
-    pub zone_name: String,
-    pub local_axons_count: usize,
-    pub bounds_voxels: (u32, u32, u32),
-    pub bounds_um: (f32, f32),
 }
 
 // ---------------------------------------------------------------------------

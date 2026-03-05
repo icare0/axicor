@@ -38,14 +38,13 @@ pub struct NodeRuntime {
     pub compute_dispatchers: HashMap<u32, Sender<ComputeCommand>>,
     pub feedback_sender: Sender<ComputeFeedback>,
     pub feedback_receiver: Receiver<ComputeFeedback>,
-    pub telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
     pub total_ticks: Arc<AtomicU32>,
     pub local_ip: std::net::Ipv4Addr,
     pub local_port: u16,
     /// [DOD] Маршруты выходов: zone_hash -> (TargetAddr, matrix_hash)
     pub output_routes: HashMap<u32, Vec<(String, u32)>>,
     pub intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
-    pub inter_node_channels: Vec<crate::network::inter_node::InterNodeChannel>,
+    pub inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
     pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
     pub axon_head_ptrs: HashMap<u32, *mut u32>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
@@ -53,6 +52,7 @@ pub struct NodeRuntime {
     pub daemons: Mutex<Vec<Child>>,
     // [DOD] Night Phase интервал в тиках
     pub night_interval: u64,
+    pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -69,11 +69,12 @@ impl NodeRuntime {
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32)>>,
         intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
-        inter_node_channels: Vec<crate::network::inter_node::InterNodeChannel>,
+        inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
         inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
         axon_head_ptrs: HashMap<u32, *mut u32>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         night_interval: u64,
+        reporter: Arc<crate::simple_reporter::SimpleReporter>,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -121,7 +122,6 @@ impl NodeRuntime {
             total_ticks,
             local_ip,
             local_port,
-            telemetry_swapchain,
             output_routes,
             intra_gpu_channels,
             inter_node_channels,
@@ -130,6 +130,7 @@ impl NodeRuntime {
             egress_pool,
             daemons: Mutex::new(daemons),
             night_interval,
+            reporter,
         };
 
         node
@@ -168,6 +169,9 @@ impl NodeRuntime {
     pub fn run_node_loop(&self, batch_size: u32) {
         let mut current_tick = 0;
         let mut log_counter: u64 = 0;
+
+        // [DOD FIX] Жесткая привязка OS-потока оркестратора к аппаратному контексту
+        unsafe { genesis_compute::ffi::gpu_set_device(0); }
 
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing (Invariant #3)
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
@@ -211,11 +215,6 @@ impl NodeRuntime {
                     match feedback {
                         ComputeFeedback::BatchComplete { ticks_processed: _, zone_hash, pinned_out_ptr, output_bytes } => {
                             if output_bytes > 0 {
-                                if log_counter % 100 == 0 {
-                                    println!("[Node] Batch #{} (Zone: 0x{:08X}, Out: {} bytes)",
-                                             log_counter, zone_hash, output_bytes);
-                                }
-                                
                                 // Ship outputs to network targets
                                 if let Some(routes) = self.output_routes.get(&zone_hash) {
                                     for (addr, m_hash) in routes {
@@ -235,16 +234,20 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] 6. Intra-GPU Ghost Sync (Zero-Cost VRAM-to-VRAM)
+            // [DOD] 6. Intra-GPU Ghost Sync + Inter-Node Extraction
             for (src_ptr, dst_ptr, channel) in &self.intra_gpu_channels {
                 unsafe { channel.sync_ghosts(*src_ptr, *dst_ptr, std::ptr::null_mut()); }
             }
+
+            for (src_ptr, channel) in &self.inter_node_channels {
+                unsafe { channel.extract_spikes(*src_ptr, batch_size, std::ptr::null_mut()); }
+            }
             
-            // [DOD] 7. GPU Barrier Sync
+            // [DOD] 7. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
             unsafe { genesis_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
 
             // [DOD] 8. Inter-Node Fast Path (Egress)
-            for channel in &self.inter_node_channels {
+            for (_, channel) in &self.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
                 if out_count > 0 {
                     let events_slice = unsafe { 
@@ -252,12 +255,13 @@ impl NodeRuntime {
                     };
                     // Zero-Copy отправка по UDP
                     self.inter_node_router.flush_outgoing_batch_pool(&self.egress_pool, channel.target_zone_hash, events_slice);
+                    self.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
             }
 
             current_tick += batch_size;
             log_counter  += 1;
-            self.io_server.dashboard.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            self.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
         }
     }
 }

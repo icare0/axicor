@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::ffi::CString;
@@ -6,9 +6,8 @@ use clap::Parser;
 
 use genesis_core::ipc::{
     shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION,
-    default_socket_path, NightPhaseRequest, NightPhaseResponse, CompiledShardMeta,
+    default_socket_path,
 };
-use serde_json;
 use memmap2::MmapMut;
 use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
@@ -119,7 +118,7 @@ fn main() {
         match stream {
             Ok(stream) => {
                 let bp_ref = blueprints.as_ref();
-                if let Err(e) = handle_night_phase(stream, zone_id, bp_ref, night_ctx.as_ref()) {
+                if let Err(e) = handle_night_phase(stream, zone_id, bp_ref, night_ctx.as_ref(), ptr as *mut u8) {
                     eprintln!("❌ Night Phase error: {}", e);
                 }
             }
@@ -294,47 +293,47 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
 
 fn handle_night_phase(
     mut stream: UnixStream,
-    zone_id: u16,
+    _zone_id: u16,
     blueprints: Option<&BlueprintsConfig>,
-    ctx: Option<&NightPhaseContext>,
+    _ctx: Option<&NightPhaseContext>,
+    shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut reader = BufReader::new(&stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    let line = line.trim();
-
-    let req: NightPhaseRequest = serde_json::from_str(line)?;
-    println!("🌙 Night Phase request received for {}", req.zone_name);
-
-    // 1. Открываем и mmap-им SHM напрямую (Zero-Copy)
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&req.shm_path)?;
+    // 1. Read binary BakeRequest (16 bytes)
+    let mut req_buf = [0u8; 16];
+    stream.read_exact(&mut req_buf)?;
     
-    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
-    let shm_bytes = mmap.as_mut_ptr();
+    let req: &genesis_core::ipc::BakeRequest = unsafe { &*(req_buf.as_ptr() as *const _) };
+    if req.magic != genesis_core::ipc::BAKE_MAGIC {
+        return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
+    }
+    
+    println!("🌙 Night Phase trigger received (tick={}, prune={})", req.current_tick, req.prune_threshold);
 
-    let hdr_ptr = shm_bytes as *mut ShmHeader;
+    // 2. Validate SHM Header
+    let hdr_ptr = shm_ptr as *mut ShmHeader;
     let hdr = unsafe { &mut *hdr_ptr };
     hdr.validate().map_err(|e| format!("SHM validation failed: {}", e))?;
 
-    let padded_n = req.padded_n;
-    let w_off = req.weights_offset;
-    let t_off = req.targets_offset;
+    let padded_n = hdr.padded_n as usize;
+    let w_off = hdr.weights_offset as usize;
+    let t_off = hdr.targets_offset as usize;
+    let h_off = hdr.handovers_offset as usize;
+    let h_count = hdr.handovers_count as usize;
     let slot_n = padded_n * MAX_DENDRITE_SLOTS;
 
-    // 2. Получаем слайсы БЕЗ аллокаций
-    let (weights, targets) = unsafe {
-        let w_ptr = shm_bytes.add(w_off) as *mut i16;
-        let t_ptr = shm_bytes.add(t_off) as *mut u32;
+    // 3. Obtain slices directly from SHM (Zero-Copy)
+    let (weights, targets, _handovers) = unsafe {
+        let w_ptr = shm_ptr.add(w_off) as *mut i16;
+        let t_ptr = shm_ptr.add(t_off) as *mut u32;
+        let h_ptr = shm_ptr.add(h_off) as *const genesis_core::ipc::AxonHandoverEvent;
         (
             std::slice::from_raw_parts_mut(w_ptr, slot_n),
             std::slice::from_raw_parts_mut(t_ptr, slot_n),
+            std::slice::from_raw_parts(h_ptr, h_count),
         )
     };
 
-    // 3. CPU Sprouting (Zero-Copy)
+    // 4. CPU Sprouting (Zero-Copy)
     let new_synapses = genesis_baker::bake::sprouting::run_sprouting_pass(
         targets,
         weights,
@@ -345,27 +344,18 @@ fn handle_night_phase(
 
     println!("   ↳ Sprouted {} new synapses", new_synapses);
 
-    // (Remaining ghost axon logic... to be updated for zero-copy if needed, but keeping it simple for now)
-    // For now, let's just finish the protocol.
-    
-    // Update state to Done
+    // 5. GSOP Plasticity / Ghost Integration (TODO/Placeholders)
+    // Here we would use `handovers` for GSOP or Growth logic.
+    // For now, mirroring the task's focus on IPC.
+
+    // 6. Signal Done via Shared Memory state
     unsafe {
-        shm_bytes.add(5).write_volatile(ShmState::NightDone as u8);
+        shm_ptr.add(5).write_volatile(ShmState::NightDone as u8);
     }
 
-    let resp = NightPhaseResponse {
-        status: "success".to_string(),
-        total_axons: hdr.total_axons as usize,
-        compiled_shard_meta: CompiledShardMeta {
-            zone_name: req.zone_name.clone(),
-            local_axons_count: hdr.total_axons as usize, // TODO: fix
-            bounds_voxels: (0,0,0), // TODO: pass from ctx
-            bounds_um: (0.0, 0.0),
-        },
-    };
-
-    let resp_json = serde_json::to_string(&resp)?;
-    writeln!(stream, "{}", resp_json)?;
+    // 7. Binary Acknowledgement (4 bytes)
+    let ack = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
+    stream.write_all(&ack)?;
     stream.flush()?;
 
     println!("🌅 Night Phase complete ({} new synapses)", new_synapses);

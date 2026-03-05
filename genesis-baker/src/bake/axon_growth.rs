@@ -25,6 +25,19 @@ pub struct GrownAxon {
     pub last_dir: glam::Vec3,
 }
 
+/// Плоский контекст для единого цикла роста аксона
+pub struct GrowthContext {
+    pub current_pos_um: Vec3,
+    pub current_pos_vox: Vec3,
+    pub forward_dir: Vec3,
+    pub target_pos: Option<Vec3>, // None для Ghost-аксонов (летят по инерции)
+    
+    pub remaining_steps: u32,
+    pub owner_type_idx: u8,
+    pub soma_idx: usize,          // usize::MAX для Ghost-аксонов
+    pub origin_shard_id: u32,
+}
+
 pub struct SteeringWeights {
     pub global: f32,
     pub attract: f32,
@@ -76,6 +89,98 @@ pub fn step_and_pack(
     let packed = PackedPosition::pack_raw(x_idx, y_idx, z_idx, type_id);
 
     (next_pos_um, packed)
+}
+
+/// Единый физический конвейер роста. Используется и для локальных, и для Ghost аксонов.
+pub fn execute_growth_loop(
+    ctx: &mut GrowthContext,
+    params: &crate::bake::cone_tracing::ConeParams,
+    weights: &SteeringWeights,
+    spatial_grid: &SpatialGrid,
+    sim: &SimulationConfig,
+    shard_bounds: &ShardBounds,
+    mut rng: rand_chacha::ChaCha8Rng,
+) -> (Vec<u32>, Option<GhostPacket>) {
+    let mut segments = Vec::new();
+    let mut ghost_packet = None;
+    let voxel_size_um = sim.simulation.voxel_size_um as f32;
+    let segment_length_um = sim.simulation.segment_length_voxels as f32 * voxel_size_um;
+
+    let world_w_vox = (sim.world.width_um as f32 / voxel_size_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_size_um) as u32;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_size_um) as u32;
+
+    while ctx.remaining_steps > 0 {
+        ctx.remaining_steps -= 1;
+
+        // 1. Определение V_global
+        let v_global = if let Some(target) = ctx.target_pos {
+            (target - ctx.current_pos_vox).normalize_or_zero()
+        } else {
+            ctx.forward_dir // Ghost-аксоны используют инерцию как цель
+        };
+
+        // 2. Остановка по достижению Z-цели (только если есть target)
+        if let Some(target) = ctx.target_pos {
+            // H-аксоны или V-аксоны: проверяем достижение цели
+            // (В оригинале была разная логика для H и V, тут пробуем унифицировать)
+            let is_growing_up = target.z >= ctx.current_pos_vox.z;
+            if (is_growing_up && ctx.current_pos_vox.z >= target.z) || 
+               (!is_growing_up && ctx.current_pos_vox.z <= target.z) {
+                break;
+            }
+        }
+
+        // 3. Sensing
+        let current_packed = PackedPosition::new(
+            ctx.current_pos_vox.x.round() as u32,
+            ctx.current_pos_vox.y.round() as u32,
+            ctx.current_pos_vox.z.round() as u32,
+            ctx.owner_type_idx
+        );
+        
+        let v_attract = calculate_v_attract(
+            current_packed, ctx.forward_dir, params, spatial_grid, voxel_size_um
+        );
+
+        // 4. Steering & Step
+        let (next_pos_um, next_packed) = step_and_pack(
+            ctx.current_pos_um, v_global, v_attract, weights, 
+            segment_length_um, ctx.owner_type_idx, &mut rng, voxel_size_um
+        );
+
+        ctx.current_pos_um = next_pos_um;
+        ctx.forward_dir = (next_pos_um - (ctx.current_pos_vox * voxel_size_um)).normalize_or_zero();
+        ctx.current_pos_vox = next_pos_um / voxel_size_um;
+
+        let x = next_packed.x() as u32;
+        let y = next_packed.y() as u32;
+        let z = next_packed.z() as u32;
+
+        // 5. Границы шарда
+        if shard_bounds.is_outside(x, y, z) {
+            ghost_packet = Some(GhostPacket {
+                origin_shard_id: ctx.origin_shard_id,
+                soma_idx: ctx.soma_idx,
+                type_idx: ctx.owner_type_idx as usize,
+                entry_x: x.min(world_w_vox.saturating_sub(1)),
+                entry_y: y.min(world_d_vox.saturating_sub(1)),
+                entry_z: z.min(world_h_vox.saturating_sub(1)),
+                entry_dir: ctx.forward_dir,
+                remaining_steps: ctx.remaining_steps,
+            });
+            break;
+        }
+
+        // 6. Защита от стагнации
+        if segments.last().copied() == Some(next_packed.0) {
+            break; 
+        }
+
+        segments.push(next_packed.0);
+    }
+
+    (segments, ghost_packet)
 }
 
 /// Кэш Z-диапазонов слоёв (вычисляется один раз из anatomy + sim)
@@ -315,13 +420,13 @@ pub fn grow_single_axon(
     let is_horizontal = bias < 0.1; // Only pure horizontal if bias is very low (e.g. 0.0)
 
 
-    let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
+    let current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
     let voxel_size_um = sim.simulation.voxel_size_um as f32;
     let segment_length_um = segment_length_vox * voxel_size_um;
-    let mut current_pos_um = current_pos * voxel_size_um;
+    let current_pos_um = current_pos * voxel_size_um;
     let is_growing_up = tip_z >= soma_z;
 
-    let (mut forward_dir, target_pos) = if is_horizontal {
+    let (forward_dir, target_pos) = if is_horizontal {
         // Случайный радиальный вектор в XY
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
         let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
@@ -352,103 +457,33 @@ pub fn grow_single_axon(
         (final_dir, t_pos)
     };
 
-    let mut segments = Vec::new();
-    let max_steps = sim.simulation.axon_growth_max_steps;
-    let mut step = 0;
-    let mut ghost_packet = None;
-    let mut rng = ChaCha8Rng::seed_from_u64(cone_seed);
+    let params = ConeParams {
+        radius_um: type_params.steering_radius_um,
+        fov_cos,
+        owner_type: type_idx,                       // [DOD] Сырой 4-битный тип
+        type_affinity: type_params.type_affinity,   // Читаем из Blueprint
+    };
 
-    while step < max_steps {
-        step += 1;
-        
-        // Check if reached Stop Condition
-        let finished = if is_horizontal {
-            // H: вышел из своего слоя по Z? (заблудился по вертикали)
-            let z = current_pos.z as u32;
-            z < home_z_start || z > home_z_end
-        } else {
-            // V: достиг целевой Z-plane?
-            if is_growing_up {
-                current_pos.z >= target_pos.z
-            } else {
-                current_pos.z <= target_pos.z
-            }
-        };
+    let mut ctx = GrowthContext {
+        current_pos_um,
+        current_pos_vox: current_pos,
+        forward_dir,
+        target_pos: Some(target_pos),
+        remaining_steps: sim.simulation.axon_growth_max_steps,
+        owner_type_idx: type_idx,
+        soma_idx,
+        origin_shard_id: 0,
+    };
 
-        if finished {
-            break;
-        }
-
-        // V_global steering vector (always points toward the target plane/xy column)
-        let v_global = (target_pos - current_pos).normalize_or_zero();
-        
-        // Sensing → Weighting
-        let params = ConeParams {
-            radius_um: type_params.steering_radius_um,
-            fov_cos,
-            owner_type: type_idx,                       // [DOD] Сырой 4-битный тип
-            type_affinity: type_params.type_affinity,   // Читаем из Blueprint
-        };
-        let current_packed = PackedPosition::new(
-            current_pos.x.round() as u32,
-            current_pos.y.round() as u32,
-            current_pos.z.round() as u32,
-            owner_type_mask
-        );
-        let v_attract = calculate_v_attract(
-            current_packed,
-            forward_dir,
-            &params,
-            spatial_grid,
-            sim.simulation.voxel_size_um as f32,
-        );
-
-        // Jitter & Steering & Pack
-        let (next_pos_um, current_packed_new) = step_and_pack(
-            current_pos_um,
-            v_global,
-            v_attract,
-            &weights,
-            segment_length_um,
-            type_idx,
-            &mut rng,
-            voxel_size_um,
-        );
-
-        current_pos_um = next_pos_um;
-        forward_dir = (next_pos_um - (current_pos * voxel_size_um)).normalize_or_zero(); // Rough estimate for forward dir
-        current_pos = current_pos_um / voxel_size_um; // Update voxel pos for next iteration checks
-        
-        let x = current_packed_new.x() as u32;
-        let y = current_packed_new.y() as u32;
-        let z = current_packed_new.z() as u32;
-
-        // Crossing detection — аксон вышел за границы шарда?
-        if shard_bounds.is_outside(x, y, z) {
-            ghost_packet = Some(GhostPacket {
-                origin_shard_id: 0, // текущий шард ID (0 в монорежиме)
-                soma_idx,
-                type_idx: type_idx_usize,
-                entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
-                entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
-                entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
-                entry_dir: forward_dir,
-                remaining_steps: max_steps - step,
-            });
-            break; // Аксон в этом шарде заканчивается
-        }
-
-        let packed = current_packed_new.0;
-
-        if let Some(&last) = segments.last() {
-            if last == packed {
-                // Stagnation
-                break;
-            }
-        }
-        
-        segments.push(packed);
-    }
+    let (segments, ghost_packet) = execute_growth_loop(
+        &mut ctx,
+        &params,
+        &weights,
+        spatial_grid,
+        sim,
+        shard_bounds,
+        ChaCha8Rng::seed_from_u64(cone_seed),
+    );
 
     let length_segments = segments.len() as u32;
     let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
@@ -468,7 +503,7 @@ pub fn grow_single_axon(
         tip_z: final_z,
         length_segments,
         segments,
-        last_dir: forward_dir,
+        last_dir: ctx.forward_dir,
     };
 
     (axon, ghost_packet)
@@ -504,7 +539,7 @@ pub fn inject_ghost_axons(
     let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
     let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
     let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
-    let segment_length_vox = sim.simulation.segment_length_voxels as f32;
+    let _segment_length_vox = sim.simulation.segment_length_voxels as f32;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
     let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
@@ -516,17 +551,15 @@ pub fn inject_ghost_axons(
         // TODO: Steering params — вынести в VariantParameters или CPU-конфиг
         let fov_cos = (45.0_f32 / 2.0).to_radians().cos();
         let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 4.0;
-        let owner_type_mask = packet.type_idx as u8;
+        let _owner_type_mask = packet.type_idx as u8;
 
-        let mut current_pos = Vec3::new(
+        let current_pos = Vec3::new(
             packet.entry_x as f32,
             packet.entry_y as f32,
             packet.entry_z as f32,
         );
-        let mut current_pos_um = current_pos * voxel_um as f32;
-        let segment_length_um = segment_length_vox * voxel_um as f32;
-        let mut forward_dir = packet.entry_dir;
-        let mut segments = Vec::new();
+        let current_pos_um = current_pos * voxel_um as f32;
+        let forward_dir = packet.entry_dir;
 
         let ghost_seed = master_seed
             .wrapping_add(packet.soma_idx as u64)
@@ -541,72 +574,40 @@ pub fn inject_ghost_axons(
             owner_type: packet.type_idx as u8,
             type_affinity: 0.5, // Ghost-аксоны: нейтральное сродство
         };
-        let mut exited_again = false;
-        for step in 0..packet.remaining_steps {
-            let current_packed = PackedPosition::new(
-                current_pos.x.round() as u32,
-                current_pos.y.round() as u32,
-                current_pos.z.round() as u32,
-                owner_type_mask
-            );
-            let v_attract = calculate_v_attract(
-                current_packed,
-                forward_dir,
-                &params,
-                &spatial_grid,
-                voxel_um as f32,
-            );
+        let weights = SteeringWeights {
+            global: 0.6,
+            attract: 0.3,
+            noise: 0.1,
+        };
 
-            let weights = SteeringWeights {
-                global: 0.6,
-                attract: 0.3,
-                noise: 0.1,
-            };
+        let mut ctx = GrowthContext {
+            current_pos_um,
+            current_pos_vox: current_pos,
+            forward_dir,
+            target_pos: None, // Ghost-аксоны летят по инерции
+            remaining_steps: packet.remaining_steps,
+            owner_type_idx: packet.type_idx as u8,
+            soma_idx: packet.soma_idx,
+            origin_shard_id: packet.origin_shard_id,
+        };
 
-            let (next_pos_um, current_packed_new) = step_and_pack(
-                current_pos_um,
-                forward_dir, // Use existing inertia as global pull
-                v_attract,
-                &weights,
-                segment_length_um,
-                packet.type_idx as u8,
-                &mut rng,
-                voxel_um as f32,
-            );
+        let (mut segments, maybe_outgoing) = execute_growth_loop(
+            &mut ctx,
+            &params,
+            &weights,
+            &spatial_grid,
+            sim,
+            shard_bounds,
+            rng,
+        );
 
-            current_pos_um = next_pos_um;
-            forward_dir = (next_pos_um - (current_pos * voxel_um as f32)).normalize_or_zero();
-            current_pos = current_pos_um / voxel_um as f32;
-
-            let x = current_packed_new.x() as u32;
-            let y = current_packed_new.y() as u32;
-            let z = current_packed_new.z() as u32;
-
-            // Повторный выход → пакет для следующего шарда
-            if shard_bounds.is_outside(x, y, z) {
-                outgoing.push(GhostPacket {
-                    origin_shard_id: packet.origin_shard_id,
-                    soma_idx: packet.soma_idx,
-                    type_idx: packet.type_idx,
-                    entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
-                    entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
-                    entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
-                    entry_dir: forward_dir,
-                    remaining_steps: packet.remaining_steps - step,
-                });
-                exited_again = true;
-                break;
-            }
-
-            let packed = current_packed_new.0;
-            if segments.last().copied() == Some(packed) {
-                break; // Стагнация
-            }
-            segments.push(packed);
+        let has_outgoing = maybe_outgoing.is_some();
+        if let Some(pkt) = maybe_outgoing {
+            outgoing.push(pkt);
         }
 
-        if segments.is_empty() && !exited_again {
-            continue; // Ghost ничего не вырастил — пропускаем
+        if segments.is_empty() && !has_outgoing {
+            continue; 
         }
 
         let length_segments = segments.len() as u32;
@@ -624,7 +625,7 @@ pub fn inject_ghost_axons(
             tip_z: final_z,
             length_segments,
             segments,
-            last_dir: forward_dir,
+            last_dir: ctx.forward_dir,
         });
     }
 
@@ -735,7 +736,7 @@ mod tests {
 pub fn inject_handover_events(
     handovers: &[genesis_core::ipc::AxonHandoverEvent],
     positions: &[PackedPosition],
-    layer_ranges: &[LayerZRange],
+    _layer_ranges: &[LayerZRange],
     types: &[genesis_core::config::blueprints::NeuronType],
     sim: &crate::parser::simulation::SimulationConfig,
     shard_bounds: &ShardBounds,
@@ -746,10 +747,6 @@ pub fn inject_handover_events(
     }
 
     let voxel_um = sim.simulation.voxel_size_um;
-    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
-    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
-    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
-
     // SpatialGrid для притяжения к существующим нейронам
     let search_r = (sim.simulation.segment_length_voxels as f32 * 3.0).max(1.0).ceil() as u32;
     let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(positions.to_vec(), search_r);
@@ -779,20 +776,66 @@ pub fn inject_handover_events(
         // Seed детерминированный
         let ghost_seed = master_seed.wrapping_add(idx as u64).wrapping_add(0x4748_5354_0000_0000);
 
-        let (axon, maybe_outgoing) = grow_single_axon(
-            entry_x, entry_y, entry_z,
-            usize::MAX, // Ghost
-            type_idx as u8,
-            types,
-            sim,
-            world_w_vox, world_d_vox, world_h_vox,
-            layer_ranges,
+        let entry_dir = if raw_dir.length_squared() > 0.001 {
+            raw_dir.normalize()
+        } else {
+            glam::Vec3::Z
+        };
+
+        let mut ctx = GrowthContext {
+            current_pos_um: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32) * voxel_um as f32,
+            current_pos_vox: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32),
+            forward_dir: entry_dir,
+            target_pos: None, // Handover: летим по инерции пока не поймаем гравитацию (или можно задать цель)
+            remaining_steps: sim.simulation.axon_growth_max_steps, // TODO: брать из события
+            owner_type_idx: type_idx as u8,
+            soma_idx: usize::MAX, 
+            origin_shard_id: 0, // TODO: брать из события
+        };
+
+        // Т.к. params зависят от типа, достанем их:
+        let t_params = &types[type_idx];
+        let fov_cos = (t_params.steering_fov_deg / 2.0).to_radians().cos();
+        let weights = SteeringWeights {
+            global: t_params.steering_weight_inertia,
+            attract: t_params.steering_weight_sensor,
+            noise: t_params.steering_weight_jitter,
+        };
+        let params = crate::bake::cone_tracing::ConeParams {
+            radius_um: t_params.steering_radius_um,
+            fov_cos,
+            owner_type: type_idx as u8,
+            type_affinity: t_params.type_affinity,
+        };
+
+        let (segments, maybe_outgoing) = execute_growth_loop(
+            &mut ctx,
+            &params,
+            &weights,
             &spatial_grid,
+            sim,
             shard_bounds,
-            ghost_seed,
+            rand_chacha::ChaCha8Rng::seed_from_u64(ghost_seed),
         );
 
-        grown_axons.push(axon);
+        let length_segments = segments.len() as u32;
+        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
+            ((last & 0x3FF), ((last >> 10) & 0x3FF), ((last >> 20) & 0xFF))
+        } else {
+            (entry_x, entry_y, entry_z)
+        };
+
+        grown_axons.push(GrownAxon {
+            soma_idx: usize::MAX,
+            type_idx,
+            tip_x: final_x,
+            tip_y: final_y,
+            tip_z: final_z,
+            length_segments,
+            segments,
+            last_dir: ctx.forward_dir,
+        });
+
         if let Some(outgoing) = maybe_outgoing {
             outgoing_ghosts.push(outgoing);
         }

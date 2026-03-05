@@ -166,7 +166,7 @@ fn save_hot_checkpoint(shard: &ShardEngine, hash: u32, baked_dir: &std::path::Pa
 
     if std::fs::write(&tmp_path, &buffer).is_ok() {
         let _ = std::fs::rename(&tmp_path, &chk_path);
-        println!("💾 [Shard {:08X}] State checkpoint saved: {} MB", hash, buffer.len() / 1024 / 1024);
+        // println!("💾 [Shard {:08X}] State checkpoint saved: {} MB", hash, buffer.len() / 1024 / 1024);
     }
 }
 
@@ -210,23 +210,16 @@ fn execute_night_phase(
 
     // 3. Sprouting (Late Binding)
     if baker_client.is_none() {
-        *baker_client = crate::ipc::BakerClient::connect(zone_idx, socket_path)
-            .map_err(|e| println!("⚠️ [Shard {:08X}] IPC Connect failed: {}. Will retry next night.", hash, e))
-            .ok();
+        *baker_client = crate::ipc::BakerClient::connect(zone_idx, socket_path).ok();
     }
 
     if let Some(client) = baker_client.as_mut() {
-        println!("   ↳ SHM Handover to Baker Daemon (zone {})...", zone_idx);
-
         let mut incoming_handovers = Vec::new();
         while let Some(ev) = incoming_grow.pop() {
             incoming_handovers.push(ev);
             if incoming_handovers.len() >= genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
                 break;
             }
-        }
-        if !incoming_handovers.is_empty() {
-            println!("   ↳ Draining {} Ghost Axons into SHM", incoming_handovers.len());
         }
 
         match client.run_night(
@@ -241,11 +234,17 @@ fn execute_night_phase(
                         workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
                         dendrites_count * std::mem::size_of::<u32>(),
                     );
+                    // [DOD FIX] Синхронизируем веса новых синапсов (Закон Дейла)
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.dendrite_weights as *mut _,
+                        workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
+                        dendrites_count * std::mem::size_of::<i16>(),
+                    );
                     genesis_compute::ffi::gpu_device_synchronize();
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
-                println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
+                // println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
             Err(e) => {
                 println!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
@@ -373,7 +372,7 @@ pub fn spawn_shard_thread(
     bsp_barrier: Arc<BspBarrier>,
     my_io_ctx: Arc<InputSwapchain>,
 ) {
-    let _sync_batch_ticks = 100u32;
+    let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
     let output_bytes = (num_outputs * sync_batch_ticks) as usize;
 
