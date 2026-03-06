@@ -5,7 +5,7 @@ rest_potential = 10000
 leak_rate = 10
 refractory_period = 15
 synapse_refractory_period = 10
-conduction_velocity = 100
+
 signal_propagation_length = 15
 homeostasis_penalty = 5000
 homeostasis_decay = 10

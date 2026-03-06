@@ -23,8 +23,7 @@ pub struct VariantParameters {
     pub slot_decay_ltm: u8,             // 1B — Long-Term Memory: затухание веса за тик
     pub slot_decay_wm: u8,              // 1B — Working Memory: затухание веса за тик
     pub signal_propagation_length: u8,  // 1B — длина «хвоста» сигнала, сегментов
-    pub conduction_velocity: u8,        // 1B — скорость проводимости (v_seg-кратно)
-    pub _padding: [u8; 2],              // 2B — выравнивание до 32B
+    pub _padding: [u8; 3],              // 3B — выравнивание до 32B
     // --- Inertia Curve (32B) ---
     pub inertia_curve: [i16; 16],       // 32B — кривая коэффициентов GSOP (16 рангов)
 }

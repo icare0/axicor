@@ -31,7 +31,7 @@ pub fn run_cpu_sprouting(
     axon_dirs_xyz: &[u32],
     voxel_size_um: f32,
     world_size_um: (f32, f32, f32),
-    axon_growth_step_um: f32,
+    axon_growth_step_um: f32, // TODO Чистка архитектурного мусора
     host_neuron_positions: &[u32],
     spatial_grid: &std::sync::Arc<std::sync::Mutex<crate::orchestrator::spatial_grid::SpatialGrid>>,
     neuron_types: &[NeuronType], // [DOD] Закон Дейла: знак веса зависит от типа источника

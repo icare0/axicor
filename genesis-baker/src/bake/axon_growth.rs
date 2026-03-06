@@ -363,7 +363,6 @@ pub fn grow_single_axon(
     // Чтение параметров роста за O(1) из плоского массива:
     let type_params = &types[type_idx as usize];
     let _max_length = type_params.signal_propagation_length;
-    let _velocity = type_params.conduction_velocity;
 
     // 1. Найдём слой сомы (Index_home)
     let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
@@ -691,7 +690,7 @@ mod tests {
             variants: [VariantParameters {
                 threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
                 gsop_potentiation: 0, gsop_depression: 0, homeostasis_decay: 0,
-                signal_propagation_length: 0, conduction_velocity: 0,
+                signal_propagation_length: 0,
                 slot_decay_ltm: 0, slot_decay_wm: 0,
                 refractory_period: 0, synapse_refractory_period: 0,
                 ..VariantParameters::default()

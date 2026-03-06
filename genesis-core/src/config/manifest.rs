@@ -24,7 +24,11 @@ pub struct ManifestVariant {
     pub ltm_slot_count: u8,
     #[serde(default = "default_inertia_curve")]
     pub inertia_curve: [i16; 16],
+    #[serde(default = "default_prune_threshold")]
+    pub prune_threshold: i16,
 }
+
+fn default_prune_threshold() -> i16 { 15 }
 
 fn default_ltm_slot_count() -> u8 { 80 }
 fn default_inertia_curve() -> [i16; 16] {
@@ -51,8 +55,9 @@ pub struct GpuVariantParameters {
     pub ltm_slot_count: u8,
     pub _pad1: [u8; 2],
     pub inertia_curve: [i16; 16],
+    pub prune_threshold: i16,
     pub _pad2a: [u8; 32],
-    pub _pad2b: [u8; 28],
+    pub _pad2b: [u8; 26],
 }
 
 impl ManifestVariant {
@@ -74,8 +79,9 @@ impl ManifestVariant {
             ltm_slot_count: self.ltm_slot_count,
             _pad1: [0; 2],
             inertia_curve: self.inertia_curve,
+            prune_threshold: self.prune_threshold,
             _pad2a: [0; 32],
-            _pad2b: [0; 28],
+            _pad2b: [0; 26],
         }
     }
 }

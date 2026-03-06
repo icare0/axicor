@@ -41,6 +41,11 @@
 
 ### 1.3. Конфиг Инстанса (`runtime/shard_04.toml` или CLI аргументы)
 
+// TODO: [Macro-3D] Обновить DTO конфигурации шардов для 3D кластеров.
+// В `InstanceConfig` (`genesis-core/src/config/instance.rs`):
+// 1. Поля `world_offset` (x, y, z) должны стать `u64`.
+// 2. В `Neighbors` добавить `z_plus: Option<String>` и `z_minus: Option<String>`.
+
 Определяет, **где** и **какой кусок** считает этот процесс.
 
 - `zone_id` — `"V1"` (ссылка на папку зоны).
@@ -360,7 +365,7 @@ refractory_period = 15           # u8. Абсолютная рефрактерн
 synapse_refractory_period = 15   # u8. Рефрактерность входного порта (дендрита).
 
 # --- Физика Сигнала (Units: Integer geometry) ---
-conduction_velocity = 200        # Скорость (дискретное смещение за тик)
+conduction_velocity = 200        # [Архитектурно под вопросом] Скорость (дискретное смещение за тик)
 signal_propagation_length = 10   # Длина "хвоста" сигнала в сегментах (Active Tail, per-variant)
 
 # --- Гомеостаз (Adaptive Threshold) ---
@@ -390,7 +395,7 @@ refractory_period = 10           # Быстрее восстанавливает
 synapse_refractory_period = 5
 
 # --- Физика Сигнала ---
-conduction_velocity = 100        # Медленный сигнал
+conduction_velocity = 100        # [Архитектурно под вопросом] Медленный сигнал
 
 # --- Гомеостаз ---
 homeostasis_penalty = 3000
@@ -409,6 +414,9 @@ sprouting_weight_explore = 0.1
 ---
 
 ## 7. Спецификация: `brain.toml` (Multi-Zone Architecture)
+
+// TODO: [Macro-3D] В `brain.toml`:
+// Добавить сущность `[cluster]` для описания макро-геометрии (размеры изотропного куба, лимиты нод), которая будет выше уровня `[simulation]`.
 
 Определяет топологию мультизонального мозга: какие зоны присутствуют, где вычисляются данные и как они синхронизируются. Это **корневой конфиг** для всей распределённой системы (см. [06_distributed.md](./06_distributed.md)).
 
@@ -584,6 +592,6 @@ brain.toml (Multi-zone topology, Inter-zone connections)
 |---|---|---|---|
 | **Potentials** | `threshold`, `rest_potential`, `voltage` | `i32` | Запас от переполнения при суммации входов |
 | **Timers** | `refractory_period`, `synapse_refractory_period` | `u8` | Значения > 255 тиков (25 мс) физиологически бессмысленны для рефрактерности |
-| **Geometry** | `conduction_velocity` | `u16` | Дискретные единицы, диапазон до 65535 |
+| **Geometry** | `conduction_velocity` | `u16` | [Архитектурно под вопросом] Дискретные единицы, диапазон до 65535 |
 | **Homeostasis** | `homeostasis_penalty`, `homeostasis_decay` | `i32` / `u16` | Penalty суммируется с threshold (i32), decay — малое значение |
 

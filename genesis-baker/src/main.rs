@@ -271,6 +271,7 @@ fn serialize_artifacts(
                 signal_propagation_length: v.signal_propagation_length as u8,
                 ltm_slot_count: 80, // default from blueprints
                 inertia_curve: v.inertia_curve,
+                prune_threshold: 15, // [DOD FIX] TODO: брать из blueprints.toml
             }
         }).collect(),
     };

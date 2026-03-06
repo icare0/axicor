@@ -39,7 +39,8 @@ struct VariantParameters {
   uint8_t ltm_slot_count;
   uint8_t _pad1[2];          // Выравнивание до 36B
   int16_t inertia_curve[16]; // 32B — кривая инерции GSOP (16 рангов)
-  uint8_t _pad2[60];         // Дополняем до 128 байт
+  int16_t prune_threshold;   // Night Phase threshold
+  uint8_t _pad2[58];         // Дополняем до 128 байт
 };
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
@@ -172,12 +173,12 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     }
   }
 
+  // [DOD FIX] Branchless Homeostasis Decay (Zero Warp Divergence)
   int32_t thresh_offset = vram.threshold_offset[tid];
-  if (thresh_offset > 0) {
-    thresh_offset -= p.homeostasis_decay;
-    if (thresh_offset < 0)
-      thresh_offset = 0;
-  }
+  int32_t decayed = thresh_offset - p.homeostasis_decay;
+  // Если decayed < 0, Arithmetic shift (>> 31) даст 0xFFFFFFFF.
+  // Инверсия (~) даст 0x00000000. В итоге decayed & 0 = 0.
+  thresh_offset = decayed & ~(decayed >> 31);
 
   current_voltage += i_in - p.leak_rate;
 

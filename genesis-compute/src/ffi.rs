@@ -64,8 +64,9 @@ pub struct VariantParameters {
     pub ltm_slot_count: u8,
     pub _pad1: [u8; 2],
     pub inertia_curve: [i16; 16],
+    pub prune_threshold: i16,
     pub _pad2a: [u8; 32],
-    pub _pad2b: [u8; 28],
+    pub _pad2b: [u8; 26],
 }
 
 #[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
@@ -171,7 +172,6 @@ extern "C" {
     pub fn launch_sort_and_prune(
         ptrs: *const ShardVramPtrs,
         padded_n: u32,
-        prune_threshold: i16,
     );
     
     pub fn launch_extract_outgoing_spikes(

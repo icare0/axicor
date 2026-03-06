@@ -103,6 +103,7 @@ impl BakerClient {
         handovers: &[genesis_core::ipc::AxonHandoverEvent],
         _padded_n: usize,
         timeout: Duration,
+        prune_threshold: i16,
     ) -> Result<()> {
         if handovers.len() > genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             bail!("Too many handovers: {} > {}", handovers.len(), genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT);
@@ -127,7 +128,7 @@ impl BakerClient {
             magic: genesis_core::ipc::BAKE_MAGIC,
             zone_hash: self.zone_hash,
             current_tick: 0, 
-            prune_threshold: 15, // TODO: брать из конфига
+            prune_threshold, // [DOD FIX] Передано аргументом
             _padding: 0,
         };
 

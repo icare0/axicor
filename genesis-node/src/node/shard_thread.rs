@@ -218,6 +218,7 @@ fn execute_night_phase(
     shard_config: &InstanceConfig,
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
+    prune_threshold: i16, // [DOD FIX] Передаем динамический порог
 ) {
     let padded_n = shard.vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
@@ -227,7 +228,6 @@ fn execute_night_phase(
         genesis_compute::ffi::launch_sort_and_prune(
             &shard.vram.ptrs,
             shard.vram.padded_n,
-            15,
         );
         genesis_compute::ffi::gpu_device_synchronize();
 
@@ -262,6 +262,7 @@ fn execute_night_phase(
             &incoming_handovers,
             padded_n,
             std::time::Duration::from_secs(10),
+            prune_threshold,
         ) {
             Ok(()) => {
                 unsafe {
@@ -460,9 +461,11 @@ pub fn spawn_shard_thread(
                         // ФАЗА 4: Обслуживание графа (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
                         if ctx.night_interval > 0 && current_tick_count % ctx.night_interval == 0 {
+                            let current_prune_threshold = 15; // [DOD FIX] TODO: брать из конфига
                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
-                                &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace
+                                &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
+                                current_prune_threshold
                             );
                         }
 

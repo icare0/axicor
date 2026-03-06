@@ -55,6 +55,7 @@ pub fn connect_dendrites(
                 let owner_type_idx = seg_ref.type_idx as usize;
                 let owner_name = &types[owner_type_idx].name;
                 
+                //TODO рефакторинг логики
                 if !my_type.dendrite_whitelist.is_empty() && !my_type.dendrite_whitelist.contains(owner_name) {
                     return; 
                 }

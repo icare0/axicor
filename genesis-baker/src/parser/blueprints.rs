@@ -49,7 +49,6 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             gsop_depression: nt.gsop_depression as i16,
             homeostasis_decay: nt.homeostasis_decay as u16,
             signal_propagation_length: nt.signal_propagation_length as u8,
-            conduction_velocity: nt.conduction_velocity as u8,
             slot_decay_ltm: nt.slot_decay_ltm as u8,
             slot_decay_wm: nt.slot_decay_wm as u8,
             refractory_period: nt.refractory_period,

@@ -10,9 +10,9 @@ fn test_blueprints_parse_full() {
         leak_rate = 1200
         refractory_period = 15
         synapse_refractory_period = 15
-        conduction_velocity = 200
+
         signal_propagation_length = 10
-        axon_growth_step = 12
+
         steering_fov_deg = 60.0
         steering_radius_um = 100.0
         steering_weight_inertia = 0.6
@@ -58,7 +58,7 @@ fn test_blueprints_parse_minimal_with_defaults() {
         leak_rate = 10
         refractory_period = 5
         synapse_refractory_period = 5
-        conduction_velocity = 50
+
         homeostasis_penalty = 100
         homeostasis_decay = 5
         slot_decay_ltm = 120
@@ -72,7 +72,7 @@ fn test_blueprints_parse_minimal_with_defaults() {
     assert_eq!(nt.name, "Simple");
     // Проверка default fallbacks
     assert_eq!(nt.signal_propagation_length, 10);
-    assert_eq!(nt.axon_growth_step, 12);
+
     assert_eq!(nt.steering_fov_deg, 60.0);
     assert_eq!(nt.gsop_potentiation, 60);
     assert_eq!(nt.gsop_depression, 30);
@@ -92,7 +92,7 @@ fn test_blueprints_whitelist_and_initial_weight() {
         leak_rate = 10
         refractory_period = 5
         synapse_refractory_period = 5
-        conduction_velocity = 50
+
         homeostasis_penalty = 100
         homeostasis_decay = 5
         slot_decay_ltm = 120
@@ -108,7 +108,7 @@ fn test_blueprints_whitelist_and_initial_weight() {
         leak_rate = 15
         refractory_period = 3
         synapse_refractory_period = 3
-        conduction_velocity = 40
+
         homeostasis_penalty = 80
         homeostasis_decay = 3
         slot_decay_ltm = 100

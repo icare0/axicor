@@ -24,14 +24,11 @@ pub struct NeuronType {
     pub synapse_refractory_period: u8,
 
     // --- Физика Сигнала (u16) ---
-    pub conduction_velocity: u16,
     
     #[serde(default = "default_propagation_length")]
     pub signal_propagation_length: u8,
 
     // --- Рост аксона (Steering) ---
-    #[serde(default = "default_axon_growth_step")]
-    pub axon_growth_step: u16,
     
     #[serde(default = "default_steering_fov")]
     pub steering_fov_deg: f32,
@@ -72,7 +69,7 @@ pub struct NeuronType {
     /// Список имён типов, от которых этот тип принимает дендритные связи.
     /// Пустой список = принимает от всех типов (без фильтрации).
     #[serde(default)]
-    pub dendrite_whitelist: Vec<String>,
+    pub dendrite_whitelist: Vec<String>, //TODO рефакторинг логики
 
     // --- Гомеостаз (Adaptive Threshold) ---
     pub homeostasis_penalty: i32,
@@ -107,7 +104,7 @@ pub struct NeuronType {
     pub sprouting_weight_explore: f32,
 
     #[serde(default = "default_sprouting_type")]
-    pub sprouting_weight_type: f32,
+    pub sprouting_weight_type: f32, //TODO не работает до рефакторинга Night Phase
 
     // --- Night Phase ---
     #[serde(default = "default_prune_threshold")]
@@ -116,7 +113,7 @@ pub struct NeuronType {
 
 // Дефолтные значения для опциональных полей
 fn default_propagation_length() -> u8 { 10 }
-fn default_axon_growth_step() -> u16 { 12 }
+
 fn default_steering_fov() -> f32 { 60.0 }
 fn default_steering_radius() -> f32 { 100.0 }
 fn default_steering_inertia() -> f32 { 0.6 }

@@ -52,7 +52,8 @@ struct VariantParameters {
   uint8_t ltm_slot_count;
   uint8_t _pad1[2];          // Выравнивание до 36B
   int16_t inertia_curve[16]; // 32B — кривая инерции GSOP
-  uint8_t _pad2[60];         // Дополняем до 128 байт
+  int16_t prune_threshold;   // Night Phase threshold
+  uint8_t _pad2[58];         // Дополняем до 128 байт
 };
 }
 
@@ -416,11 +417,15 @@ struct DendriteSlot {
 // =====================================================================
 // Ядро 8: Сортировка и прунинг синапсов (Night Phase)
 // =====================================================================
-__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n,
-                                      int16_t prune_threshold) {
+__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
+
+  // Динамическое чтение порога для каждого нейрона
+  uint8_t flag = state.flags[tid];
+  uint8_t variant_id = (flag >> 4) & 0x0F;
+  int16_t prune_threshold = VARIANT_LUT[variant_id].prune_threshold;
 
   __shared__ DendriteSlot smem[WARP_SIZE][MAX_DENDRITE_SLOTS];
   uint32_t lane_id = threadIdx.x;
@@ -647,8 +652,7 @@ void cu_free_shard(ShardVramPtrs *vram) {
 // Без stream — ночная фаза синхронна.
 // =====================================================================
 extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
-                                      uint32_t padded_n,
-                                      int16_t prune_threshold) {
+                                      uint32_t padded_n) {
   uint32_t threads = 32;
   uint32_t blocks = padded_n;
 
@@ -656,8 +660,9 @@ extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
   state.dendrite_targets = ptrs->dendrite_targets;
   state.dendrite_weights = ptrs->dendrite_weights;
   state.dendrite_timers = ptrs->dendrite_timers;
+  state.flags = ptrs->soma_flags; // Передаем флаги для чтения варианта
 
-  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n, prune_threshold);
+  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n);
 }
 
 // ============================================================================
