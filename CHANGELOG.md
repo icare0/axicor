@@ -8,6 +8,113 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.174.25] - 2026-03-06 23:20:22
+
+**CartPole Tuning [Config]**
+
+### Added
+- Dopamine shaping, sigma=2 for population coding in cartpole_client
+- Blueprints: threshold 9500, gsop 110/15, initial_synapse_weight 2800, steering_radius 130, slot_decay_ltm 140
+
+## [0.172.25] - 2026-03-06 23:20:17
+
+**IDE Fixes [Genesis-IDE]**
+
+### Added
+- Update config path to config/zones/SensoryCortex/blueprints.toml
+- Add GeometryGpuApplied marker for one-time GPU buffer init
+- Log telemetry only when spikes.len() > 0
+
+## [0.170.24] - 2026-03-06 23:20:11
+
+**Log Throttling [Node]**
+
+### Added
+- Throttle BSP self-heal, dopamine, egress, shard I/O logs (every 100th)
+
+## [0.169.24] - 2026-03-06 23:20:06
+
+**Boot & BSP Improvements [Node]**
+
+### Added
+- Improve UDP/Geometry binding error messages with hints to kill existing processes
+- Increase BSP sync timeout 50ms -> 500ms, use yield_now instead of spin_loop
+- Add throttled self-heal logging (every 100th)
+
+## [0.166.24] - 2026-03-06 23:20:01
+
+**RTX 4090 CUDA Support [Build]**
+
+### Added
+- Detect GPU arch via nvidia-smi (compute_cap -> sm_XX)
+- Use CUDA_ARCH env override, fallback sm_75
+- Host compiler: g++-12 on Unix, MSVC on Windows
+
+## [0.163.24] - 2026-03-06 23:19:55
+
+**Windows IPC & Alignment [Platform]**
+
+### Added
+- Add TCP fallback and Windows SHM path in genesis-core/ipc.rs
+- Refactor genesis-node/ipc.rs for TCP and file-backed shm
+- Use file-backed mmap and TCP in genesis-baker daemon for Windows
+- Add bytes_to_u32_vec/bytes_to_burst_heads to avoid cast_slice on unaligned data
+- Fix bytemuck alignment in geometry_client and socket for Windows
+
+## [0.159.23] - 2026-03-06 18:03:17
+
+**Hot Loop Annihilation: __restrict__, push_burst_head, Branchless GSOP**
+
+### Added
+- Add __restrict__ qualifier to all 8 pointer fields in ShardVramPtrs struct in physics.cu
+- Add __restrict__ to kernel signatures: cu_inject_inputs_kernel, cu_apply_spike_batch_kernel, cu_record_readout_kernel, cu_step_day_phase in physics.cu
+- Add __restrict__ qualifier to all 9 pointer fields in ShardVramPtrs struct in bindings.cu
+- Add __restrict__ to kernel signatures: inject_inputs_kernel, apply_spike_batch_kernel, ghost_sync_kernel, extract_outgoing_spikes_kernel in bindings.cu
+- Implement __device__ __forceinline__ push_burst_head(BurstHeads8* h) helper function in physics.cu
+- Replace manual burst shift blocks with push_burst_head(&h) in cu_inject_inputs_kernel, cu_apply_spike_batch_kernel, cu_update_neurons_kernel
+- Add push_burst_head helper after AXON_SENTINEL define in bindings.cu
+- Replace manual burst shift blocks with push_burst_head(&h) in inject_inputs_kernel, apply_spike_batch_kernel
+- Replace explicit per-field comparisons in cu_apply_gsop_kernel with #pragma unroll for loop over 8 heads
+- Use cast (uint32_t*)&b to iterate BurstHeads8 fields without padding
+- Implement branchless conditional: min_dist = min(min_dist, (d < len) ? d : 0xFFFFFFFF) to avoid divergence
+
+## [0.156.23] - 2026-03-06 10:47:13
+
+**Genesis Code Cleanup & Strictness Enforcement**
+
+### Added
+- Add #![deny(warnings)], #![deny(unused_variables)], and #![deny(dead_code)] to all crate entry points: genesis-core/src/lib.rs, genesis-baker/src/main.rs, genesis-baker/src/lib.rs, genesis-ide/src/main.rs, genesis-compute/src/lib.rs, genesis-node/src/main.rs
+- Restructure genesis-baker/src/main.rs to use library modules, eliminating redundant compilation warnings
+- Remove file-level #![allow(dead_code)] from genesis-ide/src/connectome.rs, genesis-ide/src/world.rs, and genesis-ide/src/io_matrix.rs
+- Remove serialize_axons and atomic_write functions from genesis-baker/src/main.rs
+- Purge compute_power_index and unused sprouting logic from genesis-baker/src/bake/sprouting.rs
+- Remove _master_seed parameter from connect_dendrites signature and all call sites in topology.rs
+- Clean up unmaintained variables in genesis-baker/src/bake/axon_growth.rs
+- Delete unused SpikeRoute, GlobalSpikeMap, and get_type_color from genesis-ide/src/world.rs
+- Move AxonInstance, IoPixelInstance, MaterialUniforms, and NeuronPalette into shader_data or material_data submodules with #[allow(dead_code)] annotations
+- Remove #[allow(dead_code)] from individual structs in connectome.rs and io_matrix.rs
+- Systematically remove dozens of unused imports and variables across genesis-node and genesis-baker-daemon
+
+## [0.153.23] - 2026-03-06 09:39:58
+
+**[Performance] Dynamic pruning threshold for synaptic plasticity**
+
+### Added
+- Add `prune_threshold` field to `VariantParameters` struct in configuration
+- Update `sort_and_prune_kernel` CUDA kernel implementation to use dynamic threshold
+- Modify `launch_sort_and_prune` API function signature to accept `prune_threshold` argument
+- Update all zone blueprint configurations (MotorCortex, SensoryCortex, V1) with explicit `prune_threshold` values
+- Refactor genesis-baker sprouting logic to integrate new pruning parameter
+- Adjust genesis-node shard thread and orchestrator sprouting for updated compute calls
+- Clean up template configuration files, removing redundant _blank_blueprints.toml entries
+- Update specification documents (foundations, configuration, connectivity, distributed) with pruning threshold details
+- Synchronize genesis-ide asset configurations with new blueprint structure
+- Run full workspace validation with `cargo check --workspace`
+
+## [0.144.23] - 2026-03-06 05:24:44
+
+**doc**
+
 ## [0.143.23] - 2026-03-06 05:23
 
 **CartPole 2E2 Duble Nodes**
