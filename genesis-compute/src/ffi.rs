@@ -244,12 +244,12 @@ extern "C" {
     );
 
     pub fn gpu_reset_telemetry_count(
-        vram: VramState,
+        ptrs: *const ShardVramPtrs,
         stream: CudaStream,
     );
 
     pub fn launch_extract_telemetry(
-        vram: VramState,
+        ptrs: *const ShardVramPtrs,
         padded_n: u32,
         out_ids: *mut u32,
         out_count_pinned: *mut u32,

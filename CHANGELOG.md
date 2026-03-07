@@ -8,6 +8,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.233.29] - 2026-03-07 14:18:18
+
+**Implement Warp-Aggregated Telemetry with Zero-Copy Atomics**
+
+### Added
+- Implement `extract_telemetry_kernel` in `genesis-compute/src/cuda/physics.cu` using warp primitives `__ballot_sync`, `__popc`, and `__shfl_sync`
+- Aggregate spike predicates across 32 threads into a single atomic increment via `atomicAdd(out_count, warp_pop)` from lane zero
+- Compute `local_rank` via `__popc(active_mask & ((1u << lane) - 1))` for each spiking neuron to write IDs into flat array `out_ids[warp_offset + local_rank]`
+- Add `extern` signature for `extract_telemetry_kernel` and implement `launch_extract_telemetry` in `genesis-compute/src/cuda/bindings.cu`, accepting new parameter `padded_n: u32`
+- Implement `gpu_reset_telemetry_count` via `cudaMemsetAsync(vram.telemetry_count, 0, ...)` in bindings
+- Update Rust FFI signatures in `genesis-compute/src/ffi.rs` and `genesis-compute/src/mock_ffi.rs` to accept `padded_n: u32` in `launch_extract_telemetry`
+
+## [0.227.29] - 2026-03-07 14:04:35
+
+**[Memory & C-ABI Foundation] Finalize Stage 1 with Zero-Copy memory mappi**
+
+### Added
+- Update `ShmHeader` in `genesis-core/src/ipc.rs`: increment `SHM_VERSION` to 2, remove `_padding`, add fields `prunes_offset`, `prunes_count`, `incoming_prunes_count`, `flags_offset` while preserving 64-byte L2 Cache Line alignment
+- Enforce Zero-Copy Memory Mapping in `genesis-baker/src/bin/daemon.rs`: replace heap allocations by directly mapping `shard.state`, `shard.axons`, and `shard.geom` files via `memmap2::Mmap::map()` with 4096-byte OS page alignment
+- Remove functions `bytes_to_u32_vec` and `bytes_to_burst_heads` to eliminate uncontrolled heap allocations
+- Add strict C-ABI assert checks for 64-byte pointer alignment before using zero-copy type casting with `bytemuck::cast_slice`
+- Fix import for `BurstHeads8` in the daemon module
+
+## [0.223.28] - 2026-03-07 13:39:19
+
+**[Architecture] Extend distributed runtime and IDE specs with Zero-Cost S**
+
+### Added
+- Implement Zero-Cost State Machine with GeometryGpuApplied marker component and LoadedGeometry in genesis-ide/src/geometry.rs to prevent repeated GPU uploads
+- Add HFT Log Throttling with HftLogger using AtomicUsize counters and fetch_add(Ordering::Relaxed) for dopamine, egress packet, and self-heal event logging
+- Increase BSP synchronization timeout to BSP_SYNC_TIMEOUT_MS = 500 ms and define MAX_BATCHES_LATENCY constant in wait_for_neighbors function
+- Specify L7 Fragmentation parameters: MAX_EVENTS_PER_PACKET = 8186 and binary contract with SpikeBatchHeaderV2 and SpikeEventV2 structs
+- Enforce Heartbeat invariant: routers must send empty packet with is_last = 1 even if no spikes in batch
+- Document Biological Amnesia rule: drop packets with header.epoch < current_epoch and implement Epoch Synchronization
+- Enforce Dale's Law invariant for Night Phase Sprouting: sign of initial_synapse_weight determined exclusively by sender-side axon type from axon_tips_uvw[axon_id] >> 28
+- Implement Activity-Based Nudging for Living Axons: local axons grow only if soma spiked (soma_flags & 0x01 != 0), ghost axons grow unconditionally
+- Define LivingAxon struct with tip_uvw, forward_dir, remaining_steps, and last_night_active fields in genesis-baker/src/bake/growth.rs
+- Add step_and_pack function for axon tip movement and spatial_grid.insert for immediate Spatial Grid updates
+- Document structural plasticity pattern ensuring computational resources spent only on active network regions
+- Implement Burst Gating protection: if any of 8 axon heads touches a dendrite, the dendrite injects weight and enters synapse_refractory_period
+- Enforce Winner-Takes-All invariant for non-linear R-STDP: only the nearest (freshest) head in BurstHeads8 influences GSOP per tick
+- Integrate symmetric Dopamine modulation: dopa_mod = (base_pot * current_dopamine) >> 8, final_pot = base_pot + dopa_mod
+- Add branchless unroll search for min_dist using #pragma unroll to avoid Warp Divergence
+- Implement Warp-Aggregated Telemetry pattern using __ballot_sync, __popc, and a single atomicAdd per warp to eliminate L2 cache bus contention
+- Extend docs/specs/06_distributed.md with detailed HFT logging, BSP timeout, L7 fragmentation, and Epoch Synchronization sections
+- Update docs/specs/010_ide.md with Zero-Cost State Machine cascade: fetch_real_geometry, upload_geometry_to_gpu, and render_neuron_network systems
+- Revise docs/specs/07_gpu_runtime.md with new memory layout and synchronization protocols
+- Add Living Axons (Tip Nudging) section to docs/specs/04_connectivity.md with Activity-Based Nudging logic and data structures
+- Expand docs/specs/05_signal_physics.md with Burst Gating, symmetric Dopamine integration, and Warp-Aggregated Telemetry mechanics
+
 ## [0.205.28] - 2026-03-07 12:45:58
 
 **[Architecture] Extend distributed runtime and IDE specs with Zero-Cost S**

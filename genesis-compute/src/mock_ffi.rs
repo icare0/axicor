@@ -1,5 +1,6 @@
 
 use genesis_core::layout::VramState;
+use crate::ffi::ShardVramPtrs;
 use genesis_core::ipc::SpikeEvent;
 use std::sync::Mutex;
 use std::ffi::c_void;
@@ -214,7 +215,7 @@ pub extern "C" fn launch_ghost_sync(
 
 #[no_mangle]
 pub extern "C" fn gpu_reset_telemetry_count(
-    _vram: VramState,
+    _ptrs: *const ShardVramPtrs,
     _stream: *mut c_void,
 ) {
     log_call("ResetTelemetryCount", 0);
@@ -222,7 +223,7 @@ pub extern "C" fn gpu_reset_telemetry_count(
 
 #[no_mangle]
 pub extern "C" fn launch_extract_telemetry(
-    _vram: VramState,
+    _ptrs: *const ShardVramPtrs,
     _padded_n: u32,
     _out_ids: *mut u32,
     out_count_pinned: *mut u32,
@@ -230,6 +231,6 @@ pub extern "C" fn launch_extract_telemetry(
 ) {
     log_call("ExtractTelemetry", 0);
     if !out_count_pinned.is_null() {
-        unsafe { ptr::write_volatile(out_count_pinned, 0); }
+        unsafe { std::ptr::write_volatile(out_count_pinned, 0); }
     }
 }

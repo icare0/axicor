@@ -10,15 +10,29 @@
 
 ## 🚀 Запуск среды
 
+Введите в своем терминале чтобы автоматически найти и перейти в папку с примером:
+```bash
+cd $(find ~/Genesis -type d -name "cartpole" -print -quit)
+```
+
+При первом запуске необходимо установить зависимости:
+```bash
+pip install -r examples/cartpole/requirements.txt
+```
+Собрать проект:
+```bash
+cargo build --release
+```
+
 Для тестирования необходимо сначала запечь сеть, поднять две ноды (коры) и запустить Python-клиент с самим окружением.
 
 ### 0. Запекание сети (Baking)
 > **Важно:** Перед каждым новым запеканием обязательно удаляйте старую папку `baked` в корне проекта!
 ```bash
-rm -rf baked/
-pkill -f genesis-node
-pkill -f genesis-baker-daemon
-rm -f /dev/shm/genesis_shard_*
+rm -rf baked/ && \
+pkill -f genesis-node; \
+pkill -f genesis-baker-daemon; \
+rm -f /dev/shm/genesis_shard_* && \
 cargo run --release -p genesis-baker --bin baker -- --brain examples/cartpole/config/brain.toml
 ```
 

@@ -327,7 +327,7 @@ __global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
 // ============================================================================
 // 7. Warp-Aggregated Telemetry Extraction
 // ============================================================================
-__global__ void extract_telemetry_kernel(
+__global__ void cu_extract_telemetry_kernel(
     const uint8_t* __restrict__ soma_flags,
     uint32_t* __restrict__ out_ids,
     uint32_t* __restrict__ out_count,

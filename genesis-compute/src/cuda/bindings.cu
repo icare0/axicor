@@ -62,7 +62,7 @@ struct VariantParameters {
 extern __constant__ VariantParameters VARIANT_LUT[16];
 __constant__ int16_t current_dopamine;
 
-__global__ void extract_telemetry_kernel(
+__global__ void cu_extract_telemetry_kernel(
     const uint8_t* __restrict__ soma_flags,
     uint32_t* __restrict__ out_ids,
     uint32_t* __restrict__ out_count,
@@ -347,26 +347,6 @@ void launch_ghost_sync(const BurstHeads8 *src_heads, BurstHeads8 *dst_heads,
   uint32_t blocks = (count + threads - 1) / threads;
   ghost_sync_kernel<<<blocks, threads, 0, stream>>>(
       src_heads, dst_heads, src_indices, dst_indices, count);
-}
-
-void gpu_reset_telemetry_count(SoA_State vram, cudaStream_t stream) {
-  if (vram.telemetry_count != nullptr) {
-    cudaMemsetAsync(vram.telemetry_count, 0, sizeof(uint32_t), stream);
-  }
-}
-
-void launch_extract_telemetry(SoA_State vram, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
-    if (out_ids == nullptr || out_count_pinned == nullptr) return;
-
-    int threads = 256;
-    int blocks = (padded_n + threads - 1) / threads;
-
-    extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
-        vram.flags,
-        out_ids,
-        out_count_pinned,
-        padded_n
-    );
 }
 
 #pragma pack(push, 1)
@@ -761,5 +741,23 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
                     0);
   }
   return 0;
+}
+
+void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, cudaStream_t stream) {
+    // No-op for pinned memory as requested by specification/absence of telemetry_count.
+}
+
+void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
+    if (out_ids == nullptr || out_count_pinned == nullptr || ptrs == nullptr) return;
+
+    int threads = 256;
+    int blocks = (padded_n + threads - 1) / threads;
+    
+    cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
+        ptrs->soma_flags,
+        out_ids,
+        out_count_pinned,
+        padded_n
+    );
 }
 } // Final closing brace for extern "C"
