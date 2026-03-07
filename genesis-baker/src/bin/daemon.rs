@@ -99,7 +99,7 @@ fn main() {
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
-    let night_ctx = build_night_context(&cli.baked_dir, &brain_toml);
+    let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml);
 
     let socket_addr = default_socket_path(zone_hash);
 
@@ -116,7 +116,7 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_ref(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
                         eprintln!("❌ Night Phase error: {}", e);
                     }
                 }
@@ -315,7 +315,7 @@ fn run_night_phase<S: Read + Write>(
     mut stream: S,
     _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
-    _ctx: Option<&NightPhaseContext>,
+    ctx: Option<&mut NightPhaseContext>, // [DOD] Mut reference
     shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read binary BakeRequest (16 bytes)
@@ -338,29 +338,40 @@ fn run_night_phase<S: Read + Write>(
     let w_off = hdr.weights_offset as usize;
     let t_off = hdr.targets_offset as usize;
     let h_off = hdr.handovers_offset as usize;
+    let f_off = hdr.flags_offset as usize; // [DOD FIX] Flags extraction
     let h_count = hdr.handovers_count as usize;
     let slot_n = padded_n * MAX_DENDRITE_SLOTS;
 
     // 3. Obtain slices directly from SHM (Zero-Copy)
-    let (weights, targets, _handovers) = unsafe {
+    let (weights, targets, flags, _handovers) = unsafe {
         let w_ptr = shm_ptr.add(w_off) as *mut i16;
         let t_ptr = shm_ptr.add(t_off) as *mut u32;
+        let f_ptr = shm_ptr.add(f_off) as *const u8;
         let h_ptr = shm_ptr.add(h_off) as *const genesis_core::ipc::AxonHandoverEvent;
         (
             std::slice::from_raw_parts_mut(w_ptr, slot_n),
             std::slice::from_raw_parts_mut(t_ptr, slot_n),
+            std::slice::from_raw_parts(f_ptr, padded_n),
             std::slice::from_raw_parts(h_ptr, h_count),
         )
     };
 
-    // 4. CPU Sprouting (Zero-Copy)
-    let new_synapses = genesis_baker::bake::sprouting::run_sprouting_pass(
-        targets,
-        weights,
-        padded_n,
-        blueprints,
-        hdr.epoch,
-    );
+    // 4. CPU Sprouting & Living Axons (Zero-Copy)
+    let new_synapses = if let Some(ctx) = ctx {
+        genesis_baker::bake::sprouting::run_sprouting_pass(
+            targets,
+            weights,
+            flags,
+            &mut ctx._axon_tips_uvw,
+            &ctx._axon_dirs_xyz,
+            &ctx._soma_to_axon,
+            padded_n,
+            blueprints,
+            hdr.epoch,
+        )
+    } else {
+        0
+    };
 
     println!("   ↳ Sprouted {} new synapses", new_synapses);
 
