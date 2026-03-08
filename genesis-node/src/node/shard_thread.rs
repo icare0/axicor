@@ -131,13 +131,6 @@ fn execute_day_phase(
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 31) / 32;
 
-    unsafe {
-        genesis_compute::ffi::update_global_dopamine(
-            global_dopamine, 
-            std::ptr::null_mut()
-        );
-    }
-
     let schedule = bsp_barrier.get_read_schedule();
     
     // [DOD FIX] Zero-cost, 100% безопасное взятие слайсов из Pinned RAM
@@ -180,25 +173,28 @@ fn execute_day_phase(
         num_virtual_axons,
         mapped_soma_ids,
         v_seg,
+        global_dopamine,
         tick_base,
     );
 }
 
-// ФАЗА 2: Чтение выходов
-#[inline(always)]
 fn download_outputs(
     num_outputs: u32,
     pinned_out: &mut genesis_compute::memory::PinnedBuffer<u8>,
     io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
     output_bytes: usize,
+    stream: genesis_compute::ffi::CudaStream,
 ) {
     if num_outputs > 0 {
         unsafe {
-            genesis_compute::ffi::gpu_memcpy_device_to_host(
-                pinned_out.as_mut_ptr() as *mut _,
-                io_buffers.d_output_history as *const _,
-                output_bytes,
+            genesis_compute::ffi::cu_dma_d2h_io(
+                pinned_out.as_mut_ptr(),
+                io_buffers.d_output_history,
+                output_bytes as u32,
+                stream,
             );
+            // Synchronize ONLY our stream before CPU reads the PinnedBuffer
+            genesis_compute::ffi::gpu_stream_synchronize(stream);
         }
     }
 }
@@ -431,6 +427,7 @@ pub fn spawn_shard_thread(
     ctx: NodeContext,
     rx: Receiver<ComputeCommand>,
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
+    core_id: usize,
 ) {
     let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
@@ -442,7 +439,14 @@ pub fn spawn_shard_thread(
         .name(format!("compute-{}", hash))
         .spawn(move || {
             // [DOD FIX] Hardware Sympathy: Pinning compute thread
-            println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread", hash);
+            let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+            unsafe { libc::CPU_SET(core_id, &mut cpuset) };
+            let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+            if res != 0 {
+                eprintln!("Warning: Failed to set thread affinity to core {}", core_id);
+            } else {
+                println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, core_id);
+            }
 
             // 1. Инициализация аппаратного контекста
             unsafe { genesis_compute::ffi::gpu_set_device(0); }
@@ -496,9 +500,10 @@ pub fn spawn_shard_thread(
                             &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
                         );
 
-                        // ФАЗА 2: Чтение выходов
-                        download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes);
-
+                        // --- ФАЗА 2: Чтение выходов (Асинхронно в своем стриме) ---
+                        if desc.num_outputs > 0 {
+                            download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, desc.engine.stream);
+                        }
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
                             if warmup_ticks_remaining == 0 {

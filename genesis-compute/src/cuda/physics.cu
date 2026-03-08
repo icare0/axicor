@@ -57,7 +57,6 @@ struct VariantParameters {
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
 __constant__ VariantParameters VARIANT_LUT[16];
-extern __constant__ int16_t current_dopamine;
 
 // ============================================================================
 // 1. Inject Inputs Kernel (Virtual Axons)
@@ -238,7 +237,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 // ============================================================================
 // 5. Apply GSOP Kernel (Spatial STDP Plasticity)
 // ============================================================================
-__global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
+__global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int16_t dopamine) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -290,7 +289,7 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
 
     // 2. Modulated Potentiation / Depression
     int32_t base_pot = p.gsop_potentiation;
-    int32_t dopa_mod = (base_pot * current_dopamine) >> 8;
+    int32_t dopa_mod = (base_pot * dopamine) >> 8;
     int32_t final_pot = base_pot + dopa_mod;
 
     int32_t delta_pot = (final_pot * inertia) >> 7;
@@ -392,40 +391,42 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
                           uint32_t num_incoming_spikes,
                           // --- ВЫХОДЫ (RecordReadout) ---
                           const uint32_t *mapped_soma_ids,
-                          uint8_t *output_history, uint32_t num_outputs) {
+                          uint8_t *output_history, uint32_t num_outputs,
+                          int16_t dopamine,
+                          cudaStream_t stream) {
   int threads = 256;
 
   // 1. InjectInputs (Только если есть виртуальные аксоны и передана маска)
   if (num_virtual_axons > 0 && input_bitmask != nullptr) {
     int blocks_in = (num_virtual_axons + threads - 1) / threads;
-    cu_inject_inputs_kernel<<<blocks_in, threads>>>(
+    cu_inject_inputs_kernel<<<blocks_in, threads, 0, stream>>>(
         vram->axon_heads, input_bitmask, virtual_offset, num_virtual_axons);
   }
 
   // 2. ApplySpikeBatch (Сетевые спайки от соседних зон)
   if (num_incoming_spikes > 0 && incoming_spikes != nullptr) {
     int blocks_spikes = (num_incoming_spikes + threads - 1) / threads;
-    cu_apply_spike_batch_kernel<<<blocks_spikes, threads>>>(
+    cu_apply_spike_batch_kernel<<<blocks_spikes, threads, 0, stream>>>(
         vram->axon_heads, incoming_spikes, num_incoming_spikes, total_axons);
   }
 
   // 3. PropagateAxons
   int blocks_axons = (total_axons + threads - 1) / threads;
-  cu_propagate_axons_kernel<<<blocks_axons, threads>>>(vram->axon_heads,
+  cu_propagate_axons_kernel<<<blocks_axons, threads, 0, stream>>>(vram->axon_heads,
                                                        total_axons, v_seg);
 
   // 4. UpdateNeurons (GLIF)
   int blocks_neurons = (padded_n + threads - 1) / threads;
-  cu_update_neurons_kernel<<<blocks_neurons, threads>>>(*vram, padded_n, current_tick);
+  cu_update_neurons_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, current_tick);
 
   // 5. ApplyGSOP (Пластичность 3D STDP)
-  cu_apply_gsop_kernel<<<blocks_neurons, threads>>>(*vram, padded_n);
+  cu_apply_gsop_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, dopamine);
 
   // 6. RecordReadout
   if (num_outputs > 0 && mapped_soma_ids != nullptr &&
       output_history != nullptr) {
     int blocks_out = (num_outputs + threads - 1) / threads;
-    cu_record_readout_kernel<<<blocks_out, threads>>>(
+    cu_record_readout_kernel<<<blocks_out, threads, 0, stream>>>(
         vram->soma_flags, mapped_soma_ids, output_history, num_outputs);
   }
 

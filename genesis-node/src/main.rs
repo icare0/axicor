@@ -35,8 +35,8 @@ pub enum CpuProfile {
     version
 )]
 struct Cli {
-    #[arg(long)]
-    manifest: PathBuf,
+    #[arg(long, required = true)]
+    manifest: Vec<PathBuf>,
 
     #[arg(long, default_value = "9000")]
     fast_path_port: u16,
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join
-        if let Some(&local_hash) = boot_result.node_runtime.compute_dispatchers.keys().next() {
+        for &local_hash in boot_result.node_runtime.compute_dispatchers.keys() {
             boot_result.node_runtime.broadcast_route_update(local_hash).await;
             println!("📡 [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
         }
@@ -134,6 +134,12 @@ fn main() -> Result<()> {
         std::thread::Builder::new()
             .name("genesis-orchestrator".into())
             .spawn(move || {
+                let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+                unsafe { libc::CPU_SET(0, &mut cpuset) };
+                let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+                if res == 0 {
+                    println!("🚀 [Core] Orchestrator locked to OS Thread Core 0");
+                }
                 node.run_node_loop(cli.batch_size);
             })
             .expect("Fatal: Failed to spawn orchestrator OS thread");

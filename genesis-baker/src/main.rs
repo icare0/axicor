@@ -17,6 +17,9 @@ use genesis_baker::{bake, parser, validator};
 struct Cli {
     #[arg(long, default_value = "config/brain.toml")]
     brain: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    clean: bool,
 }
 
 fn main() -> Result<()> {
@@ -24,6 +27,26 @@ fn main() -> Result<()> {
     
     let brain_config = genesis_core::config::brain::parse_brain_config(&cli.brain)
         .map_err(|e| anyhow::anyhow!(e))?;
+
+    if cli.clean {
+        println!("[baker] Clean flag set. Wiping baked directories...");
+        for zone in &brain_config.zones {
+            if zone.baked_dir.exists() {
+                println!("[baker] Cleaning: {:?}", zone.baked_dir);
+                // Remove the directory contents safely
+                for entry in std::fs::read_dir(&zone.baked_dir)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)?;
+                    } else {
+                        std::fs::remove_file(path)?;
+                    }
+                }
+            }
+        }
+    }
+
     println!("[baker] Processing Brain Architecture: {} zones", brain_config.zones.len());
     
     // Store compilation results for ghost connections linking

@@ -101,8 +101,12 @@ pub extern "C" fn gpu_memcpy_peer_async(
     true
 }
 
-#[no_mangle] pub extern "C" fn gpu_set_device(_device_id: i32) {}
-#[no_mangle] pub extern "C" fn gpu_device_synchronize() {}
+#[no_mangle] pub extern "C" fn gpu_stream_create(out_stream: *mut *mut c_void) -> i32 {
+    unsafe { *out_stream = std::ptr::null_mut(); }
+    0
+}
+#[no_mangle] pub extern "C" fn gpu_stream_destroy(_stream: *mut c_void) -> i32 { 0 }
+
 #[no_mangle] pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
 #[no_mangle] pub extern "C" fn gpu_synchronize() {}
 
@@ -114,12 +118,9 @@ pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool { tru
 
 #[no_mangle]
 pub extern "C" fn update_constant_memory_hot_reload(
-    _new_variants: *const c_void,
+    _new_variants: *const GpuVariantParameters,
     _stream: *mut c_void,
 ) {}
-
-#[no_mangle]
-pub extern "C" fn update_global_dopamine(_dopamine: i16, _stream: *mut c_void) {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Day Phase Kernel Launches (6 kernels — Шаг 10)
@@ -131,8 +132,10 @@ pub extern "C" fn launch_inject_inputs(
     bitmask: *const u32,
     _current_tick: u32,
     _total_virtual_axons: u32,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("InjectInputs", bitmask as usize);
+    0
 }
 
 #[no_mangle]
@@ -140,16 +143,20 @@ pub extern "C" fn launch_apply_spike_batch(
     _vram: VramState,
     tick_schedule: *const SpikeEvent,
     _tick_spikes_count: u32,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("ApplySpikeBatch", tick_schedule as usize);
+    0
 }
 
 #[no_mangle]
 pub extern "C" fn launch_propagate_axons(
     _vram: VramState,
     _v_seg: u32,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("PropagateAxons", 0);
+    0
 }
 
 #[no_mangle]
@@ -157,15 +164,19 @@ pub extern "C" fn launch_update_neurons(
     _vram: VramState,
     _constants_ptr: *const c_void,
     _current_tick: u32,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("UpdateNeurons", 0);
+    0
 }
 
 #[no_mangle]
 pub extern "C" fn launch_apply_gsop(
     _vram: VramState,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("ApplyGSOP", 0);
+    0
 }
 
 #[no_mangle]
@@ -173,10 +184,12 @@ pub extern "C" fn launch_record_readout(
     _vram: VramState,
     _mapped_soma_ids: *const u32,
     _output_history: *mut u8,
-    _current_tick: u32,
-    _total_pixels: u32,
-) {
+    _num_outputs: u32,
+    _dopamine: i16,
+    _stream: *mut c_void,
+) -> i32 {
     log_call("RecordReadout", 0);
+    0
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,8 +200,10 @@ pub extern "C" fn launch_record_readout(
 pub extern "C" fn launch_sort_and_prune(
     _vram: VramState,
     prune_threshold: i16,
-) {
+    _stream: *mut c_void,
+) -> i32 {
     log_call("SortAndPrune", prune_threshold as usize);
+    0
 }
 
 #[no_mangle]
@@ -201,17 +216,17 @@ pub extern "C" fn launch_extract_outgoing_spikes(
     _out_events: *mut c_void,
     _out_count: *mut u32,
     _stream: *mut c_void,
-) {}
+) -> i32 { 0 }
 
 #[no_mangle]
 pub extern "C" fn launch_ghost_sync(
     _src_heads: *const genesis_core::layout::BurstHeads8,
     _dst_heads: *mut genesis_core::layout::BurstHeads8,
-    _src_indices: *const u32,
-    _dst_indices: *const u32,
-    _count: u32,
+    _d_incoming_spikes: *mut u32,
+    _h_incoming_spikes: *const u32,
+    _schedule_capacity: u32,
     _stream: *mut c_void,
-) {}
+) -> i32 { 0 }
 
 #[no_mangle]
 pub extern "C" fn gpu_reset_telemetry_count(

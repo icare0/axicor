@@ -239,6 +239,14 @@ void gpu_memcpy_device_to_host(void *dst, const void *src, size_t size) {
   }
 }
 
+int32_t gpu_stream_create(cudaStream_t *out_stream) {
+  return (int32_t)cudaStreamCreateWithFlags(out_stream, cudaStreamNonBlocking);
+}
+
+int32_t gpu_stream_destroy(cudaStream_t stream) {
+  return (int32_t)cudaStreamDestroy(stream);
+}
+
 void gpu_stream_synchronize(cudaStream_t stream) {
   cudaStreamSynchronize(stream);
 }
@@ -264,11 +272,6 @@ void update_constant_memory_hot_reload(const VariantParameters *new_variants,
   // обеспечивая Zero-Downtime Hot-Reload на барьере BSP.
   cudaMemcpyToSymbolAsync(VARIANT_LUT, new_variants,
                           sizeof(VariantParameters) * 16, 0,
-                          cudaMemcpyHostToDevice, (cudaStream_t)stream);
-}
-
-extern "C" void update_global_dopamine(int16_t dopamine, void *stream) {
-  cudaMemcpyToSymbolAsync(current_dopamine, &dopamine, sizeof(int16_t), 0,
                           cudaMemcpyHostToDevice, (cudaStream_t)stream);
 }
 
@@ -718,27 +721,29 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       const uint32_t *h_input_bitmask, uint32_t input_words,
                       uint32_t *d_incoming_spikes,
                       const uint32_t *h_incoming_spikes,
-                      uint32_t schedule_capacity) {
-  // Асинхронная загрузка в Stream 0. CPU не блокируется!
+                      uint32_t schedule_capacity,
+                      cudaStream_t stream) {
+  // Асинхронная загрузка в переданный Stream
   if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
     cudaMemcpyAsync(d_input_bitmask, h_input_bitmask,
-                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, 0);
+                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, stream);
   }
   if (schedule_capacity > 0 && d_incoming_spikes && h_incoming_spikes) {
     cudaMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
                     schedule_capacity * sizeof(uint32_t),
-                    cudaMemcpyHostToDevice, 0);
+                    cudaMemcpyHostToDevice, stream);
   }
   return 0;
 }
 
 int32_t cu_dma_d2h_io(uint8_t *h_output_history,
                       const uint8_t *d_output_history,
-                      uint32_t output_capacity) {
+                      uint32_t output_capacity,
+                      cudaStream_t stream) {
   if (output_capacity > 0 && d_output_history && h_output_history) {
     cudaMemcpyAsync(h_output_history, d_output_history,
                     output_capacity * sizeof(uint8_t), cudaMemcpyDeviceToHost,
-                    0);
+                    stream);
   }
   return 0;
 }

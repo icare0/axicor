@@ -121,6 +121,7 @@ impl NodeRuntime {
         let mut virtual_offset_map = HashMap::new();
 
         // [DOD] Consume shards to spawn threads
+        let mut core_id = 1;
         for desc in shards {
             let hash = desc.hash;
             let v_seg = desc.v_seg;
@@ -143,8 +144,9 @@ impl NodeRuntime {
             };
                 
             crate::node::shard_thread::spawn_shard_thread(
-                desc, ctx, rx, feedback_tx.clone(),
+                desc, ctx, rx, feedback_tx.clone(), core_id
             );
+            core_id += 1;
         }
 
 
@@ -244,6 +246,8 @@ impl NodeRuntime {
             }
 
             // 3. Collect feedback
+            let mut pending_outputs = Vec::new();
+
             for _ in 0..num_dispatchers {
                 if let Ok(feedback) = self.feedback_receiver.recv() {
                     match feedback {
@@ -259,21 +263,28 @@ impl NodeRuntime {
                             }
 
                             if output_bytes > 0 {
-                                // Ship outputs to network targets
-                                if let Some(routes) = self.output_routes.get(&zone_hash) {
-                                    for (addr, m_hash) in routes {
-                                        self.services.io_server.send_output_batch_pool(
-                                            &self.network.egress_pool,
-                                            &addr,
-                                            zone_hash,
-                                            *m_hash,
-                                            pinned_out_ptr,
-                                            output_bytes,
-                                        );
-                                    }
-                                }
+                                pending_outputs.push((zone_hash, pinned_out_ptr, output_bytes));
                             }
                         }
+                    }
+                }
+            }
+
+            // [DOD] GPU Hardware Barrier — дожидаемся завершения всех стримов
+            unsafe { genesis_compute::ffi::gpu_device_synchronize(); }
+
+            // Ship outputs to network targets ONLY POST SYNC!
+            for (zone_hash, pinned_out_ptr, output_bytes) in pending_outputs {
+                if let Some(routes) = self.output_routes.get(&zone_hash) {
+                    for (addr, m_hash) in routes {
+                        self.services.io_server.send_output_batch_pool(
+                            &self.network.egress_pool,
+                            &addr,
+                            zone_hash,
+                            *m_hash,
+                            pinned_out_ptr,
+                            output_bytes,
+                        );
                     }
                 }
             }
@@ -289,7 +300,7 @@ impl NodeRuntime {
                 unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
             }
 
-            // [DOD] 5. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
+            // [DOD] 5. GPU Barrier Sync (дожидаемся sync_ghosts в default stream)
             unsafe { genesis_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
 
             // [DOD] 6. Inter-Node Fast Path (Egress)
@@ -319,12 +330,19 @@ impl NodeRuntime {
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             self.services.bsp_barrier.wait_for_data_sync();
 
-            // [DOD] 8. Synchronize BSP and consume Ghost events
             self.services.bsp_barrier.sync_and_swap();
 
             current_tick += batch_size;
             batch_counter += 1;
             self.services.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+
+            if batch_counter > 0 && batch_counter % 500 == 0 {
+                let elapsed_secs = self.services.reporter.start_time.elapsed().as_secs_f64();
+                let sustained_tps = (batch_counter * batch_size as u64) as f64 / elapsed_secs;
+                println!("============================================================");
+                println!("[Performance] Sustained TPS: {:.0} ({} zones, 1080 Ti Limit)", sustained_tps, self.compute_dispatchers.len());
+                println!("============================================================");
+            }
         }
     }
 }

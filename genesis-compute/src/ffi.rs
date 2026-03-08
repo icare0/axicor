@@ -118,6 +118,8 @@ extern "C" {
         mapped_soma_ids: *const u32,
         output_history: *mut u8,
         num_outputs: u32,
+        dopamine: i16,
+        stream: CudaStream,
     ) -> i32;
 
     /// Глобальная константная память GPU (448 байт).
@@ -158,6 +160,9 @@ extern "C" {
         size: usize,
     ) -> bool;
 
+    pub fn gpu_stream_create(out_stream: *mut CudaStream) -> i32;
+    pub fn gpu_stream_destroy(stream: CudaStream) -> i32;
+
     pub fn gpu_stream_synchronize(stream: CudaStream);
     pub fn gpu_set_device(device_id: i32);
     pub fn gpu_device_synchronize();
@@ -168,7 +173,6 @@ extern "C" {
     // Загрузка Blueprint-параметров в Constant Memory GPU
     pub fn gpu_load_constants(host_ptr: *const c_void);
     pub fn update_constant_memory_hot_reload(new_variants: *const genesis_core::config::manifest::GpuVariantParameters, stream: CudaStream);
-    pub fn update_global_dopamine(dopamine: i16, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
         ptrs: *const ShardVramPtrs,
@@ -273,11 +277,13 @@ extern "C" {
         d_incoming_spikes: *mut u32,
         h_incoming_spikes: *const u32,
         schedule_capacity: u32,
+        stream: CudaStream,
     ) -> i32;
 
     pub fn cu_dma_d2h_io(
         h_output_history: *mut u8,
         d_output_history: *const u8,
         output_capacity: u32,
+        stream: CudaStream,
     ) -> i32;
 }
