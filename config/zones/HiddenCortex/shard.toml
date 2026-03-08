@@ -1,7 +1,7 @@
 zone_id = "SensoryCortex"
 
 [world_offset]
-x = 120
+x = 240
 y = 0
 z = 0
 

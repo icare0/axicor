@@ -67,7 +67,8 @@ fn main() -> Result<()> {
         // Target offset is the end of the dest zone's local axons
         let dst_ghost_offset = dst_shard.local_axons_count as u32; 
         
-        let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.from).unwrap().baked_dir;
+        // [DOD FIX] Ghost file goes to RECEIVER's baked_dir, not sender's
+        let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.to).unwrap().baked_dir;
         
         let sent_ghosts = if let (Some(w), Some(h)) = (conn.width, conn.height) {
             println!("[baker] Generating UV Atlas Projection {} -> {} ({}x{})", conn.from, conn.to, w, h);
@@ -228,6 +229,7 @@ fn serialize_artifacts(
     let manifest = genesis_core::config::manifest::ZoneManifest {
         magic: 0x47454E45, // "GENE"
         zone_hash: zone_hash_fnv,
+        blueprints_path: workspace.bp_path.to_string_lossy().into_owned(),
         simulation: Some(genesis_core::config::brain::SimulationConfigRef {
             config: std::path::PathBuf::from("BrainDNA/simulation.toml"),
         }),
@@ -241,9 +243,12 @@ fn serialize_artifacts(
             slow_path_tcp: 8010 + workspace.zone_idx * 10,
             external_udp_in: 8081 + workspace.zone_idx * 10,
             external_udp_out: 8082 + workspace.zone_idx * 10,
-            external_udp_out_target: None,
+            external_udp_out_target: Some("127.0.0.1:8092".to_string()), // Bind Python Client
             fast_path_udp_local: 9001 + workspace.zone_idx * 10,
-            fast_path_peers: if workspace.zone_idx == 0 { vec!["127.0.0.1:9011".to_string()] } else { vec!["127.0.0.1:9001".to_string()] },
+            fast_path_peers: workspace.brain_config.zones.iter().enumerate()
+                .filter(|(i, _)| *i != workspace.zone_idx as usize)
+                .map(|(i, z)| (z.name.clone(), format!("127.0.0.1:{}", 9001 + i * 10)))
+                .collect(),
         },
         connections: workspace.brain_config.connections.iter()
             .filter(|c| c.from == workspace.zone_name || c.to == workspace.zone_name)

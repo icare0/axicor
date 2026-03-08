@@ -35,7 +35,7 @@ pub struct BootResult {
 /// Этот метод реализует O(1) деривацию размеров на основе файлового контракта:
 /// - .state: 910 байта на нейрон (SoA)
 /// - .axons: 32 байта на аксон (BurstHeads8)
-pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)> {
+pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result<(ShardEngine, Vec<u32>)> {
     let chk_state = baked_dir.join("checkpoint.state");
     let chk_axons = baked_dir.join("checkpoint.axons");
     let base_state = baked_dir.join("shard.state");
@@ -55,9 +55,26 @@ pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)>
     let axons_blob = std::fs::read(&axons_path)
         .with_context(|| format!("FATAL: Missing .axons file at {:?}", axons_path))?;
 
-    // 2. Деривация размеров за O(1) (910 байт/нейрон)
-    let padded_n = (state_blob.len() / 910) as u32;
-    let total_axons = (axons_blob.len() / 32) as u32;
+    // 1. Сначала сканируем baked_dir на наличие входящих связей
+    let mut total_ghosts = 0;
+
+    for connection in &manifest.connections {
+        let to_hash = genesis_core::hash::fnv1a_32(connection.to.as_bytes());
+        if to_hash == manifest.zone_hash {
+            let ghost_file_name = format!("{}_{}.ghosts", connection.from, connection.to);
+            let ghost_path = baked_dir.join(ghost_file_name);
+            
+            if ghost_path.exists() {
+                let (src_somas, _) = load_ghosts(&ghost_path);
+                total_ghosts += src_somas.len() as u32;
+                println!("[Boot] Prepared {} ghost axons from {}", src_somas.len(), connection.from);
+            }
+        }
+    }
+
+    // 2. Деривация размеров
+    let total_axons = (manifest.memory.padded_n as u32) + total_ghosts + (manifest.memory.virtual_axons as u32);
+    let padded_n = manifest.memory.padded_n as u32;
 
     // Верификация целостности (защита от битых файлов)
     let (_, expected_state_size) = calculate_state_blob_size(padded_n as usize);
@@ -76,7 +93,7 @@ pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)>
         .collect();
 
     // 3. Выделение VRAM и DMA-заливка
-    let vram = VramState::allocate(padded_n, total_axons);
+    let vram = VramState::allocate(padded_n, total_axons, total_ghosts);
     vram.upload_state(&state_blob);
     vram.upload_axon_heads(&axons_blob);
 
@@ -114,18 +131,18 @@ impl Bootloader {
             let dst_hash = genesis_core::hash::fnv1a_32(conn.to.as_bytes());
 
             if src_hash == first_manifest.zone_hash {
-                // Мы Отправитель. Запоминаем куда слать данные.
-                if let Some(peer_addr) = first_manifest.network.fast_path_peers.first() {
+                // Мы Отправитель. Ищем порт получателя.
+                if let Some(peer_addr) = first_manifest.network.fast_path_peers.get(&conn.to) {
                     let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP");
                     initial_routes.insert(dst_hash, addr);
-                    println!("[Boot] Route (Egress): 0x{:08X} -> {}", dst_hash, addr);
+                    println!("[Boot] Route (Egress): {} (0x{:08X}) -> {}", conn.to, dst_hash, addr);
                 }
             } else if dst_hash == first_manifest.zone_hash {
-                // Мы Получатель. Запоминаем куда слать ACK.
-                if let Some(peer_addr) = first_manifest.network.fast_path_peers.first() {
+                // Мы Получатель. Ищем порт отправителя для ACK.
+                if let Some(peer_addr) = first_manifest.network.fast_path_peers.get(&conn.from) {
                     let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP");
                     initial_routes.insert(src_hash, addr);
-                    println!("[Boot] Route (ACK): 0x{:08X} -> {}", src_hash, addr);
+                    println!("[Boot] Route (ACK): {} (0x{:08X}) -> {}", conn.from, src_hash, addr);
                 }
             }
         }
@@ -231,7 +248,7 @@ impl Bootloader {
         let zone_hash = zone_manifest.zone_hash;
 
         println!("[Boot] Loading Local Zone at {:?}", baked_dir);
-        let (engine, s2a) = boot_shard_from_disk(&baked_dir)?;
+        let (engine, s2a) = boot_shard_from_disk(&baked_dir, zone_manifest)?;
 
         axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
         s2a_maps.insert(zone_hash, s2a);
@@ -261,26 +278,29 @@ impl Bootloader {
                     let source_hash = genesis_core::hash::fnv1a_32(output.source_zone.as_bytes());
                     
                     if source_hash == zone_hash {
-                        // For CartPole E2E, we route all motor outputs to the Python client on port 8092
+                        let target = zone_manifest.network.external_udp_out_target
+                            .clone()
+                            .unwrap_or_else(|| "127.0.0.1:8092".to_string());
+                        
                         output_routes.entry(zone_hash).or_insert_with(Vec::new)
-                            .push(("127.0.0.1:8092".to_string(), hash));
-                        println!("[Boot] Registered Output Route: {} (0x{:08X}) -> 127.0.0.1:8092", output.name, hash);
+                            .push((target.clone(), hash));
+                        println!("[Boot] Registered Output Route: {} (0x{:08X}) -> {}", output.name, hash, target);
                     }
                 }
             }
         }
 
+        // [DOD FIX] virtual_offset must be valid even for zones without external I/O
+        let virtual_offset = engine.vram.virtual_offset();
         let gxi_path = baked_dir.join("shard.gxi");
-        let (num_virtual_axons, virtual_offset) = if expected_inputs {
+        let num_virtual_axons = if expected_inputs {
             if !gxi_path.exists() {
                 anyhow::bail!("FATAL: Zone expects inputs but {:?} is missing!", gxi_path);
             }
             let gxi = GxiFile::load(&gxi_path);
-            // [DOD FIX] Берем абсолютный смещенный индекс первого виртуального аксона
-            let offset = gxi.axon_ids.first().copied().unwrap_or(0);
-            (gxi.total_pixels, offset)
+            gxi.total_pixels
         } else {
-            (0, 0)
+            0
         };
 
         let gxo_path = baked_dir.join("shard.gxo");
@@ -351,7 +371,7 @@ impl Bootloader {
         usize // expected_peers
     )> {
         let mut intra_gpu = Vec::new();
-        let mut inter_node = Vec::new();
+        let inter_node = Vec::new();
         let mut expected_peers = 0;
 
         for conn in &zone_manifest.connections {
@@ -372,11 +392,19 @@ impl Bootloader {
 
             if !is_src_local { continue; } // Outbound routing from remote source doesn't concern us
 
-            let src_baked_dir = root_dir.to_path_buf();
-            let ghosts_path = src_baked_dir.join(format!("{}_{}.ghosts", conn.from, conn.to));
+            // [DOD FIX] Ghost file lives in RECEIVER's baked_dir, not sender's.
+            // For outbound connections we don't need ghost data — just the routing table.
+            if !is_dst_local {
+                println!("[Boot] Outbound connection {} -> {} (routing only, no local ghost file needed)", conn.from, conn.to);
+                continue;
+            }
+
+            // We are the RECEIVER (is_dst_local). Ghost file must be in OUR baked_dir.
+            let ghosts_path = root_dir.join(format!("{}_{}.ghosts", conn.from, conn.to));
 
             if ghosts_path.exists() {
                 let (src_somas, dst_ghosts) = load_ghosts(&ghosts_path);
+                println!("[Ghosts] Successfully loaded {} links from {:?}", src_somas.len(), ghosts_path);
                 let s2a = s2a_maps.get(&src_hash).context("S2A map missing for source zone")?;
 
                 let mut src_axons = Vec::with_capacity(src_somas.len());
@@ -389,19 +417,13 @@ impl Bootloader {
                 }
 
                 let src_ptr = *axon_head_ptrs.get(&src_hash).unwrap();
-
-                if is_dst_local {
-                    // Local Zero-Copy
-                    let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
-                    let channel = unsafe { IntraGpuChannel::from_slices(&src_axons, &dst_ghosts) };
-                    intra_gpu.push((src_ptr, dst_ptr, channel));
-                    println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links)", conn.from, conn.to, src_axons.len());
-                } else {
-                    // Network Fast Path Egress
-                    let channel = unsafe { crate::network::inter_node::InterNodeChannel::new(src_hash, dst_hash, &src_axons, &dst_ghosts) };
-                    inter_node.push((src_ptr, channel));
-                    println!("[Boot] Built InterNodeChannel: {} -> Remote(0x{:08X}) ({} links)", conn.from, dst_hash, src_axons.len());
-                }
+                let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
+                let channel = unsafe { IntraGpuChannel::from_slices(&src_axons, &dst_ghosts) };
+                intra_gpu.push((src_ptr, dst_ptr, channel));
+                println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links)", conn.from, conn.to, src_axons.len());
+            } else {
+                // В режиме Ant-v4 это критично!
+                panic!("CRITICAL TOPOLOGY ERROR: Incoming ghost file not found: {:?}", ghosts_path);
             }
         }
         Ok((intra_gpu, inter_node, expected_peers))

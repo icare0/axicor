@@ -190,8 +190,10 @@ impl NodeRuntime {
             #[cfg(unix)]
             let _ = std::fs::remove_file(&socket_addr);
 
+            // [DOD FIX] Pass root brain.toml so daemon can find simulation.toml and blueprints
             println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?} (IPC: {})", desc.hash, desc.baked_dir, socket_addr);
             let child = Command::new(&daemon_path)
+                .arg("--brain").arg("config/brain.toml")
                 .arg("--zone-hash")
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")

@@ -94,6 +94,7 @@ use crate::config::brain::SimulationConfigRef;
 pub struct ZoneManifest {
     pub magic: u32,
     pub zone_hash: u32,
+    pub blueprints_path: String,
     pub simulation: Option<SimulationConfigRef>,
     pub memory: ManifestMemory,
     pub network: ManifestNetwork,
@@ -126,5 +127,5 @@ pub struct ManifestNetwork {
     #[serde(default)]
     pub external_udp_out_target: Option<String>,
     pub fast_path_udp_local: u16,
-    pub fast_path_peers: Vec<String>,
+    pub fast_path_peers: std::collections::HashMap<String, String>, // [DOD FIX] N-Zone Routing
 }

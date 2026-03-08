@@ -22,8 +22,8 @@ def fnv1a_32(data: bytes) -> int:
 
 # ─── Конфигурация ──────────────────────────────────────────────
 GENESIS_IP    = "127.0.0.1"
-PORT_OUT      = 8081   # Порт отправки (к ноде)
-PORT_IN       = 8082   # Порт приёма (от ноды)
+PORT_OUT      = 8081   # Port for input (to SensoryCortex)
+PORT_IN       = 8092   # [DOD FIX] Match external_udp_out_target
 BATCH_TICKS   = 100    # Размер батча (должен совпадать с sync_batch_ticks)
 WORDS_PER_TICK = 11    # 324 виртуальных аксона / 32 = 10.125 → 11 слов
 

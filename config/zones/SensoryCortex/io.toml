@@ -1,18 +1,19 @@
+readout_batch_ticks = 100
+
 [[input]]
-name = "env_sensors"
+name = "proprioception_joints"
 zone = "SensoryCortex"
-width = 16
-height = 16
+width = 18
+height = 18
 entry_z = "top"
-target_type = "Excitatory"
-growth_steps = 200
-empty_pixel = "nearest"
+target_type = "All"
+growth_steps = 500
 stride = 1
 
 [[output]]
 name = "sensory_out"
-zone = "SensoryCortex"
+source_zone = "SensoryCortex"
+target_type = "All"
 width = 16
 height = 16
-target_type = "Excitatory"
 stride = 1

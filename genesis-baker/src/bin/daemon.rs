@@ -93,13 +93,13 @@ fn main() {
     println!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
 
     // Загружаем blueprints.toml для Dale's Law
-    let blueprints = load_blueprints(&brain_toml);
+    let blueprints = load_blueprints(&brain_toml, zone_hash);
 
     println!("🧠 Genesis Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
-    let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml);
+    let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml, zone_hash);
 
     let socket_addr = default_socket_path(zone_hash);
 
@@ -144,39 +144,39 @@ fn main() {
     }
 }
 
-fn load_blueprints(brain_toml: &PathBuf) -> Option<BlueprintsConfig> {
-    // [DOD FIX] Читаем brain.toml и берём поле `blueprints` из первой зоны.
-    // Это универсальный путь — работает для любого Brain (CartPole, RobotBrain, etc.)
+fn load_blueprints(brain_toml: &PathBuf, zone_hash: u32) -> Option<BlueprintsConfig> {
+    // [DOD FIX] Parse brain.toml properly and find the zone matching our zone_hash
     if let Ok(src) = std::fs::read_to_string(brain_toml) {
-        // Ищем первую строку вида `blueprints = "..."` в файле
-        for line in src.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("blueprints") {
-                if let Some(after_eq) = trimmed.splitn(2, '=').nth(1) {
-                    let path_str = after_eq.trim().trim_matches('"');
-                    let bp_path = std::path::Path::new(path_str);
+        if let Ok(brain_config) = toml::from_str::<genesis_core::config::brain::BrainConfig>(&src) {
+            for zone in &brain_config.zones {
+                let zh = genesis_core::hash::fnv1a_32(zone.name.as_bytes());
+                if zh == zone_hash {
+                    let bp_path = std::path::Path::new(&zone.blueprints);
                     if bp_path.exists() {
                         match BlueprintsConfig::load(bp_path) {
                             Ok(bp) => {
-                                println!("   Blueprints loaded from {:?}", bp_path);
+                                println!("   Blueprints loaded from {:?} (zone: {})", bp_path, zone.name);
                                 return Some(bp);
                             }
                             Err(e) => eprintln!("⚠️  Failed to load blueprints from {:?}: {}", bp_path, e),
                         }
+                    } else {
+                        eprintln!("⚠️  Blueprints path {:?} does not exist for zone {}", bp_path, zone.name);
                     }
+                    break;
                 }
             }
         }
     }
 
-    eprintln!("⚠️  blueprints.toml not found — Dale's Law will use default weights");
+    eprintln!("⚠️  blueprints.toml not found for zone 0x{:08X} — Dale's Law will use default weights", zone_hash);
     None
 }
 
 
 /// Загружает конфиги для inject_ghost_axons один раз при старте Демона.
 /// Option<NightPhaseContext> — None если конфиги не найдены (graceful degradation).
-fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<NightPhaseContext> {
+fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32) -> Option<NightPhaseContext> {
     use genesis_baker::bake::axon_growth::{compute_layer_ranges, ShardBounds};
     use genesis_baker::parser::simulation::SimulationConfig;
 
@@ -191,7 +191,7 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         .map_err(|e| eprintln!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
 
     // Читаем blueprints для NeuronType list
-    let bp = load_blueprints(brain_toml)?;
+    let bp = load_blueprints(brain_toml, zone_hash)?;
     let neuron_types = bp.neuron_types.clone();
 
     // Читаем anatomy из BrainDNA

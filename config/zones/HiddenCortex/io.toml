@@ -1,8 +1,8 @@
 readout_batch_ticks = 100
 
 [[output]]
-name = "motor_actuators"
-source_zone = "MotorCortex"
+name = "hidden_out"
+source_zone = "HiddenCortex"
 target_type = "All"
 width = 16
 height = 16
