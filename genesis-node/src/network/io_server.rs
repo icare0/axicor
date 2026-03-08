@@ -150,17 +150,21 @@ impl ExternalIoServer {
 
         let header = unsafe { &*(payload.as_ptr() as *const ExternalIoHeader) };
 
-        // [Step 19] RouteUpdate check
         if header.magic == genesis_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
                 let update = unsafe { &*(payload.as_ptr() as *const RouteUpdate) };
+                
+                // 1. Копируем текущую таблицу
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
+                
+                // 2. Патчим маршрут
                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
-                let new_addr = SocketAddr::from((ipv4, update.new_port));
-
+                let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                 new_map.insert(update.zone_hash, new_addr);
+                
+                // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }
-                println!("[I/O Server] Route updated for zone 0x{:08X} -> {}", update.zone_hash, new_addr);
+                println!("📡 [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
             }
             return;
         }

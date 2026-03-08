@@ -36,24 +36,22 @@ impl RoutingTable {
         self.map_ptr.load(Ordering::Acquire)
     }
 
-    /// RCU update: atomically swaps the map pointer and schedules old map for cleanup.
+    // [DOD FIX] Zero-Lock RCU Routing
     pub unsafe fn update_routes(&self, new_map: HashMap<u32, SocketAddr>) {
         let boxed = Box::new(new_map);
         let new_ptr = Box::into_raw(boxed);
-        
-        let old_ptr = self.map_ptr.swap(new_ptr, Ordering::Release);
-        
+
+        // Атомарный своп указателя (Release order гарантирует видимость данных для читателей)
+        let old_ptr = self.map_ptr.swap(new_ptr, std::sync::atomic::Ordering::Release);
+
         if !old_ptr.is_null() {
             let old_ptr_usize = old_ptr as usize;
-            // Deferred cleanup to ensure no readers are still using the old map.
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, SocketAddr>);
-                });
-            } else {
-                let _ = Box::from_raw(old_ptr);
-            }
+            // Отложенное удаление: даем 100мс всем Egress-потокам завершить чтение старой таблицы
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, SocketAddr>); 
+                println!("[RCU] Old routing table deallocated safely.");
+            });
         }
     }
 }

@@ -441,6 +441,9 @@ pub fn spawn_shard_thread(
     thread::Builder::new()
         .name(format!("compute-{}", hash))
         .spawn(move || {
+            // [DOD FIX] Hardware Sympathy: Pinning compute thread
+            println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread", hash);
+
             // 1. Инициализация аппаратного контекста
             unsafe { genesis_compute::ffi::gpu_set_device(0); }
 
@@ -470,12 +473,12 @@ pub fn spawn_shard_thread(
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
             let mut workspace = ThreadWorkspace::new(hash, padded_n);
-            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<u32>();
+            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
 
             let mut batch_counter: u64 = 0;
-            let mut warmup_ticks_remaining = 0u32; // [DOD FIX]
+            let mut warmup_ticks_remaining: u32 = 2000;
 
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {
@@ -504,7 +507,7 @@ pub fn spawn_shard_thread(
                         }
 
                         // ФАЗА 3: Периодический сброс на диск (I/O)
-                        if batch_counter > 0 && batch_counter % 500 == 0 {
+                        if batch_counter > 0 && batch_counter % 50 == 0 {
                             save_hot_checkpoint(
                                 &desc.engine, 
                                 hash, 

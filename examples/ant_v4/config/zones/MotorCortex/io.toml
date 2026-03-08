@@ -1,0 +1,9 @@
+readout_batch_ticks = 100
+
+[[output]]
+name = "motor_actuators"
+source_zone = "MotorCortex"
+target_type = "All"
+width = 16
+height = 16
+stride = 1

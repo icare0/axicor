@@ -82,6 +82,12 @@ fn main() -> Result<()> {
         let boot_result = Bootloader::boot_node_with_profile(&cli.manifest, reporter.clone(), cli.cpu_profile).await
             .context("Node Bootstrap Failed")?;
 
+        // [DOD FIX] Immediate Cluster Join
+        if let Some(&local_hash) = boot_result.node_runtime.compute_dispatchers.keys().next() {
+            boot_result.node_runtime.broadcast_route_update(local_hash).await;
+            println!("📡 [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
+        }
+
         println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
 
         // Spawn IO Receiver Loop

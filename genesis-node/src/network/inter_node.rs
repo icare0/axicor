@@ -208,15 +208,15 @@ impl InterNodeRouter {
                         continue;
                     }
 
-                    // 2. Self-Healing: Прыжок в будущее, если мы отстали (или пропустили пакет)
+                    // 2. Self-Healing: Прыжок в будущее (§2.8.1 distributed.md)
                     if header.epoch > current_epoch {
                         let n = bsp_barrier.self_heal_log_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if n % 100 == 0 {
-                            println!("⚠️ [BSP] Self-Healing: Fast-forwarding epoch {} -> {} to catch up ({} jumps)", current_epoch, header.epoch, n + 1);
+                            println!("⚠️ [BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
                         }
                         bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
                         bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
-                        bsp_barrier.get_write_schedule().clear();
+                        bsp_barrier.get_write_schedule().clear(); // Сброс мусора из прошлого
                     }
 
                     // 3. Обработка ACK-пакета

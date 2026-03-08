@@ -8,6 +8,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.287.35] - 2026-03-08 12:23:51
+
+**Fix Critical Runtime Bugs**
+
+### Added
+- Fix Daemon Config Paths by passing root brain.toml path instead of zone blueprint paths in genesis-baker/src/bin/daemon.rs
+- Refactor boot sequence in genesis-node/src/boot.rs to correctly handle config loading and zone initialization
+- Update config file parsing in genesis-core/src/config/manifest.rs to support new path semantics
+- Update zone blueprint and IO configs in config/zones/MotorCortex/ and config/zones/SensoryCortex/ for consistency
+- Adjust shard.toml configuration in config/zones/MotorCortex/shard.toml
+- Modify scripts/ant_v4_client.py for updated connection parameters
+
+### Fixed
+- Fix v_offset Invariant in genesis-compute/src/memory.rs to always compute offset, even for neurons without inputs
+- Clean Ghost Artifacts by ensuring user re-bakes after code fixes, reflected in config file updates
+
+## [0.284.30] - 2026-03-07 18:19:56
+
+**CartPole Stable**
+
+### Added
+- Implement DDS Heartbeat spontaneous firing and fix axon memory alignment
+- Add spontaneous_firing_period_ticks field to NeuronType in config/blueprints.rs with serde default
+- Compute heartbeat_m in parser/blueprints.rs from spontaneous_firing_period_ticks using DDS multiplier formula (65536 / period)
+- Extend cu_update_neurons_kernel to integrate DDS phase accumulator using current_tick and heartbeat_m
+- Make neuron spiking logic combine GLIF spikes and heartbeat spikes, resetting membrane only on GLIF spikes
+- Add tick_base parameter to ShardEngine::execute_day_phase and pass through to cu_step_day_phase
+- Add current_tick parameter to cu_step_day_phase and cu_update_neurons_kernel in CUDA bindings
+- Update execute_day_phase in shard_thread.rs to receive and forward tick_base from ComputeCommand::RunBatch
+- Replace _pad1[2] with heartbeat_m: u16 in VariantParameters across CUDA bindings, FFI, and core layouts
+- Update manifest serialization in genesis-baker/main.rs to include heartbeat_m field
+- Enforce warp alignment (multiple of 32) for total_axons_max calculation in genesis-baker/src/bin/daemon.rs
+- Fix axon_heads slice mapping to use entire axons_mmap without legacy 16-byte header
+- Set spontaneous_firing_period_ticks = 1000 in examples/cartpole/config/zones/MotorCortex/blueprints.toml and SensoryCortex/blueprints.toml
+- Increase night_interval_ticks from 0 to 15000 in examples/cartpole/config/simulation.toml
+- Update examples/cartpole/readme.md with virtual environment instructions and brain_debugger.py usage
+- Adjust target score from 19 to 71 in experiment goal description
+- Add entries for releases 0.266.30 (DDS Heartbeat), 0.254.30 (Documentation), 0.247.30 (Zero-Downtime Recovery), 0.244.29 (Strict Dale's Law), and 0.237.29 (Warp-Aggregated Telemetry) to CHANGELOG.md
+
 ## [0.266.30] - 2026-03-07 16:41:18
 
 *** Add heartbeat_m field to VariantParameters in genesis-core, genesis-co**
