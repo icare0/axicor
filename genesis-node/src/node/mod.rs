@@ -61,7 +61,7 @@ pub struct NodeServices {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
-    pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
+    pub reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>,
 }
 
 pub struct NodeRuntime {
@@ -102,7 +102,7 @@ impl NodeRuntime {
         axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         manifest_metadata: HashMap<u32, ShardMetadata>,
-        reporter: Arc<crate::simple_reporter::SimpleReporter>,
+        reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -152,6 +152,7 @@ impl NodeRuntime {
                 rt_handle: rt_handle.clone(),
                 atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
+                reporter: reporter.clone(),
             };
                 
             crate::node::shard_thread::spawn_shard_thread(
@@ -224,10 +225,12 @@ impl NodeRuntime {
                                         gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
                                     );
                                 }
-                                println!("✅ [Hot-Reload] Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
-                                    hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold);
+                                let mut state = self.services.reporter.lock().unwrap();
+                                state.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
+                                    hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
                             } else {
-                                eprintln!("❌ [Hot-Reload] Failed to parse manifest at {:?}", metadata.manifest_path);
+                                let mut state = self.services.reporter.lock().unwrap();
+                                state.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
                             }
                         }
                     }
@@ -256,6 +259,8 @@ impl NodeRuntime {
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
                 .arg(&desc.baked_dir)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .spawn()
                 .expect("FATAL: Failed to spawn genesis-baker-daemon. Was it compiled?");
             
@@ -275,7 +280,13 @@ impl NodeRuntime {
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
 
-        println!("[Node] Entering main loop (Batch size: {})", batch_size);
+        {
+            let mut state = self.services.reporter.lock().unwrap();
+            state.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
+        }
+
+        let loop_start = std::time::Instant::now();
+        let mut batch_start = loop_start;
 
         loop {
             // 1. Swap IO Buffers (Acquire semantics)
@@ -286,7 +297,8 @@ impl NodeRuntime {
             // 2. Dispatch batches to compute shards
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && batch_counter % 100 == 0 {
-                println!("💉 [Node] Dopamine: {}", current_dopamine);
+                let mut state = self.services.reporter.lock().unwrap();
+                state.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
             }
 
             let num_dispatchers = self.compute_dispatchers.len();
@@ -365,9 +377,11 @@ impl NodeRuntime {
 
                 if out_count > 0 {
                     if batch_counter % 100 == 0 {
-                        println!("🚀 [Egress] Extracted {} spikes for zone 0x{:08X} (batch {})", out_count, channel.target_zone_hash, batch_counter);
+                        let mut state = self.services.reporter.lock().unwrap();
+                        state.push_log(format!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash), crate::tui::state::LogLevel::Info);
                     }
-                    self.services.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
+                    let mut state = self.services.reporter.lock().unwrap();
+                    state.udp_out_packets += 1;
                 }
 
                 // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
@@ -388,17 +402,23 @@ impl NodeRuntime {
 
             self.services.bsp_barrier.sync_and_swap();
 
+            let wall_ms = batch_start.elapsed().as_millis() as u64;
+            batch_start = std::time::Instant::now();
+
             current_tick += batch_size;
             batch_counter += 1;
-            self.services.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            
+            {
+                let mut state = self.services.reporter.lock().unwrap();
+                state.batch_number = batch_counter;
+                state.total_ticks = current_tick as u64;
+                state.push_wall_ms(wall_ms);
+                let elapsed_secs = state.uptime.elapsed().as_secs_f64().max(0.001);
+                state.ticks_per_sec = state.total_ticks as f64 / elapsed_secs;
+            }
 
             if batch_counter > 0 && batch_counter % 500 == 0 {
-                let elapsed_secs = self.services.reporter.start_time.elapsed().as_secs_f64();
-                let sustained_tps = (batch_counter * batch_size as u64) as f64 / elapsed_secs;
-                println!("============================================================");
-                println!("[Performance] Sustained TPS: {:.0} ({} zones, 1080 Ti Limit)", sustained_tps, self.compute_dispatchers.len());
-                println!("============================================================");
-
+                // Remove console printing to keep TUI clean, stats are visible in Core Loop widget
                 // [DOD FIX] Hot-Reload entry point
                 self.reload_manifests();
             }

@@ -1,4 +1,4 @@
-# 011 — Genesis CLI Dashboard (TUI)
+# 011 — Genesis CLI Dashboard (TUI) [PLANNED]
 
 > Runtime monitoring & control interface built with **ratatui** + **crossterm**.
 > Replaces raw `println!` output with a structured, dynamic terminal UI.
@@ -423,7 +423,7 @@ genesis-runtime/src/
 |----------|-----------|
 | [07_gpu_runtime.md](07_gpu_runtime.md) | Day/Night Phase loop that feeds metrics |
 | [08_io_matrix.md](08_io_matrix.md) | UDP I/O counters, oversized packet handling |
-| [010_ide.md](010_ide.md) | 3D IDE — complementary to CLI dashboard |
+| [08_ide.md](08_ide.md) | 3D IDE — complementary to CLI dashboard |
 | [02_configuration.md](02_configuration.md) | Config structure for Create sidebar |
 
 ---

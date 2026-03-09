@@ -1,6 +1,6 @@
 # 01. Фундамент (Foundations)
 
-> Часть архитектуры [Genesis](../../design_specs.md). Определяет фундаментальные инварианты системы. Нейронная модель: **GNM** (Genesis Neuron Model), мембранная механика: **GLIF** (Genesis Leaky Integer-Fire), пластичность: **GSOP** (Genesis Spike-Overlap Plasticity).
+> Часть архитектуры [Genesis](../../README.md). Определяет фундаментальные инварианты системы. Нейронная модель: **GNM** (Genesis Neuron Model), мембранная механика: **GLIF** (Genesis Leaky Integer-Fire), пластичность: **GSOP** (Genesis Spike-Overlap Plasticity).
 
 ---
 
@@ -10,7 +10,8 @@
 
 ### 1.1. Пространственная Метрика (Spatial Domain)
 
-// TODO: [Macro-3D] Внедрить Nested Coordinate System для кластерного скейлинга.
+> [!NOTE]
+> **[Planned: Macro-3D]** Внедрить Nested Coordinate System для кластерного скейлинга.
 // - **Micro-Space (VRAM, 32-bit):** Внутри шарда координаты остаются `PackedPosition` (11-bit X, 11-bit Y, 6-bit Z). Это локальный офсет.
 // - **Macro-Space (Cluster, 64-bit):** На уровне оркестратора `genesis-node` вводятся глобальные абсолютные координаты: `Global_X = Shard_Macro_X + Local_X`. 
 // - **Абстракция:** GPU ничего не знает о макро-позиции. Сетевой слой при передаче GhostPacket "перешивает" локальные координаты отправителя в локальные координаты получателя, опираясь на их 64-битные макро-смещения.

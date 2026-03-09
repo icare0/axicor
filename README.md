@@ -2,22 +2,22 @@
   <img src="ghost_network_3d.png" alt="Genesis Neural Network" width="720"/>
 </p>
 
->## 🚧⚠️ UNSTABLE MVP ⚠️🚧
-> **Все крейты находятся в состоянии нестабильного MVP.**
-> Иногдао, что работало час назад, сейчас может не работать — и наоборот.
-> API, структуры данных и поведение меняются иногда без предупреждения.
->
-> **Стабилизация MVP ожидается ~Май 2026.**
-> До этого момента не рассчитывайте на стабильный запуск и работу.
+<h3 align="center"> 🚧⚠️ UNSTABLE MVP ⚠️🚧</h3>
+Все крейты находятся в состоянии нестабильного MVP.
+Иногда то, что работало час назад, сейчас может не работать - и наоборот.
+API, структуры данных и поведение меняются иногда без предупреждения.
+
+**Стабилизация MVP ожидается ~Май 2026.**
+До этого момента не рассчитывайте на стабильный запуск и работу.
 
 <h1 align="center">Genesis</h1>
 
 <p align="center">
-  <strong>High-Frequency Trading (HFT) движок для Embodied AI и Spiking Neural Networks (SNN).
-  <p align="center">| 4500 TPS on GTX 1080 Ti |</p>
-  <p align="center">| 430k neurons & 57,6M synapses |</p>
-  <p align="center">| 100 microsecond sampling |</p>
-  <p align="center">| 14.5% of the network's one-time activity |</p>
+  <strong>High-Frequency Trading (HFT) движок для Embodied AI и Spiking Neural Networks (SNN).</strong><br>
+  4500 TPS on GTX 1080 Ti<br>
+  430k neurons &amp; 57,6M synapses<br>
+  100 microsecond sampling<br>
+  14.5% of the network's one-time activity
 </p>
 
 <p align="center">
@@ -31,9 +31,9 @@
 
 ---
 
-Genesis — это не очередной Python-фреймворк для перемножения плотных матриц. Это жёстко оптимизированный, распределённый симулятор биологической нейросети, построенный на принципах **Data-Oriented Design (DOD)** и **Механической Симпатии** к архитектуре GPU.
+Genesis - это жёстко оптимизированный, распределённый симулятор биологической нейросети, построенный на принципах **Data-Oriented Design (DOD)** и **Механической Симпатии** к архитектуре GPU.
 
-Наша цель — воплощённый интеллект (Embodied AI), способный обучаться в реальном времени, изменять свою физическую топологию и работать на всём: от одной RTX 4090 до кластера из сотен GPU.
+Наша цель - воплощённый интеллект (Embodied AI), способный обучаться в реальном времени, изменять свою физическую топологию и работать на всём: от одной RTX 4090 до кластера из сотен GPU.
 
 ---
 
@@ -46,8 +46,8 @@ Genesis — это не очередной Python-фреймворк для пе
 3.  **Day/Night Cycle:**
     *   **☀ Day Phase (GPU):** Топология read-only. Выполняется физика GLIF, движение сигналов и адаптация весов (GSOP). Без единой аллокации.
     *   **🌙 Night Phase (CPU):** Выгрузка VRAM, сортировка синапсов (Segmented Radix Sort), удаление слабых связей (Pruning), проращивание новых аксонов (Cone Tracing) и дефрагментация.
-4.  **Strict BSP & Zero-Copy:** Сетевой обмен (Fast Path) — прямая пересылка сырого дампа памяти по UDP без десериализации. Индекс отправителя аппаратно равен готовому индексу массива на целевом GPU (Sender-Side Mapping).
-5.  **Burst Architecture:** Сигнал — это не 1 бит. Это пулемётная очередь. Аксон аппаратно реализует сдвиговый регистр на 8 голов, упакованных в одну кэш-линию L1 (32 байта).
+4.  **Strict BSP & Zero-Copy:** Сетевой обмен (Fast Path) - прямая пересылка сырого дампа памяти по UDP без десериализации. Индекс отправителя аппаратно равен готовому индексу массива на целевом GPU (Sender-Side Mapping).
+5.  **Burst Architecture:** Сигнал - это не 1 бит. Это пулемётная очередь. Аксон аппаратно реализует сдвиговый регистр на 8 голов, упакованных в одну кэш-линию L1 (32 байта).
 
 ---
 
@@ -85,15 +85,15 @@ pub struct VramState {
 |---|---|
 | **Integer Physics** | Детерминизм, скорость, воспроизводимость на любом железе |
 | **GSOP вместо STDP** | Пространственное перекрытие Active Tail, без хранения истории спайков |
-| **Day/Night Cycle** | GPU — только физика. CPU — структурная пластичность. Без конфликтов |
+| **Day/Night Cycle** | GPU - только физика. CPU - структурная пластичность. Без конфликтов |
 | **Columnar SoA Layout** | 100% Coalesced Access на варп. Нет AoS, нет кэш-промахов |
 | **Population Coding** | Сила = количество активных нейронов, не частота. Мгновенный отклик |
 | **Pub/Sub Connectivity** | Аксон вещает. Дендрит слушает. Нет списков подписчиков на аксоне |
 | **Strict BSP** | Детерминированная синхронизация шардов через барьеры |
-| **Planar Sharding** | Шардирование по XY-плоскостям — топология сохраняет физическую геометрию мозга |
+| **Planar Sharding** | Шардирование по XY-плоскостям - топология сохраняет физическую геометрию мозга |
 | **Cone Tracing** | Аксоны растут по вектору с FOV. Рождение связей через пространственный поиск |
-| **Ghost Axons** | Виртуальные копии на границах шардов — межшардовая пластичность без разрывов |
-| **Burst Heads** | 8-головый сдвиговый регистр — нейрон стреляет очередями без затирания предыдущих сигналов |
+| **Ghost Axons** | Виртуальные копии на границах шардов - межшардовая пластичность без разрывов |
+| **Burst Heads** | 8-головый сдвиговый регистр - нейрон стреляет очередями без затирания предыдущих сигналов |
 | **Non-linear STDP** | Экспоненциальное затухание через `cooling_shift = dist >> 4`, ноль FPU |
 
 ---
@@ -109,13 +109,14 @@ pub struct VramState {
 | ⚡ **`genesis-compute`** | Raw CUDA FFI. Управление VRAM, DMA-передачи и 8 вычислительных ядер (Day Phase + Sort & Prune) |
 | 🌍 **`genesis-node`** | Распределённый оркестратор. Драйвит BSP-барьер, Lock-Free UDP I/O, Night Phase и IPC-туннели |
 | 👁 **`genesis-ide`** | 3D-визуализатор на Bevy. Zero-cost наблюдение через WebSocket (перехват спайков для emissive glow) |
+| 📚 **[`GNM-Library`](./GNM-Library/)** | Библиотека ~1800 биологически аппроксимированных типов нейронов (TOML). Кортекс из Allen Cell Types API, подкорка из литературы |
 
 **Технологический стек:**
 
-- **Rust** — весь движок (baker, runtime, IDE)
-- **CUDA** — GPU-ядра Day Phase через FFI (`genesis-compute`)
-- **Bevy** — 3D visualization (`genesis-ide`)
-- **Tokio** — async runtime, WebSocket, UDP
+- **Rust** - весь движок (baker, runtime, IDE)
+- **CUDA** - GPU-ядра Day Phase через FFI (`genesis-compute`)
+- **Bevy** - 3D visualization (`genesis-ide`)
+- **Tokio** - async runtime, WebSocket, UDP
 
 ---
 
@@ -134,12 +135,12 @@ cargo run --release -p genesis-baker -- --brain config/brains/CartPole/brain.tom
 ### 2. Запусти кластер
 
 ```bash
-# Terminal 1: Node 0 (SensoryCortex — Вход)
+# Terminal 1: Node 0 (SensoryCortex - Вход)
 cargo run --release -p genesis-node -- \
     --manifest baked/CartPole/SensoryCortex/manifest.toml \
     --batch-size 100
 
-# Terminal 2: Node 1 (MotorCortex — Выход)
+# Terminal 2: Node 1 (MotorCortex - Выход)
 cargo run --release -p genesis-node -- \
     --manifest baked/CartPole/MotorCortex/manifest.toml \
     --batch-size 100
@@ -157,7 +158,7 @@ cargo run --release -p genesis-ide
 
 ## 🧬 Day Phase Pipeline (GPU Hot Loop)
 
-Каждый тик — строго последовательная цепочка CUDA-ядер. Порядок критичен:
+Каждый тик - строго последовательная цепочка CUDA-ядер. Порядок критичен:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -227,7 +228,7 @@ cargo run --release -p genesis-ide
 
 ### Верифицированные вехи
 
-- ✅ 1M нейронов — полный E2E pipeline на реальном CUDA
+- ✅ 1M нейронов - полный E2E pipeline на реальном CUDA
 - ✅ ~32k Ticks/s (1K нейронов), ~22k Ticks/s (10K), ~5k Ticks/s (100K) на GTX 1080 Ti
 - ✅ Замкнутый цикл: Virtual Input → GLIF → GSOP → Output Readout
 - ✅ Ghost Axon Handover (TCP Slow Path + VRAM reserve pool)
@@ -245,5 +246,8 @@ cargo run --release -p genesis-ide
 ## 📄 Лицензия
 
 GPLv3 + коммерческое лицензирование. Подробности в [`LICENSE`](./LICENSE).
+
+Cortical neuron data derived from the [Allen Cell Types Database](https://celltypes.brain-map.org)
+(© 2015 Allen Institute for Brain Science). See [`GNM-Library/README.md`](./GNM-Library/README.md#credits--attribution) for full attribution.
 
 Copyright (C) 2026 Oleksandr Arzamazov

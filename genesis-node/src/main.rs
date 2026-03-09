@@ -10,7 +10,7 @@ pub mod config;
 pub mod ipc;
 pub mod input;
 pub mod output;
-pub mod simple_reporter;
+pub mod tui;
 pub mod sentinel;
 
 use anyhow::{Context, Result};
@@ -49,6 +49,9 @@ struct Cli {
 
     #[arg(long, default_value = "aggressive")]
     cpu_profile: CpuProfile,
+
+    #[arg(long)]
+    log: bool,
 }
 
 fn main() -> Result<()> {
@@ -62,19 +65,10 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
-        // 0. Initialize CLI Monitor
-        let reporter = Arc::new(crate::simple_reporter::SimpleReporter::new());
-        let reporter_clone = reporter.clone();
-
-        // CLI Monitor Thread
-        std::thread::Builder::new()
-            .name("genesis-cli-monitor".into())
-            .spawn(move || {
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    reporter_clone.print_status();
-                }
-            }).expect("Fatal: Failed to spawn monitor thread");
+        // 0. Initialize CLI Monitor (TUI or Log)
+        use std::sync::Mutex;
+        let reporter = Arc::new(Mutex::new(crate::tui::state::DashboardState::new()));
+        let log_mode = cli.log;
 
         println!("[Node] Starting Genesis Distributed Daemon...");
         
@@ -144,8 +138,10 @@ fn main() -> Result<()> {
             })
             .expect("Fatal: Failed to spawn orchestrator OS thread");
 
-        // 8. Park the Tokio main thread so daemon tasks stay alive
-        std::thread::park();
+        // 8. Run Dashboard UI (blocks main thread)
+        crate::tui::run_tui(reporter, log_mode).unwrap_or_else(|e| {
+            eprintln!("UI error: {:?}", e);
+        });
         Ok(())
     })
 }

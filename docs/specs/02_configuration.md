@@ -1,6 +1,6 @@
 # 02. Конфигурация (Configuration)
 
-> Часть архитектуры [Genesis](../../design_specs.md). Файловая структура, пайплайн данных и TOML-спецификации.
+> Часть архитектуры [Genesis](../../README.md). Файловая структура, пайплайн данных и TOML-спецификации.
 
 ---
 
@@ -41,7 +41,8 @@
 
 ### 1.3. Конфиг Инстанса (`runtime/shard_04.toml` или CLI аргументы)
 
-// TODO: [Macro-3D] Обновить DTO конфигурации шардов для 3D кластеров.
+> [!NOTE]
+> **[Planned: Macro-3D]** Обновить DTO конфигурации шардов для 3D кластеров.
 // В `InstanceConfig` (`genesis-core/src/config/instance.rs`):
 // 1. Поля `world_offset` (x, y, z) должны стать `u64`.
 // 2. В `Neighbors` добавить `z_plus: Option<String>` и `z_minus: Option<String>`.
@@ -463,7 +464,8 @@ pub fn compile_dds_heartbeat(period_ticks: u32) -> u16 {
 
 ## 7. Спецификация: `brain.toml` (Multi-Zone Architecture)
 
-// TODO: [Macro-3D] В `brain.toml`:
+> [!NOTE]
+> **[Planned: Macro-3D]** В `brain.toml`:
 // Добавить сущность `[cluster]` для описания макро-геометрии (размеры изотропного куба, лимиты нод), которая будет выше уровня `[simulation]`.
 
 Определяет топологию мультизонального мозга: какие зоны присутствуют, где вычисляются данные и как они синхронизируются. Это **корневой конфиг** для всей распределённой системы (см. [06_distributed.md](./06_distributed.md)).
@@ -648,7 +650,8 @@ brain.toml (Multi-zone topology, Inter-zone connections)
 
 ## 8. Roadmap: Расширенный Hot-Reload (Manifest Extensions)
 
-// TODO: Реализовать расширение `manifest.toml` для управления параметрами в горячем цикле.
+> [!NOTE]
+> **[Planned]** Реализовать расширение `manifest.toml` для управления параметрами в горячем цикле.
 
 ### 8.1. Динамические интервалы (Night Phase)
 - **Цель**: Позволить менять `night_interval_ticks` индивидуально для каждого шарда без перезапуска.

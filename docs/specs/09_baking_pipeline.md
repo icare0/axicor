@@ -1,6 +1,6 @@
 # 09. Baking Pipeline и Runtime Init
 
-> Часть архитектуры [Genesis](../../design_specs.md). Алгоритмы компиляции I/O и инициализации runtime.
+> Часть архитектуры [Genesis](../../README.md). Алгоритмы компиляции I/O и инициализации runtime.
 > Зависит от: [08_io_matrix.md](./08_io_matrix.md)
 
 ---
