@@ -25,13 +25,23 @@ pub struct ShardDescriptor {
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
 
+use std::sync::atomic::{AtomicU64, AtomicI16, Ordering};
+
+// TODO: Найти идеальный баланс для линейного стабильного роста, а потом аппроксимировать и 
+// заложить расчет нейрогенеза для каждого шарда автоматически на основе типов внутри.
+pub struct ShardAtomicSettings {
+    pub night_interval_ticks: AtomicU64,
+    pub save_checkpoints_interval_ticks: AtomicU64, // ticks counter
+    pub prune_threshold: AtomicI16,
+}
+
 /// [Phase 23] Shared orchestrator resources — cheap Clone via Arc.
 #[derive(Clone)]
 pub struct NodeContext {
     pub bsp_barrier: Arc<BspBarrier>,
     pub io_ctx: Arc<InputSwapchain>,
     pub rt_handle: tokio::runtime::Handle,
-    pub night_interval: u64,
+    pub atomic_settings: Arc<ShardAtomicSettings>,
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
 
@@ -512,7 +522,8 @@ pub fn spawn_shard_thread(
                         }
 
                         // ФАЗА 3: Периодический сброс на диск (I/O)
-                        let cp_interval = (desc.config.settings.save_checkpoints_interval_ticks / batch_size).max(1);
+                        let cp_interval_ticks = ctx.atomic_settings.save_checkpoints_interval_ticks.load(Ordering::Relaxed);
+                        let cp_interval = (cp_interval_ticks as u32 / batch_size).max(1);
                         if batch_counter > 0 && batch_counter % cp_interval as u64 == 0 {
                             save_hot_checkpoint(
                                 &desc.engine, 
@@ -525,8 +536,9 @@ pub fn spawn_shard_thread(
 
                         // ФАЗА 4: Обслуживание графа (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
-                        if ctx.night_interval > 0 && current_tick_count % ctx.night_interval == 0 {
-                            let current_prune_threshold = 15; // [DOD FIX] TODO: брать из конфига
+                        let n_interval = ctx.atomic_settings.night_interval_ticks.load(Ordering::Relaxed);
+                        if n_interval > 0 && current_tick_count % n_interval == 0 {
+                            let current_prune_threshold = ctx.atomic_settings.prune_threshold.load(Ordering::Relaxed);
                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,

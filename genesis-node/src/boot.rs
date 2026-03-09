@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::collections::HashMap;
@@ -115,10 +116,29 @@ impl Bootloader {
         // 1. Data/Config Phase: Load brain and simulation configs
         let mut zone_manifests_with_paths = Vec::new();
         let mut sim_config = None;
+        let mut manifest_metadata = HashMap::new();
         
         for path in manifest_paths {
             let root_dir: &Path = path.parent().unwrap_or(Path::new("."));
             let (zm, sc) = Self::parse_manifests(path, root_dir)?;
+            
+            // [DOD FIX] Initialize Hot-Reload metadata
+            let last_modified = std::fs::metadata(path)
+                .and_then(|m| m.modified())
+                .unwrap_or_else(|_| SystemTime::now());
+            
+            let atomic_settings = Arc::new(crate::node::shard_thread::ShardAtomicSettings {
+                night_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.night_interval_ticks.unwrap_or(0)),
+                save_checkpoints_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.save_checkpoints_interval_ticks.unwrap_or(100_000) as u64),
+                prune_threshold: std::sync::atomic::AtomicI16::new(zm.settings.plasticity.prune_threshold),
+            });
+
+            manifest_metadata.insert(zm.zone_hash, crate::node::ShardMetadata {
+                manifest_path: path.clone(),
+                last_modified,
+                atomic_settings,
+            });
+
             zone_manifests_with_paths.push((zm, root_dir.to_path_buf()));
             if sim_config.is_none() {
                 sim_config = Some(sc);
@@ -126,7 +146,17 @@ impl Bootloader {
         }
         
         let sim_config = sim_config.context("No manifests provided")?;
-        let night_interval = sim_config.simulation.night_interval_ticks as u64;
+        // Local night_interval from first manifest or global from simulation.toml
+        let first_zm = &zone_manifests_with_paths[0].0;
+        let night_interval = first_zm.settings.night_interval_ticks
+            .unwrap_or(sim_config.simulation.night_interval_ticks as u64);
+
+        // Update all shards with global night_interval if they don't have local override
+        for (_, meta) in manifest_metadata.iter() {
+            if meta.atomic_settings.night_interval_ticks.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                meta.atomic_settings.night_interval_ticks.store(night_interval, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
@@ -184,7 +214,7 @@ impl Bootloader {
             inter_node_router,
             axon_head_ptrs,
             egress_pool.clone(),
-            night_interval,
+            manifest_metadata,
             reporter,
         );
 

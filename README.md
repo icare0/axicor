@@ -2,10 +2,10 @@
   <img src="ghost_network_3d.png" alt="Genesis Neural Network" width="720"/>
 </p>
 
-> ## 🚧⚠️ SUPER UNSTABLE MVP ⚠️🚧
-> **Все крейты находятся в состоянии крайне нестабильного MVP.**
-> То, что работало час назад, сейчас может не работать — и наоборот.
-> API, структуры данных и поведение меняются ежедневно без предупреждения.
+>## 🚧⚠️ UNSTABLE MVP ⚠️🚧
+> **Все крейты находятся в состоянии нестабильного MVP.**
+> Иногдао, что работало час назад, сейчас может не работать — и наоборот.
+> API, структуры данных и поведение меняются иногда без предупреждения.
 >
 > **Стабилизация MVP ожидается ~Май 2026.**
 > До этого момента не рассчитывайте на стабильный запуск и работу.
@@ -13,7 +13,11 @@
 <h1 align="center">Genesis</h1>
 
 <p align="center">
-  <strong>High-Frequency Trading (HFT) движок для Embodied AI и Spiking Neural Networks (SNN).</strong>
+  <strong>High-Frequency Trading (HFT) движок для Embodied AI и Spiking Neural Networks (SNN).
+  <p align="center">| 4500 TPS on GTX 1080 Ti |</p>
+  <p align="center">| 430k neurons & 57,6M synapses |</p>
+  <p align="center">| 100 microsecond sampling |</p>
+  <p align="center">| 14.5% of the network's one-time activity |</p>
 </p>
 
 <p align="center">

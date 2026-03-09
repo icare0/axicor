@@ -98,9 +98,32 @@ pub struct ZoneManifest {
     pub simulation: Option<SimulationConfigRef>,
     pub memory: ManifestMemory,
     pub network: ManifestNetwork,
+    #[serde(default)]
+    pub settings: ManifestSettings,
     pub variants: Vec<ManifestVariant>,
     #[serde(default)]
     pub connections: Vec<ManifestConnection>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ManifestSettings {
+    #[serde(default)]
+    pub night_interval_ticks: Option<u64>,
+    #[serde(default)]
+    pub save_checkpoints_interval_ticks: Option<u32>,
+    #[serde(default)]
+    pub plasticity: ManifestPlasticity,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ManifestPlasticity {
+    pub prune_threshold: i16,
+}
+
+impl Default for ManifestPlasticity {
+    fn default() -> Self {
+        Self { prune_threshold: 15 }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

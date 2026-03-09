@@ -2,12 +2,21 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Command, Child};
 use std::env;
+use std::path::PathBuf;
+use std::time::SystemTime;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crossbeam::channel::{bounded, Sender, Receiver};
 use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
 use crate::network::inter_node::InterNodeRouter;
+use crate::node::shard_thread::ShardAtomicSettings;
+
+pub struct ShardMetadata {
+    pub manifest_path: PathBuf,
+    pub last_modified: SystemTime,
+    pub atomic_settings: Arc<ShardAtomicSettings>,
+}
 
 pub mod recovery;
 pub mod shard_thread;
@@ -68,8 +77,8 @@ pub struct NodeRuntime {
     pub output_routes: HashMap<u32, Vec<(String, u32)>>,
     // [DOD] Владение дочерними процессами (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
-    // [DOD] Night Phase интервал в тиках
-    pub night_interval: u64,
+    // [DOD FIX] Метаданные шардов для Hot-Reload
+    pub manifest_metadata: Mutex<HashMap<u32, ShardMetadata>>,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
 }
@@ -92,7 +101,7 @@ impl NodeRuntime {
         inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
         axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
-        night_interval: u64,
+        manifest_metadata: HashMap<u32, ShardMetadata>,
         reporter: Arc<crate::simple_reporter::SimpleReporter>,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
@@ -135,11 +144,13 @@ impl NodeRuntime {
                 .map(|(_, ctx)| ctx.swapchain.clone())
                 .expect("FATAL: IO Context for zone not found");
 
+            let metadata = manifest_metadata.get(&hash).expect("FATAL: Metadata for zone not found");
+
             let ctx = crate::node::shard_thread::NodeContext {
                 bsp_barrier: bsp_barrier.clone(),
                 io_ctx: my_io_ctx,
                 rt_handle: rt_handle.clone(),
-                night_interval,
+                atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
             };
                 
@@ -148,7 +159,6 @@ impl NodeRuntime {
             );
             core_id += 1;
         }
-
 
         let node = Self {
             services: NodeServices {
@@ -172,12 +182,58 @@ impl NodeRuntime {
             local_port,
             output_routes,
             daemons: Mutex::new(daemons),
-            night_interval,
+            manifest_metadata: Mutex::new(manifest_metadata),
             zone_v_segs,
             virtual_offset_map,
         };
 
         node
+    }
+
+    fn reload_manifests(&self) {
+        let mut metadata_map = self.manifest_metadata.lock().unwrap();
+        for (hash, metadata) in metadata_map.iter_mut() {
+            if let Ok(attr) = std::fs::metadata(&metadata.manifest_path) {
+                if let Ok(modified) = attr.modified() {
+                    if modified > metadata.last_modified {
+                        println!("♻️ [Hot-Reload] Manifest changed for zone 0x{:08X}", hash);
+                        metadata.last_modified = modified;
+                        
+                        if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
+                            if let Ok(zm) = toml::from_str::<genesis_core::config::manifest::ZoneManifest>(&toml_str) {
+                                // 1. Update Atomic Settings
+                                if let Some(ni) = zm.settings.night_interval_ticks {
+                                    metadata.atomic_settings.night_interval_ticks.store(ni, Ordering::Relaxed);
+                                }
+                                
+                                if let Some(cp) = zm.settings.save_checkpoints_interval_ticks {
+                                    metadata.atomic_settings.save_checkpoints_interval_ticks.store(cp as u64, Ordering::Relaxed);
+                                }
+                                
+                                metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
+                                
+                                // 2. Update GPU Constants (Variants)
+                                let mut gpu_variants = [genesis_core::config::manifest::GpuVariantParameters::default(); 16];
+                                for v in &zm.variants {
+                                    if (v.id as usize) < 16 {
+                                        gpu_variants[v.id as usize] = v.clone().into_gpu();
+                                    }
+                                }
+                                unsafe {
+                                    genesis_compute::ffi::cu_upload_constant_memory(
+                                        gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
+                                    );
+                                }
+                                println!("✅ [Hot-Reload] Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
+                                    hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold);
+                            } else {
+                                eprintln!("❌ [Hot-Reload] Failed to parse manifest at {:?}", metadata.manifest_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn spawn_baker_daemons(
@@ -342,6 +398,9 @@ impl NodeRuntime {
                 println!("============================================================");
                 println!("[Performance] Sustained TPS: {:.0} ({} zones, 1080 Ti Limit)", sustained_tps, self.compute_dispatchers.len());
                 println!("============================================================");
+
+                // [DOD FIX] Hot-Reload entry point
+                self.reload_manifests();
             }
         }
     }

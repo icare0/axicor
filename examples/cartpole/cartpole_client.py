@@ -114,12 +114,8 @@ def main() -> None:
         cart_x, cart_v, pole_a, pole_av = obs
 
         # ── 2. Dopamine signal (R-STDP steering) ─────────────────
-        # Upright pole → positive. Terminal → softer depression (was -30000).
-        # Added velocity penalty to discourage fast swings.
-        if terminated:
-            dopamine = -20000
-        else:
-            dopamine = int((0.03 - abs(pole_a)) * 25000 - abs(pole_av) * 5000)
+        # Adjusted: increased reward zone and multiplier, decreased velocity penalty.
+        dopamine = int((0.05 - abs(pole_a)) * 30000 - abs(pole_av) * 2000)
         dopamine = max(-32768, min(32767, dopamine))
 
         # ── 3. Encode & send ─────────────────────────────────────

@@ -273,6 +273,13 @@ fn serialize_artifacts(
                 .map(|(i, z)| (z.name.clone(), format!("127.0.0.1:{}", 9001 + i * 10)))
                 .collect(),
         },
+        settings: genesis_core::config::manifest::ManifestSettings {
+            night_interval_ticks: Some(workspace.sim.simulation.night_interval_ticks as u64),
+            save_checkpoints_interval_ticks: Some(100_000),
+            plasticity: genesis_core::config::manifest::ManifestPlasticity {
+                prune_threshold: 15,
+            },
+        },
         connections: workspace.brain_config.connections.iter()
             .filter(|c| c.from == workspace.zone_name || c.to == workspace.zone_name)
             .map(|c| genesis_core::config::manifest::ManifestConnection {

@@ -13,4 +13,4 @@ h = 63
 [neighbors]
 
 [settings]
-save_checkpoints_interval_ticks = 70_000
+save_checkpoints_interval_ticks = 500_000
