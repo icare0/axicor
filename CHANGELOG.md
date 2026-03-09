@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.305.36] - 2026-03-08 22:38:53
+
+**IMPORTANT**
+
+### Added
+- GNM: deploy high-fidelity neuron library v2.1
+- 1801 unique biphy-calibrated models (Allen/NeuroMorpho)
+- fixed synaptic weights: Exc (0.7%), PV/Inh (3%) of threshold delta
+- enforced invariants: signal_propagation_length >= refractory_period + 1
+- metadata: improved meta-plasticity curves and GSOP Dead Zone fixes
+- docs: added Credits.md with formal research attribution
+
 ## [0.301.35] - 2026-03-08 15:55:29
 
 **IntraGPU Consolidation: Full Hardware Saturation & Stabilization**
