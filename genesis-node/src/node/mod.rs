@@ -61,7 +61,8 @@ pub struct NodeServices {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
-    pub reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>,
+    // [DOD FIX]
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
 }
 
 pub struct NodeRuntime {
@@ -102,7 +103,7 @@ impl NodeRuntime {
         axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         manifest_metadata: HashMap<u32, ShardMetadata>,
-        reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>,
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -152,7 +153,7 @@ impl NodeRuntime {
                 rt_handle: rt_handle.clone(),
                 atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
-                reporter: reporter.clone(),
+                telemetry: telemetry.clone(),
             };
                 
             crate::node::shard_thread::spawn_shard_thread(
@@ -166,7 +167,7 @@ impl NodeRuntime {
                 io_server,
                 routing_table,
                 bsp_barrier,
-                reporter,
+                telemetry,
             },
             network: NetworkTopology {
                 intra_gpu_channels,
@@ -211,27 +212,25 @@ impl NodeRuntime {
                                     metadata.atomic_settings.save_checkpoints_interval_ticks.store(cp as u64, Ordering::Relaxed);
                                 }
                                 
-                                metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
-                                
-                                // 2. Update GPU Constants (Variants)
-                                let mut gpu_variants = [genesis_core::config::manifest::GpuVariantParameters::default(); 16];
-                                for v in &zm.variants {
-                                    if (v.id as usize) < 16 {
-                                        gpu_variants[v.id as usize] = v.clone().into_gpu();
+                                    metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
+                                    
+                                    // 2. Update GPU Constants (Variants)
+                                    let mut gpu_variants = [genesis_core::config::manifest::GpuVariantParameters::default(); 16];
+                                    for v in &zm.variants {
+                                        if (v.id as usize) < 16 {
+                                            gpu_variants[v.id as usize] = v.clone().into_gpu();
+                                        }
                                     }
+                                    unsafe {
+                                        genesis_compute::ffi::cu_upload_constant_memory(
+                                            gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
+                                        );
+                                    }
+                                    self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
+                                        hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
+                                } else {
+                                    self.services.telemetry.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
                                 }
-                                unsafe {
-                                    genesis_compute::ffi::cu_upload_constant_memory(
-                                        gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
-                                    );
-                                }
-                                let mut state = self.services.reporter.lock().unwrap();
-                                state.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
-                                    hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
-                            } else {
-                                let mut state = self.services.reporter.lock().unwrap();
-                                state.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
-                            }
                         }
                     }
                 }
@@ -280,10 +279,7 @@ impl NodeRuntime {
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
 
-        {
-            let mut state = self.services.reporter.lock().unwrap();
-            state.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
-        }
+        self.services.telemetry.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
 
         let loop_start = std::time::Instant::now();
         let mut batch_start = loop_start;
@@ -297,8 +293,7 @@ impl NodeRuntime {
             // 2. Dispatch batches to compute shards
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && batch_counter % 100 == 0 {
-                let mut state = self.services.reporter.lock().unwrap();
-                state.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
+                self.services.telemetry.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
             }
 
             let num_dispatchers = self.compute_dispatchers.len();
@@ -377,11 +372,10 @@ impl NodeRuntime {
 
                 if out_count > 0 {
                     if batch_counter % 100 == 0 {
-                        let mut state = self.services.reporter.lock().unwrap();
-                        state.push_log(format!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash), crate::tui::state::LogLevel::Info);
+                        self.services.telemetry.push_log(format!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash), crate::tui::state::LogLevel::Info);
                     }
-                    let mut state = self.services.reporter.lock().unwrap();
-                    state.udp_out_packets += 1;
+                    // В цикле Egress:
+                    self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
 
                 // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
@@ -408,14 +402,9 @@ impl NodeRuntime {
             current_tick += batch_size;
             batch_counter += 1;
             
-            {
-                let mut state = self.services.reporter.lock().unwrap();
-                state.batch_number = batch_counter;
-                state.total_ticks = current_tick as u64;
-                state.push_wall_ms(wall_ms);
-                let elapsed_secs = state.uptime.elapsed().as_secs_f64().max(0.001);
-                state.ticks_per_sec = state.total_ticks as f64 / elapsed_secs;
-            }
+            self.services.telemetry.batch_number.store(batch_counter, Ordering::Relaxed);
+            self.services.telemetry.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            self.services.telemetry.wall_ms.store(wall_ms, Ordering::Relaxed);
 
             if batch_counter > 0 && batch_counter % 500 == 0 {
                 // Remove console printing to keep TUI clean, stats are visible in Core Loop widget

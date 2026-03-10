@@ -3,7 +3,8 @@ pub mod layout;
 pub mod input;
 pub mod widgets;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use anyhow::Result;
 use crossterm::{
@@ -17,9 +18,9 @@ use ratatui::{
 };
 use state::DashboardState;
 
-pub fn run_tui(state: Arc<Mutex<DashboardState>>, log_mode: bool) -> Result<()> {
+pub fn run_tui(telemetry: Arc<state::LockFreeTelemetry>, log_mode: bool) -> Result<()> {
     if log_mode {
-        run_log_reporter(state);
+        run_log_reporter(telemetry);
         return Ok(());
     }
 
@@ -46,7 +47,7 @@ pub fn run_tui(state: Arc<Mutex<DashboardState>>, log_mode: bool) -> Result<()> 
     let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal, state);
+    let res = run_app(&mut terminal, telemetry);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -64,8 +65,9 @@ pub fn run_tui(state: Arc<Mutex<DashboardState>>, log_mode: bool) -> Result<()> 
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, state: Arc<Mutex<DashboardState>>) -> Result<()> {
+fn run_app<B: Backend>(terminal: &mut Terminal<B>, telemetry: Arc<state::LockFreeTelemetry>) -> Result<()> {
     let tick_rate = Duration::from_millis(200);
+    let mut local_state = DashboardState::new();
 
     // Open /dev/tty for keyboard events since stdin might be redirected
     let tty_fd = std::fs::File::open("/dev/tty")?;
@@ -73,15 +75,54 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, state: Arc<Mutex<DashboardSta
     drop(tty_fd);
 
     loop {
+        // 1. SYNC: Pull metrics from Lock-Free atomics
+        local_state.batch_number = telemetry.batch_number.load(Ordering::Relaxed);
+        local_state.total_ticks = telemetry.total_ticks.load(Ordering::Relaxed);
+        local_state.udp_out_packets = telemetry.udp_out_packets.load(Ordering::Relaxed);
+        
+        let wall = telemetry.wall_ms.load(Ordering::Relaxed);
+        local_state.push_wall_ms(wall);
+        
+        // Drain logs
+        while let Some(log) = telemetry.logs.pop() {
+            local_state.events.push_back(log);
+            if local_state.events.len() > 200 {
+                local_state.events.pop_front();
+            }
+        }
+
+        // Update spikes
+        for i in 0..16 {
+            let hash = telemetry.zone_hashes[i].load(Ordering::Relaxed);
+            if hash == 0 { break; }
+            let spikes = telemetry.zone_spikes[i].load(Ordering::Relaxed);
+            
+            if let Some(z) = local_state.zones.iter_mut().find(|z| z.hash == hash) {
+                z.spikes_last_batch = spikes;
+            } else {
+                // Discovery: Add new zone to local state if missing
+                local_state.zones.push(state::ZoneMetrics {
+                    hash,
+                    name: format!("Zone_{:08X}", hash),
+                    short_name: format!("{:08X}", hash),
+                    neuron_count: 0,
+                    axon_count: 0,
+                    spikes_last_batch: spikes,
+                    spike_rate: 0.0,
+                    phase: state::Phase::Day,
+                    night_interval_ticks: 0,
+                });
+            }
+        }
+
+        // 2. RENDER
         terminal.draw(|f| {
-            let mut s = state.lock().unwrap();
-            layout::draw(f, &mut s);
+            layout::draw(f, &mut local_state);
         })?;
 
         if event::poll(tick_rate)? {
             if let Event::Key(key) = event::read()? {
-                let mut s = state.lock().unwrap();
-                if input::handle_key(key, &mut s) {
+                if input::handle_key(key, &mut local_state) {
                     break;
                 }
             }
@@ -91,36 +132,43 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, state: Arc<Mutex<DashboardSta
     Ok(())
 }
 
-fn run_log_reporter(state: Arc<Mutex<DashboardState>>) {
+fn run_log_reporter(telemetry: Arc<state::LockFreeTelemetry>) {
     let mut last_batch = 0;
+    let mut local_state = DashboardState::new();
     
     loop {
         std::thread::sleep(Duration::from_millis(200));
-        let s = state.lock().unwrap();
         
-        if s.batch_number == last_batch && s.is_running {
-            continue; // Wait for updates
+        // SYNC
+        let current_batch = telemetry.batch_number.load(Ordering::Relaxed);
+        if current_batch == last_batch && local_state.is_running {
+            continue; 
         }
         
-        last_batch = s.batch_number;
-        let wall_ms = s.wall_ms_history.back().copied().unwrap_or(0);
-        let tps = s.ticks_per_sec;
-        let ticks = s.total_ticks;
+        last_batch = current_batch;
+        local_state.batch_number = current_batch;
+        local_state.total_ticks = telemetry.total_ticks.load(Ordering::Relaxed);
+        local_state.udp_out_packets = telemetry.udp_out_packets.load(Ordering::Relaxed);
+
+        // Drain logs for sync
+        while let Some(log) = telemetry.logs.pop() {
+            local_state.events.push_back(log);
+        }
+        
+        let wall_ms = telemetry.wall_ms.load(Ordering::Relaxed);
+        let ticks = local_state.total_ticks;
         
         let now = chrono::Local::now().format("%H:%M:%S");
-        eprintln!("[{}] [BATCH] #{} | {} ticks | {}ms wall | {:.2} t/s", now, s.batch_number, ticks, wall_ms, tps);
+        eprintln!("[{}] [BATCH] #{} | {} ticks | {}ms wall", now, local_state.batch_number, ticks, wall_ms);
         
-        if !s.zones.is_empty() {
-            eprint!("[{}] [ZONE]  ", now);
-            for (i, z) in s.zones.iter().enumerate() {
-                eprint!("{}: {} spikes ({:.2}%)", z.short_name, z.spikes_last_batch, z.spike_rate);
-                if i < s.zones.len() - 1 {
-                    eprint!(" | ");
-                }
-            }
-            eprintln!();
+        // Simple log dump for zones
+        for i in 0..16 {
+            let hash = telemetry.zone_hashes[i].load(Ordering::Relaxed);
+            if hash == 0 { break; }
+            let spikes = telemetry.zone_spikes[i].load(Ordering::Relaxed);
+            eprintln!("[{}] [ZONE]  {:08X}: {} spikes", now, hash, spikes);
         }
         
-        eprintln!("[{}] [IO]    UDP IN: {} | OUT: {} | Oversized: {}", now, s.udp_in_packets, s.udp_out_packets, s.oversized_skips);
+        eprintln!("[{}] [IO]    OUT: {}", now, local_state.udp_out_packets);
     }
 }

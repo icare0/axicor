@@ -111,3 +111,58 @@ impl DashboardState {
         self.wall_ms_history.push_back(ms);
     }
 }
+
+use std::sync::atomic::{AtomicU64, AtomicU32, AtomicI16, Ordering};
+use crossbeam::queue::SegQueue;
+
+/// Lock-Free мост между HFT-потоками и UI-рендером
+pub struct LockFreeTelemetry {
+    pub batch_number: AtomicU64,
+    pub total_ticks: AtomicU64,
+    pub wall_ms: AtomicU64,
+    pub udp_out_packets: AtomicU64,
+    pub dopamine: AtomicI16,
+    pub logs: SegQueue<LogEntry>,
+    // Быстрый маппинг для спайков зон (до 16 зон для MVP)
+    pub zone_spikes: [AtomicU32; 16],
+    pub zone_hashes: [AtomicU32; 16],
+}
+
+impl Default for LockFreeTelemetry {
+    fn default() -> Self {
+        Self {
+            batch_number: AtomicU64::new(0),
+            total_ticks: AtomicU64::new(0),
+            wall_ms: AtomicU64::new(0),
+            udp_out_packets: AtomicU64::new(0),
+            dopamine: AtomicI16::new(0),
+            logs: SegQueue::new(),
+            zone_spikes: Default::default(),
+            zone_hashes: Default::default(),
+        }
+    }
+}
+
+impl LockFreeTelemetry {
+    pub fn push_log(&self, message: String, level: LogLevel) {
+        let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
+        self.logs.push(LogEntry { timestamp, message, level });
+    }
+
+    /// O(1) поиск индекса атомика зоны
+    pub fn update_zone_spikes(&self, hash: u32, spikes: u32) {
+        for i in 0..16 {
+            let h = self.zone_hashes[i].load(Ordering::Relaxed);
+            if h == hash {
+                self.zone_spikes[i].store(spikes, Ordering::Relaxed);
+                return;
+            } else if h == 0 {
+                // Ленивая инициализация слота
+                if self.zone_hashes[i].compare_exchange(0, hash, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                    self.zone_spikes[i].store(spikes, Ordering::Relaxed);
+                }
+                return;
+            }
+        }
+    }
+}

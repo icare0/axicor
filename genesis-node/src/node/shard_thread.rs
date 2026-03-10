@@ -43,7 +43,8 @@ pub struct NodeContext {
     pub rt_handle: tokio::runtime::Handle,
     pub atomic_settings: Arc<ShardAtomicSettings>,
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
-    pub reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>,
+    // [DOD FIX] Удален Mutex<DashboardState>, используем Lock-Free структуру
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>, 
 }
 
 
@@ -500,8 +501,7 @@ pub fn spawn_shard_thread(
                 match cmd {
                     ComputeCommand::Resurrect => {
                         warmup_ticks_remaining = 100;
-                        let mut state = ctx.reporter.lock().unwrap();
-                        state.push_log(format!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash), crate::tui::state::LogLevel::Info);
+                        ctx.telemetry.push_log(format!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash), crate::tui::state::LogLevel::Info);
                     }
                     ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
                         let is_warmup = warmup_ticks_remaining > 0;
@@ -519,8 +519,7 @@ pub fn spawn_shard_thread(
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
                             if warmup_ticks_remaining == 0 {
-                                let mut state = ctx.reporter.lock().unwrap();
-                                state.push_log(format!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash), crate::tui::state::LogLevel::Info);
+                                ctx.telemetry.push_log(format!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash), crate::tui::state::LogLevel::Info);
                             }
                         }
 
@@ -549,20 +548,15 @@ pub fn spawn_shard_thread(
                                 current_prune_threshold
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
-                            let mut state = ctx.reporter.lock().unwrap();
-                            state.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);
+                            ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);
                         }
 
                         // Update spikes in UI
                         {
                             let actual_spikes = pinned_out.as_slice().iter().filter(|&&x| x != 0).count() as u32;
-                            let mut state = ctx.reporter.lock().unwrap();
-                            if let Some(zone_metrics) = state.zones.iter_mut().find(|z| z.hash == hash) {
-                                zone_metrics.spikes_last_batch = actual_spikes;
-                                if zone_metrics.neuron_count > 0 {
-                                    zone_metrics.spike_rate = (actual_spikes as f64 / zone_metrics.neuron_count as f64) * 100.0;
-                                }
-                            }
+
+                            // [DOD FIX] Zero-cost обновление через атомик, никакого лока планировщика
+                            ctx.telemetry.update_zone_spikes(hash, actual_spikes);
                         }
 
                         // Отправка отчета оркестратору

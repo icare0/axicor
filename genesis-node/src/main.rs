@@ -66,14 +66,13 @@ fn main() -> Result<()> {
         let cli = Cli::parse();
         
         // 0. Initialize CLI Monitor (TUI or Log)
-        use std::sync::Mutex;
-        let reporter = Arc::new(Mutex::new(crate::tui::state::DashboardState::new()));
+        let telemetry = Arc::new(crate::tui::state::LockFreeTelemetry::default());
         let log_mode = cli.log;
 
         println!("[Node] Starting Genesis Distributed Daemon...");
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node_with_profile(&cli.manifest, reporter.clone(), cli.cpu_profile).await
+        let boot_result = Bootloader::boot_node_with_profile(&cli.manifest, telemetry.clone(), cli.cpu_profile).await
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join
@@ -139,7 +138,8 @@ fn main() -> Result<()> {
             .expect("Fatal: Failed to spawn orchestrator OS thread");
 
         // 8. Run Dashboard UI (blocks main thread)
-        crate::tui::run_tui(reporter, log_mode).unwrap_or_else(|e| {
+        // [DOD FIX] TUI now uses the lock-free telemetry bridge and maintains its own local state
+        crate::tui::run_tui(telemetry, log_mode).unwrap_or_else(|e| {
             eprintln!("UI error: {:?}", e);
         });
         Ok(())

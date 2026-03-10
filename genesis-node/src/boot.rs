@@ -108,11 +108,11 @@ pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result
 
 impl Bootloader {
     /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
-    pub async fn boot_node(manifest_paths: &[PathBuf], reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>) -> Result<BootResult> {
-        Self::boot_node_with_profile(manifest_paths, reporter, crate::CpuProfile::Aggressive).await
+    pub async fn boot_node(manifest_paths: &[PathBuf], telemetry: Arc<crate::tui::state::LockFreeTelemetry>) -> Result<BootResult> {
+        Self::boot_node_with_profile(manifest_paths, telemetry, crate::CpuProfile::Aggressive).await
     }
 
-    pub async fn boot_node_with_profile(manifest_paths: &[PathBuf], reporter: Arc<std::sync::Mutex<crate::tui::state::DashboardState>>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
+    pub async fn boot_node_with_profile(manifest_paths: &[PathBuf], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
         // 1. Data/Config Phase: Load brain and simulation configs
         let mut zone_manifests_with_paths = Vec::new();
         let mut sim_config = None;
@@ -145,30 +145,9 @@ impl Bootloader {
             }
 
             // [TUI] Initialize ZoneMetrics
-            let short_name = format!("{:08X}", zm.zone_hash);
-            // Let's assume zm.settings and zm.memory have info
-            // I'll populate initial state
-            {
-                let mut state = reporter.lock().unwrap();
-                let somas_mb = (zm.memory.padded_n as f64 * 32.0) / 1048576.0; // approx 32 bytes per soma
-                let dendrites_mb = (zm.memory.padded_n as f64 * 128.0 * 4.0) / 1048576.0; // approx 128 slots * 4 bytes
-                let axons_mb = (zm.memory.padded_n as f64 * 128.0 * 32.0) / 1048576.0; // approx 32 bytes per axon
-                state.vram_somas_mb += somas_mb;
-                state.vram_dendrites_mb += dendrites_mb;
-                state.vram_axons_mb += axons_mb;
-
-                state.zones.push(crate::tui::state::ZoneMetrics {
-                    hash: zm.zone_hash,
-                    name: format!("Zone_{:08X}", zm.zone_hash),
-                    short_name,
-                    neuron_count: zm.memory.padded_n as u32, // approximately
-                    axon_count: (zm.memory.padded_n * 128) as u32,
-                    spikes_last_batch: 0,
-                    spike_rate: 0.0,
-                    phase: crate::tui::state::Phase::Day,
-                    night_interval_ticks: zm.settings.night_interval_ticks.unwrap_or(200_000),
-                });
-            }
+            // Note: In the new system, Shards report spikes directly to the telemetry via hash.
+            // DashboardState (the rendering view) will likely need to be updated to match.
+            // For now, we only need to ensure the telemetry object is shared correctly.
         }
         
         let sim_config = sim_config.context("No manifests provided")?;
@@ -177,10 +156,7 @@ impl Bootloader {
         let night_interval = first_zm.settings.night_interval_ticks
             .unwrap_or(sim_config.simulation.night_interval_ticks as u64);
 
-        {
-            let mut state = reporter.lock().unwrap();
-            state.night_interval_ticks = night_interval;
-        }
+        // [DOD FIX] Telemetry doesn't own the global interval yet, shards do.
 
         // Update all shards with global night_interval if they don't have local override
         for (_, meta) in manifest_metadata.iter() {
@@ -246,7 +222,7 @@ impl Bootloader {
             axon_head_ptrs,
             egress_pool.clone(),
             manifest_metadata,
-            reporter,
+            telemetry,
         );
 
         Ok(BootResult {
