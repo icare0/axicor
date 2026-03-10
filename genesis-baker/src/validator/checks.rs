@@ -32,7 +32,6 @@ pub fn validate_all(
 
     // 3. Инвариант Жестких Квот
     check_layer_heights(anatomy)?;
-    check_layer_populations(anatomy)?;
     check_composition_quotas(anatomy)?;
     
     run_all_checks(const_mem)?;
@@ -135,18 +134,6 @@ pub fn check_layer_heights(anatomy: &Anatomy) -> anyhow::Result<()> {
         bail!(
             "anatomy.toml: Σ(layer.height_pct) = {:.4} ≠ 1.0 (±1e-4).\n\
              Слои обязаны покрывать всю высоту зоны без перекрытий и пробелов.",
-            sum
-        );
-    }
-    Ok(())
-}
-
-pub fn check_layer_populations(anatomy: &Anatomy) -> anyhow::Result<()> {
-    let sum: f32 = anatomy.layers.iter().map(|l| l.population_pct).sum();
-    if (sum - 1.0).abs() > 1e-4 {
-        bail!(
-            "anatomy.toml: Σ(layer.population_pct) = {:.4} ≠ 1.0 (±1e-4).\n\
-             Бюджет нейронов должен быть распределён полностью.",
             sum
         );
     }

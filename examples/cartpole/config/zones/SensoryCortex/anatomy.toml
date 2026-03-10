@@ -1,8 +1,38 @@
-[[layer]]
-name = "L4_Sensory"
-height_pct = 1.0
-population_pct = 1.0
+# Если в шарде всего один монолитный слой,
+# покрывающий весь объем пространства
+# то блок [[layer]] должен быть только один:
 
-[layer.composition]
-"L4_spiny_MTG_1" = 0.8
-"L4_aspiny_MTG_11" = 0.2
+[[layer]]
+name = "L4_Sensory_Monolith"
+height_pct = 1.0                                    # 100% высоты шарда
+density = 0.5                                       # Абсолютная плотность
+composition = { "L4_spiny_MTG_1" = 0.8, "L4_aspiny_MTG_11" = 0.2 }
+
+
+
+# Если нужно разделить слой на несколько частей
+# по высоте шарда, то блоки [[layer]] должны быть несколько:
+
+# [[layer]]
+# name = "L4_Sensory_Bottom"
+# height_pct = 0.5                      # Занимает нижнюю половину шарда (Z: 0%..50%)
+# density = 0.5                         # 50% вокселей в этом объеме получат сому
+# composition = {
+#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
+#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
+#                 }
+# 
+# [[layer]]
+# name = "L4_Sensory_Top"
+# height_pct = 0.5                      # Занимает верхнюю половину шарда (Z: 50%..100%)
+# density = 0.5                         # 50% вокселей в этом объеме получат сому
+# composition = {
+#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
+#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
+#                 }
+
+
+
+
+
+

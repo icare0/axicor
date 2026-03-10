@@ -28,7 +28,6 @@ pub fn build_local_topology_internal(
     let positions = generate_placement_from_config(
         anatomy,
         shard_cfg,
-        sim.simulation.global_density,
         master_seed,
         &type_names,
     );
