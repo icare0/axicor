@@ -122,7 +122,8 @@ pub fn build_local_topology_internal(
         let (mut ghost_axons, _) = inject_ghost_axons(
             &ghost_packets,
             &positions,
-            const_mem,
+            // [DOD FIX] Заменили const_mem на neuron_types
+            neuron_types, 
             sim,
             &shard_bounds,
             master_seed,

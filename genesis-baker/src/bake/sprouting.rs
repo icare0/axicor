@@ -28,7 +28,6 @@ pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
 }
 
 use genesis_core::config::blueprints::BlueprintsConfig;
-use genesis_core::layout::pack_dendrite_target;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use genesis_core::ipc::AxonHandoverEvent;
 
@@ -121,6 +120,7 @@ pub fn run_sprouting_pass(
     lengths: &mut [u8],
     paths: &mut [u32],
     soma_positions: &[u32],
+    master_seed: u64, // <--- [DOD FIX] НОВЫЙ ПАРАМЕТР
 ) -> (usize, usize) {
     let total_axons = axon_tips_uvw.len();
     let ghost_start = padded_n;
@@ -184,33 +184,68 @@ pub fn run_sprouting_pass(
     // 3. Строим Spatial Grid из путей
     let segment_grid = AxonSegmentGrid::build_from_paths(lengths, paths, total_axons, 2);
 
-    // 4. Synaptogenesis (Zero-Cost Spatial Search)
+    // 4. Synaptogenesis (Zero-Cost Spatial Search with Type Scoring)
     let mut new_synapses = 0;
 
     for i in 0..padded_n {
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 { continue; }
+        if (flags[i] & 0x01) == 0 { continue; } // Только активные сомы ищут новые связи
 
-        if (flags[i] & 0x01) == 0 { continue; }
+        let my_pos = PackedPosition(my_pos_raw);
+        let my_type_idx = my_pos.type_id() as usize;
+        
+        let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
 
         for slot in (0..MAX_DENDRITE_SLOTS).rev() {
             let col_idx = slot * padded_n + i;
-            
             if targets[col_idx] != 0 {
-                break; 
+                break; // Слоты плотные, конец пустых
             }
 
-            let my_pos = PackedPosition(my_pos_raw);
-            let mut candidate = None;
+            let mut best_candidate = None;
+            let mut best_score = -1.0;
 
+            // O(K) сканирование кандидатов
             segment_grid.for_each_in_radius(&my_pos, 2, |seg_ref| {
-                if candidate.is_none() && soma_to_axon[i] != seg_ref.axon_id {
-                    candidate = Some(*seg_ref);
+                if soma_to_axon[i] == seg_ref.axon_id { return; } // Self-connection guard
+
+                // Rule of Uniqueness
+                let mut is_dup = false;
+                for existing_slot in 0..MAX_DENDRITE_SLOTS {
+                    let t = targets[existing_slot * padded_n + i];
+                    if t != 0 && genesis_core::layout::unpack_axon_id(t) == seg_ref.axon_id {
+                        is_dup = true;
+                        break;
+                    }
+                }
+                if is_dup { return; }
+
+                // [DOD FIX] Эвристика: Type Affinity + Explore Noise
+                let cand_type_idx = seg_ref.type_idx as usize;
+                let is_same_type = (my_type_idx == cand_type_idx) as i32 as f32;
+                
+                // Детерминированный шум на базе аксона и эпохи
+                let noise = crate::bake::seed::random_f32(
+                    master_seed.wrapping_add(seg_ref.axon_id as u64).wrapping_add(_epoch)
+                );
+
+                let mut score = 1.0;
+                if let Some(cfg) = my_type_cfg {
+                    // Используем sprouting_weight_type из конфига!
+                    score = cfg.sprouting_weight_distance * 1.0 // Считаем дистанцию близкой (r=2)
+                          + cfg.sprouting_weight_explore * noise
+                          + cfg.sprouting_weight_type * is_same_type;
+                }
+
+                if score > best_score {
+                    best_score = score;
+                    best_candidate = Some(*seg_ref);
                 }
             });
 
-            if let Some(seg) = candidate {
-                let new_target = pack_dendrite_target(seg.axon_id, seg.seg_idx as u32);
+            if let Some(seg) = best_candidate {
+                let new_target = genesis_core::layout::pack_dendrite_target(seg.axon_id, seg.seg_idx as u32);
                 let type_id = seg.type_idx as usize;
 
                 let (is_inhibitory_src, initial_weight) = if let Some(bp) = blueprints {
@@ -223,7 +258,7 @@ pub fn run_sprouting_pass(
                 weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };
                 new_synapses += 1;
             }
-            break;
+            break; // Один новый синапс за ночь на нейрон, чтобы избежать лавинообразного взрыва
         }
     }
 

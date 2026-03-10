@@ -419,6 +419,7 @@ fn run_night_phase<S: Read + Write>(
             lengths_slice,   // NEW
             paths_slice,     // NEW
             soma_positions,  // NEW
+            ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
         )
     } else {
         (0, 0)
