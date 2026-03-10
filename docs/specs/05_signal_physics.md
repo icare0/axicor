@@ -149,19 +149,25 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 3. **Остывание (Cooling Shift):** Чем дальше ушла выбранная голова, тем слабее связь запоминает совпадение. Вычисляем сдвиг: `cooling_shift = dist >> 4` (каждые 16 тиков сила падает в 2 раза).
 
-4. **Symmetric Dopamine (Глобальная награда):** В процесс интегрирован глобальный сигнал Дофамина (Dopamine), хранящийся в `__constant__` памяти. Базовая потенциация модулируется дофамином симметрично:
-   ```cuda
-   dopa_mod = (base_pot * current_dopamine) >> 8;
-   final_pot = base_pot + dopa_mod;
+4. **Asymmetric Dopamine Modulation (D1/D2 Receptors):** В процесс интегрирован глобальный сигнал Дофамина (Dopamine), хранящийся в `__constant__` памяти. Базовая пластичность модулируется нелинейно на основе аффинности рецепторов конкретного типа нейрона:
+   ```cpp
+   int32_t pot_mod = (current_dopamine * p.d1_affinity) >> 7; 
+   int32_t dep_mod = (current_dopamine * p.d2_affinity) >> 7;
+   
+   // D1 увеличивает потенциацию при награде, D2 подавляет депрессию при награде (сохраняя связи)
+   int32_t final_pot = max(0, p.gsop_potentiation + pot_mod);
+   int32_t final_dep = max(0, p.gsop_depression - dep_mod);
    ```
 
 5. **Двухфакторный STDP:**
    - Вычисляем ранг инерции синапса: `rank = abs(weight) >> 11`.
    - Достаём инерцию: `inertia = p.inertia_curve[rank]`.
-   - Базовая дельта: `delta = (final_pot * inertia) >> 7`.
+   - Базовая дельта (Branchless причинность): `delta = is_active ? ((final_pot * inertia) >> 7) : -((final_dep * inertia) >> 7);`
    - Экспоненциальное затухание (пространственное): `delta >>= cooling_shift`.
 
-6. **Безопасное применение:** `weight = sign(weight) * clamp(abs(weight) + delta, 0, 32767)`.
+6. **Slot Decay и Применение:**
+   - Учитываем деградацию слота: `delta = (delta * slot_decay) >> 7;`
+   - Безопасное применение: `weight = sign(weight) * clamp(abs(weight) + delta, 0, 32767)`.
 
 **Инвариант Winner-Takes-All:** Только одна (ближняя) голова влияет на GSOP за тик. Остальные 7 голов в `BurstHeads8` полностью игнорируются. Это предотвращает суммирование потенциаций и гарантирует стабильность пластичности при высокочастотных всплесках.
 

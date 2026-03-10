@@ -118,7 +118,7 @@ pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool { tru
 
 #[no_mangle]
 pub extern "C" fn update_constant_memory_hot_reload(
-    _new_variants: *const GpuVariantParameters,
+    _new_variants: *const genesis_core::layout::VariantParameters,
     _stream: *mut c_void,
 ) {}
 

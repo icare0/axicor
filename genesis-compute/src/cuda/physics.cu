@@ -34,25 +34,26 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
 
 #define MAX_DENDRITES 128
 
-// Строго 64 байта. 16 типов = 1024 байта (идеально ложится в кеш L1 constant)
-struct VariantParameters {
-  int32_t threshold;
-  int32_t rest_potential;
-  int32_t leak_rate;
-  int32_t homeostasis_penalty;
-  int32_t homeostasis_decay;
-  int32_t gsop_potentiation;
-  int32_t gsop_depression;
-  uint8_t refractory_period;
-  uint8_t synapse_refractory_period;
-  uint8_t slot_decay_ltm;
-  uint8_t slot_decay_wm;
-  uint8_t signal_propagation_length;
-  uint8_t ltm_slot_count;
-  uint16_t heartbeat_m;      // DDS Phase Accumulator Multiplier
-  int16_t inertia_curve[16]; // 32B — кривая инерции GSOP (16 рангов)
-  int16_t prune_threshold;   // Night Phase threshold
-  uint8_t _pad2[58];         // Дополняем до 128 байт
+// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+struct alignas(64) VariantParameters {
+  int32_t threshold;                  // 0..4
+  int32_t rest_potential;             // 4..8
+  int32_t leak_rate;                  // 8..12
+  int32_t homeostasis_penalty;        // 12..16
+  uint16_t homeostasis_decay;         // 16..18
+  int16_t gsop_potentiation;          // 18..20
+  int16_t gsop_depression;            // 20..22
+  uint8_t refractory_period;          // 22..23
+  uint8_t synapse_refractory_period;  // 23..24
+  uint8_t slot_decay_ltm;             // 24..25
+  uint8_t slot_decay_wm;              // 25..26
+  uint8_t signal_propagation_length;  // 26..27
+  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
+  uint16_t heartbeat_m;               // 28..30
+  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
+  uint8_t ltm_slot_count;             // 31..32
+  int16_t inertia_curve[15];          // 32..62 (30 bytes)
+  int16_t prune_threshold;            // 62..64 (2 bytes)
 };
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
@@ -189,15 +190,23 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   // Инверсия (~) даст 0x00000000. В итоге decayed & 0 = 0.
   thresh_offset = decayed & ~(decayed >> 31);
 
-  current_voltage += i_in - p.leak_rate;
+  // 4. GLIF Leak (Двусторонняя утечка к rest_potential)
+  current_voltage += i_in; // Применяем токи синапсов
 
-  // [DOD] Branchless Clamp: floor at rest_potential to prevent infinite voltage
-  // debt If current_voltage < rest_potential, diff is negative, (diff >> 31) =
-  // 0xFFFFFFFF,
-  // ~(diff >> 31) = 0, so diff & 0 = 0. Result: current_voltage =
-  // rest_potential.
   int32_t diff = current_voltage - p.rest_potential;
-  current_voltage = p.rest_potential + (diff & ~(diff >> 31));
+
+  // Branchless извлечение знака: 1 если > 0, -1 если < 0, 0 если 0
+  int32_t sign = (diff > 0) - (diff < 0);
+  int32_t abs_diff = diff * sign;
+
+  // Вычитаем утечку из модуля разницы
+  int32_t leaked_abs = abs_diff - p.leak_rate;
+
+  // Branchless clamp: не даем модулю уйти ниже 0 (перелет через rest_potential)
+  leaked_abs = leaked_abs & ~(leaked_abs >> 31);
+
+  // Возвращаем знак и прибавляем к потенциалу покоя
+  current_voltage = p.rest_potential + (sign * leaked_abs);
 
   int32_t effective_threshold = p.threshold + thresh_offset;
   int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
@@ -283,17 +292,29 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 
     // 1. Inertia Rank (1 такт, Branchless)
     uint32_t rank = abs_w >> 11;
-    if (rank > 15)
-      rank = 15;
+    if (rank > 14)
+      rank = 14;
     int32_t inertia = p.inertia_curve[rank];
 
-    // 2. Modulated Potentiation / Depression
+    // 2. Asymmetric Dopamine Modulation (D1/D2 Receptors)
     int32_t base_pot = p.gsop_potentiation;
-    int32_t dopa_mod = (base_pot * dopamine) >> 8;
-    int32_t final_pot = base_pot + dopa_mod;
+    int32_t base_dep = p.gsop_depression;
+
+    // Сдвиг >> 7 делит на 128 (1.0x множитель)
+    int32_t pot_mod = (dopamine * p.d1_affinity) >> 7;
+    int32_t dep_mod = (dopamine * p.d2_affinity) >> 7;
+
+    // D1 усиливает LTP при награде. D2 давит LTD при награде (спасает связи).
+    int32_t raw_pot = base_pot + pot_mod;
+    int32_t raw_dep = base_dep - dep_mod;
+
+    // Branchless clamp(0, val) через арифметический сдвиг. 
+    // Если raw < 0, то raw >> 31 дает 0xFFFFFFFF. Инверсия (~) дает 0x0.
+    int32_t final_pot = raw_pot & ~(raw_pot >> 31);
+    int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 
     int32_t delta_pot = (final_pot * inertia) >> 7;
-    int32_t delta_dep = (p.gsop_depression * inertia) >> 7;
+    int32_t delta_dep = (final_dep * inertia) >> 7;
     // Экспоненциальный сдвиг. Каждые 16 тиков сила обучения падает вдвое (>> 1)
     uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
 

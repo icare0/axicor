@@ -54,21 +54,22 @@ u8  var_id    = (type_mask >> 2) & 0x3;   // Variant → LUT index в VariantPar
 struct VariantParameters {
     int32_t threshold;                      // 4 б. — Base threshold
     int32_t rest_potential;                 // 4 б. — Rest potential (GLIF reset)
-    int32_t leak;                           // 4 б. — GLIF Leakage per tick
+    int32_t leak_rate;                      // 4 б. — GLIF Leakage per tick
     int32_t homeostasis_penalty;            // 4 б. — Penalty on spike
-    int32_t homeostasis_decay;              // 4 б. — Decay per tick
-    uint16_t gsop_potentiation;             // 2 б. — Unsigned delta (sign in weight)
-    uint16_t gsop_depression;               // 2 б. — Unsigned delta
+    int32_t homeostasis_decay;              // 4 б. — Decay per tick (i32: zero casts)
+    int16_t gsop_potentiation;              // 2 б. — Unsigned delta (sign in weight)
+    int16_t gsop_depression;                // 2 б. — Unsigned delta
     uint8_t refractory_period;              // 1 б. — Soma refractory (ticks)
     uint8_t synapse_refractory_period;      // 1 б. — Synapse refractory (ticks)
     uint8_t slot_decay_ltm;                 // 1 б. — Множитель GSOP для LTM (0-79). Fixed: 128 = 1.0×
     uint8_t slot_decay_wm;                  // 1 б. — Множитель GSOP для WM (80-127). Fixed: 128 = 1.0×
     uint8_t signal_propagation_length;      // 1 б. — Active Tail length
-    uint8_t ltm_slot_count;                 // 1 б. — LTM vs WM threshold boundary
+    uint8_t d1_affinity;                    // 1 б. — Множитель дофамина для LTP (128 = 1.0x)
     uint16_t heartbeat_m;                   // 2 б. — DDS Heartbeat множитель (0 = отключено, 1..65535)
-    uint8_t inertia_curve[16];              // 16 б. — Inertia modifiers (rank: abs(weight) >> 11)
-    uint8_t _padding[12];                   // 12 б. → Total = 64 bytes
-};
+    uint8_t d2_affinity;                    // 1 б. — Множитель дофамина для LTD (128 = 1.0x)
+    uint8_t _pad;                           // 1 б. — Выравнивание до 32 байт перед массивом
+    int16_t inertia_curve[16];              // 32 б. — Inertia modifiers (rank: abs(weight) >> 11)
+}; // Итого: ровно 64 байта
 
 // Контейнер для 16 вариантов
 struct GenesisConstantMemory {
@@ -154,19 +155,21 @@ total_axons = L + G + V (aligned to 32)
 pub struct VariantParameters {            // 64 bytes
     pub threshold: i32,                   // 4  — Base threshold
     pub rest_potential: i32,              // 4  — Rest potential (GLIF reset)
-    pub leak: i32,                        // 4  — GLIF Leakage per tick
+    pub leak_rate: i32,                   // 4  — GLIF Leakage per tick
     pub homeostasis_penalty: i32,         // 4  — Penalty on spike
     pub homeostasis_decay: i32,           // 4  — Decay per tick (i32: zero casts)
-    pub gsop_potentiation: u16,           // 2  — Unsigned delta (sign in weight)
-    pub gsop_depression: u16,             // 2  — Unsigned delta
+    pub gsop_potentiation: i16,           // 2  — Unsigned delta (sign in weight)
+    pub gsop_depression: i16,             // 2  — Unsigned delta
     pub refractory_period: u8,            // 1  — Soma refractory (ticks)
-    pub synapse_refractory: u8,           // 1  — Synapse refractory (ticks)
+    pub synapse_refractory_period: u8,    // 1  — Synapse refractory (ticks)
     pub slot_decay_ltm: u8,               // 1  — Множитель GSOP для LTM (0-79). Fixed: 128 = 1.0×
     pub slot_decay_wm: u8,                // 1  — Множитель GSOP для WM (80-127). Fixed: 128 = 1.0×
-    pub propagation_length: u8,           // 1  — Active Tail length
-    pub ltm_slot_count: u8,               // 1  — LTM vs WM threshold boundary
-    pub inertia_curve: [u8; 16],          // 16 — Inertia modifiers (rank: abs(weight) >> 11)
-    pub _padding: [u8; 14],               // 14 → Total = 64 bytes
+    pub signal_propagation_length: u8,    // 1  — Active Tail length
+    pub d1_affinity: u8,                  // 1  — Множитель дофамина для LTP (128 = 1.0x)
+    pub heartbeat_m: u16,                 // 2  — DDS Heartbeat множитель (0 = отключено, 1..65535)
+    pub d2_affinity: u8,                  // 1  — Множитель дофамина для LTD (128 = 1.0x)
+    pub _pad: u8,                         // 1  — Выравнивание
+    pub inertia_curve: [i16; 16],         // 32 — Inertia modifiers (rank: abs(weight) >> 11)
 }
 
 #[repr(C, align(128))]

@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "4-3-19_Enuc_2-4_Cell_4"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 74
 gsop_depression = 2
 inertia_curve = [128, 77, 47, 28, 17, 10, 6, 3, 2, 2, 2, 2, 2, 2, 2, 2]
 prune_threshold = 35
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 103
+slot_decay_wm = 178

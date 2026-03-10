@@ -35,25 +35,26 @@ struct SoA_State {
   uint32_t* __restrict__ telemetry_spikes;
 };
 
-// Строго 128 байт. 16 типов = 2048 байт (влезает в constant memory)
-struct VariantParameters {
-  int32_t threshold;
-  int32_t rest_potential;
-  int32_t leak_rate;
-  int32_t homeostasis_penalty;
-  int32_t homeostasis_decay;
-  int32_t gsop_potentiation;
-  int32_t gsop_depression;
-  uint8_t refractory_period;
-  uint8_t synapse_refractory_period;
-  uint8_t slot_decay_ltm;
-  uint8_t slot_decay_wm;
-  uint8_t signal_propagation_length;
-  uint8_t ltm_slot_count;
-  uint16_t heartbeat_m;      // DDS Phase Accumulator Multiplier
-  int16_t inertia_curve[16]; // 32B — кривая инерции GSOP
-  int16_t prune_threshold;   // Night Phase threshold
-  uint8_t _pad2[58];         // Дополняем до 128 байт
+// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+struct alignas(64) VariantParameters {
+  int32_t threshold;                  // 0..4
+  int32_t rest_potential;             // 4..8
+  int32_t leak_rate;                  // 8..12
+  int32_t homeostasis_penalty;        // 12..16
+  uint16_t homeostasis_decay;         // 16..18
+  int16_t gsop_potentiation;          // 18..20
+  int16_t gsop_depression;            // 20..22
+  uint8_t refractory_period;          // 22..23
+  uint8_t synapse_refractory_period;  // 23..24
+  uint8_t slot_decay_ltm;             // 24..25
+  uint8_t slot_decay_wm;              // 25..26
+  uint8_t signal_propagation_length;  // 26..27
+  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
+  uint16_t heartbeat_m;               // 28..30
+  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
+  uint8_t ltm_slot_count;             // 31..32
+  int16_t inertia_curve[15];          // 32..62 (30 bytes)
+  int16_t prune_threshold;            // 62..64 (2 bytes)
 };
 }
 

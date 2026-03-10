@@ -305,10 +305,13 @@ fn serialize_artifacts(
                 slot_decay_ltm: v.slot_decay_ltm as u8,
                 slot_decay_wm: v.slot_decay_wm as u8,
                 signal_propagation_length: v.signal_propagation_length as u8,
-                ltm_slot_count: 80, // default from blueprints
-                heartbeat_m: v.heartbeat_m, // [DOD FIX]
+                ltm_slot_count: v.ltm_slot_count,
+                heartbeat_m: v.heartbeat_m,
                 inertia_curve: v.inertia_curve,
-                prune_threshold: 15, // [DOD FIX] TODO: брать из blueprints.toml
+                prune_threshold: 15,
+                // [DOD FIX] Проброс рецепторов в манифест
+                d1_affinity: v.d1_affinity,
+                d2_affinity: v.d2_affinity,
             }
         }).collect(),
     };

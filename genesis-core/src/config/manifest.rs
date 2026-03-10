@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// 1. DTO: Читается из manifest.toml. Содержит String, живет в куче (Heap).
 /// Ни в коем случае не передается по сырому указателю в C++!
+fn default_affinity() -> u8 { 128 }
+
+/// 1. DTO: Читается из manifest.toml.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ManifestVariant {
     pub id: u8,
@@ -23,67 +26,53 @@ pub struct ManifestVariant {
     #[serde(default = "default_ltm_slot_count")]
     pub ltm_slot_count: u8,
     #[serde(default = "default_inertia_curve")]
-    pub inertia_curve: [i16; 16],
+    pub inertia_curve: [i16; 15],
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
     #[serde(default)]
     pub heartbeat_m: u16,
+    
+    // [DOD FIX] Новые поля рецепторов
+    #[serde(default = "default_affinity")]
+    pub d1_affinity: u8,
+    #[serde(default = "default_affinity")]
+    pub d2_affinity: u8,
 }
 
 fn default_prune_threshold() -> i16 { 15 }
-
 fn default_ltm_slot_count() -> u8 { 80 }
-fn default_inertia_curve() -> [i16; 16] {
-    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8]
-}
-
-/// 2. GPU Layout: Строгий C-формат. Отсутствуют ссылки и объекты кучи.
-/// Общий размер 28 байт. Выравнивание (align) = 4. 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Default, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct GpuVariantParameters {
-    pub threshold: i32,
-    pub rest_potential: i32,
-    pub leak_rate: i32,
-    pub homeostasis_penalty: i32,
-    pub homeostasis_decay: i32,
-    pub gsop_potentiation: i32,
-    pub gsop_depression: i32,
-    pub refractory_period: u8,
-    pub synapse_refractory_period: u8,
-    pub slot_decay_ltm: u8,
-    pub slot_decay_wm: u8,
-    pub signal_propagation_length: u8,
-    pub ltm_slot_count: u8,
-    pub heartbeat_m: u16, // [DOD FIX] DDS Multiplier instead of _pad1
-    pub inertia_curve: [i16; 16],
-    pub prune_threshold: i16,
-    pub _pad2a: [u8; 32],
-    pub _pad2b: [u8; 26],
+fn default_inertia_curve() -> [i16; 15] {
+    [100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30]
 }
 
 impl ManifestVariant {
-    /// Zero-cost конвертация
-    pub fn into_gpu(self) -> GpuVariantParameters {
-        GpuVariantParameters {
+    /// Zero-cost конвертация в строгий C-ABI
+    pub fn into_gpu(self) -> crate::layout::VariantParameters {
+        crate::layout::VariantParameters {
             threshold: self.threshold,
             rest_potential: self.rest_potential,
             leak_rate: self.leak_rate,
             homeostasis_penalty: self.homeostasis_penalty,
-            homeostasis_decay: self.homeostasis_decay,
-            gsop_potentiation: self.gsop_potentiation,
-            gsop_depression: self.gsop_depression,
+            homeostasis_decay: self.homeostasis_decay as u16,
+            gsop_potentiation: self.gsop_potentiation as i16,
+            gsop_depression: self.gsop_depression as i16,
             refractory_period: self.refractory_period,
             synapse_refractory_period: self.synapse_refractory_period,
             slot_decay_ltm: self.slot_decay_ltm,
             slot_decay_wm: self.slot_decay_wm,
             signal_propagation_length: self.signal_propagation_length,
+            d1_affinity: self.d1_affinity,
+            heartbeat_m: self.heartbeat_m,
+            d2_affinity: self.d2_affinity,
             ltm_slot_count: self.ltm_slot_count,
-            heartbeat_m: self.heartbeat_m, // Replaces _pad1
-            inertia_curve: self.inertia_curve,
+            inertia_curve: {
+                let mut curve = [0i16; 15];
+                for i in 0..15.min(self.inertia_curve.len()) {
+                    curve[i] = self.inertia_curve[i];
+                }
+                curve
+            },
             prune_threshold: self.prune_threshold,
-            _pad2a: [0; 32],
-            _pad2b: [0; 26],
         }
     }
 }

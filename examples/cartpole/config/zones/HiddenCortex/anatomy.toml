@@ -1,8 +1,8 @@
 [[layer]]
-name = "Nuclear"
+name = "L2_3_Hidden"
 height_pct = 1.0
 population_pct = 1.0
 
 [layer.composition]
-"L23_spiny_VISp" = 0.75
-"L23_PV" = 0.25
+"L2_spiny_MTG_1" = 0.8
+"L2_aspiny_MTG_1" = 0.2

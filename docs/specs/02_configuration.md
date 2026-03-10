@@ -460,6 +460,19 @@ pub fn compile_dds_heartbeat(period_ticks: u32) -> u16 {
 }
 ```
 
+### 6.4. Алгоритмическая деривация D1/D2 рецепторов
+
+В `blueprints.toml` для каждого типа нейрона (Variant) вычисляются параметры аффинности к дофамину.
+
+1. **d1_affinity (LTP-like):** 
+   - Поток: `Is_Excitatory` → `High` (1.5x), `Is_Inhibitory` → `Low` (0.5x).
+   - Расчет: `d1_affinity = variant.is_excitatory ? 192 : 64`.
+2. **d2_affinity (LTD-like):**
+   - Поток: `Is_Excitatory` → `Medium` (1.0x), `Is_Inhibitory` → `High` (2.0x).
+   - Расчет: `d2_affinity = variant.is_excitatory ? 128 : 256`.
+
+**Инвариант:** Эти значения запекаются в `VariantParameters` (1 байт каждое) и используются ядром `ApplyGSOP` для нелинейной модуляции весов в зависимости от глобального уровня дофамина.
+
 ---
 
 ## 7. Спецификация: `brain.toml` (Multi-Zone Architecture)

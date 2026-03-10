@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "Saline04_Neuron2_DG_GC_237485_Slide4-Right_R2_C2_neuron2"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 74
 gsop_depression = 2
 inertia_curve = [128, 115, 104, 94, 85, 77, 70, 63, 57, 52, 47, 42, 38, 34, 31, 28]
 prune_threshold = 70
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 90
+slot_decay_wm = 203

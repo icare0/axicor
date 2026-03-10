@@ -267,16 +267,15 @@ impl Bootloader {
         Ok(manifest)
     }
 
-    /// [DOD] Строгий барьер: прошивка законов физики в Constant Memory до запуска любых вычислительных ядер
     unsafe fn flash_hardware_physics(first_manifest: &ZoneManifest) -> Result<()> {
-        let mut gpu_variants = [genesis_core::config::manifest::GpuVariantParameters::default(); 16];
+        let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];
         for v in &first_manifest.variants {
             if (v.id as usize) < 16 {
                 gpu_variants[v.id as usize] = v.clone().into_gpu();
             }
         }
         let err = genesis_compute::ffi::cu_upload_constant_memory(
-            gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
+            gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
         );
         if err != 0 {
             anyhow::bail!("FATAL: cu_upload_constant_memory failed with {}", err);

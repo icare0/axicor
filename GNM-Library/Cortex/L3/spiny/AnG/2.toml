@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L3_spiny_AnG_2"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 120
 gsop_depression = 74
 inertia_curve = [128, 121, 115, 109, 104, 99, 94, 89, 84, 80, 76, 72, 69, 65, 62, 59]
 prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 90
+slot_decay_wm = 203

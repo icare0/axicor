@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L5_spiny_MTG_57"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 355
 gsop_depression = 127
 inertia_curve = [128, 67, 35, 18, 9, 5, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 75
+slot_decay_wm = 233

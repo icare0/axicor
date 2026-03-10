@@ -8,25 +8,29 @@ pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 /// 64 байта = 1 кэш-линия L2 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
 /// Ровно одна строка кэша на тип → 100% Coalesced Access, нулевой False Sharing.
 #[repr(C, align(64))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 pub struct VariantParameters {
-    // --- Basic Dynamics (32B) ---
-    pub threshold: i32,                 // 4B — порог деполяризации
-    pub rest_potential: i32,            // 4B — потенциал покоя / утечки
-    pub leak_rate: i32,                 // 4B — скорость зарядного тока покоя
-    pub homeostasis_penalty: i32,       // 4B — штраф Δ-порога за спайк
-    pub homeostasis_decay: u16,         // 2B — скорость восстановления порога
-    pub gsop_potentiation: i16,         // 2B — амплитуда STDP-потенциации
-    pub gsop_depression: i16,           // 2B — амплитуда STDP-депрессии
-    pub refractory_period: u8,          // 1B — абсолютный рефрактерный период, тиков
-    pub synapse_refractory_period: u8,  // 1B — синаптический рефрактер, тиков
-    pub slot_decay_ltm: u8,             // 1B — Long-Term Memory: затухание веса за тик
-    pub slot_decay_wm: u8,              // 1B — Working Memory: затухание веса за тик
-    pub signal_propagation_length: u8,  // 1B — длина «хвоста» сигнала, сегментов
-    pub heartbeat_m: u16,               // 2B — [DOD FIX] DDS Phase Multiplier
-    pub _pad: u8,                       // 1B — выравнивание до 32B
-    // --- Inertia Curve (32B) ---
-    pub inertia_curve: [i16; 16],       // 32B — кривая коэффициентов GSOP (16 рангов)
+    // --- Basic Dynamics (20B) ---
+    pub threshold: i32,                 // 0..4
+    pub rest_potential: i32,            // 4..8
+    pub leak_rate: i32,                 // 8..12
+    pub homeostasis_penalty: i32,       // 12..16
+    pub homeostasis_decay: u16,         // 16..18
+    // --- Plasticity Core (8B) ---
+    pub gsop_potentiation: i16,         // 18..20
+    pub gsop_depression: i16,           // 20..22
+    pub refractory_period: u8,          // 22..23
+    pub synapse_refractory_period: u8,  // 23..24
+    pub slot_decay_ltm: u8,             // 24..25
+    pub slot_decay_wm: u8,              // 25..26
+    // --- Physics & Modulators (6B) ---
+    pub signal_propagation_length: u8,  // 26..27
+    pub d1_affinity: u8,                // 27..28 (D1-рецептор)
+    pub heartbeat_m: u16,               // 28..30
+    pub d2_affinity: u8,                // 30..31 [D2 Рецептор]
+    pub ltm_slot_count: u8,             // 31..32
+    pub inertia_curve: [i16; 15],       // 32..62 (30 bytes)
+    pub prune_threshold: i16,           // 62..64 [DOD FIX]
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);

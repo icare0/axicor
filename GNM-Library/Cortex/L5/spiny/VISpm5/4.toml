@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L5_spiny_VISpm5_4"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 200
 gsop_depression = 99
 inertia_curve = [128, 99, 77, 60, 46, 36, 28, 21, 17, 13, 10, 8, 6, 4, 3, 2]
 prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 75
+slot_decay_wm = 233

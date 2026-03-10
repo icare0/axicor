@@ -215,7 +215,7 @@ impl NodeRuntime {
                                     metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
                                     
                                     // 2. Update GPU Constants (Variants)
-                                    let mut gpu_variants = [genesis_core::config::manifest::GpuVariantParameters::default(); 16];
+                                    let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];
                                     for v in &zm.variants {
                                         if (v.id as usize) < 16 {
                                             gpu_variants[v.id as usize] = v.clone().into_gpu();
@@ -223,7 +223,7 @@ impl NodeRuntime {
                                     }
                                     unsafe {
                                         genesis_compute::ffi::cu_upload_constant_memory(
-                                            gpu_variants.as_ptr() as *const genesis_compute::ffi::VariantParameters
+                                            gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
                                         );
                                     }
                                     self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 

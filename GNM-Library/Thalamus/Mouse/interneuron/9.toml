@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "jy170927_B_idA"
 is_inhibitory = true
 
@@ -34,3 +35,7 @@ gsop_potentiation = 74
 gsop_depression = 2
 inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
 prune_threshold = 93
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128

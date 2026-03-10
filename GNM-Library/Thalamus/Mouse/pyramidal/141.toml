@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "DF_SM230308_01_AMd_dm_001_Left"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 74
 gsop_depression = 2
 inertia_curve = [128, 57, 25, 11, 5, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
 prune_threshold = 35
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 103
+slot_decay_wm = 178

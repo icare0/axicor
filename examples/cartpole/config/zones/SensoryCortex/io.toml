@@ -1,18 +1,16 @@
 [[input]]
-name = "env_sensors"
+name = "cartpole_sensors"
 zone = "SensoryCortex"
-width = 16
-height = 16
-entry_z = "top"
-target_type = "L4_spiny_VISp"
-growth_steps = 125
-empty_pixel = "nearest"
+width = 8
+height = 8
+entry_z = "top"        # Вход сверху
+target_type = "L4_spiny_MTG_1"
 stride = 1
 
 [[output]]
 name = "sensory_out"
 zone = "SensoryCortex"
-width = 16
-height = 16
-target_type = "L4_spiny_VISp"
-stride = 1
+width = 8
+height = 8
+entry_z = "bottom"     # Снимаем сомы снизу (Z=0)
+target_type = "L4_spiny_MTG_1"

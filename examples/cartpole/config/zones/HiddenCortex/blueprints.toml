@@ -1,67 +1,69 @@
 [[neuron_type]]
-name = "L23_spiny_VISp"
+name = "L2_spiny_MTG_1"
 is_inhibitory = false
 
 # Мембрана
-threshold = 36000
-rest_potential = 20000
-leak_rate = 250
-refractory_period = 12
-spontaneous_firing_period_ticks = 2000
+threshold = 26062
+rest_potential = 12988
+leak_rate = 210
+refractory_period = 18
+spontaneous_firing_period_ticks = 1079
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1500
-homeostasis_decay = 3
-synapse_refractory_period = 10
-signal_propagation_length = 30
+homeostasis_penalty = 1000
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 20
 
 # Рост и Морфология
-steering_fov_deg = 45.0
-steering_radius_um = 80.0
-growth_vertical_bias = 0.3
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.36
 dendrite_radius_um = 300.0
 type_affinity = 0.8
-sprouting_weight_distance = 0.4
-sprouting_weight_power = 0.5
-sprouting_weight_explore = 0.2
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.1
 sprouting_weight_type = 0.2
-steering_weight_inertia = 0.4
+steering_weight_inertia = 0.5
 steering_weight_sensor = 0.4
-steering_weight_jitter = 0.2
+steering_weight_jitter = 0.1
 
 # Пластичность GSOP
-initial_synapse_weight = 150
-gsop_potentiation = 150
-gsop_depression = 80
-inertia_curve = [128, 119, 111, 104, 97, 91, 85, 80, 74, 70, 65, 61, 57, 53, 50, 46]
+initial_synapse_weight = 91
+gsop_potentiation = 113
+gsop_depression = 72
+inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
 prune_threshold = 5
-ltm_slot_count = 80
-slot_decay_ltm = 160
-slot_decay_wm = 96
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 90
+slot_decay_wm = 203
+
 
 [[neuron_type]]
-name = "L23_PV"
+name = "L2_aspiny_MTG_1"
 is_inhibitory = true
 
 # Мембрана
-threshold = 34000
-rest_potential = 5000
-leak_rate = 100
-refractory_period = 8
-spontaneous_firing_period_ticks = 800
+threshold = 17062
+rest_potential = 15568
+leak_rate = 125
+refractory_period = 22
+spontaneous_firing_period_ticks = 307
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1200
-homeostasis_decay = 5
-synapse_refractory_period = 10
-signal_propagation_length = 15
+homeostasis_penalty = 1000
+homeostasis_decay = 8
+synapse_refractory_period = 15
+signal_propagation_length = 23
 
 # Рост и Морфология
-steering_fov_deg = 180.0
-steering_radius_um = 40.0
-growth_vertical_bias = 0.1
-dendrite_radius_um = 120.0
-type_affinity = 0.3
+steering_fov_deg = 147.2
+steering_radius_um = 33.0
+growth_vertical_bias = 0.13
+dendrite_radius_um = 150.0
+type_affinity = 0.2
 sprouting_weight_distance = 0.7
 sprouting_weight_power = 0.3
 sprouting_weight_explore = 0.3
@@ -71,11 +73,12 @@ steering_weight_sensor = 0.6
 steering_weight_jitter = 0.2
 
 # Пластичность GSOP
-initial_synapse_weight = 800
-gsop_potentiation = 180
-gsop_depression = 5
+initial_synapse_weight = 50
+gsop_potentiation = 200
+gsop_depression = 2
 inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 200
-ltm_slot_count = 80
-slot_decay_ltm = 160
-slot_decay_wm = 96
+prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128

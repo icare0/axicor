@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L23_aspiny_VISpm23_13"
 is_inhibitory = true
 
@@ -34,3 +35,7 @@ gsop_potentiation = 242
 gsop_depression = 2
 inertia_curve = [128, 83, 54, 35, 22, 14, 9, 6, 4, 2, 1, 1, 1, 1, 1, 1]
 prune_threshold = 143
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128

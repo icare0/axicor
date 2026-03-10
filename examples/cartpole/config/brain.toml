@@ -1,43 +1,46 @@
 [simulation]
-config = "examples/cartpole/config/simulation.toml"
+config = "config/simulation.toml"
 
 [[zone]]
 name = "SensoryCortex"
-blueprints = "examples/cartpole/config/zones/SensoryCortex/blueprints.toml"
-anatomy = "examples/cartpole/config/zones/SensoryCortex/anatomy.toml"
-io = "examples/cartpole/config/zones/SensoryCortex/io.toml"
+blueprints = "config/zones/SensoryCortex/blueprints.toml"
+anatomy = "config/zones/SensoryCortex/anatomy.toml"
+io = "config/zones/SensoryCortex/io.toml"
+shard = "config/zones/SensoryCortex/shard.toml"
 baked_dir = "baked/SensoryCortex/"
 
 [[zone]]
-name = "MotorCortex"
-blueprints = "examples/cartpole/config/zones/MotorCortex/blueprints.toml"
-anatomy = "examples/cartpole/config/zones/MotorCortex/anatomy.toml"
-io = "examples/cartpole/config/zones/MotorCortex/io.toml"
-baked_dir = "baked/MotorCortex/"
+name = "HiddenCortex"
+blueprints = "config/zones/HiddenCortex/blueprints.toml"
+anatomy = "config/zones/HiddenCortex/anatomy.toml"
+io = "config/zones/HiddenCortex/io.toml"
+shard = "config/zones/HiddenCortex/shard.toml"
+baked_dir = "baked/HiddenCortex/"
 
 [[zone]]
-name = "HiddenCortex"
-blueprints = "examples/cartpole/config/zones/HiddenCortex/blueprints.toml"
-anatomy = "examples/cartpole/config/zones/HiddenCortex/anatomy.toml"
-io = "examples/cartpole/config/zones/HiddenCortex/io.toml"
-baked_dir = "baked/HiddenCortex/"
+name = "MotorCortex"
+blueprints = "config/zones/MotorCortex/blueprints.toml"
+anatomy = "config/zones/MotorCortex/anatomy.toml"
+io = "config/zones/MotorCortex/io.toml"
+shard = "config/zones/MotorCortex/shard.toml"
+baked_dir = "baked/MotorCortex/"
 
 [[connection]]
 from = "SensoryCortex"
 to = "HiddenCortex"
 output_matrix = "sensory_out"
-width = 16
-height = 16
-entry_z = "bottom"
-target_type = "L23_spiny_VISp"
-growth_steps = 150
+width = 8
+height = 8
+entry_z = "top"         # [!] Призрачные аксоны прорастут с потолка (Z=63)
+target_type = "All"
+growth_steps = 50       # Растут вниз до дна
 
 [[connection]]
 from = "HiddenCortex"
 to = "MotorCortex"
 output_matrix = "hidden_out"
-width = 16
-height = 16
-entry_z = "bottom"
-target_type = "L5_spiny_MTG"
-growth_steps = 150
+width = 8
+height = 8
+entry_z = "top"         # [!] Снова инжектируем сигнал в потолок
+target_type = "All"
+growth_steps = 50

@@ -1,4 +1,4 @@
-use genesis_core::layout::VramState;
+use genesis_core::layout::{VariantParameters, VramState};
 use std::ffi::c_void;
 
 /// Опак-тип для CUDA Stream. В Rust мы не знаем его структуру, просто таскаем указатель.
@@ -44,30 +44,6 @@ pub struct ShardVramPtrs {
 unsafe impl Send for ShardVramPtrs {}
 unsafe impl Sync for ShardVramPtrs {}
 
-/// Параметры физики для одного типа (варианта) нейронов.
-/// [ЗАКОН]: Размер ДОЛЖЕН быть строго 128 байт для выравнивания в Constant Memory.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct VariantParameters {
-    pub threshold: i32,
-    pub rest_potential: i32,
-    pub leak_rate: i32,
-    pub homeostasis_penalty: i32,
-    pub homeostasis_decay: i32,
-    pub gsop_potentiation: i32,
-    pub gsop_depression: i32,
-    pub refractory_period: u8,
-    pub synapse_refractory_period: u8,
-    pub slot_decay_ltm: u8,
-    pub slot_decay_wm: u8,
-    pub signal_propagation_length: u8,
-    pub ltm_slot_count: u8,
-    pub heartbeat_m: u16,      // [DOD FIX] DDS Multiplier
-    pub inertia_curve: [i16; 16],
-    pub prune_threshold: i16,
-    pub _pad2a: [u8; 32],
-    pub _pad2b: [u8; 26],
-}
 
 #[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
 extern "C" {
@@ -172,7 +148,7 @@ extern "C" {
     
     // Загрузка Blueprint-параметров в Constant Memory GPU
     pub fn gpu_load_constants(host_ptr: *const c_void);
-    pub fn update_constant_memory_hot_reload(new_variants: *const genesis_core::config::manifest::GpuVariantParameters, stream: CudaStream);
+    pub fn update_constant_memory_hot_reload(new_variants: *const VariantParameters, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
         ptrs: *const ShardVramPtrs,

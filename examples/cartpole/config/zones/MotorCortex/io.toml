@@ -1,19 +1,7 @@
-[[input]]
-name = "ghost_sensory"
-zone = "MotorCortex"
-width = 16
-height = 16
-entry_z = "top"
-target_type = "L5_spiny_MTG"
-growth_steps = 125
-empty_pixel = "nearest"
-stride = 1
-
 [[output]]
-name = "motor_commands"
+name = "motor_actions"
 zone = "MotorCortex"
-source_zone = "MotorCortex"
 width = 8
 height = 8
-target_type = "L5_spiny_MTG"
-stride = 1
+entry_z = "bottom"     # Финальный выход снизу (Z=0)
+target_type = "L5_spiny_MTG_1"

@@ -1,8 +1,8 @@
 [[layer]]
-name = "Nuclear"
+name = "L5_Motor"
 height_pct = 1.0
 population_pct = 1.0
 
 [layer.composition]
-"L5_spiny_MTG" = 0.7
-"L1_Sst" = 0.3
+"L5_spiny_MTG_1" = 0.8
+"L5_aspiny_MTG_11" = 0.2

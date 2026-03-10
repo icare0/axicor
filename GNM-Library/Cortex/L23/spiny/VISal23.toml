@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L23_spiny_VISal23"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 127
 gsop_depression = 77
 inertia_curve = [128, 119, 111, 104, 97, 91, 85, 79, 74, 69, 64, 60, 56, 52, 49, 46]
 prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 90
+slot_decay_wm = 203

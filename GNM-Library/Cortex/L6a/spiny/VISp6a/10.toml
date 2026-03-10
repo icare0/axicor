@@ -1,3 +1,4 @@
+[[neuron_type]]
 name = "L6a_spiny_VISp6a_10"
 is_inhibitory = false
 
@@ -34,3 +35,7 @@ gsop_potentiation = 128
 gsop_depression = 77
 inertia_curve = [128, 119, 110, 103, 95, 89, 83, 77, 71, 66, 62, 57, 53, 50, 46, 43]
 prune_threshold = 5
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 96
+slot_decay_wm = 190

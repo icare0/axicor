@@ -1,7 +1,7 @@
 # CartPole — Genesis Example (3-Layer Cortical Hierarchy)
 
 > **Статус:** 🔬 В исследовании — активная настройка параметров нейрогенеза
->
+> ИНСТРУКЦИЯ НЕ АКТУАЛЬНА
 > **Текущий рекорд:** 🏆 100+ баллов (@H4V1K-dev / Antigravity)
 >
 > **Архитектура:** `SensoryCortex (L4) → HiddenCortex (L2/3) → MotorCortex (L5)` — 450K+ нейронов
