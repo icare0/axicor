@@ -39,3 +39,4 @@ prune_threshold = 35
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 103
 slot_decay_wm = 178
+ltm_slot_count = 108
