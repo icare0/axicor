@@ -11,7 +11,7 @@ d = 64
 h = 63
 
 [settings]
-night_interval_ticks = 1_000_000
-save_checkpoints_interval_ticks = 400_000
+night_interval_ticks = 400_000
+save_checkpoints_interval_ticks = 100_000
 
 [neighbors]

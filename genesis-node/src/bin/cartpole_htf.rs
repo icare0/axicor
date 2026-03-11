@@ -105,6 +105,7 @@ fn main() {
     let mut env = CartPole::new();
     let mut episodes = 0u32;
     let mut score = 0u32;
+    let mut last_action = 0u8; // Сохраняем предыдущее действие
     let mut tps_start = std::time::Instant::now();
     let mut total_ticks_for_tps = 0u32;
     
@@ -214,7 +215,7 @@ fn main() {
 
             // Выжигаем пути
             let mut death_hdr = header;
-            death_hdr.global_reward = -255;
+            death_hdr.global_reward = -20; // Штраф за падение палки
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     &death_hdr as *const _ as *const u8,

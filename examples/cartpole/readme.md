@@ -89,7 +89,9 @@ python3 scripts/live_dashboard.py
 python3 scripts/weight_checker.py
 ```
 
-Читает `checkpoint.state` и показывает статистику отклонения от целевого Exc/Inh баланса.
+Читает `checkpoint.state` и показывает статистику отклонения от целевого Exc/Inh баланса, появится после первой ночи.
+Резулируйте параметры в `simulation.toml` или после запекания в `baked/` в `manifest.toml` для каждого шарда индивидуально.
+>
 
 ---
 
