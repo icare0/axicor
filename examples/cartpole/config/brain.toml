@@ -28,19 +28,19 @@ baked_dir = "examples/cartpole/baked/MotorCortex/"
 [[connection]]
 from = "SensoryCortex"
 to = "HiddenCortex"
-output_matrix = "sensory_out"
-width = 8
-height = 8
-entry_z = "top"         # [!] Призрачные аксоны прорастут с потолка (Z=63)
+output_matrix = "sensory_out"   # Берет матрицу из SensoryCortex/io.toml
+width = 16                      # Проецирует как сетку 16x16
+height = 16
+entry_z = "mid"                 # Сенсорный сигнал бьет в средние слои (L4) ассоциативной коры
 target_type = "All"
-growth_steps = 50       # Растут вниз до дна
+growth_steps = 750
 
 [[connection]]
 from = "HiddenCortex"
 to = "MotorCortex"
-output_matrix = "hidden_out"
-width = 8
-height = 8
-entry_z = "top"         # [!] Снова инжектируем сигнал в потолок
+output_matrix = "hidden_out"    # Берет матрицу из HiddenCortex/io.toml
+width = 16
+height = 16
+entry_z = "top"                 # Ассоциативный план обычно бьет сверху (L2/3/5) моторной
 target_type = "All"
-growth_steps = 50
+growth_steps = 800

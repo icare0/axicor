@@ -1,38 +1,34 @@
-# Если в шарде всего один монолитный слой,
-# покрывающий весь объем пространства
-# то блок [[layer]] должен быть только один:
-
+# L1: Молекулярный слой. Только редкие тормозные интернейроны.
 [[layer]]
-name = "L4_Sensory_Monolith"
-height_pct = 1.0                                    # 100% высоты шарда
-density = 0.05                                       # Абсолютная плотность
-composition = { "L4_spiny_MTG_1" = 0.8, "L4_aspiny_MTG_11" = 0.2 }
+name = "L1"
+height_pct = 0.10
+density = 0.01
+composition = { "L1_aspiny_VISp1_1" = 1.0 }
 
+# L2/3: Обработка фичей
+[[layer]]
+name = "L23"
+height_pct = 0.25
+density = 0.04
+composition = { "L23_spiny_VISp23_16" = 0.8, "L23_aspiny_VISp23_1" = 0.2 }
 
+# L4: Сенсорный вход. Очень плотный.
+[[layer]]
+name = "L4"
+height_pct = 0.20
+density = 0.08
+composition = { "L4_spiny_VISp4_1" = 0.8, "L4_aspiny_VISp4_18" = 0.2 }
 
-# Если нужно разделить слой на несколько частей
-# по высоте шарда, то блоки [[layer]] должны быть несколько:
+# L5: Выходной слой. Гигантские сомы, низкая плотность.
+[[layer]]
+name = "L5"
+height_pct = 0.25
+density = 0.02
+composition = { "L5_spiny_VISp5_12" = 0.8, "L5_aspiny_VISp5_1" = 0.2 }
 
-# [[layer]]
-# name = "L4_Sensory_Bottom"
-# height_pct = 0.5                      # Занимает нижнюю половину шарда (Z: 0%..50%)
-# density = 0.5                         # 50% вокселей в этом объеме получат сому
-# composition = {
-#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
-#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
-#                 }
-# 
-# [[layer]]
-# name = "L4_Sensory_Top"
-# height_pct = 0.5                      # Занимает верхнюю половину шарда (Z: 50%..100%)
-# density = 0.5                         # 50% вокселей в этом объеме получат сому
-# composition = {
-#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
-#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
-#                 }
-
-
-
-
-
-
+# L6: Глубокий слой обратной связи.
+[[layer]]
+name = "L6"
+height_pct = 0.20
+density = 0.03
+composition = { "L6a_spiny_VISp6a_21" = 0.8, "L6a_aspiny_VISl6a_1" = 0.2 }

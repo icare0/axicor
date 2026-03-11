@@ -1,32 +1,34 @@
-# Если в шарде всего один монолитный слой,
-# покрывающий весь объем пространства
-# то блок [[layer]] должен быть только один:
-
+# L1: Тормозной фильтр шума
 [[layer]]
-name = "L4_Sensory_Monolith"
-height_pct = 1.0                                    # 100% высоты шарда
-density = 0.05                                       # Абсолютная плотность
-composition = { "L2_spiny_MTG_1" = 0.8, "L2_aspiny_MTG_1" = 0.2 }
+name = "L1"
+height_pct = 0.10
+density = 0.01
+composition = { "L1_aspiny_MTG_3" = 1.0 }
 
+# L2: Верхний уровень ассоциаций
+[[layer]]
+name = "L2"
+height_pct = 0.20
+density = 0.04
+composition = { "L2_spiny_MTG_4" = 0.8, "L2_aspiny_MTG_1" = 0.2 }
 
+# L3: Глубокий уровень ассоциаций (основное удержание контекста)
+[[layer]]
+name = "L3"
+height_pct = 0.25
+density = 0.05
+composition = { "L3_spiny_MTG_1" = 0.8, "L3_aspiny_MTG_10" = 0.2 }
 
-# Если нужно разделить слой на несколько частей
-# по высоте шарда, то блоки [[layer]] должны быть несколько:
+# L4: Входной слой от SensoryCortex (тоньше, чем в V1)
+[[layer]]
+name = "L4"
+height_pct = 0.15
+density = 0.08
+composition = { "L4_spiny_MTG_1" = 0.8, "L4_aspiny_MTG_10" = 0.2 }
 
-# [[layer]]
-# name = "L4_Sensory_Bottom"
-# height_pct = 0.5                      # Занимает нижнюю половину шарда (Z: 0%..50%)
-# density = 0.5                         # 50% вокселей в этом объеме получат сому
-# composition = {
-#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
-#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
-#                 }
-# 
-# [[layer]]
-# name = "L4_Sensory_Top"
-# height_pct = 0.5                      # Занимает верхнюю половину шарда (Z: 50%..100%)
-# density = 0.5                         # 50% вокселей в этом объеме получат сому
-# composition = {
-#                     "L4_spiny_MTG_1" = 0.8,     # 80% нейронов - это L4_spiny_MTG_1
-#                     "L4_aspiny_MTG_11" = 0.2    # 20% нейронов - это L4_aspiny_MTG_11
-#                 }
+# L5: Массивный выходной тракт в моторную кору
+[[layer]]
+name = "L5"
+height_pct = 0.30
+density = 0.03
+composition = { "L5_spiny_MTG_1" = 0.8, "L5_aspiny_MTG_10" = 0.2 }

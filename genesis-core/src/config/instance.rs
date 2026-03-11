@@ -25,10 +25,20 @@ pub struct InstanceConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ShardSettings {
-    /// How often to save checkpoint.state (in ticks)
+    #[serde(default = "default_checkpoints")]
     pub save_checkpoints_interval_ticks: u32,
+    
+    // [DOD FIX] Добавляем настройку ночной фазы на уровень шарда
+    #[serde(default = "default_night_interval")]
+    pub night_interval_ticks: u64, 
+    
+    #[serde(default = "default_prune")]
+    pub prune_threshold: i16,
 }
 
+fn default_checkpoints() -> u32 { 100_000 }
+fn default_night_interval() -> u64 { 10_000 } // Ночь каждые 1 секунду симуляции по умолчанию
+fn default_prune() -> i16 { 15 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]

@@ -274,10 +274,11 @@ fn serialize_artifacts(
                 .collect(),
         },
         settings: genesis_core::config::manifest::ManifestSettings {
-            night_interval_ticks: 0,
-            save_checkpoints_interval_ticks: 100_000,
+            // [DOD FIX] Больше никакого хардкода 0. Берем из shard.toml!
+            night_interval_ticks: workspace.shard_cfg.settings.night_interval_ticks,
+            save_checkpoints_interval_ticks: workspace.shard_cfg.settings.save_checkpoints_interval_ticks as u64,
             plasticity: genesis_core::config::manifest::ManifestPlasticity {
-                prune_threshold: 15,
+                prune_threshold: workspace.shard_cfg.settings.prune_threshold,
             },
         },
         connections: workspace.brain_config.connections.iter()

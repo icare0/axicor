@@ -453,7 +453,8 @@ fn run_night_phase<S: Read + Write>(
     let ack_magic = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
     stream.write_all(&ack_magic)?;
     
-    // Пишем длину массива и сам массив сырыми байтами (Zero-Copy Cast)
+    // [DOD FIX] Эта запись ОБЯЗАНА быть снаружи if! 
+    // Клиент всегда ждет 4 байта длины, даже если она 0.
     let acks_count = acks.len() as u32;
     stream.write_all(&acks_count.to_le_bytes())?;
     

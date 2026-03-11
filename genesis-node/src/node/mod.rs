@@ -295,8 +295,9 @@ impl NodeRuntime {
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
                 .arg(&desc.baked_dir)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                // [DOD FIX] Снимаем глушитель! Мы должны видеть паники CPU-демона в консоли ноды.
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
                 .spawn()
                 .expect("FATAL: Failed to spawn genesis-baker-daemon. Was it compiled?");
             
