@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="ghost_network_3d.png" alt="Genesis Neural Network" width="720"/>
+  <img src="neuron_874_morphology.png" alt="Genesis Neural Network" width="720"/>
 </p>
 
 <h3 align="center"> 🚧⚠️ UNSTABLE MVP ⚠️🚧</h3>
