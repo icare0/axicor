@@ -128,7 +128,7 @@ pub const fn update_homeostasis(
 // GSOP Plasticity (Spec 04 §2.4, §2.5)
 // ---------------------------------------------------------------------------
 
-/// Inertia Rank: разделяем диапазон |weight| (0..32767) на 16 рангов по 2048.
+/// Inertia Rank: разделяем диапазон |weight| (0..32767) на 15 рангов по 2048.
 /// `rank = abs_w >> 11`. Это 1 такт ALU, без ветвлений.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
