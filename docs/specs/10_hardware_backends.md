@@ -23,13 +23,46 @@ pub trait GenesisBackend {
 
 ## 2. Tier 1: High-Performance Compute (AMD ROCm/HIP)
 
-**Цель:** Прямая альтернатива NVIDIA для серверных кластеров.
+**Статус: [MVP — Реализовано]**
 
-### 2.1. Стратегия Портирования
-// TODO: Внедрить трансляцию `kernel.cu` -> `kernel.hip` через `hipify-perl`.
-// - **Интеграция:** Поддержка `hipRuntime` в `genesis-compute`.
-// - **Оптимизация:** Адаптация под архитектуру CDNA (AMD Instinct). Использование Matrix Cores для векторизованного вычисления дендритов.
-// - **Zero-Copy:** Реализация `hipHostMalloc` для обеспечения того же уровня производительности, что и `cudaHostAlloc`.
+### 2.1. Архитектура: Dual-Backend C-ABI
+
+Вместо хрупкого инструментария вроде `hipify-perl` (автоматическая трансляция CUDA→HIP) был реализован более чистый подход — **Dual-Backend C-ABI абстракция**.
+
+`genesis-compute` содержит два зеркальных каталога с нативными реализациями одного и того же интерфейса:
+
+```
+genesis-compute/src/
+├── cuda/
+│   ├── bindings.cu   ← NVIDIA CUDA (nvcc, Warp 32)
+│   └── physics.cu
+└── amd/
+    ├── bindings.hip  ← AMD ROCm/HIP (hipcc, Wavefront 64)
+    └── physics.hip
+```
+
+**Выбор бэкенда — на этапе компиляции** через feature-флаги Cargo. `build.rs`動динамически вызывает `nvcc` или `hipcc`:
+
+```sh
+# NVIDIA (по умолчанию)
+cargo build -p genesis-node
+
+# AMD
+cargo build -p genesis-node --features amd
+```
+
+### 2.2. Почему Портирование Обошлось Дёшево
+
+Благодаря изначальной **Data-Oriented архитектуре без графов вычислений** (никакого PyTorch/cuDNN/cuBLAS) портирование математики свелось к механическим заменам API:
+
+| NVIDIA CUDA | AMD HIP |
+|---|---|
+| `cudaMalloc` | `hipMalloc` |
+| `cudaMemcpy` | `hipMemcpy` |
+| `__syncthreads()` | `__syncthreads()` (идентично) |
+| `blockDim.x = 32` (Warp) | `blockDim.x = 64` (Wavefront) |
+
+Единственная содержательная адаптация — размер локальной группы потоков: AMD-архитектуре (GCN/RDNA) нативен **64-поточный Wavefront** вместо NVIDIA-шного 32-поточного Warp. Все алгоритмы (Integer GLIF, GSOP, Columnar Dendrite Access) масштабируются линейно — волновой фронт большего размера только повышает утилизацию видеопамяти.
 
 ---
 

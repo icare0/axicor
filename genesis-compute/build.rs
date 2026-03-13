@@ -20,7 +20,7 @@ fn main() {
     } else {
         cc::Build::new()
             .cuda(true)
-            .flag("-arch=sm_86") // NVIDIA Ampere и новее
+            .flag("-arch=sm_61") // NVIDIA Pascal (GTX 1080 Ti)
             .flag("-O3")
             .flag("-allow-unsupported-compiler") // Разрешаем работу с GCC 14+ (хотя мы форсим 13)
             .flag("-ccbin=g++-13")             // Форсируем GCC 13 для совместимости с CUDA 12.4

@@ -384,7 +384,14 @@ homeostasis_decay = 10           # Вычитается из порога каж
 slot_decay_ltm = 160             # Слоты 0-79: 160/128 = 1.25× (усиленное удержание)
 slot_decay_wm = 96               # Слоты 80-127: 96/128 = 0.75× (ускоренный распад)
 
-# --- Sprouting Score (веса эвристики выбора аксона, сумма = 1.0) ---
+# --- Рост аксона (Steering & Arborization) ---
+steering_fov_deg = 60.0              # Угол обзора конуса (Cone Tracing)
+
+# Параметры терминального ветвления (Terminal Arborization, см. 04_connectivity.md §1.4):
+arborization_target_layer = "+1"     # Целевой слой ("+1" = следующий вверх по Z, или имя слоя, например "L4")
+arborization_radius_um = 150.0       # Радиус разрастания "кроны" по достижении цели
+arborization_density = 0.8           # Коэффициент петляния (0.0 = нет арборизации, 1.0 = максимальный хаос V_noise)
+
 sprouting_weight_distance = 0.5  # f32. Ближний = лучше
 sprouting_weight_power   = 0.4  # f32. soma_power_index (См. 04_connectivity.md §1.6.1)
 sprouting_weight_explore = 0.1  # f32. Шум по эпохе (защита от повторных выборов)
