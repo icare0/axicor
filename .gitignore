@@ -36,10 +36,16 @@ Thumbs.db
 *.bak
 *.new
 *.tmp
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
 
 # Папки
-genesis-retina/
+genesis-lite/build/
 Genesis_Models/
+genesis-retina/
 __pycache__/
 tests/tmp/
 SUMARIZER/
