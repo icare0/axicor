@@ -173,7 +173,7 @@ pub fn run_sprouting_pass(
 
     // 1. Living Axons (Локальные)
     for soma_idx in 0..padded_n {
-        if (flags[soma_idx] & 0x01) != 0 {
+        if (flags[soma_idx] & 0x02) != 0 {
             let axon_id = soma_to_axon[soma_idx];
             if axon_id != u32::MAX && (axon_id as usize) < total_axons {
                 nudge_axon(
@@ -202,7 +202,7 @@ pub fn run_sprouting_pass(
     for i in 0..padded_n {
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 { continue; }
-        if (flags[i] & 0x01) == 0 { continue; } // Только активные сомы ищут новые связи
+        if (flags[i] & 0x02) == 0 { continue; } // Только активные сомы ищут новые связи
 
         let my_pos = PackedPosition(my_pos_raw);
         let my_type_idx = my_pos.type_id() as usize;

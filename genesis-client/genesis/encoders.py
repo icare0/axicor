@@ -45,7 +45,7 @@ class PopulationEncoder:
     Пространственное кодирование (Gaussian Receptive Fields).
     Разворачивает 1 float переменную в популяцию из M нейронов.
     """
-    def __init__(self, variables_count: int, neurons_per_var: int, batch_size: int):
+    def __init__(self, variables_count: int, neurons_per_var: int, batch_size: int, sigma: float = 0.15):
         self.V = variables_count
         self.M = neurons_per_var
         self.N = self.V * self.M
@@ -56,35 +56,36 @@ class PopulationEncoder:
         self.total_bytes = self.bytes_per_tick * self.B
         
         # Предрасчет радиуса активации для Гауссианы. prob > 0.5 эквивалентно abs(dist) < R
-        # Это избавляет нас от вызова медленного np.exp в горячем цикле.
-        sigma = 0.15
-        self.radius = sigma * math.sqrt(-2.0 * math.log(0.5))
+        self.sigma = sigma
+        self.radius = self.sigma * math.sqrt(-2.0 * math.log(0.5))
         
         # Центры рецептивных полей (M центров для каждой из V переменных)
         centers_1d = np.linspace(0.0, 1.0, self.M, dtype=np.float16)
         self.centers = np.tile(centers_1d, self.V)
         
+        # --- ZERO-GARBAGE BUFFERS ---
+        self._expanded_buffer = np.zeros(self.N, dtype=np.float16)
         self._bool_buffer = np.zeros(self.padded_N, dtype=np.bool_)
         self._batch_bool_buffer = np.zeros((self.B, self.padded_N), dtype=np.bool_)
 
     def encode_into(self, states_f16: np.ndarray, tx_view: memoryview, offset: int) -> int:
         """
         states_f16: массив нормализованных [0..1] значений (размер V)
-        В Population кодировании маска одинакова для всего батча (или обновляется раз в кадр)
-        Мы посылаем импульс (1) только в первый тик батча (Соблюдение закона Single-Tick Pulse), 
-        остальные тики заполняем нулями, чтобы хвост сигнала прошел по графу.
+        В Population кодировании маска одинакова для всего батча.
         """
-        # Растягиваем переменные: [v1, v2] -> [v1, v1.. M раз, v2, v2.. M раз]
-        expanded_states = np.repeat(states_f16, self.M)
+        # [DOD Task 2] Zero-Copy broadcasting вместо np.repeat
+        # states_f16[:, None] делает [V, 1]. Broadcast в [V, M] разворачивает измерения.
+        self._expanded_buffer.reshape(self.V, self.M)[:] = states_f16[:, None]
         
-        # Векторизованный поиск попаданий в рецептивные поля
-        np.abs(expanded_states - self.centers, out=expanded_states) # In-place
-        self._bool_buffer[:self.N] = expanded_states < self.radius
+        # Векторизованный расчет дистанции In-Place
+        np.abs(self._expanded_buffer - self.centers, out=self._expanded_buffer)
+        self._bool_buffer[:self.N] = self._expanded_buffer < self.radius
         
-        # Обнуляем весь батч, затем пишем только в нулевой тик (Single-Tick Pulse)
+        # [DOD Task 1] Single-Tick Pulse: пишем только в нулевой тик батча
         self._batch_bool_buffer.fill(False)
         self._batch_bool_buffer[0, :] = self._bool_buffer
         
         packed = np.packbits(self._batch_bool_buffer, bitorder='little', axis=1)
         tx_view[offset : offset + self.total_bytes] = packed.ravel()
         return self.total_bytes
+        

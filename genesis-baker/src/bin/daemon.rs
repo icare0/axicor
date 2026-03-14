@@ -65,14 +65,8 @@ fn main() {
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons = (manifest.memory.virtual_axons + manifest.memory.ghost_capacity + manifest.memory.padded_n) as u32;
 
-    // 2. Вычисляем размер SHM
-    // ShmHeader (64 байта) + Weights (128 * N * 2 байта) + Targets (128 * N * 4 байта) + Handovers
-    let weights_size = padded_n * 128 * 2;
-    let targets_size = padded_n * 128 * 4;
-    // [DOD FIX] Резервируем память под плоский массив Handovers
-    let handovers_size = (genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<genesis_core::ipc::AxonHandoverEvent>()) as u32;
-
-    let shm_len = 64 + weights_size + targets_size + handovers_size;
+    // 2. Вычисляем размер SHM используя централизованную функцию
+    let shm_len = genesis_core::ipc::shm_size(padded_n as usize);
 
     // 3. Создаем file-backed shared memory (cross-platform: Linux + Windows)
     let shm_path = shm_file_path(cli.zone_hash);
@@ -334,6 +328,8 @@ fn run_night_phase<S: Read + Write>(
     }
     
     println!("🌙 Night Phase trigger received (tick={}, prune={})", req.current_tick, req.prune_threshold);
+    
+    // ... (rest of the code)
 
     // 2. Validate SHM Header
     let hdr_ptr = shm_ptr as *mut ShmHeader;
@@ -365,7 +361,7 @@ fn run_night_phase<S: Read + Write>(
     };
 
     // 4. CPU Sprouting & Living Axons (Zero-Copy)
-    let (new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
+    let (_new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
         // Каст заголовка и вычисление смещений
         let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const genesis_core::layout::PathsFileHeader) };
         let paths_total_axons = paths_hdr.total_axons as usize;
@@ -438,7 +434,7 @@ fn run_night_phase<S: Read + Write>(
         let _ = ctx._geom_mmap.flush_async();
     }
 
-    println!("   ↳ Sprouted {} new synapses, handovers: {}", new_synapses, generated_handovers);
+    // println!("   ↳ Sprouted {} new synapses, handovers: {}", new_synapses, generated_handovers);
 
     // 5. GSOP Plasticity / Ghost Integration (TODO/Placeholders)
     // Here we would use `handovers` for GSOP or Growth logic.
@@ -466,7 +462,7 @@ fn run_night_phase<S: Read + Write>(
     }
     stream.flush()?;
 
-    println!("🌅 Night Phase complete ({} new synapses)", new_synapses);
+    // println!("🌅 Night Phase complete ({} new synapses)", new_synapses);
     Ok(())
 }
 

@@ -135,11 +135,13 @@ void day_phase_task(void *pvParameter) {
             if (current_voltage >= effective_threshold) {
                 current_voltage = p.rest_potential;
                 sram.refractory_timer[tid] = p.refractory_period;
-                sram.flags[tid] = (flags & 0xFE) | 0x01; 
-                
+                // [DOD FIX] Bit 0: Instant Spike (GSOP), Bit 1: Batch Accumulator (Sprouting)
+                sram.flags[tid] = (flags & 0xFC) | 0x03;
+
                 sram.axon_heads[tid].h1 = sram.axon_heads[tid].h0;
                 sram.axon_heads[tid].h0 = 0; 
             } else {
+                // [DOD FIX] Снимаем только мгновенный спайк, аккумулятор живет до Ночи
                 sram.flags[tid] &= ~0x01;
             }
 

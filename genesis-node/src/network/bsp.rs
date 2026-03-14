@@ -58,10 +58,12 @@ impl BspBarrier {
 
         while self.completed_peers.load(Ordering::Acquire) < self.expected_peers {
             if start.elapsed() > std::time::Duration::from_millis(BSP_SYNC_TIMEOUT_MS) {
-                let n = self.timeout_log_counter.fetch_add(1, Ordering::Relaxed);
+                let _n = self.timeout_log_counter.fetch_add(1, Ordering::Relaxed);
+                /* 
                 if n % 100 == 0 {
                     println!("⚠️ [BSP] Timeout! Forcing epoch advance ({} timeouts). Dropped data will be filtered out.", n + 1);
                 }
+                */
                 break;
             }
             // [DOD FIX] Dynamic wait strategy

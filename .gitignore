@@ -44,7 +44,7 @@ sdkconfig.old
 
 # Папки
 genesis-lite/build/
-Genesis_Models/
+Genesis-Models/
 genesis-retina/
 __pycache__/
 tests/tmp/

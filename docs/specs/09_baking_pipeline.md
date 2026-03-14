@@ -137,13 +137,13 @@ fn bake_connection(conn, src_zone, dst_zone) -> GhostFile:
     return GhostFile { src_zone, dst_zone, width, height, ghosts }
 ```
 
-> **Ключевое:** `paired_src_soma` — это конкретная сома из GXO, а не случайный ID. Маппинг детерминированный. Ghost axon знает кого слушает.
+> **Ключевое:** `paired_src_soma` - это конкретная сома из GXO, а не случайный ID. Маппинг детерминированный. Ghost axon знает кого слушает.
 
 ---
 
 ## 2. Бинарные форматы
 
-Все файлы — little-endian, без сжатия. Загрузка = один `read()` + cast.
+Все файлы - little-endian, без сжатия. Загрузка = один `read()` + cast.
 
 ### 2.1. `.gxi` (Input Mapping)
 
@@ -355,8 +355,8 @@ fn day_phase_loop():
         for zone in zones:
             // (Via CUDA stream, in [05_signal_physics.md](./05_signal_physics.md) order)
             // Kernel 1: PropagateAxons    (§1.2 in 05)
-            // Kernel 2: ApplySpikeBatch   (§1.3 in 05) — ghost spike injection
-            // Kernel 3: InjectInputs      (§2.1 in 05) — if tick % stride[matrix] == 0
+            // Kernel 2: ApplySpikeBatch   (§1.3 in 05) - ghost spike injection
+            // Kernel 3: InjectInputs      (§2.1 in 05) - if tick % stride[matrix] == 0
             // Kernel 4: UpdateNeurons     (§1.5 in 05)
             // Kernel 5: ApplyGSOP        (§1.3 in 05)
             // Kernel 6: RecordOutputs    (§3.2 in 05)

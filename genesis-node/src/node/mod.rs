@@ -288,9 +288,14 @@ impl NodeRuntime {
             let _ = std::fs::remove_file(&socket_addr);
 
             // [DOD FIX] Pass root brain.toml so daemon can find simulation.toml and blueprints
+            let brain_path = desc.baked_dir
+                .parent().unwrap() // Выходим из папки зоны
+                .parent().unwrap() // Выходим из папки baked
+                .join("brain.toml");
+
             println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?} (IPC: {})", desc.hash, desc.baked_dir, socket_addr);
             let child = Command::new(&daemon_path)
-                .arg("--brain").arg("config/brain.toml")
+                .arg("--brain").arg(&brain_path)
                 .arg("--zone-hash")
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
@@ -330,10 +335,13 @@ impl NodeRuntime {
             }
 
             // 2. Dispatch batches to compute shards
+            /* 
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && batch_counter % 100 == 0 {
                 self.services.telemetry.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
             }
+            */
+            let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
 
             let num_dispatchers = self.compute_dispatchers.len();
             if num_dispatchers == 0 {
@@ -412,9 +420,11 @@ impl NodeRuntime {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
 
                 if out_count > 0 {
+                    /* 
                     if batch_counter % 100 == 0 {
                         self.services.telemetry.push_log(format!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash), crate::tui::state::LogLevel::Info);
                     }
+                    */
                     // В цикле Egress:
                     self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
@@ -451,7 +461,7 @@ impl NodeRuntime {
             self.services.telemetry.total_ticks.store(current_tick as u64, Ordering::Relaxed);
             self.services.telemetry.wall_ms.store(wall_ms, Ordering::Relaxed);
 
-            if batch_counter > 0 && batch_counter % 500 == 0 {
+            if batch_counter > 0 && batch_counter % 50 == 0 {
                 // Remove console printing to keep TUI clean, stats are visible in Core Loop widget
                 // [DOD FIX] Hot-Reload entry point
                 self.reload_manifests();

@@ -6,6 +6,7 @@ from .brain import GenesisBrain, Zone, GenesisClusterControl
 from .builder import BrainBuilder
 from .encoders import PwmEncoder, PopulationEncoder
 from .decoders import PwmDecoder
+from .surgeon import GenesisSurgeon
 
 __all__ = [
     "GenesisMultiClient",
@@ -19,5 +20,6 @@ __all__ = [
     "BrainBuilder",
     "PwmEncoder",
     "PopulationEncoder",
-    "PwmDecoder"
+    "PwmDecoder",
+    "GenesisSurgeon"
 ]

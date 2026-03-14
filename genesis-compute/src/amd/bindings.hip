@@ -417,6 +417,10 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
   if (tid >= padded_n)
     return;
 
+  // [DOD FIX] Очищаем аккумулятор (Bit 1) для следующего батча
+  uint8_t flag = state.flags[tid];
+  state.flags[tid] = flag & ~0x02;
+
   // Динамическое чтение порога для каждого нейрона
   int16_t prune_threshold = 15;
 

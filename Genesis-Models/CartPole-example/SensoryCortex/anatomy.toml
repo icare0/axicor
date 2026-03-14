@@ -1,0 +1,9 @@
+[[layer]]
+name = "Nuclear"
+height_pct = 1.0
+density = 0.4
+
+[layer.composition]
+L4_spiny_VISp4_141 = 0.5
+L4_spiny_VISp4_114 = 0.2
+Motor_Pyramidal = 0.3

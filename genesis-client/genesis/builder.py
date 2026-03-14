@@ -13,6 +13,13 @@ class NeuronBlueprint:
         # Берем имя первого нейрона для идентификации группы
         self.name = data[0].get("name", "Unknown") if data else "Unknown"
 
+    def set_plasticity(self, pot: int, dep: int):
+        """HFT-тюнинг: динамическая смена параметров R-STDP."""
+        for n_type in self.data_list:
+            n_type["gsop_potentiation"] = pot
+            n_type["gsop_depression"] = dep
+        return self
+
 class LayerDesigner:
     def __init__(self, zone: 'ZoneDesigner', name: str, height_pct: float, density: float):
         self.zone = zone
@@ -238,9 +245,9 @@ class BrainBuilder:
                 "dimensions": {"w": zone.vox_x, "d": zone.vox_y, "h": zone.vox_z},
                 "neighbors": {},
                 "settings": {
-                    "save_checkpoints_interval_ticks": 100000,
-                    "night_interval_ticks": 10000,
-                    "prune_threshold": 15
+                    "save_checkpoints_interval_ticks": self.sim_params.get("save_checkpoints_interval_ticks", 1_000_000),
+                    "night_interval_ticks": self.sim_params.get("night_interval_ticks", 0),
+                    "prune_threshold": self.sim_params.get("prune_threshold", 10)
                 }
             }
             with open(zone_dir / "shard.toml", "w", encoding="utf-8") as f:

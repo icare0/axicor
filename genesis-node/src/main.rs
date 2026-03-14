@@ -77,7 +77,13 @@ fn main() -> Result<()> {
             } else {
                 // Это просто имя модели (например, "mouse_agent")
                 let models_root = std::env::var("GENESIS_MODELS_PATH")
-                    .unwrap_or_else(|_| "Genesis_Models".to_string());
+                    .unwrap_or_else(|_| {
+                        if std::path::Path::new("Genesis-Models").exists() {
+                            "Genesis-Models".to_string()
+                        } else {
+                            "Genesis_Models".to_string()
+                        }
+                    });
                 std::path::PathBuf::from(models_root).join(brain_arg).join("brain.toml")
             };
 
@@ -136,16 +142,18 @@ fn main() -> Result<()> {
             .name("genesis-egress-tx".into())
             .spawn(move || {
                 let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-                use std::sync::atomic::{AtomicU32, Ordering};
-                static EGRESS_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
+                // use std::sync::atomic::AtomicU32;
+                // static EGRESS_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
                 loop {
                     if let Some(msg) = worker_pool.ready_queue.pop() {
+                        /* 
                         if msg.target.port() == 8092 {
                             let n = EGRESS_LOG_COUNT.fetch_add(1, Ordering::Relaxed);
                             if n % 100 == 0 {
                                 println!("📤 [Egress Thread] Sending {} bytes to {} ({} packets)", msg.size, msg.target, n + 1);
                             }
                         }
+                        */
                         let _ = socket.send_to(&msg.buffer[..msg.size], msg.target);
                         worker_pool.free_queue.push(msg).unwrap();
                     } else {

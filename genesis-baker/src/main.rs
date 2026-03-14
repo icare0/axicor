@@ -237,7 +237,7 @@ fn serialize_artifacts(
         .with_context(|| format!("Cannot create output dir: {}", workspace.out_dir.display()))?;
 
     shard.dump_to_disk(&workspace.out_dir);
-    println!("[baker] ✓ Written: shard.state + shard.axons");
+    println!("[baker] ✓ Written: shard.state + shard.axons + shard.paths + shard.pos");
 
     if !gxis.is_empty() {
         crate::bake::input_map::write_gxi_file(&workspace.out_dir, gxis);

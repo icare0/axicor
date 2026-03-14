@@ -1,7 +1,7 @@
 # GNM-Lib - Genesis Neuron Model Library
 
 Библиотека цифровых блюпринтов нейронов для движка **Genesis**.
-Каждый `.toml` файл описывает один биологически аппроксимированный тип нейрона — мембранные свойства, морфологию роста, параметры пластичности — в целочисленной физике Genesis.
+Каждый `.toml` файл описывает один биологически аппроксимированный тип нейрона - мембранные свойства, морфологию роста, параметры пластичности - в целочисленной физике Genesis.
 
 ---
 
@@ -52,7 +52,7 @@ GNM-Library/
 ### Соглашение об именовании
 
 **Cortex:** `L{layer}_{dendrite_type}_{brain_area}[_{index}]`
-- Пример: `L5_spiny_VISp5_42` — 42-й вариант spiny-нейрона зоны VISp5 в слое L5
+- Пример: `L5_spiny_VISp5_42` - 42-й вариант spiny-нейрона зоны VISp5 в слое L5
 
 **Подкорковые:** `{Region}_{CellType}`
 - Пример: `Thalamus_TC`, `Hippocampus_PV_Basket`
@@ -108,7 +108,7 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Тип | Единицы | Диапазон | Описание |
 |----------|-----|---------|----------|----------|
-| `threshold` | i32 | µV (GNM) | 0–65 000 | Порог возбуждения. Когда потенциал ≥ threshold — нейрон генерирует спайк. |
+| `threshold` | i32 | µV (GNM) | 0–65 000 | Порог возбуждения. Когда потенциал ≥ threshold - нейрон генерирует спайк. |
 | `rest_potential` | i32 | µV (GNM) | 0–30 000 | Потенциал покоя. Мембрана стремится к этому значению между спайками. |
 | `leak_rate` | i32 | dV/tick | 10–12 000 | Скорость утечки мембраны. Выше = быстрее возврат к rest_potential. |
 | `refractory_period` | u8 | ticks | 5–25 | Абсолютный рефрактерный период. Нейрон не может спайкнуть в течение этого времени. |
@@ -129,27 +129,27 @@ prune_threshold = 5                         # i16, min weight to survive
 |----------|-----|---------|----------|----------|
 | `steering_fov_deg` | f32 | degrees | 20–180 | Угол обзора конуса при Cone Tracing (поиск целей аксоном). |
 | `steering_radius_um` | f32 | µm | 20–500 | Радиус шага роста аксона. |
-| `growth_vertical_bias` | f32 | — | 0.0–0.95 | Вертикальный bias роста (1.0 = строго вверх/вниз по слоям). |
+| `growth_vertical_bias` | f32 | - | 0.0–0.95 | Вертикальный bias роста (1.0 = строго вверх/вниз по слоям). |
 | `dendrite_radius_um` | f32 | µm | 15–500 | Радиус дендритного поля вокруг сомы. |
-| `type_affinity` | f32 | — | 0.0–1.0 | Притяжение к сомам своего vs чужого типа. spiny=0.8, aspiny=0.2. |
-| `sprouting_weight_distance` | f32 | — | 0.0–1.0 | Вес расстояния в Sprouting Score. |
-| `sprouting_weight_power` | f32 | — | 0.0–1.0 | Вес мощности сигнала в Sprouting Score. |
-| `sprouting_weight_explore` | f32 | — | 0.0–0.5 | Вес исследования (exploration) в Sprouting Score. |
-| `sprouting_weight_type` | f32 | — | 0.0–1.0 | Вес типового соответствия в Sprouting Score. |
-| `steering_weight_inertia` | f32 | — | 0.0–1.0 | Вес инерции направления при росте аксона. |
-| `steering_weight_sensor` | f32 | — | 0.0–1.0 | Вес сенсорного сигнала (притяжение к целям). |
-| `steering_weight_jitter` | f32 | — | 0.0–0.5 | Вес случайного шума при росте. |
+| `type_affinity` | f32 | - | 0.0–1.0 | Притяжение к сомам своего vs чужого типа. spiny=0.8, aspiny=0.2. |
+| `sprouting_weight_distance` | f32 | - | 0.0–1.0 | Вес расстояния в Sprouting Score. |
+| `sprouting_weight_power` | f32 | - | 0.0–1.0 | Вес мощности сигнала в Sprouting Score. |
+| `sprouting_weight_explore` | f32 | - | 0.0–0.5 | Вес исследования (exploration) в Sprouting Score. |
+| `sprouting_weight_type` | f32 | - | 0.0–1.0 | Вес типового соответствия в Sprouting Score. |
+| `steering_weight_inertia` | f32 | - | 0.0–1.0 | Вес инерции направления при росте аксона. |
+| `steering_weight_sensor` | f32 | - | 0.0–1.0 | Вес сенсорного сигнала (притяжение к целям). |
+| `steering_weight_jitter` | f32 | - | 0.0–0.5 | Вес случайного шума при росте. |
 
-### Пластичность (GSOP — Genesis Synaptic Ordering Protocol)
+### Пластичность (GSOP - Genesis Synaptic Ordering Protocol)
 
 | Параметр | Тип | Единицы | Диапазон | Описание |
 |----------|-----|---------|----------|----------|
-| `initial_synapse_weight` | u16 | — | 50–32 767 | Начальный вес нового синапса. ~1/50 от (threshold − rest). |
-| `gsop_potentiation` | u16 | — | 2–32 767 | Скорость потенциации (LTP). Больше = быстрее усиление. |
-| `gsop_depression` | u16 | — | 2–32 767 | Скорость депрессии (LTD). Больше = быстрее ослабление. |
+| `initial_synapse_weight` | u16 | - | 50–32 767 | Начальный вес нового синапса. ~1/50 от (threshold − rest). |
+| `gsop_potentiation` | u16 | - | 2–32 767 | Скорость потенциации (LTP). Больше = быстрее усиление. |
+| `gsop_depression` | u16 | - | 2–32 767 | Скорость депрессии (LTD). Больше = быстрее ослабление. |
 | `inertia_curve` | [u8; 16] | fixed-point | 2–255 | Сопротивление изменению веса по рангу. 128 = 1.0× (без модификации). |
-| `prune_threshold` | i16 | — | 5–8 000 | Минимальный вес для выживания синапса. Ниже = прунинг. |
-| `is_inhibitory` | bool | — | — | true = тормозной (ГАМК), false = возбуждающий (глутамат). |
+| `prune_threshold` | i16 | - | 5–8 000 | Минимальный вес для выживания синапса. Ниже = прунинг. |
+| `is_inhibitory` | bool | - | - | true = тормозной (ГАМК), false = возбуждающий (глутамат). |
 
 ---
 
@@ -187,7 +187,7 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Формула | Примечание |
 |----------|---------|------------|
-| `steering_fov_deg` | aspiny: 150°, sparsely spiny: 75°, spiny: 40° — коррекция: `−min(20, axon_length/100)` | Интернейроны = широкий поиск, пирамиды = узкий луч |
+| `steering_fov_deg` | aspiny: 150°, sparsely spiny: 75°, spiny: 40° - коррекция: `−min(20, axon_length/100)` | Интернейроны = широкий поиск, пирамиды = узкий луч |
 | `steering_radius_um` | `axon_total_length_um × 0.12`, clamp [20, 500] | 12% от длины аксона из SWC |
 | `growth_vertical_bias` | **Exc:** `|soma_z − 0.05| × 2000 / axon_length`, clamp [0.3, 0.95] | Пирамиды L5 тянутся к L1 |
 | | **Inh:** `0.1 + soma_z × 0.2`, max 0.4 | Интернейроны ветвятся локально |
@@ -220,7 +220,7 @@ prune_threshold = 5                         # i16, min weight to survive
 ```
 (gsop_potentiation × inertia[rank]) >> 7 ≥ 1
 ```
-Если нарушено — `inertia[rank]` поднимается до `⌈128 / gsop_potentiation⌉`.
+Если нарушено - `inertia[rank]` поднимается до `⌈128 / gsop_potentiation⌉`.
 
 ---
 
@@ -279,7 +279,7 @@ Cortical neuron electrophysiology and morphometry data derived from the
 > Available from celltypes.brain-map.org*
 
 The Allen Institute Terms of Use permit use of their data in research and derivative works
-with attribution. GNM-Library `.toml` files are derivative works — biological parameters
+with attribution. GNM-Library `.toml` files are derivative works - biological parameters
 (mV, ms, Hz, µm) were transformed through custom conversion formulas into Genesis
 integer physics units. No raw Allen data is redistributed.
 
@@ -303,7 +303,7 @@ original work; source data is used under the respective providers' terms of use.
 
 ## Инварианты
 
-- `inertia_curve` — ровно 16 элементов `[u8; 16]`, 128 = 1.0×
+- `inertia_curve` - ровно 16 элементов `[u8; 16]`, 128 = 1.0×
 - `is_inhibitory = true` → вес синапса интерпретируется как отрицательный
 - `signal_propagation_length ≥ refractory_period + 1` (иначе сигнал не успевает пройти)
 - `Σ sprouting_weight_* ≈ 1.0`

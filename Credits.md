@@ -1,4 +1,4 @@
-# Data Credits — GNM-Library
+# Data Credits - GNM-Library
 
 The **GNM-Library** neuron type parameters were derived from the following publicly available neuroscience databases. Raw biological measurements were transformed into **Genesis Neuron Model (GNM)** integer-domain invariants via high-fidelity approximation formulas; no original data files are distributed with this library.
 

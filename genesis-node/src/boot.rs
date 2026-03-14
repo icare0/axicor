@@ -192,7 +192,7 @@ impl Bootloader {
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone()).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), telemetry.clone()).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
@@ -491,7 +491,8 @@ impl Bootloader {
         first_manifest: &ZoneManifest,
         io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
-        shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>
+        shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
         let udp_in = first_manifest.network.external_udp_in;
@@ -502,7 +503,8 @@ impl Bootloader {
             Arc::new(AtomicBool::new(false)),
             io_contexts,
             routing_table.clone(),
-            Arc::new(io_socket)
+            Arc::new(io_socket),
+            telemetry.clone(),
         )?);
 
         let geo_port = local_port + 1;

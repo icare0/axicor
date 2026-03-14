@@ -27,7 +27,12 @@ pub struct InputMap {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
+    // [DOD FIX] Поддержка высоты спавна виртуальных аксонов
+    #[serde(default = "default_entry_z")]
+    pub entry_z: String,
 }
+
+fn default_entry_z() -> String { "top".to_string() }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct OutputMap {
