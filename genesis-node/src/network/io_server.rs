@@ -151,11 +151,12 @@ impl ExternalIoServer {
             return;
         }
 
-        let header = unsafe { &*(payload.as_ptr() as *const ExternalIoHeader) };
+        // [DOD FIX] Safe unaligned stack read. Prevents SIGBUS on ARM/Xtensa.
+        let header = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const ExternalIoHeader) };
 
         if header.magic == genesis_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
-                let update = unsafe { &*(payload.as_ptr() as *const RouteUpdate) };
+                let update = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
                 
                 // 1. Копируем текущую таблицу
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };

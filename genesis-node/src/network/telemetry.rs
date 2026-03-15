@@ -87,7 +87,7 @@ impl TelemetryServer {
     pub async fn start(port: u16) -> Arc<TelemetrySwapchain> {
         let server = Arc::new(Self::new(1024 * 1024).unwrap());
         let server_clone = server.clone();
-        let addr = format!("0.0.0.0:{}", port);
+        let addr = format!("127.0.0.1:{}", port); // [DOD FIX] Security by default
         
         tokio::spawn(async move {
             let _ = server_clone.run(&addr).await;

@@ -114,8 +114,8 @@ impl InterNodeRouter {
                 if let Ok((size, _)) = socket.recv_from(&mut buf).await {
                     if size < std::mem::size_of::<SpikeBatchHeader>() { continue; }
                     
-                    let header_ptr = buf.as_ptr() as *const SpikeBatchHeader;
-                    let header = unsafe { &*header_ptr };
+                    // [DOD FIX] Safe unaligned read from network buffer
+                    let header = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeader) };
                     
                     if header.magic != 0x5350494B { continue; }
                     

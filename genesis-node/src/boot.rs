@@ -497,7 +497,7 @@ impl Bootloader {
         let local_port = first_manifest.network.fast_path_udp_local;
         let udp_in = first_manifest.network.external_udp_in;
 
-        let io_socket = tokio::net::UdpSocket::bind(&format!("0.0.0.0:{}", udp_in)).await
+        let io_socket = tokio::net::UdpSocket::bind(&format!("127.0.0.1:{}", udp_in)).await
             .with_context(|| format!("Failed to bind UDP external_udp_in (port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", udp_in))?;
         let io_server = Arc::new(ExternalIoServer::new(
             Arc::new(AtomicBool::new(false)),
@@ -508,7 +508,7 @@ impl Bootloader {
         )?);
 
         let geo_port = local_port + 1;
-        let geo_addr = format!("0.0.0.0:{}", geo_port).parse()?;
+        let geo_addr = format!("127.0.0.1:{}", geo_port).parse()?;
         let geometry_server = GeometryServer::bind(geo_addr, shared_acks_queue).await
             .with_context(|| format!("Failed to bind Geometry Server (TCP port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", geo_port))?;
         let telemetry_port = local_port + 2;

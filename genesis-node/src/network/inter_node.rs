@@ -274,7 +274,7 @@ impl InterNodeRouter {
         bsp_barrier: std::sync::Arc<crate::network::bsp::BspBarrier>,
         routing_table: std::sync::Arc<crate::network::router::RoutingTable>,
     ) {
-        let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
+        let sock = tokio::net::UdpSocket::bind(("127.0.0.1", port)).await.expect("FATAL: Ghost Bind failed");
         
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65507];
