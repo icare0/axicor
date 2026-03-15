@@ -23,7 +23,6 @@ fn main() {
             .flag("-arch=sm_61") // NVIDIA Pascal (GTX 1080 Ti)
             .flag("-O3")
             .flag("-allow-unsupported-compiler") // Разрешаем работу с GCC 14+ (хотя мы форсим 13)
-            .flag("-ccbin=g++-13")             // Форсируем GCC 13 для совместимости с CUDA 12.4
             .file("src/cuda/bindings.cu")
             .file("src/cuda/physics.cu")
             .compile("genesis_cuda");

@@ -70,13 +70,20 @@ pub fn build_local_topology_internal(
                     // Центр пикселя с защитой от выхода за границы
                     let start_x = ((px as u32 * zone_w) / matrix.width as u32).min(zone_w.saturating_sub(1));
                     let start_y = ((py as u32 * zone_d) / matrix.height as u32).min(zone_d.saturating_sub(1));
-                    let start_z = zone_h.saturating_sub(1);
+                    // [DOD FIX] Парсим entry_z для правильного роутинга кабелей
+                    let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
+                        "bottom" => (0, 1i32, glam::Vec3::Z),
+                        "mid" => (zone_h / 2, 1i32, glam::Vec3::Z),
+                        _ => (zone_h.saturating_sub(1), -1i32, glam::Vec3::NEG_Z), // "top"
+                    };
 
-                    // Проращиваем кабель вертикально вниз на 15 вокселей
                     let mut segments = Vec::new();
-                    let length = 15.min(start_z + 1);
+                    let length = 15.min(zone_h);
+                    let mut final_z = start_z;
+                    
                     for i in 0..length {
-                        let z = start_z.saturating_sub(i);
+                        let z = (start_z as i32 + i as i32 * z_step).clamp(0, zone_h.saturating_sub(1) as i32) as u32;
+                        final_z = z;
                         segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
                     }
 
@@ -85,10 +92,10 @@ pub fn build_local_topology_internal(
                         type_idx: 0, // Virtual Type mask
                         tip_x: start_x,
                         tip_y: start_y,
-                        tip_z: start_z.saturating_sub(length),
+                        tip_z: final_z,
                         length_segments: segments.len() as u32,
                         segments,
-                        last_dir: glam::Vec3::NEG_Z,
+                        last_dir,
                     });
                 }
             }

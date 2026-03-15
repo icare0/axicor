@@ -8,6 +8,291 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.514.81] - 2026-03-15 00:22:08
+
+**Alpha 0.0.1: HFT Synchronization & Nuclear Reservoir Refactor**
+
+### Added
+- Compress SensoryCortex zone from 64x64x63 to 16x16x16 voxels (400x400x400 μm) in build_brain.py
+- Replace L4_Input, L23_Hidden, L5_Motor layers with unified Nuclear layer at 0.4 density
+- Set dendrite_radius_um to 400.0 for all neuron types for universal Small-World connectivity
+- Distribute excitatory (50%), inhibitory (20%), and motor (30%) neurons uniformly across zone height
+- Align environment tau to 0.002 and sync_batch_ticks to 20 for 2ms lockstep in agent.py and build_brain.py
+- Replace discrete dopamine logic with branchless continuous error gradient based on pole angle and velocity
+- Implement Spike Accumulator in physics.cu and physics.hip using Bit 1 of soma_flags for 100-tick batch capture
+- Increase DOPAMINE_PULSE to -15 and lower DOPAMINE_REWARD to 35 for aggressive R-STDP background erosion
+- Implement non-linear kinetic pain shock: shock = BASE + (score >> 5) + (velocity * 5) capped at 100 batches
+- Extract D1_AFFINITY, D2_AFFINITY, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY, ANGLE_SCALE, VELOCITY_SCALE to global constants in agent.py
+- Create benchmark.py with 10s stress test using GenesisMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
+- Add idle mode and simulated 20ms environment delay latency wall to benchmark.py
+- Fix synapse counting in benchmark.py by debugging SHM read for targets to count synapses before training
+- Add entry_z to InputMap DTO in genesis-core/src/config/io.rs for dynamic cable routing
+- Implement flags_offset in ThreadWorkspace and flags_slice_mut in genesis-node/src/node/shard_thread.rs
+- Inject soma_flags DMA at top of execute_night_phase and clear accumulator in bindings.cu and bindings.hip
+- Switch to Bit 1 check in genesis-baker/src/bake/sprouting.rs for spike detection
+- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in genesis-compute/build.rs
+- Add checks for nvcc and hipcc in scripts/setup.sh with mock-gpu feature prompt for CPU-only simulation
+- Update README.md to clarify GPU recommendation and CPU-only mock mode availability
+
+## [0.495.80] - 2026-03-13 19:01:02
+
+**Implement HFT encoders/decoders and stabilize Mouse Agent feedback loop**
+
+### Added
+- Implement PwmEncoder and PopulationEncoder in genesis/encoders.py for high-frequency sensory encoding
+- Implement PwmDecoder in genesis/decoders.py for motor signal decoding
+- Add TelemetryListener in genesis/telemetry.py for real-time spike monitoring
+- Add distill_graph and clear_weights functions in genesis/memory.py for zero-copy pruning and full network resets
+- Fix genesis-node CLI arguments by removing deprecated --batch-size and using --brain flag with brain.toml
+- Fix PYTHONPATH for cartpole_client.py by adding sys.path modification to include genesis-client directory
+- Correct mouse_client.py to monitor Motor_Cortex (1,252,141 synapses) instead of LGN_Thalamus relay zone
+- Reduce DOPAMINE_REWARD from 10 to 2 to prevent network epilepsy and oversaturation of spikes
+- Broaden Gaussian sigma from 0.15 to 0.2 in population coding for better sensory coverage
+- Create scripts/reset_weights.py tool for total network weight reset across all shards
+- Add benchmark_encoders.py and test_distillation.py for component validation
+- Update GenesisMultiClient and GenesisControl usage to match current SDK version in examples
+
+## [0.485.75] - 2026-03-13 14:16:30
+
+**Implement ESP32-S3 dual-core sensorimotor loop with lock-free motor stru**
+
+### Added
+- Add detailed visual data flow diagram in docs/specs/11_edge_bare_metal.md showing Core 0/Core 1 interaction via Lock-Free Ring Buffer
+- Implement alignas(32) MotorOut struct with std::atomic<uint32_t> left and right fields for zero-lock motor output
+- Include math.h for sensor emulation in genesis-lite/main/main.cpp
+- Replace ESP-NOW-only Core 0 task with integrated Hardware I/O Loop featuring I2C gyroscope stub and PWM motor out
+- Implement I2C gyroscope stub generating sine wave angle using sinf() and esp_timer_get_time()
+- Add Population Coding encoder mapping float angle to spikes on receptor axons 0..9 via rx_queue.push(ev)
+- Implement PWM Motor Out decoder reading and zeroing MotorOut counters via exchange(0, std::memory_order_relaxed)
+- Modify Wi-Fi initialization to handle QEMU environment failure with Offline Mode fallback
+- Keep ESP-NOW receive callback registration via esp_now_register_recv_cb(on_esp_now_recv)
+- Add motor cortex readout in day_phase_task checking sram.flags[254] and sram.flags[255] for spikes
+- Increment motors.left and motors.right via fetch_add(1, std::memory_order_relaxed) upon spike detection
+- Maintain hot loop timing print every 100 ticks
+
+## [0.477.75] - 2026-03-13 13:59:02
+
+**Implement ESP-NOW swarm connectivity and dual-core spike injection with **
+
+### Added
+- Add ESP‑NOW, Wi‑Fi, NVS, and event loop headers to main.cpp for radio stack
+- Implement pro_core_task on Core 0 with full ESP‑NOW initialization and fallback to mock sensor in QEMU
+- Register on_esp_now_recv callback to receive spike packets and push them into LockFreeSpikeQueue
+- Expose SpikeEvent struct as 8‑byte aligned network packet with ghost_id and tick_offset fields
+- Implement LockFreeSpikeQueue in genesis_core.hpp with atomic head/tail separated by cache lines
+- Add push and pop methods using std::atomic with memory_order_relaxed, acquire, and release semantics
+- Define SPIKE_QUEUE_SIZE as 256 and declare global rx_queue instance
+- Integrate queue pop loop in day_phase_task to apply incoming spikes as axon head resets (h0 = 0)
+- Split day_phase_task as Core 1 HFT compute phase and pro_core_task as Core 0 network/sensor phase
+- Replace Russian comments with English and remove redundant SRAM/Flash allocation comments
+- Move global_dopamine declaration and add rx_queue global variable
+- Adjust task creation in app_main to pin pro_core_task to Core 0 and day_phase_task to Core 1
+
+## [0.474.75] - 2026-03-13 13:43:36
+
+**Genesis-Lite HFT Core MVP**
+
+### Added
+- Genesis-Lite: ESP-IDF Port with GLIF Physics and GSOP Plasticity
+- Create genesis-lite project structure with ESP-IDF CMakeLists.txt and sdkconfig
+- Implement genesis_core.hpp with SramState, FlashTopology, and 64-byte VariantParameters
+- Port main.cpp to FreeRTOS API using esp_timer.h and xTaskCreatePinnedToCore
+- Bind day_phase_task strictly to Core 1, leaving Core 0 for I/O and networking
+- Implement Axon Propagation and Dendritic Integration phases with 32 dendrite slots per neuron
+- Add branchless GLIF leak calculations, threshold firing, and refractory period
+- Fix VARIANT_LUT array initialization and access syntax in main.cpp
+- Separate memory into SramState (Hot Data) and FlashTopology (read-only mapped data)
+- Implement ApplyGSOP kernel immediately after UpdateNeurons for R-STDP loop
+- Add branchless minimal distance calculation (check_head_dist) for BurstHeads8
+- Replace standard C++ headers with ESP-IDF equivalents (freertos/FreeRTOS.h, freertos/task.h)
+- Fix strict printf formatting warnings using inttypes.h macros (PRIu32, PRId64)
+- Add watchdog yielding via vTaskDelay in simulation loop
+
+## [0.463.73] - 2026-03-13 11:46:29
+
+**[Specs] Expand connectivity model and finalize AMD backend MVP**
+
+### Added
+- Implement Terminal Arborization two-phase axon growth: Trunk (Cone Tracing) and Crown (V_noise chaos within arborization_radius_um)
+- Add steering_fov_deg, arborization_target_layer, arborization_radius_um, arborization_density configuration parameters in 02_configuration.md
+- Document Zero-Cost Spatial Search via Axon Segment Grid (O(K) Spatial Hashing) and En Passant synapses
+- Update backend diversity status from [Planned] to [MVP] for AMD ROCm/HIP with bitwise-identical determinism
+- Finalize Dual-Backend C-ABI architecture with mirror directories (cuda/, amd/) and compile-time feature selection
+- Lower CUDA target architecture from sm_86 to sm_61 (NVIDIA Pascal) in genesis-compute/build.rs
+
+## [0.457.73] - 2026-03-13 11:21:51
+
+**docs(core): fix inertia rank comment 16 → 15 rängов**
+
+## [0.457.72] - 2026-03-13 07:54:08
+
+**Merge pull request #2 from aaaab000/fix/inertia-rank-oob-and-warp-assert**
+
+### Added
+- fix(core): inertia_rank OOB, warp assert, and fix broken tests
+
+## [0.456.71] - 2026-03-12 18:45:38
+
+**Implement robust constant memory management and suppress HIP warnings**
+
+### Added
+- AMD Radeon backend MVP
+- Implement robust FFI functions cu_upload_constant_memory, gpu_load_constants, and update_constant_memory_hot_reload with multi-stage fallback logic using HIP_SYMBOL and direct symbol address lookups
+- Update VARIANT_LUT declaration to __constant__ VariantParameters VARIANT_LUT[16]; to match 16 variants and satisfy linker
+- Move telemetry launcher functions and constant memory management functions from bindings.hip to physics.hip to resolve undeclared identifier errors
+- Simplify synaptic pruning logic by hardcoding sort_and_prune_kernel threshold to 15, decoupling from constant memory
+- Add (void) casts to hipStreamSynchronize, hipDeviceSynchronize, hipMemset, hipMemsetAsync, hipFree, hipMemcpyToSymbol, and hipMemcpyToSymbolAsync calls to suppress nodiscard warnings
+- Update genesis-compute/build.rs with new HIP compilation logic
+- Add mock GPU functions to genesis-compute/src/mock_ffi.rs
+- Add GPU context initialization to genesis-node/src/boot.rs
+- amd completed successfully with reduced warnings
+
+## [0.448.71] - 2026-03-12 16:40:31
+
+**fix(core): inertia_rank OOB, warp assert, and fix broken tests**
+
+## [0.448.70] - 2026-03-12 08:37:24
+
+**Stabilize SDK and examples for MVP with unified Genesis_Models structure**
+
+### Added
+- Rename primary model output directory from config/ to Genesis_Models/
+- Separate DNA and Baked artifacts, storing baked zone data in Genesis_Models/{project}/baked/{zone}/
+- Add Genesis_Models/ to .gitignore for generated artifacts
+- Update examples/mouse_agent.py to use new Genesis_Models/ path and correct sys.path.append
+- Fix builder.py path resolution to use absolute paths for all discovery files
+- Update baked_dir logic to point directly to the zone directory
+- Add --brain argument support to automatically expand brain.toml into zone manifests
+- Implement intelligent path resolver that accepts model names (e.g., --brain mouse_agent)
+- Add default-run to Cargo.toml to eliminate --bin genesis-node requirement
+- Update ZONE_SENSORY to match LGN_Thalamus zone name
+- Update MATRIX_SENSORS to match retina_rgb sensor configuration
+- Correct manifest path to Genesis_Models/mouse_agent/baked/LGN_Thalamus/manifest.toml
+
+## [0.444.70] - 2026-03-12 07:08:04
+
+**Genesis SDK procedural DNA generator**
+
+### Added
+- Fix sys.path.append in test_builder.py to correctly point to genesis-client directory
+- Update builder.py ZoneDesigner with add_input() and add_output() for matrix registration
+- Implement BrainBuilder connect() method for inter-zonal topological junctions
+- Extend BrainBuilder build() to generate per-zone io.toml and populate brain.toml connections
+- Ensure absolute path resolution for simulation.toml and zone configs in brain.toml generation
+- Specify --bin baker in cargo run command within test_builder.py to resolve ambiguity
+
+## [0.439.69] - 2026-03-12 04:27:17
+
+**TUI Dashboard Enhancements: Interactive Focus and Scrolling**
+
+### Added
+- Add `FocusedPanel` enum and `focus` field to `DashboardState` in `state.rs`
+- Implement `Tab` key for focus cycling between Per-Zone Telemetry and Event Log in `input.rs`
+- Implement `Up` and `Down` arrow keys for scrolling the currently focused panel in `input.rs`
+- Define static height layout for metric blocks (Header, Core, Zones, IO) totaling 14 rows in `layout.rs`
+- Ensure Event Log automatically stretches to fill all remaining vertical terminal space in `layout.rs`
+- Remove unused `draw_narrow_warning` function and `Rect` import in `layout.rs`
+- Add focus-dependent Cyan border and `▶` title prefix to `zone_table.rs` and `event_log.rs`
+- Implement vertical scrolling for Per-Zone table, displaying a slice of 7 zones in `zone_table.rs`
+- Implement history scrolling with inverted logic for Event Log in `event_log.rs`
+- Add activity bar (`█`) for visual spike rate tracking in the zone table in `zone_table.rs`
+- Add color-coded levels and Green Dopamine highlights to the Event Log in `event_log.rs`
+- Clean up `unused_mut` and `unused_variables` warnings in `cartpole_htf.rs`
+
+## [0.427.68] - 2026-03-12 03:44:39
+
+**sdk mvp**
+
+## [0.426.68] - 2026-03-11 23:31:22
+
+**SDK Docs**
+
+### Added
+- Remove high-level Python code examples and OOP abstractions from Client_SDK.md and 08_io_matrix.md
+- Enforce strict 20-byte ExternalIoHeader per UDP chunk, linked to genesis-core/src/ipc.rs
+- Define payload types: GSIO as 1 bit per virtual axon and GSOO as 1 byte per soma
+- Replace "Host Convention" with Feature Pyramid Batching abstraction describing temporal unfolding of layers
+- Clarify UDP L7-asymmetry: mega-batches are fragmented per MTU with header attached to each chunk
+- Add mandatory paradigm stating engine only handles bitmasks/bytes; float/RGB/token processing is client responsibility
+- Add uv_rect: [f32; 4] field to InputMap and OutputMap structs in genesis-core/src/config/io.rs
+- Implement DOD-projection math in genesis-baker/src/bake/topology.rs to partition start_x/start_y based on uv_rect for GXI
+- Pass matrix.uv_rect parameter to build_gxo_mapping function in genesis-baker/src/bake/output_map.rs with TODO for reverse UV projection
+- Document Canvas, Chunked, and Pie spatial mapping modes in specs/08_io_matrix.md section 2.4
+- Implement zero-cost state extraction from shard.state in scripts/visualize_neuron.py
+- Aggregate morphology stats (Fan-In, Total Weight Mass, Synaptic Balance) using NumPy operations
+- Add 2D Text HUD for neuron state metrics and 2D Inset Plot for Dendrite Weights Histogram
+- Integrate matplotlib pick_event for interactive synapse weight inspection on click
+- Add automatic parser for BrainDNA/blueprints.toml to display reference parameters in HUD, comparing threshold and rest_potential with real-time data
+
+## [0.418.68] - 2026-03-11 17:14:36
+
+**empty**
+
+## [0.418.68] - 2026-03-11 15:10:58
+
+**empty**
+
+## [0.418.68] - 2026-03-11 05:02:57
+
+**Assemble full cortical blueprints and implement Causal Delay Loop**
+
+### Added
+- Assemble SensoryCortex blueprints from GNM-Library in examples/cartpole/config/zones/SensoryCortex/blueprints.toml
+- Assemble HiddenCortex blueprints from GNM-Library in examples/cartpole/config/zones/HiddenCortex/blueprints.toml
+- Assemble MotorCortex blueprints from GNM-Library in examples/cartpole/config/zones/MotorCortex/blueprints.toml
+- Recalibrate Plasticity Formulas across all GNM-Library TOML files (Cerebellum, Cortex, Hippocampus, Striatum, Thalamus)
+- Fix SHM size hardcoding in boot.rs
+- Wire incoming ACK queue in boot.rs
+- Fix output fallback in config/io.rs
+- Remove hardcoded batch_size
+- Remove hardcoded night phase and prune limits
+- Revert [[neuron_types]] and fix missing stride in IO
+- Fix Baker Daemon IPC Acks and Show Logs
+- Fix live_dashboard.py UDP connection in cartpole_htf.rs
+- Implement Causal Delay Loop in cartpole_htf.rs
+
+## [0.409.60] - 2026-03-11 03:38:54
+
+**[Architecture] Assemble cortex blueprints from GNM-Library**
+
+### Added
+- Assemble SensoryCortex blueprints from GNM-Library in examples/cartpole/config/zones/SensoryCortex/blueprints.toml
+- Assemble HiddenCortex blueprints from GNM-Library in examples/cartpole/config/zones/HiddenCortex/blueprints.toml
+- Assemble MotorCortex blueprints from GNM-Library in examples/cartpole/config/zones/MotorCortex/blueprints.toml
+- Update corresponding anatomy.toml, io.toml, and shard.toml files for SensoryCortex, HiddenCortex, and MotorCortex
+- Remove hardcoded batch_size in genesis-core/src/config/instance.rs
+- Remove hardcoded night phase and prune limits in examples/cartpole/config/simulation.toml
+- Fix Baker Daemon IPC Acks and show logs in genesis-baker/src/bin/daemon.rs and genesis-baker/src/main.rs
+- Fix output fallback in config/io.rs
+- Revert [[neuron_types]] and fix missing stride in IO configuration
+- Wire incoming ACK queue in boot.rs within genesis-node/src/node/mod.rs
+- Fix live_dashboard.py UDP connection in cartpole_htf.rs
+- Fix SHM size hardcoding in examples/cartpole/config/brain.toml
+
+## [0.406.50] - 2026-03-11 00:24:42
+
+**[System] Fix hardcoded parameters and wire ACK queue**
+
+### Added
+- Fix SHM size hardcoding in genesis-core/src/ipc.rs and genesis-node/src/ipc.rs
+- Wire incoming ACK queue in genesis-node/src/boot.rs for proper IPC synchronization
+- Fix output fallback logic in genesis-core/src/config/io.rs
+- Remove hardcoded batch_size from examples/cartpole config files and genesis-baker modules
+- Fix live_dashboard.py UDP connection handling in genesis-node/src/bin/cartpole_htf.rs
+- Update neuron placement in genesis-baker/src/bake/neuron_placement.rs
+- Refactor output map generation in genesis-baker/src/bake/output_map.rs
+- Adjust sprouting logic in genesis-baker/src/bake/sprouting.rs
+- Extend topology baking in genesis-baker/src/bake/topology.rs
+- Update daemon boot sequence in genesis-baker/src/bin/daemon.rs
+- Modify geometry client in genesis-node/src/network/geometry_client.rs
+- Update slow path network handling in genesis-node/src/network/slow_path.rs
+- Refactor shard thread communication in genesis-node/src/node/shard_thread.rs
+- Adjust main node initialization in genesis-node/src/node/mod.rs and genesis-node/src/main.rs
+- Extend CHANGELOG.md with 189 lines of updates
+- Update example configurations across cartpole zone anatomy.toml, io.toml, and shard.toml files
+- Revise examples/cartpole/readme.md
+- Update _template/io.toml and scripts/weight_checker.py
+
 ## [0.394.45] - 2026-03-10 21:57:04
 
 **Implement Dynamic Capacity Routing with hot-patching and swap-and-pop me**
@@ -902,7 +1187,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.14.13] - 2026-02-26
 
 ### Added
-- **True Hardware E2E Scalability (§2)** — verified 1M neurons simulating at real physics bounds
+- **True Hardware E2E Scalability (§2)** - verified 1M neurons simulating at real physics bounds
 - E2E synthetic benchmark `e2e_test.rs` capturing real CUDA execution speeds bypassing CPU Baker overhead
 - Real-time physics bounds metrics on GTX 1080 Ti equivalent: ~32k Ticks/s (1K), ~22k Ticks/s (10K), ~5k Ticks/s (100K)
 - Proved memory safety and full pipeline closure from Virtual Input → GLIF → GSOP → Output Readout loops
@@ -910,15 +1195,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.13.5] - 2026-02-26
 
 ### Added
-- **Readout Interface (Output §3)** — `record_readout_kernel` extracting flagged motor spikes
+- **Readout Interface (Output §3)** - `record_readout_kernel` extracting flagged motor spikes
 - Dense `output_history` buffer capturing batched readout spikes per tick inside VRAM
 - `IoConfig` expanded in Core config with `OutputMap` and `readout_batch_ticks` for tiled outputs
 - Atlas tiling generation for motor soma assignment via `.gxo` files in Baker
 - DayPhase integration of readout recording into the simulation fast-path
 - Removed obsolete `record_outputs.cu` and atomic spike routing logic
-- **Sleep API and Spike Drop** — `is_sleeping` and `sleep_requested` added to runtime. Sleeping zones drop incoming spikes (Legalized Amnesia §2.3) and skip physics.
-- **Secure Cross-Shard Geometry** — bounds check (`if ghost_id < total_axons`) in `apply_spike_batch_kernel`
-- **Night Phase Checkpointing** — logic dumping `pre_sprout` states to disk before Baker processing
+- **Sleep API and Spike Drop** - `is_sleeping` and `sleep_requested` added to runtime. Sleeping zones drop incoming spikes (Legalized Amnesia §2.3) and skip physics.
+- **Secure Cross-Shard Geometry** - bounds check (`if ghost_id < total_axons`) in `apply_spike_batch_kernel`
+- **Night Phase Checkpointing** - logic dumping `pre_sprout` states to disk before Baker processing
 
 ### Fixed
 - SIGSEGV in mock-gpu runtime tests resolved
@@ -927,14 +1212,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.12.3] - 2026-02-25
 
 ### Added
-- **Input Interface (Virtual Axons §2.1)** — added `inject_inputs.cu` to map 1-bit external bitmasks to virtual axon firing
+- **Input Interface (Virtual Axons §2.1)** - added `inject_inputs.cu` to map 1-bit external bitmasks to virtual axon firing
 - Abstracted `grow_single_axon()` for reuse in Input map generation (`grow_input_maps`)
 - Deterministic FNV-1a seeded routing for `pixel→soma` translation across virtual axons
 - Generation of `.gxi` (Genesis eXternal Input) binary format with Header, Map Descriptors, and flat axon arrays
 - Expanded VRAM state to load `.gxi` indirection tables (`map_pixel_to_axon`) and allocate bitmask buffers
 - Batched bitmask upload capability (`upload_input_bitmask`) via DayPhase
-- **Testing Architecture** — comprehensive unit testing for Cone Tracing algorithm (26 tests in genesis-baker) covering SpatialGrid sensing, trajectory steering, and multi-shard generation
-- **Testing Architecture** — comprehensive testing of synaptogenesis (dendrite_connect) validating Rule of Uniqueness, Type Whitelist, Inhibitory signs, and Self-Exclusion with an ASCII visualizer
+- **Testing Architecture** - comprehensive unit testing for Cone Tracing algorithm (26 tests in genesis-baker) covering SpatialGrid sensing, trajectory steering, and multi-shard generation
+- **Testing Architecture** - comprehensive testing of synaptogenesis (dendrite_connect) validating Rule of Uniqueness, Type Whitelist, Inhibitory signs, and Self-Exclusion with an ASCII visualizer
 
 ### Fixed
 - Active Tail bounds alignment and axon sentinel refresh implemented
@@ -944,10 +1229,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.11.0] - 2026-02-24
 
 ### Added
-- **Ghost Axons (§1.7)** — бесшовный рост аксонов через границы шардов
+- **Ghost Axons (§1.7)** - бесшовный рост аксонов через границы шардов
 - `ShardBounds` structure with `full_world()` and `is_outside()` boundary detection
 - `GhostPacket` inter-shard transfer format (entry point, direction, remaining steps)
-- `inject_ghost_axons()` — ghost axon growth continuation in receiving shard
+- `inject_ghost_axons()` - ghost axon growth continuation in receiving shard
 - Pipeline integration in `main.rs` with diagnostic logging
 - Unit tests for boundary detection and ghost packet handling
 - Updated spec `04_connectivity.md` §1.7 with full protocol description
@@ -955,31 +1240,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.10.1] - 2026-02-24
 
 ### Added
-- **Power Score activation** — `compute_power_index` now called during Night Phase sprouting
+- **Power Score activation** - `compute_power_index` now called during Night Phase sprouting
 - Whitelist filtering in `reconnect_empty_dendrites()` (was missing)
 - `sprouting_weight_type` config parameter for soft type-matching scoring component
 
 ## [0.10.0] - 2026-02-24
 
 ### Added
-- **Rule of Uniqueness (§1.4)** — `HashSet`-based deduplication prevents redundant axon connections
-- **Dendrite Whitelist (§1.5)** — per-type compatibility filtering via `dendrite_whitelist` in blueprints
-- **Configurable Initial Weight** — `initial_synapse_weight` moved to `blueprints.toml`
+- **Rule of Uniqueness (§1.4)** - `HashSet`-based deduplication prevents redundant axon connections
+- **Dendrite Whitelist (§1.5)** - per-type compatibility filtering via `dendrite_whitelist` in blueprints
+- **Configurable Initial Weight** - `initial_synapse_weight` moved to `blueprints.toml`
 - Unit tests for whitelist and initial weight parsing
 - Updated spec `04_connectivity.md` §1.4–1.5
 
 ## [0.9.0] - 2026-02-24
 
 ### Added
-- **GPU LUT Expansion 4→16** — each of 16 neuron types gets a unique physical profile (GLIF/GSOP)
-- **Voxel Uniqueness** — reject-sampling guarantees one voxel = at most one neuron
+- **GPU LUT Expansion 4→16** - each of 16 neuron types gets a unique physical profile (GLIF/GSOP)
+- **Voxel Uniqueness** - reject-sampling guarantees one voxel = at most one neuron
 - `growth_vertical_bias`, `type_affinity`, `is_inhibitory` fields in blueprints
 - Blueprints.toml updated with 4 base types (Vertical_Excitatory, Horizontal_Inhibitory, Stable_Excitatory, Relay_Excitatory)
 
 ## [0.8.0] - 2026-02-24
 
 ### Added
-- **Binary Formatting (§2.1)** — formalized GSNS/GSAX header specs
+- **Binary Formatting (§2.1)** - formalized GSNS/GSAX header specs
 - `InstanceConfig` refactored into dedicated `instance.rs`
 - Default CLI paths updated to `config/zones/V1/*`
 - E2E test script paths corrected
@@ -987,7 +1272,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.7.0] - 2026-02-23
 
 ### Added
-- **Configuration Architecture (Spec 02 §1.1–1.3)** — `simulation.toml` parser in genesis-core
+- **Configuration Architecture (Spec 02 §1.1–1.3)** - `simulation.toml` parser in genesis-core
 - `anatomy.rs` parser with population calculation tests
 - `DerivedPhysics` + `compute_derived_physics()` with §1.6 invariant
 - `Tick`, `Microns`, `Fraction`, `VoxelCoord` type aliases
@@ -1001,17 +1286,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0] - 2026-02-23
 
 ### Added
-- **Night Phase IPC Baker Daemon** — `genesis-baker-daemon` executable running in background
-- **Shared Memory Protocol (SHM)** — zero-copy transfer of weights and targets between CUDA runtime and CPU baker
-- **Unix Sockets** — for JSON control messages (`night_start`, `night_done`) synchronization
-- **Sort & Prune CUDA Kernel** — O(1) register Bitonic Sort (N=128) per neuron to auto-promote LTM/WM and prune weak connections
+- **Night Phase IPC Baker Daemon** - `genesis-baker-daemon` executable running in background
+- **Shared Memory Protocol (SHM)** - zero-copy transfer of weights and targets between CUDA runtime and CPU baker
+- **Unix Sockets** - for JSON control messages (`night_start`, `night_done`) synchronization
+- **Sort & Prune CUDA Kernel** - O(1) register Bitonic Sort (N=128) per neuron to auto-promote LTM/WM and prune weak connections
 - Integration E2E IPC tests verifying full orchestrator pipeline handoff
 
 ## [0.5.0] - 2026-02-23
 
 
 ### Added
-- **Smart Axon Growth: Cone Tracing** — iterative, biologically plausible axon sprouting
+- **Smart Axon Growth: Cone Tracing** - iterative, biologically plausible axon sprouting
 - `SpatialGrid` spatial hash map for O(1) neighbor lookup during growth
 - V\_attract inverse-square law and piecewise tip geometry
 - Variable-length `.axons` binary format (tip\_x, tip\_y, tip\_z, length per axon)
@@ -1019,7 +1304,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.4.1] - 2026-02-23
 
 ### Added
-- **Genesis IDE** — new `genesis-ide` crate with Bevy 3D viewer
+- **Genesis IDE** - new `genesis-ide` crate with Bevy 3D viewer
 - Orbital + Fly camera modes with mouse/keyboard control
 - HUD overlay: FPS, neuron count, axon count, selected neuron info
 - Neuron spheres colored by `type_mask`
@@ -1028,22 +1313,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.4.0] - 2026-02-23
 
 ### Added
-- **Genesis Monitor** — WebSocket telemetry server broadcasting tick, phase, and real-time spike dense IDs
+- **Genesis Monitor** - WebSocket telemetry server broadcasting tick, phase, and real-time spike dense IDs
 - Bevy 3D client renders neurons as glow-highlighted spheres synced to live VRAM state
 
 ## [0.3.0] - 2026-02-22
 
 ### Added
-- **Ghost Axon Handover** — TCP Slow Path with VRAM reserve pool and Handover handshake
+- **Ghost Axon Handover** - TCP Slow Path with VRAM reserve pool and Handover handshake
 - Dynamic `SpikeRouter` route registration via slow path
-- **Homeostatic Plasticity** — branchless penalty/decay in GLIF kernel
+- **Homeostatic Plasticity** - branchless penalty/decay in GLIF kernel
 - Equilibrium validated across 100 CUDA ticks
 
 ## [0.2.0] - 2026-02-22
 
 ### Added
 - `genesis-node` daemon: parses `shard.toml`, mounts VRAM, drives BSP ephemeral loop
-- **Atlas Routing** — external Ghost Axons baked at compile time, zero GPU overhead at runtime
+- **Atlas Routing** - external Ghost Axons baked at compile time, zero GPU overhead at runtime
 
 ### Fixed
 - BSP deadlock: guaranteed empty-batch Header dispatch to all peers

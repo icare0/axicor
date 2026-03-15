@@ -1,0 +1,18 @@
+zone_id = "SensoryCortex"
+
+[world_offset]
+x = 0
+y = 0
+z = 0
+
+[dimensions]
+w = 24
+d = 24
+h = 16
+
+[neighbors]
+
+[settings]
+save_checkpoints_interval_ticks = 1000000
+night_interval_ticks = 0
+prune_threshold = 10

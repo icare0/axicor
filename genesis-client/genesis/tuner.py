@@ -19,7 +19,7 @@ class GenesisAutoTuner:
         self.phase = Phase.EXPLORATION
         
         # Инициализация фазы эксплорации
-        self.control.set_prune_threshold(5)
+        self.control.set_prune_threshold(30)
         self.control.set_night_interval(10000)
 
     def step(self, episode_score: float) -> Phase:
@@ -68,7 +68,7 @@ class GenesisAutoTuner:
 
     def _transition_to_exploration(self):
         print("\n🌱 [AutoTuner] Откат в EXPLORATION: Навык утерян, возобновляем рост...")
-        self.control.set_prune_threshold(5)
+        self.control.set_prune_threshold(30)
         self.control.set_night_interval(10000)
         self.phase = Phase.EXPLORATION
         self.window.clear() # Сбрасываем окно, чтобы не прыгать туда-сюда

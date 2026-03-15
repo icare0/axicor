@@ -54,6 +54,7 @@ pub struct ThreadWorkspace {
     pub weights_offset: usize,
     pub targets_offset: usize,
     pub handovers_offset: usize,
+    pub flags_offset: usize, // [DOD FIX] DMA Artery
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
 }
@@ -94,6 +95,7 @@ impl ThreadWorkspace {
                     weights_offset: header.weights_offset as usize,
                     targets_offset: header.targets_offset as usize,
                     handovers_offset: header.handovers_offset as usize,
+                    flags_offset: header.flags_offset as usize, // [DOD FIX]
                     shm_buffer: mmap,
                     checkpoint_state_buffer: vec![0u8; 0],
                     checkpoint_axons_buffer: vec![0u8; 0],
@@ -123,6 +125,15 @@ impl ThreadWorkspace {
             )
         }
     }
+
+    pub fn flags_slice_mut(&mut self, padded_n: usize) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.flags_offset) as *mut u8,
+                padded_n,
+            )
+        }
+    }
 }
 
 // ФАЗА 1: Выполнение GPU батча (Day Phase)
@@ -138,7 +149,7 @@ fn execute_day_phase(
     num_virtual_axons: u32,
     mapped_soma_ids: *const u32,
     v_seg: u32,
-    batch_counter: u64,
+    _batch_counter: u64,
     tick_base: u32, // <--- ADD
 ) {
     let _sync_batch_ticks = 100u32;
@@ -166,6 +177,7 @@ fn execute_day_phase(
         None
     };
 
+    /* 
     if batch_counter % 100 == 0 {
         println!("🔍 [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
         if let Some(slice) = input_slice {
@@ -175,6 +187,7 @@ fn execute_day_phase(
             }
         }
     }
+    */
 
     shard.step_day_phase_batch(
         batch_size,
@@ -261,13 +274,21 @@ fn execute_night_phase(
     shard_config: &InstanceConfig,
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
-    prune_threshold: i16, // [DOD FIX] Передаем динамический порог
+    prune_threshold: i16, 
     routing_table: &Arc<crate::network::router::RoutingTable>,
+    telemetry: &Arc<crate::tui::state::LockFreeTelemetry>,
 ) {
     let padded_n = shard.vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
 
     unsafe {
+        // 0. DMA: soma_flags to SHM [Capture spikes BEFORE they are cleared by pruning kernel]
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.soma_flags as *const _,
+            padded_n * std::mem::size_of::<u8>(),
+        );
+
         // 1. GPU Defragmentation & Prune
         genesis_compute::ffi::launch_sort_and_prune(
             &shard.vram.ptrs,
@@ -325,16 +346,16 @@ fn execute_night_phase(
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
-                dispatch_acks(acks, rt_handle, routing_table); // <--- Отправляем
-                // println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
+                dispatch_acks(acks, rt_handle, routing_table); 
+                telemetry.push_log(format!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash), crate::tui::state::LogLevel::Night);
             }
             Err(e) => {
-                println!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
+                telemetry.push_log(format!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e), crate::tui::state::LogLevel::Error);
                 *baker_client = None;
             }
         }
     } else {
-        println!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
+        telemetry.push_log(format!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash), crate::tui::state::LogLevel::Warning);
     }
 }
 
@@ -568,10 +589,10 @@ pub fn spawn_shard_thread(
                         if n_interval > 0 && current_tick_count % n_interval == 0 {
                             let current_prune_threshold = ctx.atomic_settings.prune_threshold.load(Ordering::Relaxed);
                             let night_start = std::time::Instant::now();
-                            execute_night_phase(
+                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
-                                current_prune_threshold, &ctx.routing_table
+                                current_prune_threshold, &ctx.routing_table, &ctx.telemetry
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
                             ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);

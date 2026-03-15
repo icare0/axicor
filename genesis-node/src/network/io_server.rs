@@ -99,6 +99,7 @@ pub struct ExternalIoServer {
     // R-STDP Dopamine Modulator (Global Reward Broadcast)
     pub global_dopamine: Arc<std::sync::atomic::AtomicI32>,
     pub dopamine_log_counter: AtomicU32,
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
 }
 
 impl ExternalIoServer {
@@ -107,6 +108,7 @@ impl ExternalIoServer {
         io_contexts: Vec<(u32, ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
     ) -> Result<Self> {
         Ok(Self {
             is_sleeping,
@@ -116,6 +118,7 @@ impl ExternalIoServer {
             socket,
             global_dopamine: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             dopamine_log_counter: AtomicU32::new(0),
+            telemetry,
         })
     }
 
@@ -164,7 +167,7 @@ impl ExternalIoServer {
                 
                 // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }
-                println!("📡 [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                self.telemetry.push_log(format!("📡 [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr), crate::tui::state::LogLevel::Info);
             }
             return;
         }
@@ -178,7 +181,7 @@ impl ExternalIoServer {
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
             None => {
-                println!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                self.telemetry.push_log(format!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash), crate::tui::state::LogLevel::Warning);
                 return;
             }
         };
@@ -186,7 +189,7 @@ impl ExternalIoServer {
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
             None => {
-                println!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                self.telemetry.push_log(format!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash), crate::tui::state::LogLevel::Warning);
                 return;
             }
         };
@@ -195,7 +198,7 @@ impl ExternalIoServer {
         let payload_data = &payload[payload_start..];
 
         if payload_data.len() != header.payload_size as usize {
-            println!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            self.telemetry.push_log(format!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len()), crate::tui::state::LogLevel::Warning);
             return;
         }
 
@@ -207,7 +210,7 @@ impl ExternalIoServer {
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
-                println!("💉 [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
+                self.telemetry.push_log(format!("💉 [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1), crate::tui::state::LogLevel::Info);
             }
         }
     }

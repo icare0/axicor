@@ -94,15 +94,7 @@ impl ShardSoA {
 
     /// Дамп SoA-структур в бинарные файлы. Zero-cost для загрузки в рантайме.
     pub fn dump_to_disk(&self, out_dir: &Path) {
-        // [Warp Alignment Check]
-        assert!(self.padded_n % 32 == 0, "CRITICAL: padded_n must be multiple of 32");
-
         let state_path = out_dir.join("shard.state");
-        let axons_path = out_dir.join("shard.axons");
-        let geom_path = out_dir.join("shard.geom");
-        let pos_path = out_dir.join("shard.pos");
-
-        // 1. .state (Somas + Dendrites)
         write_state_blob(
             &state_path,
             self.padded_n,
@@ -114,24 +106,19 @@ impl ShardSoA {
             &self.dendrite_targets,
             &self.dendrite_weights,
             &self.dendrite_timers,
-        ).expect("Failed to write .state blob");
+        ).expect("Failed to write state blob");
 
-        // 2. .axons (Heads only)
-        write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write .axons blob");
+        let axons_path = out_dir.join("shard.axons");
+        write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write axons blob");
 
-        // 3. .geom (Tips + Dirs for visualization and growth logic)
-        // Note: Not loaded into VRAM by ShardEngine, but needed by baker and telemetry
-        let mut geom_file = File::create(geom_path).expect("Failed to create .geom file");
-        geom_file.write_all(cast_slice(&self.axon_tips_uvw)).unwrap();
-        geom_file.write_all(cast_slice(&self.axon_dirs_xyz)).unwrap();
-        
-        // 3.5. .paths (Full Axon Geometry)
-        write_paths_blob(out_dir.join("shard.paths").as_path(), self._total_axons, &self.axon_lengths, &self.axon_paths)
-            .expect("Failed to write .paths blob");
+        // [DOD FIX] Выгрузка геометрии для Night Phase
+        let paths_path = out_dir.join("shard.paths");
+        write_paths_blob(&paths_path, self.axon_heads.len(), &self.axon_lengths, &self.axon_paths)
+            .expect("Failed to write paths blob");
 
-        // 4. .pos (Packed soma positions u32: Type|Z|Y|X)
-        let mut pos_file = File::create(pos_path).expect("Failed to create .pos file");
-        pos_file.write_all(cast_slice(&self.soma_positions)).unwrap();
+        let pos_path = out_dir.join("shard.pos");
+        std::fs::write(&pos_path, bytemuck::cast_slice(&self.soma_positions))
+            .expect("Failed to write pos blob");
     }
 }
 

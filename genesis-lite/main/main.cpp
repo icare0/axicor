@@ -171,18 +171,21 @@ void day_phase_task(void *pvParameter) {
             if (current_voltage >= effective_threshold) {
                 current_voltage = p.rest_potential;
                 sram.refractory_timer[tid] = p.refractory_period;
-                sram.flags[tid] = (flags & 0xFE) | 0x01; 
+				
+                sram.flags[tid] = (flags & 0xFC) | 0x03;
                 
                 BurstHeads8& ah = sram.axon_heads[tid];
-				ah.h7 = ah.h6;
-				ah.h6 = ah.h5;
-				ah.h5 = ah.h4;
-				ah.h4 = ah.h3;
-				ah.h3 = ah.h2;
-				ah.h2 = ah.h1;
-				ah.h1 = ah.h0;
-				ah.h0 = 0;
+                ah.h7 = ah.h6;
+                ah.h6 = ah.h5;
+                ah.h5 = ah.h4;
+                ah.h4 = ah.h3;
+                ah.h3 = ah.h2;
+                ah.h2 = ah.h1;
+                ah.h1 = ah.h0;
+                ah.h0 = 0;
+
             } else {
+                // [DOD FIX] Снимаем только мгновенный спайк, аккумулятор живет до Ночи
                 sram.flags[tid] &= ~0x01;
             }
 

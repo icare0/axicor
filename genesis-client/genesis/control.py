@@ -52,3 +52,13 @@ class GenesisControl:
                     v["d1_affinity"] = d1_affinity
                     v["d2_affinity"] = d2_affinity
         self._update_manifest(mutate)
+
+    def set_membrane_physics(self, variant_id: int, leak_rate: int, homeostasis_penalty: int, homeostasis_decay: int):
+        """Zero-Downtime патч физики GLIF и гомеостаза для конкретного типа нейронов."""
+        def mutate(d):
+            for v in d.get("variants", []):
+                if v["id"] == variant_id:
+                    v["leak_rate"] = leak_rate
+                    v["homeostasis_penalty"] = homeostasis_penalty
+                    v["homeostasis_decay"] = homeostasis_decay
+        self._update_manifest(mutate)

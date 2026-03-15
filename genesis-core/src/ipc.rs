@@ -112,7 +112,8 @@ pub const fn shm_size(padded_n: usize) -> usize {
     let weights_bytes = padded_n * 128 * 2;
     let targets_bytes = padded_n * 128 * 4;
     let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
-    64 + weights_bytes + targets_bytes + handovers_bytes
+    let flags_bytes = padded_n;
+    64 + weights_bytes + targets_bytes + handovers_bytes + flags_bytes
 }
 
 #[repr(C)]
@@ -147,6 +148,8 @@ impl ShmHeader {
         let targets_offset = weights_offset + weights_bytes;
         let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;
+        let handovers_bytes = (MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>()) as u32;
+        let flags_offset = handovers_offset + handovers_bytes;
 
         Self {
             magic: SHM_MAGIC,
@@ -165,7 +168,7 @@ impl ShmHeader {
             prunes_offset: 0,
             prunes_count: 0,
             incoming_prunes_count: 0,
-            flags_offset: 0,
+            flags_offset,
         }
     }
 

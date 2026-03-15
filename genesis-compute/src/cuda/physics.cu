@@ -223,17 +223,20 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   thresh_offset += is_glif_spiking * p.homeostasis_penalty;
   uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
 
-  // Флаг активности устанавливается от ЛЮБОГО спайка (нужно для GSOP)
-  flags = (flags & 0xFE) | (uint8_t)final_spike;
-
   // 7. Сдвиг голов аксона при спайке (Burst Shift)
   if (final_spike) {
+    // [DOD FIX] Bit 0: Instant Spike (GSOP), Bit 1: Batch Accumulator (Sprouting)
+    flags = (flags & 0xFC) | 0x03;
+
     uint32_t my_axon = vram.soma_to_axon[tid];
     if (my_axon != 0xFFFFFFFF) {
       BurstHeads8 h = vram.axon_heads[my_axon];
       push_burst_head(&h);
       vram.axon_heads[my_axon] = h;
     }
+  } else {
+    // [DOD FIX] Очищаем ТОЛЬКО мгновенный спайк. Аккумулятор (Bit 1) остается жив до Ночи.
+    flags = flags & ~0x01;
   }
 
   // 8. Запись в VRAM
@@ -308,12 +311,11 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int32_t raw_pot = base_pot + pot_mod;
     int32_t raw_dep = base_dep - dep_mod;
 
-    // Branchless clamp(0, val) через арифметический сдвиг. 
-    // Если raw < 0, то raw >> 31 дает 0xFFFFFFFF. Инверсия (~) дает 0x0.
-    int32_t final_pot = raw_pot & ~(raw_pot >> 31);
+    // Causal LTP может инвертироваться в штраф (нет clamp)
+    // Anti-causal LTD не может инвертироваться в рост (оставляем clamp)
     int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 
-    int32_t delta_pot = (final_pot * inertia) >> 7;
+    int32_t delta_pot = (raw_pot * inertia) >> 7;
     int32_t delta_dep = (final_dep * inertia) >> 7;
     // Экспоненциальный сдвиг. Каждые 16 тиков сила обучения падает вдвое (>> 1)
     uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
@@ -327,10 +329,14 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 
     // 5. Apply & Clamp
     int32_t new_abs = abs_w + delta;
-    if (new_abs < 0)
-      new_abs = 0;
-    if (new_abs > 32767)
+
+    // [DOD FIX] Branchless clamp(0, val). Если new_abs < 0, сдвиг даст 0xFFFFFFFF, инверсия даст 0.
+    // Это предотвращает инверсию знака веса ( Dale's Law Safety ).
+    new_abs = new_abs & ~(new_abs >> 31);
+
+    if (new_abs > 32767) {
       new_abs = 32767;
+    }
 
     vram.dendrite_weights[col_idx] = (int16_t)(new_abs * sign);
   }

@@ -440,6 +440,9 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
 
   // Динамическое чтение порога для каждого нейрона
   uint8_t flag = state.flags[tid];
+  // [DOD FIX] Очищаем аккумулятор (Bit 1) для следующего батча
+  state.flags[tid] = flag & ~0x02;
+  
   uint8_t variant_id = (flag >> 4) & 0x0F;
   int16_t prune_threshold = VARIANT_LUT[variant_id].prune_threshold;
 
@@ -750,7 +753,7 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
 }
 
 void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, cudaStream_t stream) {
-    // No-op for pinned memory as requested by specification/absence of telemetry_count.
+    (void)ptrs; (void)stream;
 }
 
 void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
