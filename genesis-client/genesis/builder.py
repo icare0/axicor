@@ -38,7 +38,7 @@ class ZoneDesigner:
         self.builder = builder
         self.name = name
         
-        # 1. Автоисправление (Clamping) под аппаратные лимиты PackedPosition
+        # 1. Автоисправление (Clamping) под аппаратные лимиты PackedPosition (11/11/6 bit)
         self.vox_x = max(1, min(x, 2047))
         self.vox_y = max(1, min(y, 2047))
         self.vox_z = max(1, min(z, 63))
@@ -89,6 +89,13 @@ class ZoneDesigner:
     def _register_blueprint(self, bp: NeuronBlueprint):
         # Регистрируем все типы из файла
         for n_type in bp.data_list:
+            # [HFT FIX] Map period to DDS multiplier (heartbeat_m)
+            if "spontaneous_firing_period_ticks" in n_type and n_type["spontaneous_firing_period_ticks"] > 0:
+                period = n_type["spontaneous_firing_period_ticks"]
+                # phase = (tick * m + salt) & 0xFFFF; heart = phase < m
+                # Probability = m / 65536 = 1 / period  => m = 65536 / period
+                n_type["heartbeat_m"] = int(65536 / period)
+
             n_name = n_type.get("name")
             if n_name not in self.blueprints_registry:
                 # Защита от превышения лимита типов (4-битная маска = макс 16)

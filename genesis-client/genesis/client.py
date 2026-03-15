@@ -55,7 +55,7 @@ class GenesisMultiClient:
             
             offset += HEADER_SIZE + size
 
-    def step(self, reward: int = 0) -> memoryview:
+    def step(self, reward: int = 0, expected_rx_hash: int = None) -> memoryview:
         """
         Hot Loop. Выполняется 100+ раз в секунду.
         Пользователь УЖЕ записал биты в массивы self.payload_views[...].
@@ -70,7 +70,13 @@ class GenesisMultiClient:
             self.sock.sendto(packet, self.addr)
 
         # Барьер синхронизации: ждем ответ от моторов
-        size, _ = self.sock.recvfrom_into(self._rx_buf, MAX_UDP_PAYLOAD)
-        
-        # Возвращаем Zero-Copy срез ответа (без 20-байтового заголовка GSOO)
-        return memoryview(self._rx_buf)[HEADER_SIZE:size]
+        while True:
+            size, _ = self.sock.recvfrom_into(self._rx_buf, MAX_UDP_PAYLOAD)
+            
+            if expected_rx_hash is not None:
+                magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._rx_buf, 0)
+                if m_hash != expected_rx_hash:
+                    continue  # Игнорируем пакет и ждем нужный (например, motor_out)
+                    
+            # Возвращаем Zero-Copy срез ответа (без 20-байтового заголовка GSOO)
+            return memoryview(self._rx_buf)[HEADER_SIZE:size]
