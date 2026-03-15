@@ -29,6 +29,16 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e))?;
 
     if cli.clean {
+        // [DOD FIX] Terminal barrier for destructive actions
+        print!("[baker] WARNING: This will permanently delete all baked models. Continue? [y/N]: ");
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        if input.trim().to_lowercase() != "y" {
+            println!("Aborting clean operation.");
+            return Ok(());
+        }
+
         println!("[baker] Clean flag set. Wiping baked directories...");
         for zone in &brain_config.zones {
             if zone.baked_dir.exists() {

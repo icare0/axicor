@@ -126,7 +126,8 @@ source .venv/bin/activate
 
 echo -e "  Installing Python dependencies..."
 pip install -q --upgrade pip
-pip install -q numpy gymnasium pygame optuna
+# [DOD FIX] Strict version pinning to prevent C-ABI breakage
+pip install -q numpy==1.26.4 gymnasium==0.29.1 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
 
 echo -e "  ${GREEN}✓${NC} Python dependencies installed"
 

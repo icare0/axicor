@@ -2,6 +2,12 @@
 
 import shutil
 import os
+import sys
+
+# [DOD FIX] Terminal barrier
+if input("⚠️ WARNING: This will permanently destroy all Genesis-Models. Continue? [y/N]: ").strip().lower() != 'y':
+    print("Aborted.")
+    sys.exit(0)
 path = "Genesis-Models"
 if os.path.exists(path):
     shutil.rmtree(path)
