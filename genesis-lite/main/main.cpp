@@ -15,7 +15,7 @@
 VariantParameters VARIANT_LUT[2];
 SramState sram;
 FlashTopology flash;
-int16_t global_dopamine = 0; 
+std::atomic<int16_t> global_dopamine{0}; 
 
 // [DOD] Zero-Lock Motor Output (Core 1 -> Core 0)
 struct alignas(32) MotorOut {
@@ -42,9 +42,24 @@ void init_brain(uint32_t num_neurons) {
     flash.dendrite_targets = (uint32_t*)calloc(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
     flash.soma_to_axon = (uint32_t*)calloc(num_neurons, sizeof(uint32_t));
 
-    for(uint32_t i = 0; i < num_neurons; i++) {
-        sram.axon_heads[i].h0 = AXON_SENTINEL;
+    // Проверка всех аллокаций одним блоком
+    if (!sram.voltage || !sram.flags || !sram.threshold_offset ||
+        !sram.refractory_timer || !sram.dendrite_weights || !sram.axon_heads ||
+        !flash.dendrite_targets || !flash.soma_to_axon) {
+        printf("❌ FATAL: SRAM allocation failed for %" PRIu32 " neurons\n", num_neurons);
+        abort();
     }
+
+    for(uint32_t i = 0; i < num_neurons; i++) {
+		sram.axon_heads[i].h0 = AXON_SENTINEL;
+		sram.axon_heads[i].h1 = AXON_SENTINEL;
+		sram.axon_heads[i].h2 = AXON_SENTINEL;
+		sram.axon_heads[i].h3 = AXON_SENTINEL;
+		sram.axon_heads[i].h4 = AXON_SENTINEL;
+		sram.axon_heads[i].h5 = AXON_SENTINEL;
+		sram.axon_heads[i].h6 = AXON_SENTINEL;
+		sram.axon_heads[i].h7 = AXON_SENTINEL;
+	}
 
     VARIANT_LUT[0].threshold = 400;
     VARIANT_LUT[0].rest_potential = 0;
@@ -81,15 +96,32 @@ void day_phase_task(void *pvParameter) {
 
         // 0. Apply Spike Batch (Zero-Cost Injection)
         while (rx_queue.pop(ev)) {
-            if (ev.ghost_id < sram.total_axons) {
-                sram.axon_heads[ev.ghost_id].h0 = 0; 
-            }
-        }
+			if (ev.ghost_id < sram.total_axons) {
+				BurstHeads8& ah = sram.axon_heads[ev.ghost_id];
+				ah.h7 = ah.h6;
+				ah.h6 = ah.h5;
+				ah.h5 = ah.h4;
+				ah.h4 = ah.h3;
+				ah.h3 = ah.h2;
+				ah.h2 = ah.h1;
+				ah.h1 = ah.h0;
+				ah.h0 = 0;
+			}
+		}
 
         // 1. Propagate Axons
         for(uint32_t i = 0; i < sram.total_axons; i++) {
-            if(sram.axon_heads[i].h0 != AXON_SENTINEL) sram.axon_heads[i].h0 += v_seg;
-            if(sram.axon_heads[i].h1 != AXON_SENTINEL) sram.axon_heads[i].h1 += v_seg;
+            BurstHeads8& ah = sram.axon_heads[i];
+			uint32_t mask;
+
+			mask = -(ah.h0 != AXON_SENTINEL); ah.h0 += v_seg & mask;
+			mask = -(ah.h1 != AXON_SENTINEL); ah.h1 += v_seg & mask;
+			mask = -(ah.h2 != AXON_SENTINEL); ah.h2 += v_seg & mask;
+			mask = -(ah.h3 != AXON_SENTINEL); ah.h3 += v_seg & mask;
+			mask = -(ah.h4 != AXON_SENTINEL); ah.h4 += v_seg & mask;
+			mask = -(ah.h5 != AXON_SENTINEL); ah.h5 += v_seg & mask;
+			mask = -(ah.h6 != AXON_SENTINEL); ah.h6 += v_seg & mask;
+			mask = -(ah.h7 != AXON_SENTINEL); ah.h7 += v_seg & mask;
         }
 
         // 2. Update Neurons (GLIF + Dendrites)
@@ -118,7 +150,10 @@ void day_phase_task(void *pvParameter) {
                 BurstHeads8 h = sram.axon_heads[axon_id];
                 uint32_t prop = p.signal_propagation_length;
 
-                bool hit = ((h.h0 - seg_idx) <= prop) || ((h.h1 - seg_idx) <= prop); 
+                bool hit = ((h.h0 - seg_idx) <= prop) || ((h.h1 - seg_idx) <= prop) ||
+						   ((h.h2 - seg_idx) <= prop) || ((h.h3 - seg_idx) <= prop) ||
+						   ((h.h4 - seg_idx) <= prop) || ((h.h5 - seg_idx) <= prop) ||
+						   ((h.h6 - seg_idx) <= prop) || ((h.h7 - seg_idx) <= prop); 
                 if (hit) {
                     i_in += sram.dendrite_weights[col_idx];
                 }
@@ -127,7 +162,8 @@ void day_phase_task(void *pvParameter) {
             current_voltage += i_in;
             int32_t diff = current_voltage - p.rest_potential;
             int32_t sign = (diff > 0) - (diff < 0);
-            int32_t leaked_abs = abs(diff) - p.leak_rate;
+            int32_t abs_mask = diff >> 31;
+			int32_t leaked_abs = ((diff ^ abs_mask) - abs_mask) - p.leak_rate;
             leaked_abs = leaked_abs & ~(leaked_abs >> 31); 
             current_voltage = p.rest_potential + (sign * leaked_abs);
 
@@ -135,11 +171,19 @@ void day_phase_task(void *pvParameter) {
             if (current_voltage >= effective_threshold) {
                 current_voltage = p.rest_potential;
                 sram.refractory_timer[tid] = p.refractory_period;
-                // [DOD FIX] Bit 0: Instant Spike (GSOP), Bit 1: Batch Accumulator (Sprouting)
+				
                 sram.flags[tid] = (flags & 0xFC) | 0x03;
+                
+                BurstHeads8& ah = sram.axon_heads[tid];
+                ah.h7 = ah.h6;
+                ah.h6 = ah.h5;
+                ah.h5 = ah.h4;
+                ah.h4 = ah.h3;
+                ah.h3 = ah.h2;
+                ah.h2 = ah.h1;
+                ah.h1 = ah.h0;
+                ah.h0 = 0;
 
-                sram.axon_heads[tid].h1 = sram.axon_heads[tid].h0;
-                sram.axon_heads[tid].h0 = 0; 
             } else {
                 // [DOD FIX] Снимаем только мгновенный спайк, аккумулятор живет до Ночи
                 sram.flags[tid] &= ~0x01;
@@ -155,7 +199,7 @@ void day_phase_task(void *pvParameter) {
 
             uint8_t variant_id = (flags >> 4) & 0x0F;
             VariantParameters p = VARIANT_LUT[variant_id]; 
-            int32_t dopamine = global_dopamine;
+            int32_t dopamine = global_dopamine.load(std::memory_order_relaxed);
 
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
@@ -169,8 +213,13 @@ void day_phase_task(void *pvParameter) {
 
                 uint32_t min_dist = 0xFFFFFFFF;
                 min_dist = check_head_dist(h.h0, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h1, seg_idx, prop, min_dist);
-
+				min_dist = check_head_dist(h.h1, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h2, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h3, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h4, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h5, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h6, seg_idx, prop, min_dist);
+				min_dist = check_head_dist(h.h7, seg_idx, prop, min_dist);
                 bool is_active = (min_dist != 0xFFFFFFFF);
                 int16_t w = sram.dendrite_weights[col_idx];
                 int32_t w_sign = (w >= 0) ? 1 : -1;
@@ -223,7 +272,7 @@ void day_phase_task(void *pvParameter) {
         }
 
         if (tick % 10 == 0) {
-            vTaskDelay(1 / portTICK_PERIOD_MS); 
+            vTaskDelay(pdMS_TO_TICKS(1)); 
         }
     }
 }
@@ -295,7 +344,7 @@ void pro_core_task(void *pvParameter) {
         }
 
         // Работаем на 20 Гц (типично для сервоприводов)
-        vTaskDelay(50 / portTICK_PERIOD_MS); 
+        vTaskDelay(pdMS_TO_TICKS(50)); 
     }
 }
 
