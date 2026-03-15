@@ -153,6 +153,7 @@ impl Bootloader {
         let sim_config = sim_config.context("No manifests provided")?;
 
         let sync_batch_ticks = sim_config.simulation.sync_batch_ticks;
+        let cluster_secret = genesis_core::seed::seed_from_str(&sim_config.simulation.master_seed); // [DOD FIX]
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
@@ -192,7 +193,7 @@ impl Bootloader {
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), telemetry.clone()).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), telemetry.clone(), cluster_secret).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
@@ -215,6 +216,7 @@ impl Bootloader {
             telemetry,
             shared_acks_queue,
             sync_batch_ticks,
+            cluster_secret,
         );
 
         Ok(BootResult {
@@ -492,7 +494,8 @@ impl Bootloader {
         io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
-        telemetry: Arc<crate::tui::state::LockFreeTelemetry>
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+        cluster_secret: u64, // [DOD FIX]
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
         let udp_in = first_manifest.network.external_udp_in;
@@ -505,6 +508,7 @@ impl Bootloader {
             routing_table.clone(),
             Arc::new(io_socket),
             telemetry.clone(),
+            cluster_secret,
         )?);
 
         let geo_port = local_port + 1;

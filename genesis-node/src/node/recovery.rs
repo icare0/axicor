@@ -14,6 +14,7 @@ impl NodeRuntime {
             new_ipv4,
             new_port,
             _padding: 0,
+            cluster_secret: self.cluster_secret, // [DOD FIX]
         };
         let packet = bytemuck::bytes_of(&update);
 

@@ -85,6 +85,7 @@ pub struct NodeRuntime {
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
     pub sync_batch_ticks: u32,
+    pub cluster_secret: u64, // [DOD FIX]
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -109,6 +110,7 @@ impl NodeRuntime {
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
         sync_batch_ticks: u32,
+        cluster_secret: u64, // [DOD FIX]
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -196,6 +198,7 @@ impl NodeRuntime {
             zone_v_segs,
             virtual_offset_map,
             sync_batch_ticks,
+            cluster_secret,
         };
 
         node

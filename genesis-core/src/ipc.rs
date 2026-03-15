@@ -536,6 +536,7 @@ pub struct RouteUpdate {
     pub new_ipv4: u32, // u32 representation of IPv4Addr
     pub new_port: u16,
     pub _padding: u16,
+    pub cluster_secret: u64, // [DOD FIX] Zero-Cost Auth
 }
 
-const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 16);
+const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 24);

@@ -100,6 +100,7 @@ pub struct ExternalIoServer {
     pub global_dopamine: Arc<std::sync::atomic::AtomicI32>,
     pub dopamine_log_counter: AtomicU32,
     pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+    pub cluster_secret: u64, // [DOD FIX]
 }
 
 impl ExternalIoServer {
@@ -109,6 +110,7 @@ impl ExternalIoServer {
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+        cluster_secret: u64, // [DOD FIX]
     ) -> Result<Self> {
         Ok(Self {
             is_sleeping,
@@ -119,6 +121,7 @@ impl ExternalIoServer {
             global_dopamine: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             dopamine_log_counter: AtomicU32::new(0),
             telemetry,
+            cluster_secret,
         })
     }
 
@@ -157,6 +160,12 @@ impl ExternalIoServer {
         if header.magic == genesis_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
                 let update = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
+                
+                // [DOD FIX] O(1) Zero-Cost Auth
+                if update.cluster_secret != self.cluster_secret {
+                    self.telemetry.push_log(format!("⚠️ [Security] Unauthorized ROUT_MAGIC from unknown source"), crate::tui::state::LogLevel::Warning);
+                    return;
+                }
                 
                 // 1. Копируем текущую таблицу
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
