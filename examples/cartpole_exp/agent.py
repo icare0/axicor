@@ -23,41 +23,46 @@ from genesis.memory import GenesisMemory
 from genesis.surgeon import GenesisSurgeon
 from genesis.brain import fnv1a_32
 
+# Проблема - обрезка синапсов при PRUNE_THRESHOLD = 0
+# Сеть деградирует из-за этого
+# После фазы "Ночи" дендриты с 0 весом не формируют новые связи
+
+
 #============================================================
 #                   CONFIGURATION ЕКСПЕРИМЕНТАЛЬНО!
 #============================================================
 EPISODES = 20_000_000         # Количество эпизодов до остановки обучения
 BATCH_SIZE = 20               # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
 NIGHT_INTERVAL = 50_000       # Периодичность сна (50к тиков = 100с физики)
-PRUNE_THRESHOLD = 10          # Порог удаления слабых синапсов (Аналог квантования fp32->fp16 когда срезается хвост, но здесь не критично, дает возможность перестроить связь)
+PRUNE_THRESHOLD = 1           # прошлый был 2, Порог удаления слабых синапсов (Аналог квантования fp32->fp16 когда срезается хвост, но здесь не критично, дает возможность перестроить связь)
 
 # Баланс R-STDP (Near-Zero Economy)
-DOPAMINE_PULSE = 2            # Околонулевая эрозия
-DOPAMINE_REWARD = -2          # Микро-награда для защиты от LTP Runaway
-DOPAMINE_PUNISHMENT = +20     # Death Signal (Максимальное наказание)
+DOPAMINE_PULSE = -7           # прошлый был -7, Околонулевая эрозия
+DOPAMINE_REWARD = 8           # прошлый был 7, Микро-награда для защиты от LTP Runaway
+DOPAMINE_PUNISHMENT = -12       # прошлый был 0, Death Signal Посылается N батчей после падения
 
 # Гиперпараметры Физики (GLIF & Receptors)
-D1_AFFINITY = 172             # Аффинность D1
-D2_AFFINITY = 252             # Аффинность D2
-LEAK_RATE = 1086              # Коэффициент утечки
-HOMEOS_PENALTY = 5960         # Штраф за homeostasis
-HOMEOS_DECAY = 49             # Декремент homeostasis
+D1_AFFINITY = 172             # прошлый был 172, Аффинность D1 делает нейроны более чувствительными к дофамину
+D2_AFFINITY = 252             # прошлый был 252, Аффинность D2 делает нейроны менее чувствительными к дофамину
+LEAK_RATE = 850               # прошлый был 1086, Коэффициент утечки
+HOMEOS_PENALTY = 5560         # прошлый был 5960, Штраф за homeostasis
+HOMEOS_DECAY = 49             # прошлый был 49, Декремент homeostasis
 
 # Тюнинг Градиента (Error Gradient)
-ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
-ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
-ANGLE_LIMIT = 0.2094          # 12 градусов
-VELOCITY_LIMIT = 2.0          # Максимальная скорость
+ERROR_ANGLE_WEIGHT = 0.8      # прошлый был 0.8, Вес ошибки угла
+ERROR_VEL_WEIGHT = 0.2        # прошлый был 0.2, Вес ошибки скорости
+ANGLE_LIMIT = 0.2094          # прошлый был 0.2094, 12 градусов
+VELOCITY_LIMIT = 2.0          # прошлый был 2.0, Максимальная скорость
 
 # Тюнинг Болевого Шока (Kinetic Amplifier)
-SHOCK_BASE = 10               # Базовый шок
-SHOCK_SCORE_BITSHIFT = 5      # score >> 5 (каждые 32 тика +1 батч)
-SHOCK_VEL_MULT = 5            # Штраф за скорость удара
-SHOCK_MAX_BATCHES = 100       # Максимальное количество батчей
+SHOCK_BASE = 5                # прошлый был 10, Базовый шок
+SHOCK_SCORE_BITSHIFT = 5      # прошлый был 5, score >> 5 (каждые 32 тика +1 батч)
+SHOCK_VEL_MULT = 5            # прошлый был 5, Штраф за скорость удара
+SHOCK_MAX_BATCHES = 10        # прошлый был 100, Сколько батчей подается Death Signal
 
 # Архитектурные параметры
-ENCODER_SIGMA = 0.2           # Сигма энкодера
-TARGET_SCORE = 50000.0        # Целевая оценка
+ENCODER_SIGMA = 0.2           # прошлый был 0.2, Сигма энкодера
+TARGET_SCORE = 50_000         # прошлый был 50000.0 *Недостижимая планка т.к дисциляцию навыка еще нужно реализовывать
 #============================================================
 #               END OF CONFIGURATION
 #============================================================
@@ -109,11 +114,6 @@ def run_cartpole():
     # [DOD FIX] Принудительная установка интервалов
     control.set_night_interval(NIGHT_INTERVAL)
     control.set_prune_threshold(PRUNE_THRESHOLD)
-
-    # [DOD FIX] Внедрение HFT-физики, найденной Optuna
-    print("🧬 Injecting Optuna GLIF & Receptor parameters via Zero-Downtime Control Plane...")
-    control.set_dopamine_receptors(0, d1_affinity=D1_AFFINITY, d2_affinity=D2_AFFINITY)
-    control.set_dopamine_receptors(1, d1_affinity=D1_AFFINITY, d2_affinity=D2_AFFINITY)
     
     # Регуляция мембранной физики
     control.set_membrane_physics(0, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY)

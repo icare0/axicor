@@ -32,7 +32,7 @@ cargo run --release -p genesis-node --features amd -- --brain CartPole-example -
 В новом терминале запустите Python-шлюз. Он начнет слать состояния маятника в виде битовых масок и обучать сеть инъекциями дофамина (-255) при падении и вознаграждать не линейно при успехе.
 
 ```bash
-python3 examples/cartpole/agent.py
+python3 examples/cartpole_exp/agent.py
 ```
 
 Смотрите на график в терминале (TUI) и логи Питона. Вы увидите, как сеть сама выжигает слабые связи и стабилизирует рефлекс!
