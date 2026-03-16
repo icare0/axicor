@@ -62,3 +62,11 @@ class GenesisControl:
                     v["homeostasis_penalty"] = homeostasis_penalty
                     v["homeostasis_decay"] = homeostasis_decay
         self._update_manifest(mutate)
+
+    def set_max_sprouts(self, max_sprouts: int):
+        """Изменяет лимит новых синапсов за одну ночь (Structural Plasticity speed)."""
+        def mutate(d):
+            if "settings" not in d: d["settings"] = {}
+            if "plasticity" not in d["settings"]: d["settings"]["plasticity"] = {}
+            d["settings"]["plasticity"]["max_sprouts"] = max_sprouts
+        self._update_manifest(mutate)

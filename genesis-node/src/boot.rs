@@ -131,6 +131,7 @@ impl Bootloader {
                 night_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.night_interval_ticks),
                 save_checkpoints_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.save_checkpoints_interval_ticks),
                 prune_threshold: std::sync::atomic::AtomicI16::new(zm.settings.plasticity.prune_threshold),
+                max_sprouts: std::sync::atomic::AtomicU16::new(zm.settings.plasticity.max_sprouts),
             });
 
             manifest_metadata.insert(zm.zone_hash, crate::node::ShardMetadata {

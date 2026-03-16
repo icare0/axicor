@@ -105,11 +105,18 @@ pub struct ManifestSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ManifestPlasticity {
     pub prune_threshold: i16,
+    #[serde(default = "default_max_sprouts")]
+    pub max_sprouts: u16,
 }
+
+fn default_max_sprouts() -> u16 { 4 }
 
 impl Default for ManifestPlasticity {
     fn default() -> Self {
-        Self { prune_threshold: 15 }
+        Self { 
+            prune_threshold: 15,
+            max_sprouts: default_max_sprouts(),
+        }
     }
 }
 

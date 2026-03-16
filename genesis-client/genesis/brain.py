@@ -48,6 +48,10 @@ class GenesisClusterControl:
         for zone in self._zones.values():
             zone.control.set_dopamine_receptors(variant_id, d1_affinity, d2_affinity)
 
+    def set_max_sprouts(self, max_sprouts: int):
+        for zone in self._zones.values():
+            zone.control.set_max_sprouts(max_sprouts)
+
 class GenesisBrain:
     """
     Единая точка входа для управления мультизональным коннектомом.

@@ -160,6 +160,7 @@ extern "C" {
     pub fn launch_sort_and_prune(
         ptrs: *const ShardVramPtrs,
         padded_n: u32,
+        prune_threshold: i16,
     );
     
     pub fn launch_extract_outgoing_spikes(

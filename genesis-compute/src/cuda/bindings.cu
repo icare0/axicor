@@ -433,7 +433,7 @@ struct DendriteSlot {
 // =====================================================================
 // Ядро 8: Сортировка и прунинг синапсов (Night Phase)
 // =====================================================================
-__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
+__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_t global_prune_threshold) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -443,7 +443,8 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
   state.flags[tid] = flag & 0xF1;
   
   uint8_t variant_id = (flag >> 4) & 0x0F;
-  int16_t prune_threshold = VARIANT_LUT[variant_id].prune_threshold;
+  // [DOD FIX] Удалено чтение из VARIANT_LUT. Используем переданный global_prune_threshold.
+  int16_t prune_threshold = global_prune_threshold;
 
   __shared__ DendriteSlot smem[WARP_SIZE][MAX_DENDRITE_SLOTS];
   uint32_t lane_id = threadIdx.x;
@@ -669,18 +670,17 @@ void cu_free_shard(ShardVramPtrs *vram) {
 // Один блок = один нейрон (32 потока). Идеальная утилизация Shared Memory.
 // Без stream — ночная фаза синхронна.
 // =====================================================================
-extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
-                                      uint32_t padded_n) {
-  uint32_t threads = 32;
-  uint32_t blocks = padded_n;
+extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded_n, int16_t prune_threshold) {
+  dim3 threads(WARP_SIZE, 1);
+  dim3 blocks((padded_n + WARP_SIZE - 1) / WARP_SIZE, 1);
 
-  SoA_State state = {};
+  SoA_State state;
   state.dendrite_targets = ptrs->dendrite_targets;
   state.dendrite_weights = ptrs->dendrite_weights;
   state.dendrite_timers = ptrs->dendrite_timers;
   state.flags = ptrs->soma_flags; // Передаем флаги для чтения варианта
 
-  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n);
+  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n, prune_threshold);
 }
 
 // ============================================================================

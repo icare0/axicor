@@ -79,6 +79,7 @@ impl BakerClient {
         _padded_n: usize,
         timeout: Duration,
         prune_threshold: i16,
+        max_sprouts: u16,
     ) -> Result<Vec<genesis_core::ipc::AxonHandoverAck>> {
         if handovers.len() > genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             bail!("Too many handovers: {} > {}", handovers.len(), genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT);
@@ -102,7 +103,7 @@ impl BakerClient {
             zone_hash: self.zone_hash,
             current_tick: 0,
             prune_threshold,
-            _padding: 0,
+            max_sprouts,
         };
 
         unsafe {

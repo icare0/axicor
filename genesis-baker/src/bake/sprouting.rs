@@ -27,6 +27,18 @@ pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+/// Вычисляет "силу" сомы на базе накопленных весов всех её входящих синапсов.
+/// Используется для аттракции аксонов к функционально важным нейронам.
+pub fn compute_power_index(soma_idx: usize, weights: &[i16], padded_n: usize) -> f32 {
+    let mut power = 0u32;
+    for slot in 0..MAX_DENDRITE_SLOTS {
+        let w = weights[slot * padded_n + soma_idx];
+        power += w.unsigned_abs() as u32; // Без float, без бранчей
+    }
+    // Нормализация в 0.0..1.0 (128 слотов по 32767 макс веса)
+    power as f32 / (MAX_DENDRITE_SLOTS as f32 * 32767.0)
+}
+
 use genesis_core::config::blueprints::BlueprintsConfig;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use genesis_core::ipc::AxonHandoverEvent;
@@ -122,12 +134,22 @@ pub fn run_sprouting_pass(
     lengths: &mut [u8],
     paths: &mut [u32],
     soma_positions: &[u32],
-    master_seed: u64, // <--- [DOD FIX] НОВЫЙ ПАРАМЕТР
-    zone_hash: u32, // <--- НОВЫЙ ПАРАМЕТР
+    master_seed: u64,
+    zone_hash: u32,
+    max_sprouts_per_night: u16,
 ) -> (usize, usize, Vec<genesis_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
     let ghost_start = padded_n;
     let ghost_end = padded_n + total_ghosts;
+
+    // [DOD FIX] O(1) Reverse Lookup Map (Axon -> Soma)
+    // Предотвращает O(N) поиск сомы при проверке активности или принадлежности аксона.
+    let mut axon_to_soma = vec![usize::MAX; total_axons];
+    for (s_idx, &a_idx) in soma_to_axon.iter().enumerate() {
+        if a_idx != u32::MAX && (a_idx as usize) < total_axons {
+            axon_to_soma[a_idx as usize] = s_idx;
+        }
+    }
 
     // 0. Абсорбция входящих Ghost Axons (до перезаписи SHM)
     let mut generated_acks = Vec::with_capacity(incoming_handovers_count);
@@ -210,6 +232,7 @@ pub fn run_sprouting_pass(
         
         let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
 
+        let mut sprouts_tonight = 0;
         for slot in (0..MAX_DENDRITE_SLOTS).rev() {
             let col_idx = slot * padded_n + i;
             if targets[col_idx] != 0 {
@@ -234,7 +257,7 @@ pub fn run_sprouting_pass(
                 }
                 if is_dup { return; }
 
-                // [DOD FIX] Эвристика: Type Affinity + Explore Noise
+                // [DOD FIX] Эвристика: Power Index + Type Affinity + Explore Noise
                 let cand_type_idx = seg_ref.type_idx as usize;
                 let is_same_type = (my_type_idx == cand_type_idx) as i32 as f32;
                 
@@ -243,12 +266,21 @@ pub fn run_sprouting_pass(
                     master_seed.wrapping_add(seg_ref.axon_id as u64).wrapping_add(_epoch)
                 );
 
+                // [DOD FIX] O(1) Target Power calculation
+                let owner_soma = axon_to_soma[seg_ref.axon_id as usize];
+                let target_power = if owner_soma == usize::MAX {
+                    1.0 // [DOD FIX] Virtual / Ghost аксоны имеют максимальную привлекательность!
+                } else {
+                    compute_power_index(owner_soma, weights, padded_n)
+                };
+
                 let mut score = 1.0;
                 if let Some(cfg) = my_type_cfg {
                     // Используем sprouting_weight_type из конфига!
                     score = cfg.sprouting_weight_distance * 1.0 // Считаем дистанцию близкой (r=2)
                           + cfg.sprouting_weight_explore * noise
-                          + cfg.sprouting_weight_type * is_same_type;
+                          + cfg.sprouting_weight_type * is_same_type
+                          + cfg.sprouting_weight_power * target_power;
                 }
 
                 if score > best_score {
@@ -270,8 +302,16 @@ pub fn run_sprouting_pass(
                 targets[col_idx] = new_target;
                 weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };
                 new_synapses += 1;
+                sprouts_tonight += 1;
+            } else {
+                // [DOD FIX] Если вокруг сомы больше нет подходящих аксонов для этого слота, 
+                // их не будет и для остальных. Прекращаем бессмысленный скан памяти.
+                break;
             }
-            break; // Один новый синапс за ночь на нейрон, чтобы избежать лавинообразного взрыва
+            
+            if sprouts_tonight >= max_sprouts_per_night as i32 {
+                break;
+            }
         }
     }
 

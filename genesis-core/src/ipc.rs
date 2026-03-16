@@ -232,7 +232,7 @@ pub struct BakeRequest {
     pub zone_hash: u32,       // FNV-1a of zone name
     pub current_tick: u32,
     pub prune_threshold: i16,
-    pub _padding: u16,
+    pub max_sprouts: u16,     // [DOD FIX] Динамическое ограничение новых связей за ночь
 }
 
 const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");

@@ -218,8 +218,8 @@ impl NodeRuntime {
                                 // 1. Update Atomic Settings
                                 metadata.atomic_settings.night_interval_ticks.store(zm.settings.night_interval_ticks, Ordering::Relaxed);
                                 metadata.atomic_settings.save_checkpoints_interval_ticks.store(zm.settings.save_checkpoints_interval_ticks, Ordering::Relaxed);
-                                
-                                    metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
+                                metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
+                                metadata.atomic_settings.max_sprouts.store(zm.settings.plasticity.max_sprouts, Ordering::Relaxed);
                                     
                                     // 2. Update GPU Constants (Variants)
                                     let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];

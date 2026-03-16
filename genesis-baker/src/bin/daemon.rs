@@ -327,7 +327,7 @@ fn run_night_phase<S: Read + Write>(
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
     
-    println!("🌙 Night Phase trigger received (tick={}, prune={})", req.current_tick, req.prune_threshold);
+    println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
     
     // ... (rest of the code)
 
@@ -417,6 +417,7 @@ fn run_night_phase<S: Read + Write>(
             soma_positions,  // NEW
             ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
             _zone_hash,
+            req.max_sprouts,
         )
     } else {
         (0, 0, vec![])

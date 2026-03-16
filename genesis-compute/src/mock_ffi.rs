@@ -204,12 +204,11 @@ pub extern "C" fn launch_record_readout(
 
 #[no_mangle]
 pub extern "C" fn launch_sort_and_prune(
-    _vram: VramState,
+    _ptrs: *const ShardVramPtrs,
+    _padded_n: u32,
     prune_threshold: i16,
-    _stream: *mut c_void,
-) -> i32 {
+) {
     log_call("SortAndPrune", prune_threshold as usize);
-    0
 }
 
 #[no_mangle]

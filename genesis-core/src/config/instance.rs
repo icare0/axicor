@@ -34,11 +34,15 @@ pub struct ShardSettings {
     
     #[serde(default = "default_prune")]
     pub prune_threshold: i16,
+
+    #[serde(default = "default_max_sprouts")]
+    pub max_sprouts: u16,
 }
 
 fn default_checkpoints() -> u32 { 100_000 }
 fn default_night_interval() -> u64 { 10_000 } // Ночь каждые 1 секунду симуляции по умолчанию
 fn default_prune() -> i16 { 15 }
+fn default_max_sprouts() -> u16 { 4 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]

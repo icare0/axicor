@@ -289,6 +289,7 @@ fn serialize_artifacts(
             save_checkpoints_interval_ticks: workspace.shard_cfg.settings.save_checkpoints_interval_ticks as u64,
             plasticity: genesis_core::config::manifest::ManifestPlasticity {
                 prune_threshold: workspace.shard_cfg.settings.prune_threshold,
+                max_sprouts: workspace.shard_cfg.settings.max_sprouts,
             },
         },
         connections: workspace.brain_config.connections.iter()

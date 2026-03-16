@@ -8,6 +8,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.630.105] - 2026-03-16 20:47:10
+
+**Remove experimental CartPole example and associated files**
+
+### Added
+- Delete entire `examples/cartpole [EXPERIMENTAL]/` directory and all contained files
+- Remove `README.md` with Zero-Magic Pipeline instructions, HFT reactor launch commands for CUDA/ROCm, and Python gateway steps
+- Remove `agent.py` containing the Embodied AI agent with SNN, dopamine injections (R-STDP), GenesisMultiClient, PopulationEncoder, PwmDecoder, GenesisControl, GenesisAutoTuner, GenesisMemory, GenesisSurgeon
+- Remove `benchmark.py` for performance testing with GenesisMultiClient and GenesisMemory
+- Remove `build_brain.py` script for generating TOML topology and invoking Rust compiler (`genesis-baker`)
+
+## [0.629.105] - 2026-03-16 18:54:02
+
+**[Connectome & Metrics]**
+
+### Added
+- Restore 6-layer biological topology in build_brain.py, fixing NameError for motor_pyramidal
+- Re-add missing add_input and add_output calls to ensure I/O integrity in build_brain.py
+- Refactor humanoid_agent.py to use GenesisBrain for dynamic zone discovery from brain.toml
+- Fix sprouting trigger in sprouting.rs to check full 3-bit burst counter using mask 0x0E instead of 0x02
+- Resolve VRAM phantom leak in CUDA/HIP by clearing burst count bits [3:1] with mask 0xF1 in sort_and_prune_kernel
+- Implement cu_reset_burst_counters_kernel in physics.hip for AMD/HIP backend
+- Integrate burst counter reset call at start of cu_step_day_phase in physics.cu and physics.hip
+- Implement every-batch burst reset in Genesis-Lite main.cpp, moving flags &= 0xF1 to top of daily loop
+- Synchronize batch reset and pruning logic across CUDA, HIP, and Lite backends for consistent simulation
+- Update genesis-lite main.cpp to create explicit sort_and_prune_kernel function with 0xF1 burst clear
+- Add required function declarations to genesis_core.hpp
+- Enhance scripts/brain_debugger.py for improved debugging capabilities
+
+## [0.619.102] - 2026-03-16 04:12:01
+
+**Humanoid Connectome Revival & Ant Pattern Lockstep**
+
+### Added
+- Implement Ant Pattern Lockstep with single `humanoid_sensors` (384x16) and `sync_batch_ticks = 80`
+- Replace dual PopulationEncoder with single `PopulationEncoder(384 vars)` and atomic `client.step()`
+- Enforce warp-aligned geometry: sensory input 192-bit width (6144 px), motor output 32-bit width (256 px)
+- Fix signal routing collisions: rename `proprio_to_thoracic`, `thoracic_to_cerebellum`, and `proprio_to_cerebellum`
+- Remove all manual socket handling, buffer drain, and multi-packet send logic
+- Simplify motor decoder to direct mapping of 17 muscles from first 34 neurons of 32x8 motor matrix
+- Implement Continuous Burst Encoding to prevent signal death in 5-zone deep brain
+- Fix geometry enforcement: use `motor_2d = total_motor.reshape(8, 34)` and O(1) stride slicing for biceps/triceps
+- Add Dopamine Low-Pass Filter (EMA) with `smoothed_velocity` outside loop
+- Enforce rigid RX protocol with `EXPECTED_RX_BYTES = 272 * BATCH_SIZE` and BSP Barrier check
+- Apply asymmetric weighting: Excitatory 16000, Inhibitory 4000; reduce MotorCortex GABA to 30%
+- Add direct `SensoryCortex -> MotorCortex` reflex arc bypass connection
+- Remove redundant `total_motor.reshape(17, 16)` and associated `action` calculation
+- Delete spontaneous neural firing (`heartbeat_m`) and restore plasticity with `dep=2`
+- Bind UDP socket to Port 8092 and implement Multi-Zone Handshake (8081 & 8121)
+- Fix library-aware renaming for `Motor_Pyramidal` updating both `blueprint.name` and internal `data_list["name"]`
+
 ## [0.606.99] - 2026-03-15 22:58:01
 
 **[Documentation] Update Ant-v4 example README with detailed setup and arc**

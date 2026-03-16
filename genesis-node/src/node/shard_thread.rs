@@ -25,7 +25,7 @@ pub struct ShardDescriptor {
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
 
-use std::sync::atomic::{AtomicU64, AtomicI16, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicI16, AtomicU16, Ordering};
 
 // TODO: Найти идеальный баланс для линейного стабильного роста, а потом аппроксимировать и 
 // заложить расчет нейрогенеза для каждого шарда автоматически на основе типов внутри.
@@ -33,6 +33,7 @@ pub struct ShardAtomicSettings {
     pub night_interval_ticks: AtomicU64,
     pub save_checkpoints_interval_ticks: AtomicU64, // ticks counter
     pub prune_threshold: AtomicI16,
+    pub max_sprouts: AtomicU16,
 }
 
 /// [Phase 23] Shared orchestrator resources — cheap Clone via Arc.
@@ -275,6 +276,7 @@ fn execute_night_phase(
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
     prune_threshold: i16, 
+    max_sprouts: u16,
     routing_table: &Arc<crate::network::router::RoutingTable>,
     telemetry: &Arc<crate::tui::state::LockFreeTelemetry>,
 ) {
@@ -293,6 +295,7 @@ fn execute_night_phase(
         genesis_compute::ffi::launch_sort_and_prune(
             &shard.vram.ptrs,
             shard.vram.padded_n,
+            prune_threshold,
         );
         genesis_compute::ffi::gpu_device_synchronize();
 
@@ -328,6 +331,7 @@ fn execute_night_phase(
             padded_n,
             std::time::Duration::from_secs(10),
             prune_threshold,
+            max_sprouts,
         ) {
             Ok(acks) => {
                 unsafe {
@@ -588,11 +592,12 @@ pub fn spawn_shard_thread(
                         let n_interval = ctx.atomic_settings.night_interval_ticks.load(Ordering::Relaxed);
                         if n_interval > 0 && current_tick_count % n_interval == 0 {
                             let current_prune_threshold = ctx.atomic_settings.prune_threshold.load(Ordering::Relaxed);
+                            let current_max_sprouts = ctx.atomic_settings.max_sprouts.load(Ordering::Relaxed);
                             let night_start = std::time::Instant::now();
                              execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
-                                current_prune_threshold, &ctx.routing_table, &ctx.telemetry
+                                current_prune_threshold, current_max_sprouts, &ctx.routing_table, &ctx.telemetry
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
                             ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);
