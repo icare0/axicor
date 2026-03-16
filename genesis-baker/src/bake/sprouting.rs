@@ -120,6 +120,7 @@ pub fn run_sprouting_pass(
     targets: &mut [u32],
     weights: &mut [i16],
     flags: &[u8],
+    ghost_origins: &[u32], // [DOD FIX] Origin Tracking
     handovers: &mut [AxonHandoverEvent],
     incoming_handovers_count: usize, 
     axon_tips_uvw: &mut [u32],
@@ -137,10 +138,24 @@ pub fn run_sprouting_pass(
     master_seed: u64,
     zone_hash: u32,
     max_sprouts_per_night: u16,
+    shm_ptr: *mut u8, // [DOD FIX] For prune writing
 ) -> (usize, usize, Vec<genesis_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
     let ghost_start = padded_n;
     let ghost_end = padded_n + total_ghosts;
+
+    // [DOD FIX] Axon Liveness Tracking (Reference Counting)
+    let mut active_axons = vec![false; total_axons];
+    
+    // 1. Mark existing connections as active
+    for t in targets.iter() {
+        if *t != 0 {
+            let axon_id = genesis_core::layout::unpack_axon_id(*t) as usize;
+            if axon_id < total_axons {
+                active_axons[axon_id] = true;
+            }
+        }
+    }
 
     // [DOD FIX] O(1) Reverse Lookup Map (Axon -> Soma)
     // Предотвращает O(N) поиск сомы при проверке активности или принадлежности аксона.
@@ -301,6 +316,10 @@ pub fn run_sprouting_pass(
 
                 targets[col_idx] = new_target;
                 weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };
+                
+                // [DOD FIX] Аксон получил новую связь, он жив
+                active_axons[seg.axon_id as usize] = true;
+
                 new_synapses += 1;
                 sprouts_tonight += 1;
             } else {
@@ -312,6 +331,46 @@ pub fn run_sprouting_pass(
             if sprouts_tonight >= max_sprouts_per_night as i32 {
                 break;
             }
+        }
+    }
+
+    // [DOD FIX] 5. GC Sweep: Ищем сирот среди Ghost Axons
+    let mut prunes = Vec::new();
+    for ghost_id in ghost_start..ghost_end {
+        if !active_axons[ghost_id] && axon_tips_uvw[ghost_id] != 0 {
+            // Найден призрак без связей!
+            let idx = ghost_id - ghost_start;
+            let target_zone_hash = ghost_origins[idx];
+            
+            if target_zone_hash != 0 {
+                // Регистрируем смерть в SHM
+                prunes.push(genesis_core::ipc::AxonHandoverPrune {
+                    target_zone_hash,
+                    dst_ghost_id: ghost_id as u32,
+                });
+                
+                // Физическое убийство: записываем сентенель в BurstHeads8 (axon_heads)
+                // AXON_SENTINEL = 0xFFFFFFFF
+                axon_tips_uvw[ghost_id] = 0; // На хосте
+                // В VRAM (через SHM не получится, нужно дождаться записи на диск или прямо сейчас?)
+                // Мы находимся в Baker, мы пишем в наши локальные структуры Tips/Dirs.
+                // Эти структуры потом будут запечены или синхронизированы.
+                // В данном случае мы просто обнуляем Tips, и nudge_axon(ghost_id) в следующую ночь
+                // просто пропустит этот аксон. 
+            }
+        }
+    }
+
+    // Записываем Prunes в SHM
+    if !prunes.is_empty() {
+        let hdr = unsafe { &mut *(shm_ptr as *mut genesis_core::ipc::ShmHeader) };
+        let dest = unsafe {
+            shm_ptr.add(hdr.prunes_offset as usize) as *mut genesis_core::ipc::AxonHandoverPrune
+        };
+        let count = prunes.len().min(1000); // Лимит на ночь
+        unsafe {
+            std::ptr::copy_nonoverlapping(prunes.as_ptr(), dest, count);
+            hdr.prunes_count = count as u32;
         }
     }
 

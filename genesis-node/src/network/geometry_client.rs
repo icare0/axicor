@@ -113,7 +113,12 @@ impl GeometryServer {
                                     queues.incoming_ack.push(ack); 
                                 }
                             }
-                            GeometryRequest::Prune(_) => {}
+                            GeometryRequest::Prune(ghost_id) => {
+                                queues.incoming_prune.push(genesis_core::ipc::AxonHandoverPrune {
+                                    target_zone_hash: 0, // Ignored on sender side
+                                    dst_ghost_id: ghost_id,
+                                });
+                            }
                         }
 
                         // Send Ack

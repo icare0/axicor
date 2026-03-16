@@ -48,20 +48,19 @@ pub struct NodeContext {
     pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>, 
     pub routing_table: Arc<crate::network::router::RoutingTable>, // [DOD FIX]
 }
-
-
 pub struct ThreadWorkspace {
-    pub shm_buffer: MmapMut,
     pub weights_offset: usize,
     pub targets_offset: usize,
     pub handovers_offset: usize,
-    pub flags_offset: usize, // [DOD FIX] DMA Artery
+    pub flags_offset: usize,
+    pub shm_buffer: MmapMut,
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
+    pub ghost_origins: Vec<u32>, // [DOD FIX] O(1) Origin Tracking
 }
 
 impl ThreadWorkspace {
-    pub fn new(zone_hash: u32, padded_n: usize) -> Self {
+    pub fn new(zone_hash: u32, padded_n: usize, total_ghosts: usize) -> Self {
         let path = genesis_core::ipc::shm_file_path(zone_hash);
         let total_size = shm_size(padded_n);
 
@@ -100,6 +99,7 @@ impl ThreadWorkspace {
                     shm_buffer: mmap,
                     checkpoint_state_buffer: vec![0u8; 0],
                     checkpoint_axons_buffer: vec![0u8; 0],
+                    ghost_origins: vec![0u32; total_ghosts],
                 };
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -328,6 +328,7 @@ fn execute_night_phase(
 
         match client.run_night(
             &incoming_handovers,
+            &workspace.ghost_origins,
             padded_n,
             std::time::Duration::from_secs(10),
             prune_threshold,
@@ -350,7 +351,20 @@ fn execute_night_phase(
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
+                
+                // [DOD FIX] Наполняем карту владельцев призраков (Origin Tracking)
+                for ack in &acks {
+                    let idx = (ack.dst_ghost_id as usize).saturating_sub(padded_n);
+                    if idx < workspace.ghost_origins.len() {
+                        workspace.ghost_origins[idx] = ack.target_zone_hash;
+                    }
+                }
+                
                 dispatch_acks(acks, rt_handle, routing_table); 
+                
+                // [DOD FIX] Чтение GC-очисток из SHM и маршрутизация смерти
+                dispatch_prunes(client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
+
                 telemetry.push_log(format!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash), crate::tui::state::LogLevel::Night);
             }
             Err(e) => {
@@ -454,6 +468,42 @@ fn dispatch_acks(
     }
 }
 
+fn dispatch_prunes(
+    client: &crate::ipc::BakerClient,
+    ghost_origins: &[u32],
+    padded_n: usize,
+    rt_handle: &tokio::runtime::Handle,
+    routing_table: &Arc<crate::network::router::RoutingTable>,
+) {
+    let shm_hdr = unsafe { std::ptr::read(client.shm_ptr as *const ShmHeader) };
+    if shm_hdr.prunes_count == 0 { return; }
+
+    let prunes_slice = unsafe {
+        std::slice::from_raw_parts(
+            client.shm_ptr.add(shm_hdr.prunes_offset as usize) as *const genesis_core::ipc::AxonHandoverPrune,
+            shm_hdr.prunes_count as usize,
+        )
+    };
+
+    for prune in prunes_slice {
+        let ghost_id = prune.dst_ghost_id as usize;
+        let idx = ghost_id.saturating_sub(padded_n);
+        
+        if idx < ghost_origins.len() {
+            let target_hash = ghost_origins[idx];
+            if target_hash != 0 {
+                if let Some(addr) = routing_table.get_address(target_hash) {
+                    let gid = prune.dst_ghost_id;
+                    rt_handle.spawn(async move {
+                        let req = crate::network::slow_path::GeometryRequest::Prune(gid);
+                        let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
+                    });
+                }
+            }
+        }
+    }
+}
+
 // Инициализация VRAM буферов
 fn init_io_buffers(
     num_virtual_axons: u32,
@@ -539,7 +589,7 @@ pub fn spawn_shard_thread(
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
-            let mut workspace = ThreadWorkspace::new(hash, padded_n);
+            let mut workspace = ThreadWorkspace::new(hash, padded_n, desc.num_virtual_axons as usize);
             let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];

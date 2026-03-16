@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.650.105] - 2026-03-16 23:32:02
+
+**AutoTuner Structural Plasticity & Phase Hyperparameter Integration**
+
+### Added
+- Implement dynamic GPU pruning threshold in CUDA kernel `sort_and_prune_kernel` (`bindings.cu`) and HIP kernel (`bindings.hip`)
+- Propagate threshold via Rust FFI contracts (`ffi.rs`, `mock_ffi.rs`) and Orchestrator's `execute_night_phase` in `shard_thread.rs`
+- Add `disable_all_plasticity()` to `GenesisControl` (`control.py`) to zero out `gsop_potentiation` and `gsop_depression` in the brain manifest
+- Integrate hardware plasticity freeze into `AutoTuner._transition_to_crystallization()` for total electrical freeze
+- Update `tuner.py` to support dopamine, physics, and affinity parameters with `EXPLORE_`, `DISTILL_`, `CRYSTAL_` prefixes
+- Implement `property` getters in `AutoTuner` for dynamic loop constants and flatten properties into cached attributes for O(1) access
+- Update `agent.py` config to use `EXPLORE_*` prefixes consistently and inject all phase-specific constants into `AutoTuner` init
+- Refactor `agent.py` main loop to use `tuner.dopamine_pulse`, `tuner.dopamine_reward`, `tuner.dopamine_punishment`, `tuner.shock_base`, `tuner.shock_vel_mult`, and `tuner.shock_max_batches`
+- Update `_apply_phase_settings` in `tuner.py` to cache dynamic params and remove dict-lookup properties including `_current_p`
+- Implement `max_sprouts` control per phase: Exploration (128 sprouts), Distillation (2 sprouts via `DISTILL_MAX_SPROUTS`), Crystallization (0 sprouts)
+- Update `_transition_to_crystallization` to set `max_sprouts(0)` for topology freeze
+
 ## [0.639.105] - 2026-03-16 22:23:03
 
 **Dynamic Structural Plasticity & GPU Pruning Threshold**

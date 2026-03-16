@@ -328,8 +328,16 @@ fn run_night_phase<S: Read + Write>(
     }
     
     println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
-    
-    // ... (rest of the code)
+
+    // [DOD FIX] Читаем карту владельцев призраков (Origin Tracking)
+    let total_ghosts = ctx.as_ref().map(|c| c._total_ghosts as usize).unwrap_or(0);
+    let mut ghost_origins = vec![0u32; total_ghosts];
+    if total_ghosts > 0 {
+        let bytes = unsafe {
+            std::slice::from_raw_parts_mut(ghost_origins.as_mut_ptr() as *mut u8, total_ghosts * 4)
+        };
+        stream.read_exact(bytes)?;
+    }
 
     // 2. Validate SHM Header
     let hdr_ptr = shm_ptr as *mut ShmHeader;
@@ -401,6 +409,7 @@ fn run_night_phase<S: Read + Write>(
             targets,
             weights,
             flags,
+            &ghost_origins,       // NEW: Origin Tracking
             handovers,            // NEW: передаем очередь
             h_count,              // НОВЫЙ ПАРАМЕТР
             tips_slice,           // Из MmapMut
@@ -418,6 +427,7 @@ fn run_night_phase<S: Read + Write>(
             ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
             _zone_hash,
             req.max_sprouts,
+            shm_ptr,         // NEW: For prune writing
         )
     } else {
         (0, 0, vec![])

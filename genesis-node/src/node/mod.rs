@@ -452,6 +452,15 @@ impl NodeRuntime {
 
             // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
             // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.
+            while let Some(prune) = self.network.routing_prunes.pop() {
+                // Ищем канал-владелец и удаляем роут
+                for (_, channel) in &mut self.network.inter_node_channels {
+                    unsafe { channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut()); }
+                }
+                for (_, _, channel) in &mut self.network.intra_gpu_channels {
+                    unsafe { channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut()); }
+                }
+            }
             self.patch_routing_tables();
 
             let wall_ms = batch_start.elapsed().as_millis() as u64;

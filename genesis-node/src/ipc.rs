@@ -76,6 +76,7 @@ impl BakerClient {
     pub fn run_night(
         &mut self,
         handovers: &[genesis_core::ipc::AxonHandoverEvent],
+        ghost_origins: &[u32],
         _padded_n: usize,
         timeout: Duration,
         prune_threshold: i16,
@@ -105,13 +106,19 @@ impl BakerClient {
             prune_threshold,
             max_sprouts,
         };
-
         unsafe {
             let req_bytes = std::slice::from_raw_parts(
                 &req as *const _ as *const u8,
                 std::mem::size_of::<genesis_core::ipc::BakeRequest>(),
             );
             stream.write_all(req_bytes)?;
+
+            // [DOD FIX] Передаем карту владельцев призраков (Origin Tracking)
+            let origin_bytes = std::slice::from_raw_parts(
+                ghost_origins.as_ptr() as *const u8,
+                ghost_origins.len() * 4
+            );
+            stream.write_all(origin_bytes)?;
         }
         stream.flush()?;
 

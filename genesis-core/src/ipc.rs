@@ -21,6 +21,7 @@ pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
 pub const SHM_VERSION: u8 = 2;
 
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
+pub const MAX_PRUNES_PER_NIGHT: usize = 10_000; // [DOD FIX]
 
 use serde::{Serialize, Deserialize};
 
@@ -112,8 +113,9 @@ pub const fn shm_size(padded_n: usize) -> usize {
     let weights_bytes = padded_n * 128 * 2;
     let targets_bytes = padded_n * 128 * 4;
     let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
+    let prunes_bytes = MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>();
     let flags_bytes = padded_n;
-    64 + weights_bytes + targets_bytes + handovers_bytes + flags_bytes
+    64 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes
 }
 
 #[repr(C)]
@@ -149,7 +151,9 @@ impl ShmHeader {
         let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;
         let handovers_bytes = (MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>()) as u32;
-        let flags_offset = handovers_offset + handovers_bytes;
+        let prunes_offset = handovers_offset + handovers_bytes;
+        let prunes_bytes = (MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>()) as u32;
+        let flags_offset = prunes_offset + prunes_bytes;
 
         Self {
             magic: SHM_MAGIC,
@@ -165,7 +169,7 @@ impl ShmHeader {
             handovers_offset,
             handovers_count: 0,
             zone_hash,
-            prunes_offset: 0,
+            prunes_offset,
             prunes_count: 0,
             incoming_prunes_count: 0,
             flags_offset,
