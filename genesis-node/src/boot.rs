@@ -177,13 +177,13 @@ impl Bootloader {
                 if src_hash == zm.zone_hash {
                     if let Some(peer_addr) = zm.network.fast_path_peers.get(&conn.to) {
                         let addr = peer_addr.parse::<std::net::SocketAddr>().expect("FATAL: Invalid peer IP");
-                        initial_routes.insert(dst_hash, addr);
+                        initial_routes.insert(dst_hash, (addr, 65507));
                         println!("[Boot] Route (Egress): {} (0x{:08X}) -> {}", conn.to, dst_hash, addr);
                     }
                 } else if dst_hash == zm.zone_hash {
                     if let Some(peer_addr) = zm.network.fast_path_peers.get(&conn.from) {
                         let addr = peer_addr.parse::<std::net::SocketAddr>().expect("FATAL: Invalid peer IP");
-                        initial_routes.insert(src_hash, addr);
+                        initial_routes.insert(src_hash, (addr, 65507));
                         println!("[Boot] Route (ACK): {} (0x{:08X}) -> {}", conn.from, src_hash, addr);
                     }
                 }
@@ -497,7 +497,7 @@ impl Bootloader {
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         cluster_secret: u64, // [DOD FIX]
-    ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
+    ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::router::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
         let udp_in = first_manifest.network.external_udp_in;
 
@@ -520,7 +520,7 @@ impl Bootloader {
         let telemetry_swapchain = TelemetryServer::start(telemetry_port).await;
 
         let egress_socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await?);
-        let inter_node_router = Arc::new(crate::network::inter_node::InterNodeRouter::new(egress_socket, routing_table));
+        let inter_node_router = Arc::new(crate::network::router::InterNodeRouter::new(egress_socket, routing_table));
         let egress_pool = Arc::new(crate::network::egress::EgressPool::new(1024));
 
         Ok((io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router))

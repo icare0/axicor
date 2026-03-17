@@ -13,13 +13,13 @@ impl NodeRuntime {
             zone_hash,
             new_ipv4,
             new_port,
-            _padding: 0,
+            mtu: 0, // [DOD FIX]
             cluster_secret: self.cluster_secret, // [DOD FIX]
         };
         let packet = bytemuck::bytes_of(&update);
 
         let table = unsafe { &*self.services.routing_table.get_map_ptr() };
-        for (&peer_hash, &addr) in table.iter() {
+        for (&peer_hash, &(addr, _mtu)) in table.iter() {
             if peer_hash != zone_hash {
                 let _ = self.network.inter_node_router.socket.send_to(packet, addr).await;
             }

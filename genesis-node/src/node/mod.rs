@@ -9,7 +9,7 @@ use crossbeam::channel::{bounded, Sender, Receiver};
 use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
-use crate::network::inter_node::InterNodeRouter;
+use crate::network::router::InterNodeRouter;
 use crate::node::shard_thread::ShardAtomicSettings;
 
 pub struct ShardMetadata {
@@ -45,7 +45,7 @@ pub enum ComputeFeedback {
 pub struct NetworkTopology {
     pub intra_gpu_channels: Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
     pub inter_node_channels: Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
-    pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
+    pub inter_node_router: Arc<crate::network::router::InterNodeRouter>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
     pub axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
     pub routing_acks: std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
@@ -103,7 +103,7 @@ impl NodeRuntime {
         output_routes: HashMap<u32, Vec<(String, u32)>>,
         intra_gpu_channels: Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
         inter_node_channels: Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
-        inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
+        inter_node_router: Arc<crate::network::router::InterNodeRouter>,
         axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         manifest_metadata: HashMap<u32, ShardMetadata>,

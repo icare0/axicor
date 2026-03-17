@@ -173,7 +173,7 @@ impl ExternalIoServer {
                 // 2. Патчим маршрут
                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
-                new_map.insert(update.zone_hash, new_addr);
+                new_map.insert(update.zone_hash, (new_addr, update.mtu));
                 
                 // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }

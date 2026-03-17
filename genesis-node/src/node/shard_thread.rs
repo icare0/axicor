@@ -459,7 +459,7 @@ fn dispatch_acks(
     }
 
     for (target_hash, batch) in grouped {
-        if let Some(addr) = routing_table.get_address(target_hash) {
+        if let Some((addr, _mtu)) = routing_table.get_address(target_hash) {
             rt_handle.spawn(async move {
                 let req = crate::network::slow_path::GeometryRequest::BulkAck(batch);
                 let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
@@ -492,7 +492,7 @@ fn dispatch_prunes(
         if idx < ghost_origins.len() {
             let target_hash = ghost_origins[idx];
             if target_hash != 0 {
-                if let Some(addr) = routing_table.get_address(target_hash) {
+                if let Some((addr, _mtu)) = routing_table.get_address(target_hash) {
                     let gid = prune.dst_ghost_id;
                     rt_handle.spawn(async move {
                         let req = crate::network::slow_path::GeometryRequest::Prune(gid);
