@@ -67,9 +67,15 @@ pub fn build_local_topology_internal(
 
             for py in 0..matrix.height {
                 for px in 0..matrix.width {
-                    // Центр пикселя с защитой от выхода за границы
-                    let start_x = ((px as u32 * zone_w) / matrix.width as u32).min(zone_w.saturating_sub(1));
-                    let start_y = ((py as u32 * zone_d) / matrix.height as u32).min(zone_d.saturating_sub(1));
+                    // [DOD FIX] UV Projection Math (Canvas / Chunked / Pie)
+                    let u = px as f32 / matrix.width as f32;
+                    let v = py as f32 / matrix.height as f32;
+                    let mapped_u = matrix.uv_rect[0] + u * matrix.uv_rect[2];
+                    let mapped_v = matrix.uv_rect[1] + v * matrix.uv_rect[3];
+
+                    let start_x = ((mapped_u * zone_w as f32) as u32).min(zone_w.saturating_sub(1));
+                    let start_y = ((mapped_v * zone_d as f32) as u32).min(zone_d.saturating_sub(1));
+                    
                     // [DOD FIX] Парсим entry_z для правильного роутинга кабелей
                     let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
                         "bottom" => (0, 1i32, glam::Vec3::Z),
@@ -126,6 +132,7 @@ pub fn build_local_topology_internal(
                 &packed_positions,
                 matrix.stride as u8,
                 target_type_id,
+                matrix.uv_rect,
             );
             gxo_matrices.push(gxo);
         }

@@ -1,5 +1,6 @@
 import os
 import glob
+import math
 import warnings
 import toml
 from pathlib import Path
@@ -55,30 +56,81 @@ class ZoneDesigner:
         self.inputs: List[Dict[str, Any]] = []
         self.outputs: List[Dict[str, Any]] = []
         
+    def _fragment_matrix(self, name: str, width: int, height: int, is_input: bool, mtu: int) -> list[dict]:
+        max_payload_bytes = mtu - 20
+        batch_ticks = self.builder.sim_params["sync_batch_ticks"]
+
+        # [DOD FIX] Strict C-ABI payload sizing including Time Domain
+        if is_input:
+            # Input: 1 бит на пиксель, выровненный до 4 байт (32 бит) НА КАЖДЫЙ ТИК.
+            # Уравнение: (pixels / 32) * 4 * batch_ticks <= max_payload_bytes
+            max_pixels_per_chunk = (max_payload_bytes // (4 * batch_ticks)) * 32
+        else:
+            # Output: 1 байт на пиксель НА КАЖДЫЙ ТИК.
+            # Уравнение: pixels * batch_ticks <= max_payload_bytes
+            max_pixels_per_chunk = max_payload_bytes // batch_ticks
+
+        if max_pixels_per_chunk < 1:
+            raise ValueError(f"MTU {mtu} is too small to fit even 1 pixel for {batch_ticks} ticks.")
+
+        # Если матрица влезает в один пакет — возвращаем 100% покрытие (Pie Mode)
+        if width * height <= max_pixels_per_chunk:
+            return [{"name": name, "width": width, "height": height, "uv_rect": [0.0, 0.0, 1.0, 1.0]}]
+
+        chunks = []
+        # 2D Grid Slicing (Chunked Mode L7-фрагментации)
+        chunk_dim = int(math.sqrt(max_pixels_per_chunk))
+        part = 0
+        for y in range(0, height, chunk_dim):
+            for x in range(0, width, chunk_dim):
+                w = min(chunk_dim, width - x)
+                h = min(chunk_dim, height - y)
+                chunks.append({
+                    "name": f"{name}_p{part}",
+                    "width": w,
+                    "height": h,
+                    # uv_rect: [u_offset, v_offset, u_scale, v_scale]
+                    "uv_rect": [x / width, y / height, w / width, h / height]
+                })
+                part += 1
+        return chunks
+
     def add_input(self, name: str, width: int, height: int, entry_z: str = "top", 
-                  target_type: str = "All", growth_steps: int = 1500, empty_pixel: str = "skip", stride: int = 1):
-        self.inputs.append({
-            "name": name,
-            "zone": self.name,
-            "width": width,
-            "height": height,
-            "entry_z": entry_z,
-            "target_type": target_type,
-            "growth_steps": growth_steps,
-            "empty_pixel": empty_pixel,
-            "stride": stride
-        })
+                  target_type: str = "All", growth_steps: int = 1500, empty_pixel: str = "skip", stride: int = 1, mtu: int = 65507):
+        
+        # [DOD FIX] Входная битовая маска: учет Warp Alignment и Batch Ticks
+        chunks = self._fragment_matrix(name, width, height, is_input=True, mtu=mtu)
+        
+        for chunk in chunks:
+            self.inputs.append({
+                "name": chunk["name"],
+                "zone": self.name,
+                "width": chunk["width"],
+                "height": chunk["height"],
+                "entry_z": entry_z,
+                "target_type": target_type,
+                "growth_steps": growth_steps,
+                "empty_pixel": empty_pixel,
+                "stride": stride,
+                "uv_rect": chunk["uv_rect"]  # [DOD FIX] Инъекция проекции в TOML
+            })
         return self
 
-    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1):
-        self.outputs.append({
-            "name": name,
-            "zone": self.name,
-            "width": width,
-            "height": height,
-            "target_type": target_type,
-            "stride": stride
-        })
+    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, mtu: int = 65507):
+        
+        # [DOD FIX] Выходная история спайков: 1 байт на пиксель на тик
+        chunks = self._fragment_matrix(name, width, height, is_input=False, mtu=mtu)
+        
+        for chunk in chunks:
+            self.outputs.append({
+                "name": chunk["name"],
+                "zone": self.name,
+                "width": chunk["width"],
+                "height": chunk["height"],
+                "target_type": target_type,
+                "stride": stride,
+                "uv_rect": chunk["uv_rect"]  # [DOD FIX] Инъекция проекции в TOML
+            })
         return self
         
     def add_layer(self, name: str, height_pct: float, density: float) -> LayerDesigner:
@@ -169,6 +221,34 @@ class BrainBuilder:
 
     def build(self):
         """Собирает ДНК мозга и генерирует все артефакты."""
+        # [DOD FIX] Hard Physical Validation (Integer v_seg)
+        # v_seg = (signal_speed_m_s * 1000 * (tick_duration_us / 1000)) / (voxel_size_um * segment_length_voxels)
+        s_speed = self.sim_params["signal_speed_m_s"]
+        t_dur = self.sim_params["tick_duration_us"]
+        v_size = self.sim_params["voxel_size_um"]
+        s_len = self.sim_params["segment_length_voxels"]
+        
+        v_seg_raw = (s_speed * 1000 * (t_dur / 1000)) / (v_size * s_len)
+        
+        if abs(v_seg_raw - round(v_seg_raw)) > 1e-5:
+            # Interactive Auto-Fix
+            import sys
+            suggested_speed = (round(v_seg_raw) * v_size * s_len) / (1000 * (t_dur / 1000))
+            error_msg = (f"\n❌ [Builder] Physical Validation Failed: v_seg must be an integer.\n"
+                         f"Current v_seg: {v_seg_raw:.4f}\n"
+                         f"To fix this, you can change signal_speed_m_s to {suggested_speed:.4f}")
+            
+            if sys.stdout.isatty():
+                print(error_msg)
+                val = input(f"Apply auto-fix (speed={suggested_speed:.4f})? [Y/n]: ").strip().lower()
+                if val in ("", "y", "yes"):
+                    self.sim_params["signal_speed_m_s"] = suggested_speed
+                    print(f"✅ Auto-fix applied: signal_speed_m_s = {suggested_speed:.4f}")
+                else:
+                    raise ValueError("Manual fix required for v_seg integrality.")
+            else:
+                raise ValueError(error_msg)
+
         print(f"\n🧬 Generating Brain DNA: {self.project_name} ...")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         

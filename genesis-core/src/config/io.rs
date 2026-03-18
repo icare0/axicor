@@ -16,6 +16,9 @@ pub struct IoConfig {
     pub readout_batch_ticks: Option<u32>,
 }
 
+fn default_entry_z() -> String { "top".to_string() }
+// [DOD FIX] Default UV Rect for Pie mode (100% overlap)
+fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct InputMap {
@@ -30,9 +33,10 @@ pub struct InputMap {
     // [DOD FIX] Поддержка высоты спавна виртуальных аксонов
     #[serde(default = "default_entry_z")]
     pub entry_z: String,
+    // [DOD FIX] Spatial Mapping
+    #[serde(default = "default_uv_rect")]
+    pub uv_rect: [f32; 4],
 }
-
-fn default_entry_z() -> String { "top".to_string() }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct OutputMap {
@@ -44,6 +48,9 @@ pub struct OutputMap {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
+    // [DOD FIX] Spatial Mapping
+    #[serde(default = "default_uv_rect")]
+    pub uv_rect: [f32; 4],
 }
 
 impl IoConfig {

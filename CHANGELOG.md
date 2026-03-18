@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.760.110] - 2026-03-18 05:30:29
+
+**[Tooling] Enhance artifact collection with exclusions**
+
+### Added
+- Add EXCLUDED_FOLDERS and EXCLUDED_FILES configuration lists to gen_commit.py
+- Update collect_all_artifacts logic to filter out common dev folders and OS junk files
+- Expand ARTIFACT_NAMES to include task.md and implementation_plan.md as valid sources
+- Verify script skips self-referential PERSONAL folder and respects all exclusions
+
+## [0.756.110] - 2026-03-18 04:10:31
+
+**[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
+
+### Added
+- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
+- Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
+- Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
+- Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
+- Initialize SPI device handle tui_spi for display communication
+- Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
+- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
+- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Add partitions.csv for brain_topo RAW partition definition
+- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
+
+### Fixed
+- Change init_brain() to accept no arguments, neuron count auto-detected from Flash
+- Update sort_and_prune_kernel signature to include int16_t global_prune_threshold
+- Ensure axon_heads allocation uses heap_caps_aligned_calloc with 32-byte alignment
+
+
 ## [0.744.109] - 2026-03-18 04:10:31
 
 **[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
