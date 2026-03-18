@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.788.113] - 2026-03-18 10:07:02
+
+**Implement Vectorized Back-Tracing and Surgical Grafting with Monumentali**
+
+### Added
+- Implement extract_reflex_path() with O(1) inverse mapping from axon_id to soma_id via axon_to_soma array
+- Add vectorized back-tracing loop using frontier_somas, avoiding for loops to preserve CPU L1/L2 cache
+- Enforce Dale's Law by using abs(weight) > prune_threshold to capture strong inhibitory connections automatically
+- Fix Zero-Index Trap by correctly extracting axon_id as (target & 0x00FFFFFF) - 1
+- Replace inject_graft() with inject_subgraph() that erases target neuron state before implantation
+- Implement monumentalization by setting implanted weights to signs * 32767, achieving maximum inertia rank 15
+- Preserve source neuron sign (Dale's Law) while maximizing synaptic strength during weight injection
+- Extend ShmHeader packing in test_distillation.py to strict C-ABI v2 (64 bytes), adding total_axons field
+- Update SDK_Surgery_Dopamine.md with detailed explanation of Path-Based Extraction and Surgical Grafting
+- Add caution note on hardware Zero-Index Trap for dendrite_targets and axon_id calculation
+
+
 ## [0.781.111] - 2026-03-18 09:49:06
 
 **Implement DOD fixes and layer isolation for CartPole brain architecture**
