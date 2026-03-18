@@ -12,7 +12,7 @@ source .venv/bin/activate
 **Шаг 1. Сгенерируйте и запеките мозг (WTA Architecture)**
 Скрипт создаст 3-зонную топологию (Sensory, Thoracic, Motor) с 60% плотностью тормозных нейронов в моторной коре для реализации Winner-Takes-All динамики.
 ```bash
-python3 examples/ant/build_brain.py
+python3 examples/ant_exp/build_brain.py
 ```
 
 **Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**

@@ -29,8 +29,9 @@ class PwmEncoder:
         Broadcasting сравнение и Zero-copy запись в сетевой буфер.
         Возвращает количество записанных байт.
         """
-        # Сравнение только для реальных сенсоров (остальные биты останутся 0)
-        self._bool_buffer[:, :self.N] = self.pwm_wave < sensors_f16[None, :]
+        # [DOD FIX] Strict Zero-Allocation comparison. 
+        # Никаких временных массивов! Результат пишется прямо в _bool_buffer.
+        np.less(self.pwm_wave, sensors_f16, out=self._bool_buffer[:, :self.N])
         
         # bitorder='little' критичен! CUDA делает (word >> bit_idx) & 1
         packed = np.packbits(self._bool_buffer, bitorder='little', axis=1)
@@ -59,11 +60,8 @@ class PopulationEncoder:
         self.sigma = sigma
         self.radius = self.sigma * math.sqrt(-2.0 * math.log(0.5))
         
-        # Центры рецептивных полей (M центров для каждой из V переменных)
-        centers_1d = np.linspace(0.0, 1.0, self.M, dtype=np.float16)
-        self.centers = np.tile(centers_1d, self.V)
-        
-        # --- ZERO-GARBAGE BUFFERS ---
+        # [DOD FIX] Преаллокация буферов для in-place вычислений (Zero-Garbage)
+        self.centers = np.linspace(0.0, 1.0, self.M, dtype=np.float16)
         self._expanded_buffer = np.zeros(self.N, dtype=np.float16)
         self._bool_buffer = np.zeros(self.padded_N, dtype=np.bool_)
         self._batch_bool_buffer = np.zeros((self.B, self.padded_N), dtype=np.bool_)
@@ -71,15 +69,17 @@ class PopulationEncoder:
     def encode_into(self, states_f16: np.ndarray, tx_view: memoryview, offset: int) -> int:
         """
         states_f16: массив нормализованных [0..1] значений (размер V)
-        В Population кодировании маска одинакова для всего батча.
         """
-        # [DOD Task 2] Zero-Copy broadcasting вместо np.repeat
-        # states_f16[:, None] делает [V, 1]. Broadcast в [V, M] разворачивает измерения.
-        self._expanded_buffer.reshape(self.V, self.M)[:] = states_f16[:, None]
+        # [DOD FIX] Zero-Allocation math pipeline
+        view_2d = self._expanded_buffer.reshape(self.V, self.M)
+        view_2d[:] = states_f16[:, None]
+
+        # Векторизованное вычитание центров In-Place
+        np.subtract(view_2d, self.centers, out=view_2d)
+        np.abs(self._expanded_buffer, out=self._expanded_buffer)
         
-        # Векторизованный расчет дистанции In-Place
-        np.abs(self._expanded_buffer - self.centers, out=self._expanded_buffer)
-        self._bool_buffer[:self.N] = self._expanded_buffer < self.radius
+        # Пороговая активация In-Place
+        np.less(self._expanded_buffer, self.radius, out=self._bool_buffer[:self.N])
         
         # [DOD Task 1] Single-Tick Pulse: пишем только в нулевой тик батча
         self._batch_bool_buffer.fill(False)

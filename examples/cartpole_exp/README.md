@@ -12,7 +12,7 @@ source .venv/bin/activate
 **Шаг 1. Сгенерируйте и запеките мозг (One-Click Build)**
 Скрипт сгенерирует TOML-топологию через Python SDK и автоматически вызовет Rust-компилятор (`genesis-baker`), чтобы нарезать бинарные VRAM-дампы.
 ```bash
-python3 examples/cartpole/build_brain.py
+python3 examples/cartpole_exp/build_brain.py
 ```
 
 **Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**

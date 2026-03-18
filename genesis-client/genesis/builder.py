@@ -219,6 +219,57 @@ class BrainBuilder:
             
         return NeuronBlueprint(target_file, data["neuron_type"])
 
+    def dry_run_stats(self) -> str:
+        """
+        [DOD] Strict C-ABI memory cost estimation.
+        O(1) расчет потребления VRAM и /dev/shm до генерации TOML.
+        """
+        report = [f"📊 Genesis Memory Estimator: {self.project_name}"]
+        total_vram = 0
+        total_shm = 0
+
+        for zone in self.zones:
+            raw_neurons = 0
+            cursor_pct = 0.0
+
+            # Зеркальное отражение логики genesis-baker/src/bake/neuron_placement.rs
+            for layer in zone.layers:
+                z_start = int(cursor_pct * zone.vox_z)
+                z_end = min(255, int((cursor_pct + layer.height_pct) * zone.vox_z))
+                cursor_pct += layer.height_pct
+
+                layer_vol = zone.vox_x * zone.vox_y * (z_end - z_start)
+                layer_budget = int(math.floor(layer_vol * layer.density))
+                raw_neurons += layer_budget
+
+            # Warp Alignment (32 threads)
+            padded_n = math.ceil(raw_neurons / 32) * 32
+
+            virtual_axons = sum(inp["width"] * inp["height"] for inp in zone.inputs)
+            ghost_capacity = 200_000  # DEFAULT_GHOST_CAPACITY из Baker
+
+            raw_axons = padded_n + virtual_axons + ghost_capacity
+            total_axons = math.ceil(raw_axons / 32) * 32
+
+            # C-ABI Invariants (The 910-Byte Invariant)
+            vram_bytes = (padded_n * 910) + (total_axons * 32)
+            
+            # SHM Night Phase IPC v4 (Header:64 + Weights + Targets + Flags + Handovers + Prunes)
+            # 64 + (N*256) + (N*512) + (N*1) + (10000*20) + (10000*8)
+            shm_bytes = 64 + (padded_n * 769) + 280_000
+
+            total_vram += vram_bytes
+            total_shm += shm_bytes
+
+            report.append(f"  🔹 Zone '{zone.name}':")
+            report.append(f"      Neurons: ~{raw_neurons} (Padded: {padded_n})")
+            report.append(f"      Axons: {total_axons} (Local: {padded_n}, Virtual: {virtual_axons}, GhostCap: {ghost_capacity})")
+            report.append(f"      VRAM: {vram_bytes / (1024**2):.2f} MB | SHM: {shm_bytes / (1024**2):.2f} MB")
+
+        report.append(f"  🔻 TOTAL VRAM BUDGET: {total_vram / (1024**2):.2f} MB")
+        report.append(f"  🔻 TOTAL SHM BUDGET:  {total_shm / (1024**2):.2f} MB")
+        return "\n".join(report)
+
     def build(self):
         """Собирает ДНК мозга и генерирует все артефакты."""
         # [DOD FIX] Hard Physical Validation (Integer v_seg)
@@ -248,6 +299,9 @@ class BrainBuilder:
                     raise ValueError("Manual fix required for v_seg integrality.")
             else:
                 raise ValueError(error_msg)
+
+        # [DOD FIX] Вывод расчетной стоимости графа перед генерацией
+        print(f"\n{self.dry_run_stats()}")
 
         print(f"\n🧬 Generating Brain DNA: {self.project_name} ...")
         self.output_dir.mkdir(parents=True, exist_ok=True)

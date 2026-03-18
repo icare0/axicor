@@ -15,7 +15,7 @@ source .venv/bin/activate
 **Шаг 1. Сгенерируйте и запеките мозг (WTA Architecture)**
 Скрипт создаст 5-зонную топологию HumanoidAgent и вызовет Rust-компилятор (`genesis-baker`) для нарезки VRAM-дампов.
 ```bash
-python3 examples/humanoid/build_brain.py
+python3 examples/humanoid_exp/build_brain.py
 ```
 
 **Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
