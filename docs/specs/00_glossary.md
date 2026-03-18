@@ -644,9 +644,9 @@ Atomic unit of simulation time. One tick ≈ 1 ms biological time.
 
 - Day Phase: All 6 CUDA kernels execute within 1 tick (~10 ms wall clock on modern GPU)
 - Night Phase: Plasticity updates between ticks
-- Global: Synchronized via BSP Barrier across all zones
+- Global: Asynchronously projected via AEP across all zones
 
-**See also:** Day Phase, Night Phase, BSP Barrier  
+**See also:** Day Phase, Night Phase, AEP  
 **Specs:** 05_signal_physics.md (§5.4), 07_gpu_runtime.md (§7.1)
 
 ---
