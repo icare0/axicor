@@ -40,13 +40,13 @@ ENCODER_SIGMA = 0.2           # Сигма энкодера (разброс пр
 # Целевой показатель (SMA за окно) для перехода к Дистилляции
 EXPLORATION_TARGET_SCORE = 400
 
-EXPLORE_NIGHT_INTERVAL = 50_000      # Периодичность сна
-EXPLORE_PRUNE_THRESHOLD = 1          # «фильтр выживания» для синапсов
-EXPLORE_MAX_SPROUTS = 128            # Максимальное количество новых связей
+EXPLORE_NIGHT_INTERVAL = 50_000       # Периодичность сна
+EXPLORE_PRUNE_THRESHOLD = 1           # «фильтр выживания» для синапсов
+EXPLORE_MAX_SPROUTS = 128             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-EXPLORE_DOPAMINE_PULSE = -20            # Околонулевая эрозия
-EXPLORE_DOPAMINE_REWARD = 15          # Микро-награда
-EXPLORE_DOPAMINE_PUNISHMENT = -20    # Death Signal
+EXPLORE_DOPAMINE_PULSE = 0          # Околонулевая эрозия
+EXPLORE_DOPAMINE_REWARD = 3          # Микро-награда
+EXPLORE_DOPAMINE_PUNISHMENT = 0     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
 EXPLORE_D1_AFFINITY = 172             # Аффинность D1
 EXPLORE_D2_AFFINITY = 252             # Аффинность D2
@@ -58,11 +58,11 @@ EXPLORE_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
 EXPLORE_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
 EXPLORE_ANGLE_LIMIT = 0.2094          # 12 градусов
 EXPLORE_VELOCITY_LIMIT = 2.0          # Максимальная скорость
-# Тюнинг Болевого Шока (Kinetic Amplifier)
-EXPLORE_SHOCK_BASE = 0                # Базовый шок
-EXPLORE_SHOCK_SCORE_BITSHIFT = 5      # score >> 5
-EXPLORE_SHOCK_VEL_MULT = 5            # Штраф за скорость удара
-EXPLORE_SHOCK_MAX_BATCHES = 5         # Сколько батчей подается Death Signal
+# Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
+EXPLORE_SHOCK_BASE = 0                # Базовое кол-во батчей боли (минимум при любом падении)
+EXPLORE_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
+EXPLORE_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+EXPLORE_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               Этап DISTILLATION
@@ -74,9 +74,9 @@ DISTILL_NIGHT_INTERVAL = 5_000
 DISTILL_PRUNE_THRESHOLD = 10
 DISTILL_MAX_SPROUTS = 64
 # Баланс R-STDP
-DISTILL_DOPAMINE_PULSE = -1
-DISTILL_DOPAMINE_REWARD = 7
-DISTILL_DOPAMINE_PUNISHMENT = -10
+DISTILL_DOPAMINE_PULSE = -2
+DISTILL_DOPAMINE_REWARD = 12
+DISTILL_DOPAMINE_PUNISHMENT = 0
 # Гиперпараметры Физики
 DISTILL_D1_AFFINITY = 85
 DISTILL_D2_AFFINITY = 128
@@ -129,6 +129,21 @@ CRYSTALLIZED_SHOCK_MAX_BATCHES = 2
 #============================================================
 
 def run_cartpole():
+    global BATCH_SIZE
+    # 1. Загрузка манифеста для синхронизации физики
+    manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/CartPole-example/baked/SensoryCortex/manifest.toml"))
+    if not os.path.exists(manifest_path):
+        print(f"❌ FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
+        sys.exit(1)
+        
+    control = GenesisControl(manifest_path)
+    
+    # [DOD FIX] Синхронизация BATCH_SIZE с реальностью ноды
+    actual_batch_size = control.manifest.get("simulation", {}).get("sync_batch_ticks", BATCH_SIZE)
+    if actual_batch_size != BATCH_SIZE:
+        print(f"⚠️ Warning: BATCH_SIZE adjusted from {BATCH_SIZE} to {actual_batch_size} (from manifest)")
+        BATCH_SIZE = actual_batch_size
+
     # Синхронизация времени Вселенной и Мозга (1 шаг = 2 мс = 20 тиков)
     env = gym.make("CartPole-v1").unwrapped
     env.tau = 0.002
@@ -163,13 +178,8 @@ def run_cartpole():
     range_diff = bounds[:, 1] - bounds[:, 0]
 
     # 5. Контроль и телеметрия прямо через маппинг памяти ОС (Zero-Copy)
-    manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/CartPole-example/baked/SensoryCortex/manifest.toml"))
-    
-    if not os.path.exists(manifest_path):
-        print(f"❌ FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
-        sys.exit(1)
-        
-    control = GenesisControl(manifest_path)
+    # (control уже инициализирован выше для синхронизации BATCH_SIZE)
+
     tuner = GenesisAutoTuner(
         control, 
         # Exploration
@@ -271,7 +281,10 @@ def run_cartpole():
     synapses, avg_w = 0, 0.0
     terminated, truncated = False, False
     
+    # [DOD FIX] Zero-Garbage Buffers для нормализации
     norm_state = np.zeros(4, dtype=np.float16)
+    temp_buffer = np.zeros(4, dtype=np.float16)
+    
     print(f"🚀 Starting Genesis DOD CartPole Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
     
     while episodes < EPISODES:
@@ -314,8 +327,11 @@ def run_cartpole():
             terminated, truncated = False, False
             continue
 
-        # Нормализация состояния
-        norm_state = (np.clip(state, bounds[:, 0], bounds[:, 1]) - bounds[:, 0]) / range_diff
+        # [DOD FIX] Zero-Garbage In-Place Normalization
+        # Никаких временных массивов в Hot Loop
+        np.clip(state, bounds[:, 0], bounds[:, 1], out=temp_buffer)
+        np.subtract(temp_buffer, bounds[:, 0], out=temp_buffer)
+        np.divide(temp_buffer, range_diff, out=norm_state)
 
         # [DOD FIX] Continuous Error Gradient (Zero Branches)
         pole_angle = abs(state[2])

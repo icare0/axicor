@@ -9,6 +9,9 @@ class GenesisControl:
     """
     def __init__(self, manifest_path: str):
         self.manifest_path = manifest_path
+        # [DOD FIX] Кешируем манифест для быстрого доступа к параметрам симуляции
+        with open(self.manifest_path, "r") as f:
+            self.manifest = toml.load(f)
 
     def _update_manifest(self, mutator_func: Callable[[dict[str, Any]], None]):
         # 1. Читаем текущее состояние
@@ -17,6 +20,7 @@ class GenesisControl:
 
         # 2. Применяем мутацию
         mutator_func(data)
+        self.manifest = data # Обновляем кеш
 
         # 3. Атомарная запись (Zero-downtime для Rust-оркестратора)
         tmp_path = self.manifest_path + ".tmp"
