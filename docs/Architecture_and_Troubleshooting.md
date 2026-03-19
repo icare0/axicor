@@ -1,73 +1,31 @@
-# ⚙️ Genesis Engine: Architecture & Troubleshooting (For ML Engineers)
+# Genesis: CartPole Architecture & Troubleshooting
 
-Если вы привыкли к комфорту PyTorch, TensorFlow или JAX, приготовьтесь к жесткой смене парадигмы. Этот документ объясняет фундаментальные законы движка Genesis и разбирает частые ошибки. Если ваш код падает с `FATAL C-ABI BOUNDARY` или сеть уходит в эпилептический шторм - ответы здесь.
+This document summarizes critical architectural patterns and troubleshooting steps identified during the high-resolution CartPole agent implementation.
 
----
+## Common Problems & Solutions
 
-## 1. Смерть Графов Вычислений и ООП
+### 1. FATAL DMA BUFFER OVERFLOW
+- **Symptom**: `genesis-node` panics during the Day Phase with an offset/buffer size error.
+- **Cause**: Mismatch in `BATCH_SIZE` between `build_brain.py` and `agent.py`. The node allocates GPU/SHM buffers based on the brain's batch size, but the agent sends more ticks than expected.
+- **Solution**: Ensure `BATCH_SIZE` is identical in both files.
 
-В Genesis **нет статических графов вычислений** и **нет объектов**. Мы полностью отказались от Array of Structures (AoS). 
+### 2. Output batch exceeds UDP MTU
+- **Symptom**: `genesis-orchestrator` panics with `Output batch exceeds UDP MTU`.
+- **Cause**: The total size of a single output matrix (width * height * BATCH_SIZE) exceeds the hard UDP limit of **65,507 bytes**.
+- **Example**: `160x80 * 20 = 256,000 bytes` (Panic). `40x40 * 20 = 32,000 bytes` (Safe).
+- **Solution**: Reduce output resolution or batch size to stay well under the 65KB limit.
 
-**Как это выглядит для пользователя:**
-У вас нет функции `model.train()`, нет вычисления градиентов (`loss.backward()`). Вы не можете вызвать `neuron.get_voltage()`. Обучение идет непрерывно в реальном времени через модулятор дофамина (R-STDP).
+### 3. Neural Silence (0 Spikes in mid/deep zones)
+- **Symptom**: L4 is spiking (receiving sensory input), but L2/3, L5, and L6 show 0 spikes.
+- **Cause**: In the Genesis `BrainBuilder`, any matrix used as a source for `builder.connect()` **must** be explicitly declared via `add_output()` in the source zone's IO configuration. If missing from `io.toml`, the baker cannot determine the mapping dimensions and fails to grow the ghost axons.
+- **Solution**: Always call `zone.add_output("matrix_name", ...)` even for internal-only ghost connections.
 
-**Как это работает под капотом (DOD):**
-Вся память организована как Structure of Arrays (SoA). Массивы `soma_voltage`, `dendrite_weights`, `axon_heads` лежат плоско и непрерывно. Это гарантирует **100% Coalesced Access** (кооперативный доступ к памяти). Когда Warp (32 потока на NVIDIA) обращается к памяти, он забирает данные ровно одной транзакцией, утилизируя кэш-линию L1 целиком. 
+### 4. ValueError: buffer is smaller than requested size
+- **Symptom**: Python agent crashes when calling `PwmDecoder.decode_from`.
+- **Cause**: The agent receives a small internal-only UDP packet (e.g. `to_l23` sync packet) instead of the large `motor_out` matrix.
+- **Solution**: Use `Matrix Hash` filtering in `GenesisMultiClient`. Pass `expected_rx_hash=fnv1a_32(b"motor_out")` to the `step()` function to ignore technical packets.
 
-> **⚠️ ЗАКОН:** Создание временных ООП-объектов (`class Spike`, списки `[]`) внутри горячего цикла (Hot Loop) вашего Python-агента разбудит сборщик мусора (GC), который украдет 15-20 мс и навсегда сломает барьер синхронизации (Lockstep). Используйте только преаллоцированные плоские `numpy.ndarray` and `memoryview`.
-
----
-
-## 2. Частые Ошибки ML-Инженеров (Troubleshooting)
-
-### ❌ Ошибка 1: Сеть не учится, все веса застряли на 32767
-**Симптомы:** Ваш агент ничего не делает, а в телеметрии `Avg W` улетает в `25000 - 32767` за пару секунд. Мозг превратился в кусок бетона.
-**Причина:** Вы используете биологические константы для HFT-цикла. При 100 Гц базовая потенциация `gsop_potentiation = 60` накидывает +6000 к весу за секунду даже без наград.
-**Решение:** Переведите коннектом в режим **Reward-Gated Plasticity**. В скрипте `build_brain.py` заглушите фоновый рост:
-```python
-# Рост только от дофамина (pot=0), фоновый шум медленно выжигается (dep=2)
-exc_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
-```
-
-### ❌ Ошибка 2: Наказание (dopamine = -255) не работает
-**Симптомы:** Робот падает, вы шлете штраф `client.step(-255)`, но сеть повторяет ошибку.
-**Причина:** Вы шлете штраф длительностью всего в 1 батч (2-10 мс). Этот "стакан воды" тонет в огромной инерции синапсов. Биологический болевой шок должен быть пролонгированным.
-**Решение:** Используйте паттерн **Pain Shock** - удерживайте максимальный штраф несколько батчей подряд:
-```python
-if terminated:
-    # Выжигаем виновные связи (LTD) серией пакетов
-    for _ in range(15):
-        client.step(-255) 
-```
-
-### ❌ Ошибка 3: FATAL C-ABI BOUNDARY
-**Симптомы:** Движок паникует при запуске `genesis-node` во время маппинга разделяемой памяти.
-**Причина:** Нарушение контракта выравнивания страниц ОС. Бинарные файлы `.state` и `.axons` - это сырые дампы VRAM, мапящиеся напрямую через системный вызов `mmap`. Операционные системы требуют, чтобы адрес начала `mmap` был кратен размеру страницы памяти (строго 4096 байт). Если вы вручную редактировали дамп или сбили выравнивание, вы получите эту ошибку.
-**Решение:** Используйте `GenesisSurgeon` для безопасной правки VRAM, не трогайте бинарники напрямую. Количество нейронов (`padded_n`) всегда должно добиваться до числа, кратного 32.
-
-### ❌ Ошибка 4: Движок не реагирует на Python-клиент (Timeout)
-**Симптомы:** Ваш скрипт шлет UDP-пакеты `env.step()`, но `recv()` зависает навечно.
-**Причина:** Нарушение Lockstep-барьера и C-ABI контракта заголовка. Оркестратор ждет пакет строго определенного размера: 20 байт (`ExternalIoHeader`) + N байт маски.
-**Решение:** Убедитесь, что размер маски строго равен `(virtual_axons * batch_size_ticks) // 8`. Используйте встроенные классы `PopulationEncoder` и `GenesisClient`, которые автоматически считают смещения и пакуют 20-байтовый заголовок `<IIIIhH`.
-
-### ❌ Ошибка 5: SegFault / Zero-Index Trap в Хирурге
-**Симптомы:** При ручной записи в `dendrite_targets` через `mmap` GPU уходит в Segmentation Fault.
-**Причина:** Вы забыли про смещение нулевого индекса. В Genesis `target == 0` - это аппаратный триггер Early Exit для видеокарты (означает пустой слот).
-**Решение:** Реальный `axon_id = 0` кодируется как 1. Правильная формула извлечения: `axon_id = (target_packed & 0x00FFFFFF) - 1`. Запись чистого нуля без сдвига (+1) заставит GPU читать память по индексу -1 (`0xFFFFFFFF`) и убьет драйвер.
-
-### ❌ Ошибка 6: Эпилептический шторм (Sensory Flooding) при старте
-**Симптомы:** После сброса весов (Tabula Rasa) моторы дергаются в конвульсиях, все нейроны непрерывно спайкуют.
-**Причина:** Отсутствие тормозного контроля (GABA) на фоне еще не адаптировавшихся гомеостазных порогов.
-**Решение:** Используйте инкубацию тормозных (Inhibitory) связей перед стартом:
-```python
-surgeon.incubate_gaba(baseline_weight=-30000)
-```
-
----
-
-## 3. Dual-Backend архитектура (NVIDIA / AMD)
-
-Движок аппаратно независим. C-ABI контракты одинаково работают на зеленых и красных картах. Выбор бэкенда происходит на этапе компиляции, без оверхеда в рантайме.
-
-*   **Для NVIDIA (CUDA):** Используется `nvcc`, выравнивание по Warp (32 потока). Команда: `cargo build --release`.
-*   **Для AMD (ROCm/HIP):** Используется `hipcc`, выравнивание по Wavefront (64 потока). Команда: `cargo build --release --features amd`.
+## Best Practices
+- **Synchronize Ticks**: Use `BATCH_SIZE = 20` for stable, high-frequency HFT cycles.
+- **Loop the Column**: Ensure feedback paths (`L6 -> L4`, `L2/3 -> L1`) are established to maintain neural dynamics.
+- **Cleanup**: Use `scripts/clean_checkpoints.py` regularly to avoid accumulation of temporary simulation files.

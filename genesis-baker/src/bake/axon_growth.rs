@@ -761,7 +761,7 @@ pub fn inject_handover_events(
         // Точка входа в глобальных координатах
         let entry_x = ev.entry_x as u32 + shard_bounds.x_start;
         let entry_y = ev.entry_y as u32 + shard_bounds.y_start;
-        let entry_z = shard_bounds.z_start; 
+        let entry_z = ev.entry_z as u32 + shard_bounds.z_start; 
 
         // Seed детерминированный
         let ghost_seed = master_seed.wrapping_add(idx as u64).wrapping_add(0x4748_5354_0000_0000);
