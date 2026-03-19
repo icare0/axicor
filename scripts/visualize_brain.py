@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 """
 Axicor / Genesis - Brain Topology Visualizer
 Парсит brain.toml и генерирует 2D-схему архитектуры кластера (зон и связей).
