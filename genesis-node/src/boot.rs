@@ -180,11 +180,12 @@ impl Bootloader {
             }
         }
         let shared_acks_queue = Arc::new(crossbeam::queue::SegQueue::new());
+        let shared_prunes_queue = Arc::new(crossbeam::queue::SegQueue::new());
         let routing_table = Arc::new(RoutingTable::new(initial_routes));
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), telemetry.clone(), cluster_secret).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), shared_prunes_queue.clone(), telemetry.clone(), cluster_secret).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
@@ -206,6 +207,7 @@ impl Bootloader {
             manifest_metadata,
             telemetry,
             shared_acks_queue,
+            shared_prunes_queue,
             sync_batch_ticks,
             cluster_secret,
         );
@@ -485,6 +487,7 @@ impl Bootloader {
         io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+        shared_prunes_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverPrune>>,
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         cluster_secret: u64, // [DOD FIX]
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::router::InterNodeRouter>)> {
@@ -504,7 +507,7 @@ impl Bootloader {
 
         let geo_port = local_port + 1;
         let geo_addr = format!("127.0.0.1:{}", geo_port).parse()?;
-        let geometry_server = GeometryServer::bind(geo_addr, shared_acks_queue).await
+        let geometry_server = GeometryServer::bind(geo_addr, shared_acks_queue, shared_prunes_queue).await
             .with_context(|| format!("Failed to bind Geometry Server (TCP port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", geo_port))?;
         let telemetry_port = local_port + 2;
         let telemetry_swapchain = TelemetryServer::start(telemetry_port).await;

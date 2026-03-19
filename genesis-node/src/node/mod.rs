@@ -109,6 +109,7 @@ impl NodeRuntime {
         manifest_metadata: HashMap<u32, ShardMetadata>,
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+        shared_prunes_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverPrune>>,
         sync_batch_ticks: u32,
         cluster_secret: u64, // [DOD FIX]
     ) -> Self {
@@ -184,7 +185,7 @@ impl NodeRuntime {
                 egress_pool,
                 axon_head_ptrs,
                 routing_acks: shared_acks_queue,
-                routing_prunes: Arc::new(crossbeam::queue::SegQueue::new()),
+                routing_prunes: shared_prunes_queue,
             },
             compute_dispatchers,
             feedback_sender: feedback_tx,
