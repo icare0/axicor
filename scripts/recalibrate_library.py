@@ -28,14 +28,14 @@ def process_file(filepath):
     # Formula 1: Potentiation
     penalty_norm = clamp((homeostasis_penalty - 1000.0) / 19000.0, 0.0, 1.0)
     if is_inhibitory:
-        gsop_potentiation = int(100.0 + 50.0 * penalty_norm)
+        original_pot = int(100.0 + 50.0 * penalty_norm)
     else:
-        gsop_potentiation = int(60.0 + 70.0 * penalty_norm)
+        original_pot = int(60.0 + 70.0 * penalty_norm)
+        
+    gsop_potentiation = max(5, original_pot // 5)
 
-    # Formula 2: Depression
-    leak_norm = clamp(leak_rate / 500.0, 0.0, 1.0)
-    dep_ratio = 0.5 + (0.35 * leak_norm)
-    gsop_depression = int(gsop_potentiation * dep_ratio)
+    # Formula 2: Depression (Entropy Erosion)
+    gsop_depression = int(gsop_potentiation * 1.2)
 
     # Formula 3: Inertia Curve
     min_inertia = max(1, math.ceil(128.0 / gsop_potentiation))
@@ -48,13 +48,15 @@ def process_file(filepath):
         val = min_inertia + (128 - min_inertia) * (progress ** steepness)
         inertia_curve.append(int(round(val)))
 
-    prune_threshold = 25
+    prune_threshold = 100
+    initial_synapse_weight = 1500 if is_inhibitory else 1000
 
     # Regex replacements to modify the file content in-place
     content = re.sub(r'(?m)^gsop_potentiation\s*=.*$', f'gsop_potentiation = {gsop_potentiation}', content)
     content = re.sub(r'(?m)^gsop_depression\s*=.*$', f'gsop_depression = {gsop_depression}', content)
     content = re.sub(r'(?m)^inertia_curve\s*=.*$', f'inertia_curve = {inertia_curve}', content)
     content = re.sub(r'(?m)^prune_threshold\s*=.*$', f'prune_threshold = {prune_threshold}', content)
+    content = re.sub(r'(?m)^initial_synapse_weight\s*=.*$', f'initial_synapse_weight = {initial_synapse_weight}', content)
 
     with open(filepath, 'w') as f:
         f.write(content)

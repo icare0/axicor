@@ -43,7 +43,7 @@ class RetinaEncoder:
         self._bool_buffer = np.zeros(self.padded_N, dtype=np.bool_)
         self._batch_bool_buffer = np.zeros((self.B, self.padded_N), dtype=np.bool_)
 
-    def encode_into(self, frame_bgr: np.ndarray, tx_view: memoryview, offset: int) -> int:
+    def encode_into(self, frame_bgr: np.ndarray, tx_view: memoryview) -> int:
         if frame_bgr.shape[:2] != (self.H, self.W):
             raise ValueError(f"Fovea size mismatch: expected {(self.H, self.W)}, got {frame_bgr.shape[:2]}")
 
@@ -89,6 +89,6 @@ class RetinaEncoder:
 
         # 4. Strict C-ABI Packing (Little-Endian)
         packed = np.packbits(self._batch_bool_buffer, bitorder='little', axis=1)
-        tx_view[offset : offset + self.total_bytes] = packed.ravel()
+        tx_view[:self.total_bytes] = packed.ravel()
 
         return self.total_bytes

@@ -206,13 +206,12 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Формула | Примечание |
 |----------|---------|------------|
-| `initial_synapse_weight` | `(threshold − rest) / 50` | PV/aspiny inh: ×3 (быстрый отклик) |
+| `initial_synapse_weight` | 10 (Exc), 30 (Inh) | Safe Tabula Rasa |
 | `gsop_potentiation` | **Exc:** `100 + adaptation × 400` | Высокая адаптация = высокая пластичность |
 | | **PV inh:** `200 + adaptation × 100` (ratio 100:1) | PV держат связи стабильно |
-| `gsop_depression` | **Exc:** `potentiation / (1.5 + adaptation × 2)` | |
-| | **PV inh:** `potentiation / 100` | |
+| `gsop_depression` | `potentiation * 1.2` | Entropy Erosion |
 | `inertia_curve` | `128 × exp(−steepness × rank × 3.5 / 15)` | steepness = penalty_norm × 0.6 + adaptation × 0.4 |
-| `prune_threshold` | `initial_weight − depression × 30`, clamp [5, initial_weight / 4] | Синапс должен пережить 30 тиков депрессии |
+| `prune_threshold` | `5` | Static Hard Limit |
 
 ### Dead Zone Guard (Patch)
 

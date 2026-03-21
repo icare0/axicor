@@ -18,11 +18,10 @@ class PwmDecoder:
         self._sum_buffer = np.zeros(self.N, dtype=np.float16)
         self._out_buffer = np.zeros(self.N, dtype=np.float16)
 
-    def decode_from(self, rx_view: memoryview, offset: int) -> np.ndarray:
+    def decode_from(self, rx_view: memoryview) -> np.ndarray:
         """
         Извлекает данные из сырого UDP буфера без копирования памяти.
-        rx_view: memoryview сокета
-        offset: размер заголовка C-ABI (обычно 20 байт)
+        rx_view: memoryview сокета (заголовок УЖЕ срезан в client.step)
         """
         # Amnesia Defense: Если данных нет, возвращаем нулевое усилие
         if len(rx_view) == 0:
@@ -30,7 +29,7 @@ class PwmDecoder:
             return self._out_buffer
 
         # 1. Zero-copy каст байтов. Под капотом создается только view на память ОС.
-        raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=offset)
+        raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=0)
         
         # 2. Виртуальный reshape (Тики, Моторы). Меняет только strides, без копирования.
         spikes_2d = raw_bytes.reshape((self.B, self.N))
@@ -64,14 +63,14 @@ class PopulationDecoder:
         self._mass_buffer = np.zeros(self.V, dtype=np.float16)
         self._out_buffer = np.zeros(self.V, dtype=np.float16)
 
-    def decode_from(self, rx_view: memoryview, offset: int) -> np.ndarray:
+    def decode_from(self, rx_view: memoryview) -> np.ndarray:
         # Amnesia Defense: Возвращаем нейтральное состояние (0.5)
         if len(rx_view) == 0:
             self._out_buffer.fill(0.5)
             return self._out_buffer
 
         # 1. Zero-copy каст байтов
-        raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=offset)
+        raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=0)
         
         # 2. Reshape (Batch, Variables, Neurons_per_Var)
         spikes_3d = raw_bytes.reshape((self.B, self.V, self.M))

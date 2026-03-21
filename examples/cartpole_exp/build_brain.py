@@ -85,7 +85,7 @@ def build_cartpole_brain():
     
     result = subprocess.run([
         "cargo", "run", "--release", "-p", "genesis-baker", "--bin", "baker", "--", 
-        "--brain", brain_toml_path
+        "--brain", brain_toml_path, "--clean"
     ])
     
     if result.returncode == 0:

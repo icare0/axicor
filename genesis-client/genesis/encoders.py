@@ -24,22 +24,21 @@ class PwmEncoder:
         # Преаллоцированный буфер для избежания аллокаций в Hot Loop
         self._bool_buffer = np.zeros((self.B, self.padded_N), dtype=np.bool_)
 
-    def encode_into(self, sensors_f16: np.ndarray, tx_view: memoryview, offset: int) -> int:
+    def encode_into(self, sensors_f16: np.ndarray, tx_view: memoryview) -> int:
         """
         Broadcasting сравнение и Zero-copy запись в сетевой буфер.
         Возвращает количество записанных байт.
         """
-        # [DOD FIX] Strict Zero-Allocation comparison. 
+        # [DOD FIX] Strict Zero-Allocation comparison.
         # Никаких временных массивов! Результат пишется прямо в _bool_buffer.
         np.less(self.pwm_wave, sensors_f16, out=self._bool_buffer[:, :self.N])
-        
+
         # bitorder='little' критичен! CUDA делает (word >> bit_idx) & 1
         packed = np.packbits(self._bool_buffer, bitorder='little', axis=1)
-        
-        # Копирование плоского массива байт прямо в UDP сокет-буфер
-        tx_view[offset : offset + self.total_bytes] = packed.ravel()
-        return self.total_bytes
 
+        # Копирование плоского массива байт прямо в UDP сокет-буфер
+        tx_view[:self.total_bytes] = packed.ravel()
+        return self.total_bytes
 
 class PopulationEncoder:
     """
@@ -65,8 +64,7 @@ class PopulationEncoder:
         self._expanded_buffer = np.zeros(self.N, dtype=np.float16)
         self._bool_buffer = np.zeros(self.padded_N, dtype=np.bool_)
         self._batch_bool_buffer = np.zeros((self.B, self.padded_N), dtype=np.bool_)
-
-    def encode_into(self, states_f16: np.ndarray, tx_view: memoryview, offset: int) -> int:
+    def encode_into(self, states_f16: np.ndarray, tx_view: memoryview) -> int:
         """
         states_f16: массив нормализованных [0..1] значений (размер V)
         """
@@ -77,15 +75,16 @@ class PopulationEncoder:
         # Векторизованное вычитание центров In-Place
         np.subtract(view_2d, self.centers, out=view_2d)
         np.abs(self._expanded_buffer, out=self._expanded_buffer)
-        
+
         # Пороговая активация In-Place
         np.less(self._expanded_buffer, self.radius, out=self._bool_buffer[:self.N])
-        
+
         # [DOD Task 1] Single-Tick Pulse: пишем только в нулевой тик батча
-        self._batch_bool_buffer.fill(False)
+        # Остальные тики остаются заполнены False (биологическая тишина)
         self._batch_bool_buffer[0, :] = self._bool_buffer
-        
+
         packed = np.packbits(self._batch_bool_buffer, bitorder='little', axis=1)
-        tx_view[offset : offset + self.total_bytes] = packed.ravel()
+
+        tx_view[:self.total_bytes] = packed.ravel()
         return self.total_bytes
         

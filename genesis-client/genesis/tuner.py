@@ -20,17 +20,6 @@ class GenesisAutoTuner:
         self.phase = Phase.EXPLORATION
         
         self.target_score = 400.0
-        self.dopamine_pulse = 0
-        self.dopamine_reward = 0
-        self.dopamine_punish = 0
-        self.err_angle_weight = 0.0
-        self.err_vel_weight = 0.0
-        self.angle_limit = 0.0
-        self.vel_limit = 0.0
-        self.shock_base = 0
-        self.shock_bitshift = 0
-        self.shock_vel_mult = 0
-        self.shock_max_batches = 0
 
         # Конфигурация параметров по фазам
         self.explore_params = self._extract_params(kwargs, "explore_")
@@ -41,68 +30,44 @@ class GenesisAutoTuner:
         self._apply_phase_settings(self.explore_params)
 
     def _extract_params(self, kwargs: dict, prefix: str) -> dict:
-        """Извлекает набор параметров для конкретной фазы с дефолтными значениями."""
-        is_explore = prefix == "explore_"
+        """Извлекает набор параметров для конкретной фазы с дефолтными значениями (None)."""
         return {
             "target": kwargs.get(f"{prefix}target_score", self.default_target),
-            "prune": kwargs.get(f"{prefix}prune", 30 if is_explore else (150 if prefix == "distill_" else 0)),
-            "night": kwargs.get(f"{prefix}night", 10000 if is_explore else (5000 if prefix == "distill_" else 0)),
-            "sprouts": kwargs.get(f"{prefix}sprouts", 128 if is_explore else (2 if prefix == "distill_" else 0)),
-            
-            # Баланс R-STDP
-            "dopamine_pulse": kwargs.get(f"{prefix}dopamine_pulse", -1),
-            "dopamine_reward": kwargs.get(f"{prefix}dopamine_reward", 15),
-            "dopamine_punish": kwargs.get(f"{prefix}dopamine_punish", -210),
+            "prune": kwargs.get(f"{prefix}prune", None),
+            "night": kwargs.get(f"{prefix}night", None),
+            "sprouts": kwargs.get(f"{prefix}sprouts", None),
             
             # Физика мембраны
-            "leak": kwargs.get(f"{prefix}leak", 850),
-            "homeos_penalty": kwargs.get(f"{prefix}homeos_penalty", 5560),
-            "homeos_decay": kwargs.get(f"{prefix}homeos_decay", 49),
+            "leak": kwargs.get(f"{prefix}leak", None),
+            "homeos_penalty": kwargs.get(f"{prefix}homeos_penalty", None),
+            "homeos_decay": kwargs.get(f"{prefix}homeos_decay", None),
             
             # Рецепторы
-            "d1": kwargs.get(f"{prefix}d1", 172),
-            "d2": kwargs.get(f"{prefix}d2", 252),
-            
-            # Градиент
-            "err_angle": kwargs.get(f"{prefix}err_angle", 0.8),
-            "err_vel": kwargs.get(f"{prefix}err_vel", 0.2),
-            "angle_limit": kwargs.get(f"{prefix}angle_limit", 0.2094),
-            "vel_limit": kwargs.get(f"{prefix}vel_limit", 2.0),
-
-            # Шок
-            "shock_base": kwargs.get(f"{prefix}shock_base", 0),
-            "shock_bitshift": kwargs.get(f"{prefix}shock_bitshift", 5),
-            "shock_vel_mult": kwargs.get(f"{prefix}shock_vel_mult", 5),
-            "shock_max_batches": kwargs.get(f"{prefix}shock_max_batches", 2)
+            "d1": kwargs.get(f"{prefix}d1", None),
+            "d2": kwargs.get(f"{prefix}d2", None)
         }
 
     def _apply_phase_settings(self, p: dict):
         """Пробрасывает параметры в манифест и кэширует их для Hot Loop (Zero-Overhead)."""
-        self.control.set_prune_threshold(p["prune"])
-        self.control.set_night_interval(p["night"])
-        self.control.set_max_sprouts(p["sprouts"])
+        if p["prune"] is not None:
+            self.control.set_prune_threshold(p["prune"])
+        if p["night"] is not None:
+            self.control.set_night_interval(p["night"])
+        if p["sprouts"] is not None:
+            self.control.set_max_sprouts(p["sprouts"])
         
         # Рецепторы (variant 0/1)
-        self.control.set_dopamine_receptors(0, p["d1"], p["d2"])
-        self.control.set_dopamine_receptors(1, p["d1"], p["d2"])
+        if p["d1"] is not None and p["d2"] is not None:
+            self.control.set_dopamine_receptors(0, p["d1"], p["d2"])
+            self.control.set_dopamine_receptors(1, p["d1"], p["d2"])
         
         # Физика
-        self.control.set_membrane_physics(0, p["leak"], p["homeos_penalty"], p["homeos_decay"])
-        self.control.set_membrane_physics(1, int(p["leak"] * 1.5), int(p["homeos_penalty"] * 0.8), p["homeos_decay"])
+        if p["leak"] is not None and p["homeos_penalty"] is not None and p["homeos_decay"] is not None:
+            self.control.set_membrane_physics(0, p["leak"], p["homeos_penalty"], p["homeos_decay"])
+            self.control.set_membrane_physics(1, int(p["leak"] * 1.5), int(p["homeos_penalty"] * 0.8), p["homeos_decay"])
 
         # [DOD FIX] Плоское кэширование переменных для O(1) доступа в Hot Loop
-        self.target_score = p["target"]
-        self.dopamine_pulse = p["dopamine_pulse"]
-        self.dopamine_reward = p["dopamine_reward"]
-        self.dopamine_punish = p["dopamine_punish"]
-        self.err_angle_weight = p["err_angle"]
-        self.err_vel_weight = p["err_vel"]
-        self.angle_limit = p["angle_limit"]
-        self.vel_limit = p["vel_limit"]
-        self.shock_base = p["shock_base"]
-        self.shock_bitshift = p["shock_bitshift"]
-        self.shock_vel_mult = p["shock_vel_mult"]
-        self.shock_max_batches = p["shock_max_batches"]
+        if p["target"] is not None: self.target_score = p["target"]
 
 
     def step(self, episode_score: float) -> Phase:

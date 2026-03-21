@@ -18,7 +18,7 @@ from genesis.client import GenesisMultiClient
 from genesis.encoders import PopulationEncoder
 from genesis.decoders import PwmDecoder
 from genesis.control import GenesisControl
-from genesis.tuner import GenesisAutoTuner
+from genesis.tuner import GenesisAutoTuner, Phase
 from genesis.memory import GenesisMemory
 from genesis.surgeon import GenesisSurgeon
 from genesis.brain import fnv1a_32
@@ -71,16 +71,16 @@ EXPLORE_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. 
 DISTILLATION_TARGET_SCORE = 600
 
 DISTILLATION_NIGHT_INTERVAL = 20_000       # Периодичность сна
-DISTILLATION_PRUNE_THRESHOLD = 0           # «фильтр выживания» для синапсов
-DISTILLATION_MAX_SPROUTS = 32             # Максимальное количество новых связей
+DISTILLATION_PRUNE_THRESHOLD = 50           # «фильтр выживания» для синапсов
+DISTILLATION_MAX_SPROUTS = 16             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-DISTILLATION_DOPAMINE_PULSE = 0          # Околонулевая эрозия
-DISTILLATION_DOPAMINE_REWARD = 4          # Микро-награда
-DISTILLATION_DOPAMINE_PUNISHMENT = -5     # Death Signal
+DISTILLATION_DOPAMINE_PULSE = -2          # Околонулевая эрозия
+DISTILLATION_DOPAMINE_REWARD = 5          # Микро-награда
+DISTILLATION_DOPAMINE_PUNISHMENT = 50     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
 DISTILLATION_D1_AFFINITY = 150             # Аффинность D1
 DISTILLATION_D2_AFFINITY = 220             # Аффинность D2
-DISTILLATION_LEAK_RATE = 8500               # Коэффициент утечки
+DISTILLATION_LEAK_RATE = 850               # Коэффициент утечки
 DISTILLATION_HOMEOS_PENALTY = 2500         # Штраф за homeostasis
 DISTILLATION_HOMEOS_DECAY = 100             # Декремент homeostasis
 # Тюнинг Градиента (Error Gradient)
@@ -91,8 +91,8 @@ DISTILLATION_VELOCITY_LIMIT = 2.0          # Максимальная скоро
 # Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
 DISTILLATION_SHOCK_BASE = 0                # Базовое кол-во батчей боли (минимум при любом падении)
 DISTILLATION_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
-DISTILLATION_SHOCK_VEL_MULT = 1            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
-DISTILLATION_SHOCK_MAX_BATCHES = 3         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
+DISTILLATION_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+DISTILLATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               Этап CRYSTALLIZED
@@ -127,6 +127,48 @@ CRYSTALLIZATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: м
 #============================================================
 #               END OF CONFIGURATION
 #============================================================
+
+PHASE_PARAMS = {
+    Phase.EXPLORATION: {
+        'angle_limit': EXPLORE_ANGLE_LIMIT,
+        'vel_limit': EXPLORE_VELOCITY_LIMIT,
+        'err_angle': EXPLORE_ERROR_ANGLE_WEIGHT,
+        'err_vel': EXPLORE_ERROR_VEL_WEIGHT,
+        'dopamine_reward': EXPLORE_DOPAMINE_REWARD,
+        'dopamine_pulse': EXPLORE_DOPAMINE_PULSE,
+        'dopamine_punish': EXPLORE_DOPAMINE_PUNISHMENT,
+        'shock_base': EXPLORE_SHOCK_BASE,
+        'shock_bitshift': EXPLORE_SHOCK_SCORE_BITSHIFT,
+        'shock_vel_mult': EXPLORE_SHOCK_VEL_MULT,
+        'shock_max_batches': EXPLORE_SHOCK_MAX_BATCHES,
+    },
+    Phase.DISTILLATION: {
+        'angle_limit': DISTILLATION_ANGLE_LIMIT,
+        'vel_limit': DISTILLATION_VELOCITY_LIMIT,
+        'err_angle': DISTILLATION_ERROR_ANGLE_WEIGHT,
+        'err_vel': DISTILLATION_ERROR_VEL_WEIGHT,
+        'dopamine_reward': DISTILLATION_DOPAMINE_REWARD,
+        'dopamine_pulse': DISTILLATION_DOPAMINE_PULSE,
+        'dopamine_punish': DISTILLATION_DOPAMINE_PUNISHMENT,
+        'shock_base': DISTILLATION_SHOCK_BASE,
+        'shock_bitshift': DISTILLATION_SHOCK_SCORE_BITSHIFT,
+        'shock_vel_mult': DISTILLATION_SHOCK_VEL_MULT,
+        'shock_max_batches': DISTILLATION_SHOCK_MAX_BATCHES,
+    },
+    Phase.CRYSTALLIZED: {
+        'angle_limit': CRYSTALLIZATION_ANGLE_LIMIT,
+        'vel_limit': CRYSTALLIZATION_VELOCITY_LIMIT,
+        'err_angle': CRYSTALLIZATION_ERROR_ANGLE_WEIGHT,
+        'err_vel': CRYSTALLIZATION_ERROR_VEL_WEIGHT,
+        'dopamine_reward': CRYSTALLIZATION_DOPAMINE_REWARD,
+        'dopamine_pulse': CRYSTALLIZATION_DOPAMINE_PULSE,
+        'dopamine_punish': CRYSTALLIZATION_DOPAMINE_PUNISHMENT,
+        'shock_base': CRYSTALLIZATION_SHOCK_BASE,
+        'shock_bitshift': CRYSTALLIZATION_SHOCK_SCORE_BITSHIFT,
+        'shock_vel_mult': CRYSTALLIZATION_SHOCK_VEL_MULT,
+        'shock_max_batches': CRYSTALLIZATION_SHOCK_MAX_BATCHES,
+    }
+}
 
 def run_cartpole():
     global BATCH_SIZE
@@ -187,66 +229,33 @@ def run_cartpole():
         explore_prune=EXPLORE_PRUNE_THRESHOLD,
         explore_night=EXPLORE_NIGHT_INTERVAL,
         explore_sprouts=EXPLORE_MAX_SPROUTS,
-        explore_dopamine_pulse=EXPLORE_DOPAMINE_PULSE,
-        explore_dopamine_reward=EXPLORE_DOPAMINE_REWARD,
-        explore_dopamine_punish=EXPLORE_DOPAMINE_PUNISHMENT,
         explore_leak=EXPLORE_LEAK_RATE,
         explore_homeos_penalty=EXPLORE_HOMEOS_PENALTY,
         explore_homeos_decay=EXPLORE_HOMEOS_DECAY,
         explore_d1=EXPLORE_D1_AFFINITY,
         explore_d2=EXPLORE_D2_AFFINITY,
-        explore_err_angle=EXPLORE_ERROR_ANGLE_WEIGHT,
-        explore_err_vel=EXPLORE_ERROR_VEL_WEIGHT,
-        explore_angle_limit=EXPLORE_ANGLE_LIMIT,
-        explore_vel_limit=EXPLORE_VELOCITY_LIMIT,
-        explore_shock_base=EXPLORE_SHOCK_BASE,
-        explore_shock_bitshift=EXPLORE_SHOCK_SCORE_BITSHIFT,
-        explore_shock_vel_mult=EXPLORE_SHOCK_VEL_MULT,
-        explore_shock_max_batches=EXPLORE_SHOCK_MAX_BATCHES,
 
         # Distillation
         distill_target_score=DISTILLATION_TARGET_SCORE,
         distill_prune=DISTILLATION_PRUNE_THRESHOLD,
         distill_night=DISTILLATION_NIGHT_INTERVAL,
         distill_sprouts=DISTILLATION_MAX_SPROUTS,
-        distill_dopamine_pulse=DISTILLATION_DOPAMINE_PULSE,
-        distill_dopamine_reward=DISTILLATION_DOPAMINE_REWARD,
-        distill_dopamine_punish=DISTILLATION_DOPAMINE_PUNISHMENT,
         distill_leak=DISTILLATION_LEAK_RATE,
         distill_homeos_penalty=DISTILLATION_HOMEOS_PENALTY,
         distill_homeos_decay=DISTILLATION_HOMEOS_DECAY,
         distill_d1=DISTILLATION_D1_AFFINITY,
         distill_d2=DISTILLATION_D2_AFFINITY,
-        distill_err_angle=DISTILLATION_ERROR_ANGLE_WEIGHT,
-        distill_err_vel=DISTILLATION_ERROR_VEL_WEIGHT,
-        distill_angle_limit=DISTILLATION_ANGLE_LIMIT,
-        distill_vel_limit=DISTILLATION_VELOCITY_LIMIT,
-        distill_shock_base=DISTILLATION_SHOCK_BASE,
-        distill_shock_bitshift=DISTILLATION_SHOCK_SCORE_BITSHIFT,
-        distill_shock_vel_mult=DISTILLATION_SHOCK_VEL_MULT,
-        distill_shock_max_batches=DISTILLATION_SHOCK_MAX_BATCHES,
         
         # Crystallized
         crystallized_target_score=CRYSTALLIZATION_TARGET_SCORE,
         crystallized_prune=CRYSTALLIZATION_PRUNE_THRESHOLD,
         crystallized_night=CRYSTALLIZATION_NIGHT_INTERVAL,
         crystallized_sprouts=CRYSTALLIZATION_MAX_SPROUTS,
-        crystallized_dopamine_pulse=CRYSTALLIZATION_DOPAMINE_PULSE,
-        crystallized_dopamine_reward=CRYSTALLIZATION_DOPAMINE_REWARD,
-        crystallized_dopamine_punish=CRYSTALLIZATION_DOPAMINE_PUNISHMENT,
         crystallized_leak=CRYSTALLIZATION_LEAK_RATE,
         crystallized_homeos_penalty=CRYSTALLIZATION_HOMEOS_PENALTY,
         crystallized_homeos_decay=CRYSTALLIZATION_HOMEOS_DECAY,
         crystallized_d1=CRYSTALLIZATION_D1_AFFINITY,
-        crystallized_d2=CRYSTALLIZATION_D2_AFFINITY,
-        crystallized_err_angle=CRYSTALLIZATION_ERROR_ANGLE_WEIGHT,
-        crystallized_err_vel=CRYSTALLIZATION_ERROR_VEL_WEIGHT,
-        crystallized_angle_limit=CRYSTALLIZATION_ANGLE_LIMIT,
-        crystallized_vel_limit=CRYSTALLIZATION_VELOCITY_LIMIT,
-        crystallized_shock_base=CRYSTALLIZATION_SHOCK_BASE,
-        crystallized_shock_bitshift=CRYSTALLIZATION_SHOCK_SCORE_BITSHIFT,
-        crystallized_shock_vel_mult=CRYSTALLIZATION_SHOCK_VEL_MULT,
-        crystallized_shock_max_batches=CRYSTALLIZATION_SHOCK_MAX_BATCHES
+        crystallized_d2=CRYSTALLIZATION_D2_AFFINITY
     )
     
     # [DOD FIX] Принудительная установка интервалов
@@ -287,26 +296,29 @@ def run_cartpole():
     
     print(f"🚀 Starting Genesis DOD CartPole Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
     
+    # [DOD FIX] Zero-Overhead Math: Локальное кэширование параметров вне горячего цикла
+    current_params = PHASE_PARAMS[Phase.EXPLORATION]
+
     while episodes < EPISODES:
         # 1. EPISODE TERMINATION (Pain Shock & Recovery)
         if terminated or truncated:
             # [DOD FIX] Жестко транслируем кадр ошибки в VRAM, иначе выжигание идет "вслепую"
-            encoder.encode_into(norm_state, client.payload_views[0], 0)
+            encoder.encode_into(norm_state, client.payload_views)
             
             # [DOD FIX] Non-Linear Death Signal & Kinetic Amplifier
             # Базовый шок + экспоненциальный штраф за долгий экстаз
-            shock_batches = tuner.shock_base + (score >> tuner.shock_bitshift)
+            shock_batches = current_params['shock_base'] + (score >> current_params['shock_bitshift'])
             
             # Кинетический штраф за угловую скорость падения (state[1])
             pole_velocity = abs(state[1])
-            kinetic_penalty = int(pole_velocity * tuner.shock_vel_mult)
+            kinetic_penalty = int(pole_velocity * current_params['shock_vel_mult'])
             
             # Хард-лимит на батчи боли, чтобы не усыпить сеть навсегда
-            total_shock = min(tuner.shock_max_batches, shock_batches + kinetic_penalty)
+            total_shock = min(current_params['shock_max_batches'], shock_batches + kinetic_penalty)
             
             # Пролонгированное выжигание виновных синапсов (LTD)
             for _ in range(total_shock):
-                client.step(tuner.dopamine_punish)
+                client.step(current_params['dopamine_punish'])
 
             # Извлекаем метрики после падения
             if memory:
@@ -314,7 +326,9 @@ def run_cartpole():
                 synapses = stats["active_synapses"]
                 avg_w = stats["avg_weight"]
             
-            phase_str = tuner.step(score).name if tuner else "N/A"
+            current_phase = tuner.step(score)
+            current_params = PHASE_PARAMS[current_phase]
+            phase_str = current_phase.name
             
             # Если синапсов 0, значит Ночная фаза еще не прошла
             if synapses == 0:
@@ -338,21 +352,21 @@ def run_cartpole():
         pole_velocity = abs(state[3])
 
         # 1. Нормализация ошибки (0.0 = идеал, 1.0 = крах)
-        angle_error = min(1.0, pole_angle / tuner.angle_limit)
-        vel_error = min(1.0, pole_velocity / tuner.vel_limit)
+        angle_error = min(1.0, pole_angle / current_params['angle_limit'])
+        vel_error = min(1.0, pole_velocity / current_params['vel_limit'])
  
         # 2. Взвешенная ошибка
-        error = min(1.0, angle_error * tuner.err_angle_weight + vel_error * tuner.err_vel_weight)
+        error = min(1.0, angle_error * current_params['err_angle'] + vel_error * current_params['err_vel'])
  
         # 3. Линейная алгебра дофамина (без if/else)
-        dopamine_signal = int(tuner.dopamine_reward * (1.0 - error) + tuner.dopamine_pulse * error)
+        dopamine_signal = int(current_params['dopamine_reward'] * (1.0 - error) + current_params['dopamine_pulse'] * error)
         
         # --- SINGLE BATCH HFT (2 ms) ---
         # Теперь 20 тиков ровно хватает на сквойной пролет сигнала через Nuclear Layer
-        encoder.encode_into(norm_state, client.payload_views[0], 0)
+        encoder.encode_into(norm_state, client.payload_views)
         rx = client.step(dopamine_signal)
         
-        total_motor = decoder.decode_from(rx, 0)
+        total_motor = decoder.decode_from(rx)
         # Winner-Takes-All: Суммируем спайки по левой (0-63) и правой (64-127) группам
         action = 0 if np.sum(total_motor[:64]) > np.sum(total_motor[64:]) else 1
 

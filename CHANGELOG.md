@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.854.120] - 2026-03-21 17:38:04
+
+**[Specs] Update memory alignment and ghost capacity calculation**
+
+### Added
+- Change warp alignment from 32 to 64 for padded_n, axon_heads, and SoA arrays to ensure L2 cache line and AMD Wavefront compatibility
+- Replace hardcoded ghost_capacity (200_000) with dynamic calculation: SUM(width * height) * 2.0 based on incoming matrices
+- Update BurstHeads8 alignment from 32 to 64 bytes in specs and baking pipeline documentation
+- Add ghost_capacity field to configuration specs as a u32 for VRAM reserve under Ghost Axons
+- Clarify PruneAxon handling: shard must write AXON_SENTINEL (0x80000000) to axon_heads[ghost_id] in VRAM
+- Adjust Input_Bitmask allocation to use 64-bit words for coalesced access in GPU runtime
+- Remove DEFAULT_GHOST_CAPACITY parameter from genesis-baker parse_and_validate function
+- Read ghost_capacity from InstanceConfig settings in genesis-baker
+- Implement dynamic ghost_capacity calculation in genesis-client builder.py based on incoming connections
+- Remove deprecated mtu and growth_steps parameters from cartpole_exp example
+- Add "НЕ ЗАВЕРШЕНО" warning header to FLY_exp README
+- Simplify cartpole sensor input by removing growth_steps parameter
+- Simplify motor output by removing mtu parameter in cartpole example
+
+
 ## [0.844.120] - 2026-03-21 15:41:21
 
 **[Documentation] Update README with badges, clarify architecture, and ref**
