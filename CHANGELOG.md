@@ -8,6 +8,119 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.835.119] - 2026-03-21 13:15:54
+
+**Transition from Humanoid to FLY_exp example**
+
+### Added
+- Delete humanoid_exp directory including README.md, build_brain.py, and humanoid_agent.py
+- Add new FLY_exp example with README.md, agent.py placeholder, and FLY_exp_topology.png
+- Update README.md with Zero-Magic Pipeline instructions for FLY_exp brain generation and execution
+- Remove 5-zone WTA architecture and 17-DOF bipedal locomotion implementation
+- Eliminate HumanoidAgent-specific build scripts and Python agent with DOD Hot Loop
+- Include detailed launch steps for Zero-Copy VRAM loading and dual-backend (CUDA/ROCm) execution
+- Add FLY_exp_topology.png as binary asset for network visualization
+- Specify dopamine-based training protocol with -255 punishment and non-linear reward signals
+
+## [0.828.119] - 2026-03-20 13:53:01
+
+**Merge pull request #7 from aaaab000/feature/topology-visualizer**
+
+## [0.827.119] - 2026-03-20 03:25:36
+
+**[GNM-Library] Update Cerebellum neuron configuration parameters**
+
+### Added
+- Adjust inertia_curve values for smoother decay across all modified neuron types
+- Reduce prune_threshold from 25 to 5 for more aggressive synaptic pruning
+- Update GNM-Library/Cerebellum/Mouse/gabaergic/476.toml
+- Update GNM-Library/Cerebellum/Mouse/purkinje/141.toml
+- Update GNM-Library/Cerebellum/Rat/gabaergic/1.toml
+- Update GNM-Library/Cerebellum/Zebrafish/purkinje/141.toml
+
+## [0.821.119] - 2026-03-19 23:32:17
+
+**[Connectivity] Add shared prune queue for axon handover pruning**
+
+### Added
+- Implement shared_prunes_queue in Bootloader::setup_networking and pass to GeometryServer::bind
+- Add shared_prunes_queue parameter to NodeRuntime::new and wire into OrchestratorCore.routing_prunes
+- Extend GeometryServer::bind signature to accept shared_prunes_queue and store in SlowPathQueues.incoming_prune
+- Refactor clean_checkpoints.py to delete files by exact name match or .tmp extension
+- Remove shutil import and replace checkpoint_files list with checkpoint_names set
+- Search recursively from target path without requiring 'baked' subdirectory
+- Add fallback logic to locate Genesis-Models relative to project root
+
+## [0.815.119] - 2026-03-19 22:37:56
+
+**[Architecture] Update documentation and fix 3D handover routing**
+
+### Added
+- Refactor docs/Architecture_and_Troubleshooting.md into concise CartPole-focused troubleshooting guide
+- Add solutions for FATAL DMA BUFFER OVERFLOW, UDP MTU exceed, Neural Silence, and buffer size ValueError
+- Fix axon handover entry_z coordinate calculation in genesis-baker/src/bake/axon_growth.rs inject_handover_events()
+- Add z_plus and z_minus neighbor fields to Neighbors struct in genesis-core/src/config/instance.rs
+- Implement Z-axis handover dispatch and routing in genesis-node/src/node/shard_thread.rs dispatch_handovers()
+- Support new queues for ceiling (z_plus) and floor (z_minus) boundary crossings
+
+## [0.810.118] - 2026-03-19 19:48:08
+
+**Fix variable naming inconsistencies in cartpole experiment agent**
+
+### Fixed
+- Rename DISTILL_ prefixed variables to DISTILLATION_ in GenesisAutoTuner constructor call
+- Rename CRYSTALLIZED_ prefixed variables to CRYSTALLIZATION_ in GenesisAutoTuner constructor call
+- Update variable references in examples/cartpole_exp/agent.py to match configuration definitions
+- Synchronize naming changes across examples/cartpole_exp/build_brain.py for consistency
+
+## [0.810.114] - 2026-03-19 19:54:36
+
+**[Tooling] Add 2D Brain Topology Visualizer**
+
+## [0.809.114] - 2026-03-19 19:53:59
+
+**[Tooling] Add 2D Brain Topology Visualizer**
+
+## [0.808.114] - 2026-03-18 12:40:32
+
+**Transition from Strict BSP to Asynchronous Epoch Projection (AEP)**
+
+### Added
+- Replace Strict BSP barrier model with Asynchronous Epoch Projection (AEP) across all zones
+- Update glossary entry for Tick to reflect asynchronous projection via AEP instead of BSP Barrier
+- Refactor 06_distributed.md section 2.1 to describe Autonomous Epoch Execution, removing network waits and allowing biological silence for missing data
+- Update GPU runtime maintenance phase description to reflect immediate reintegration into AEP cycle instead of Strict BSP barrier
+- Add AEP Integration subsection to ESP32-S3 network stack in 11_edge_bare_metal.md
+- Eliminate requirement for ESP32 to send empty heartbeat packets to unblock PC nodes, saving CPU cycles and battery
+- Specify that MCU now sends spike packets only upon physical occurrence
+- Replace references to BSP Barrier with AEP in glossary and distributed specs
+- Update version history in 06_distributed.md to document AEP transition and removal of WaitStrategy
+- Replace mentions of Strict BSP with AEP in GPU runtime upload phase description
+
+## [0.797.114] - 2026-03-18 11:39:31
+
+**[Architecture] Implement event-driven vision pipeline with zero-garbage **
+
+### Added
+- Add RetinaEncoder class in genesis-client/genesis/retina/encoder.py for converting RGB frames to sparse bitmask features
+- Implement Difference of Gaussians (DoG) for contours, frame delta for motion, and chromatic opponents (R-G, B-Y) for color features
+- Enforce C-ABI warp alignment with padded_N calculation and strict little-endian bit packing via np.packbits
+- Pre-allocate all buffers including _frame_f32, _gray, _dog, _motion, _rg_opp, _by_opp, and _batch_bool_buffer to eliminate heap allocations
+- Expose RetinaEncoder in genesis-client/genesis/retina/__init__.py for module import
+- Add opencv-python dependency to genesis-client/pyproject.toml for image processing
+- Create scripts/test_retina.py for stress testing with C-ABI alignment check and zero-garbage invariant verification
+
+## [0.791.114] - 2026-03-18 11:18:13
+
+**[Documentation] Update SDK Documentation**
+
+### Added
+- Update SDK_Surgery_Dopamine.md with detailed explanation of Path-Based Extraction and Surgical Grafting
+- Add caution note on hardware Zero-Index Trap for dendrite_targets and axon_id calculation
+- Extend ShmHeader packing in test_distillation.py to strict C-ABI v2 (64 bytes), adding total_axons field
+- Remove outdated SDK_Encoders_Decoders.md and SDK_Surgery_Dopamine.md files
+
+
 ## [0.788.113] - 2026-03-18 10:07:02
 
 **Implement Vectorized Back-Tracing and Surgical Grafting with Monumentali**

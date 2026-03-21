@@ -53,10 +53,11 @@ def test_distillation():
     mem = GenesisMemory(ZONE_HASH)
     
     # 3. Инжектируем тестовые данные (создаем 100 000 сильных и 100 000 слабых связей)
-    mem.targets[0, :] = 5 # axon_id = 4 (смещение Zero-Index)
+    # Используем строгий C-ABI Packer (Zero-Index Trap Protection)
+    mem.targets[0, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 4), np.zeros(PADDED_N)) 
     mem.weights[0, :] = 100 # Сильная связь
     
-    mem.targets[1, :] = 10 # axon_id = 9
+    mem.targets[1, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 9), np.zeros(PADDED_N))
     mem.weights[1, :] = 10 # Слабая связь (должна быть уничтожена)
     
     # 4. Запуск дистилляции
@@ -73,7 +74,13 @@ def test_distillation():
     # Проверки инвариантов
     assert killed == PADDED_N, "Должны были умереть все связи во 2 слоте!"
     assert np.all(mem.targets[1, :] == 0), "Слабые цели не обнулились!"
-    assert np.all(mem.targets[0, :] == 5), "Сильные цели пострадали!"
+    
+    # Проверка распаковкой сильных целей
+    strong_axon_ids, strong_seg_offsets = GenesisMemory.unpack_targets(mem.targets[0, :])
+    assert np.all(strong_axon_ids == 4), f"Сильные axon_id пострадали! Получено {strong_axon_ids[0]}"
+    assert np.all(strong_seg_offsets == 0), "Сильные смещения сегментов пострадали!"
+    
+    print("✅ Сильные связи подтверждены через Unpacker.")
     
     mem.close()
     os.remove(shm_path)

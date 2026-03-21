@@ -63,6 +63,27 @@ class GenesisMemory:
             offset=self.flags_offset
         )
 
+    @staticmethod
+    def pack_targets(axon_ids: np.ndarray, segment_offsets: np.ndarray) -> np.ndarray:
+        """
+        Строгий C-ABI Packer (Zero-Index Trap Protection).
+        [31..24] segment_offset (8 bit) | [23..0] axon_id + 1 (24 bit)
+        """
+        assert np.all(axon_ids >= 0) and np.all(axon_ids <= 0x00FFFFFE), "axon_id out of range (0..16777214)"
+        assert np.all(segment_offsets >= 0) and np.all(segment_offsets <= 255), "segment_offset out of range (0..255)"
+        
+        return (segment_offsets.astype(np.uint32) << 24) | (axon_ids.astype(np.uint32) + 1)
+
+    @staticmethod
+    def unpack_targets(packed_targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Строгий C-ABI Unpacker.
+        Возвращает: (axon_ids, segment_offsets)
+        """
+        axon_ids = (packed_targets & 0x00FFFFFF).astype(np.int32) - 1
+        segment_offsets = packed_targets >> 24
+        return axon_ids, segment_offsets
+
     def extract_topology(self, soma_idx: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Векторизованное извлечение геометрии для конкретного нейрона.
@@ -78,10 +99,8 @@ class GenesisMemory:
         valid_targets = raw_targets[valid_mask]
         active_weights = raw_weights[valid_mask]
         
-        # Распаковываем u32
-        # [31..24] seg_offset | [23..0] axon_id + 1
-        axon_ids = (valid_targets & 0x00FFFFFF).astype(np.int32) - 1
-        seg_offsets = valid_targets >> 24
+        # Распаковываем u32 через статический метод
+        axon_ids, seg_offsets = self.unpack_targets(valid_targets)
         
         return axon_ids, seg_offsets, active_weights
 

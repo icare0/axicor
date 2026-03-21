@@ -21,6 +21,53 @@ class NeuronBlueprint:
             n_type["gsop_depression"] = dep
         return self
 
+class IoMatrixDesigner:
+    def __init__(self, width: int, height: int):
+        self.width = width
+        self.height = height
+        self.padded_pixels = ((width * height + 31) // 32) * 32
+        self.bytes_per_tick = self.padded_pixels // 8
+
+    def fragment(self, sync_batch_ticks: int, mtu: int = 65507) -> list[dict]:
+        # 1. Полезная нагрузка (20 байт — ExternalIoHeader)
+        max_payload = mtu - 20
+        # 2. Байт на тик (целочисленное деление)
+        max_bytes_per_tick = max_payload // sync_batch_ticks
+        # 3. Пикселей на чанк (кратность 32 бита / 4 байта)
+        max_aligned_pixels = (max_bytes_per_tick // 4) * 32
+
+        # 4. Проверка вместимости
+        if self.padded_pixels <= max_aligned_pixels:
+            return [{"width": self.width, "height": self.height, "uv_rect": [0.0, 0.0, 1.0, 1.0]}]
+
+        # 5. Нарезка (Row-based Slicing)
+        chunk_height = max_aligned_pixels // self.width
+        if chunk_height == 0:
+            raise ValueError(f"[IoMatrix] Matrix width {self.width} exceeds MTU {mtu} capacity for {sync_batch_ticks} ticks. "
+                             f"Max aligned pixels per packet: {max_aligned_pixels}")
+
+        chunks = []
+        current_y = 0
+        while current_y < self.height:
+            h = min(chunk_height, self.height - current_y)
+            # UV Rect: [u_offset, v_offset, u_width, v_height]
+            uv_rect = [0.0, current_y / self.height, 1.0, h / self.height]
+            chunks.append({
+                "width": self.width,
+                "height": h,
+                "uv_rect": uv_rect
+            })
+            current_y += h
+        return chunks
+
+    def get_uv_rect(self, mode: str = "Pie", index: int = 0, total: int = 1) -> list[float]:
+        if mode == "Pie":
+            return [0.0, 0.0, 1.0, 1.0]
+        elif mode == "Canvas":
+            # Заглушка под режим "Canvas" (нарезка сеткой) — реализуем на следующем шаге.
+            pass
+        return [0.0, 0.0, 1.0, 1.0]
+
 class LayerDesigner:
     def __init__(self, zone: 'ZoneDesigner', name: str, height_pct: float, density: float):
         self.zone = zone
@@ -56,80 +103,51 @@ class ZoneDesigner:
         self.inputs: List[Dict[str, Any]] = []
         self.outputs: List[Dict[str, Any]] = []
         
-    def _fragment_matrix(self, name: str, width: int, height: int, is_input: bool, mtu: int) -> list[dict]:
-        max_payload_bytes = mtu - 20
+    def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1):
+        # 1. Валидация entry_z
+        if entry_z not in ["top", "mid", "bottom"]:
+            try:
+                float(entry_z)
+            except ValueError:
+                raise ValueError(f"Invalid entry_z: '{entry_z}'. Must be 'top', 'mid', 'bottom' or a float string.")
+
+        # 2. Фрагментация
+        designer = IoMatrixDesigner(width, height)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
+        chunks = designer.fragment(sync_batch_ticks=batch_ticks)
 
-        # [DOD FIX] Strict C-ABI payload sizing including Time Domain
-        if is_input:
-            # Input: 1 бит на пиксель, выровненный до 4 байт (32 бит) НА КАЖДЫЙ ТИК.
-            # Уравнение: (pixels / 32) * 4 * batch_ticks <= max_payload_bytes
-            max_pixels_per_chunk = (max_payload_bytes // (4 * batch_ticks)) * 32
-        else:
-            # Output: 1 байт на пиксель НА КАЖДЫЙ ТИК.
-            # Уравнение: pixels * batch_ticks <= max_payload_bytes
-            max_pixels_per_chunk = max_payload_bytes // batch_ticks
-
-        if max_pixels_per_chunk < 1:
-            raise ValueError(f"MTU {mtu} is too small to fit even 1 pixel for {batch_ticks} ticks.")
-
-        # Если матрица влезает в один пакет — возвращаем 100% покрытие (Pie Mode)
-        if width * height <= max_pixels_per_chunk:
-            return [{"name": name, "width": width, "height": height, "uv_rect": [0.0, 0.0, 1.0, 1.0]}]
-
-        chunks = []
-        # 2D Grid Slicing (Chunked Mode L7-фрагментации)
-        chunk_dim = int(math.sqrt(max_pixels_per_chunk))
-        part = 0
-        for y in range(0, height, chunk_dim):
-            for x in range(0, width, chunk_dim):
-                w = min(chunk_dim, width - x)
-                h = min(chunk_dim, height - y)
-                chunks.append({
-                    "name": f"{name}_p{part}",
-                    "width": w,
-                    "height": h,
-                    # uv_rect: [u_offset, v_offset, u_scale, v_scale]
-                    "uv_rect": [x / width, y / height, w / width, h / height]
-                })
-                part += 1
-        return chunks
-
-    def add_input(self, name: str, width: int, height: int, entry_z: str = "top", 
-                  target_type: str = "All", growth_steps: int = 1500, empty_pixel: str = "skip", stride: int = 1, mtu: int = 65507):
-        
-        # [DOD FIX] Входная битовая маска: учет Warp Alignment и Batch Ticks
-        chunks = self._fragment_matrix(name, width, height, is_input=True, mtu=mtu)
-        
-        for chunk in chunks:
+        # 3. Регистрация чанков
+        for i, chunk in enumerate(chunks):
+            chunk_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
             self.inputs.append({
-                "name": chunk["name"],
-                "zone": self.name,
+                "name": chunk_name,
+                "target_zone": self.name,
+                "target_type": target_type,
                 "width": chunk["width"],
                 "height": chunk["height"],
-                "entry_z": entry_z,
-                "target_type": target_type,
-                "growth_steps": growth_steps,
-                "empty_pixel": empty_pixel,
                 "stride": stride,
-                "uv_rect": chunk["uv_rect"]  # [DOD FIX] Инъекция проекции в TOML
+                "entry_z": entry_z,
+                "uv_rect": chunk["uv_rect"]
             })
         return self
 
-    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, mtu: int = 65507):
-        
-        # [DOD FIX] Выходная история спайков: 1 байт на пиксель на тик
-        chunks = self._fragment_matrix(name, width, height, is_input=False, mtu=mtu)
-        
-        for chunk in chunks:
+    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1):
+        # 1. Фрагментация
+        designer = IoMatrixDesigner(width, height)
+        batch_ticks = self.builder.sim_params["sync_batch_ticks"]
+        chunks = designer.fragment(sync_batch_ticks=batch_ticks)
+
+        # 2. Регистрация чанков
+        for i, chunk in enumerate(chunks):
+            chunk_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
             self.outputs.append({
-                "name": chunk["name"],
-                "zone": self.name,
+                "name": chunk_name,
+                "source_zone": self.name,
+                "target_type": target_type,
                 "width": chunk["width"],
                 "height": chunk["height"],
-                "target_type": target_type,
                 "stride": stride,
-                "uv_rect": chunk["uv_rect"]  # [DOD FIX] Инъекция проекции в TOML
+                "uv_rect": chunk["uv_rect"]
             })
         return self
         
