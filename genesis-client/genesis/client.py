@@ -10,10 +10,11 @@ HEADER_FMT = "<IIIIhH"  # 20 bytes: magic, zone_hash, matrix_hash, size, reward,
 GSIO_MAGIC = 0x4F495347
 
 class GenesisMultiClient:
-    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]]):
+    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], timeout: float = 2.0):
         """
         :param addr: (ip, port) ноды (External UDP In)
         :param matrices: Список словарей [{'zone_hash': int, 'matrix_hash': int, 'payload_size': int}]
+        :param timeout: Тайм-аут ожидания ответа от ноды (Biological Amnesia)
         """
         self.addr = addr
         self.num_chunks = len(matrices)
@@ -26,7 +27,7 @@ class GenesisMultiClient:
         self._rx_buf = bytearray(MAX_UDP_PAYLOAD)
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setblocking(True) # ЖЕСТКИЙ БАРЬЕР (Lockstep)
+        self.sock.settimeout(timeout)
         
         self.payload_views = []
         self._tx_packets = []
@@ -70,13 +71,19 @@ class GenesisMultiClient:
             self.sock.sendto(packet, self.addr)
 
         # Барьер синхронизации: ждем ответ от моторов
-        while True:
-            size, _ = self.sock.recvfrom_into(self._rx_buf, MAX_UDP_PAYLOAD)
-            
-            if expected_rx_hash is not None:
-                magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._rx_buf, 0)
-                if m_hash != expected_rx_hash:
-                    continue  # Игнорируем пакет и ждем нужный (например, motor_out)
-                    
-            # Возвращаем Zero-Copy срез ответа (без 20-байтового заголовка GSOO)
-            return memoryview(self._rx_buf)[HEADER_SIZE:size]
+        try:
+            while True:
+                size, _ = self.sock.recvfrom_into(self._rx_buf, MAX_UDP_PAYLOAD)
+                
+                if expected_rx_hash is not None:
+                    magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._rx_buf, 0)
+                    if m_hash != expected_rx_hash:
+                        continue  # Игнорируем пакет и ждем нужный (например, motor_out)
+                        
+                # Возвращаем Zero-Copy срез ответа (без 20-байтового заголовка GSOO)
+                return memoryview(self._rx_buf)[HEADER_SIZE:size]
+        except (socket.timeout, TimeoutError):
+            # [Biological Amnesia] Агент обязан перешагнуть потерю пакета.
+            print("⚠️ [GenesisClient] UDP Timeout. Triggering Biological Amnesia (Spike Drop).")
+            # Возвращаем пустой срез памяти без аллокаций
+            return memoryview(self._rx_buf)[0:0]

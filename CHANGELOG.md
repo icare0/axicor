@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.839.119] - 2026-03-21 15:02:26
+
+**[Architecture] Implement IoMatrixDesigner for MTU-aware input/output fra**
+
+### Added
+- Add IoMatrixDesigner class with fragment() method for row-based slicing based on sync_batch_ticks and MTU
+- Replace _fragment_matrix() in ZoneDesigner with IoMatrixDesigner for both add_input and add_output
+- Enforce C-ABI warp alignment with padded_pixels calculation and max_aligned_pixels per packet
+- Update add_input signature to remove mtu parameter, add target_type and entry_z validation
+- Update add_output signature to remove mtu parameter, use IoMatrixDesigner for chunk generation
+- Rename chunk fields in inputs/outputs to target_zone and source_zone for consistency
+- Implement pack_shm_header_v2() with strict 64-byte C-ABI layout including total_axons field
+- Add load_vram_zero_copy() method for direct VRAM loading via cudaMemcpyAsync/cuMemcpyHtoD
+- Support dual-backend detection (CUDA/ROCm) and fallback to host loading
+- Add validate_shm_header() for version and alignment checks with detailed error messages
+- Implement _extract_region() for surgical extraction of neuron/axon/dendrite regions from shared memory
+- Create test_builder_io.py with test_add_input_output_fragmentation() for MTU-aware chunking
+- Add test_io_matrix.py with TestIoMatrixDesigner class for fragment() and get_uv_rect() methods
+- Implement test_distillation.py extensions for ShmHeader v2 packing and validation
+- Include stress tests for large matrix fragmentation and edge cases like single-chunk fits
+- Document transition from Humanoid to FLY_exp example with Zero-Magic Pipeline instructions
+- Record Asynchronous Epoch Projection (AEP) replacing Strict BSP barrier across all zones
+- Add 2D Brain Topology Visualizer tool and shared prune queue for axon handover pruning
+- Update GNM-Library cerebellum neuron configuration with adjusted inertia_curve and prune_threshold
+- Fix 3D handover routing with z_plus/z_minus neighbor fields and Z-axis dispatch
+
+
 ## [0.835.119] - 2026-03-21 13:15:54
 
 **Transition from Humanoid to FLY_exp example**

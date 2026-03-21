@@ -56,12 +56,43 @@ class GenesisMemory:
             offset=self.targets_offset
         )
         
-        self.soma_flags = np.ndarray(
+        self.flags = np.ndarray(
             (self.padded_n,),
             dtype=np.uint8,
             buffer=self._mm,
             offset=self.flags_offset
         )
+
+    def save_checkpoint(self, filepath: str):
+        """
+        Zero-Copy дамп физического состояния графа в сжатый архив NumPy.
+        Сбрасывает веса, цели (топологию) и флаги гомеостаза.
+        """
+        np.savez_compressed(filepath, 
+                            weights=self.weights, 
+                            targets=self.targets, 
+                            flags=self.flags)
+
+    def load_checkpoint(self, filepath: str):
+        """
+        In-Place загрузка состояния из чекпоинта прямо в Shared Memory.
+        Строго соблюдает C-ABI смещения, не разрывая связь с mmap.
+        """
+        # data — словарь объектов из архива
+        with np.load(filepath) as data:
+            # Shape Safety: Защита от Silent Data Corruption при несовпадении коннектомов
+            assert data['weights'].shape == self.weights.shape, f"Weights shape mismatch: {data['weights'].shape} vs {self.weights.shape}"
+            assert data['targets'].shape == self.targets.shape, f"Targets shape mismatch: {data['targets'].shape} vs {self.targets.shape}"
+            assert data['flags'].shape == self.flags.shape, f"Flags shape mismatch: {data['flags'].shape} vs {self.flags.shape}"
+
+            # ЗАКОН: Strict In-Place Copy. 
+            # Нельзя делать self.weights = data['weights'], это убьет mmap!
+            self.weights[:] = data['weights']
+            self.targets[:] = data['targets']
+            self.flags[:] = data['flags']
+
+            # Форсируем сброс страниц памяти в /dev/shm для мгновенной реакции ядра Rust
+            self._mm.flush()
 
     @staticmethod
     def pack_targets(axon_ids: np.ndarray, segment_offsets: np.ndarray) -> np.ndarray:
