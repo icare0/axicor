@@ -58,7 +58,7 @@ pub const fn extract_variant_id(flags: u8) -> usize {
 // --- Other shared types ---
 
 pub type Tick = u64;
-pub type Weight = i16;
+pub type Weight = i32;
 pub type Voltage = i32;
 
 /// Axon head position (segment index). AXON_SENTINEL when inactive.

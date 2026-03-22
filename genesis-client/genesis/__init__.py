@@ -5,8 +5,9 @@ from .tuner import GenesisAutoTuner, Phase
 from .brain import GenesisBrain, Zone, GenesisClusterControl
 from .builder import BrainBuilder
 from .encoders import PwmEncoder, PopulationEncoder
-from .decoders import PwmDecoder
+from .decoders import PwmDecoder, PopulationDecoder
 from .surgeon import GenesisSurgeon
+from .contract import GenesisIoContract
 
 __all__ = [
     "GenesisMultiClient",
@@ -21,5 +22,7 @@ __all__ = [
     "PwmEncoder",
     "PopulationEncoder",
     "PwmDecoder",
-    "GenesisSurgeon"
+    "PopulationDecoder",
+    "GenesisSurgeon",
+    "GenesisIoContract"
 ]

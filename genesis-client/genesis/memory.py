@@ -44,7 +44,7 @@ class GenesisMemory:
         # [128, padded_n] - Columnar Layout (Coalesced GPU access)
         self.weights = np.ndarray(
             (self.dendrite_slots, self.padded_n), 
-            dtype=np.int16, 
+            dtype=np.int32, 
             buffer=self._mm, 
             offset=self.weights_offset
         )
@@ -144,10 +144,11 @@ class GenesisMemory:
         if len(active_weights) == 0:
             return {"active_synapses": 0, "avg_weight": 0.0, "max_weight": 0}
             
+        # [DOD FIX] Shift Mass Domain back to Charge Domain for human-readable telemetry
         return {
             "active_synapses": int(np.sum(valid_mask)),
-            "avg_weight": float(np.mean(np.abs(active_weights))),
-            "max_weight": int(np.max(np.abs(active_weights)))
+            "avg_weight": float(np.mean(np.abs(active_weights))) / 65536.0,
+            "max_weight": int(np.max(np.abs(active_weights))) // 65536
         }
 
     def distill_graph(self, prune_threshold: int) -> int:

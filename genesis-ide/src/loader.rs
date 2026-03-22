@@ -77,13 +77,18 @@ fn fetch_real_geometry(
             let num_neurons = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
             println!("[Loader] Server reporting {} neurons", num_neurons);
 
-            let mut buffer = vec![0u8; num_neurons * 4];
-            if let Err(e) = stream.read_exact(&mut buffer).await {
+            // [DOD FIX] Аллоцируем целевой выровненный массив (PackedPosition выровнен по 4 байтам)
+            // Это гарантирует корректное расположение в памяти кучи.
+            let mut geometry = vec![0u32; num_neurons];
+            
+            // Каст ВНИЗ (от выровненного u32 к u8) математически безопасен всегда
+            let buffer_u8 = bytemuck::cast_slice_mut(&mut geometry);
+            
+            if let Err(e) = stream.read_exact(buffer_u8).await {
                 eprintln!("[Loader] Failed to read geometry data: {}", e);
                 return;
             }
 
-            let geometry: Vec<u32> = bytemuck::cast_slice(&buffer).to_vec();
             let _ = tx.send(geometry);
         });
     });

@@ -216,11 +216,20 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
 
     // [DOD FIX] Zero-Copy Memory Mapping instead of std::fs::read.
     // Guarantees OS page alignment (4096 bytes) -> bytemuck is strictly safe.
-    let state_path = baked_dir.join("shard.state");
+    let chk_state = baked_dir.join("checkpoint.state");
+    let chk_axons = baked_dir.join("checkpoint.axons");
+    let base_state = baked_dir.join("shard.state");
+    let base_axons = baked_dir.join("shard.axons");
+
+    let (state_path, axons_path) = if chk_state.exists() && chk_axons.exists() {
+        (chk_state, chk_axons)
+    } else {
+        (base_state, base_axons)
+    };
+
     let state_file = std::fs::File::open(&state_path).ok()?;
     let state_mmap = unsafe { memmap2::Mmap::map(&state_file).ok()? };
 
-    let axons_path = baked_dir.join("shard.axons");
     let axons_file = std::fs::File::open(&axons_path).ok()?;
     let axons_mmap = unsafe { memmap2::Mmap::map(&axons_file).ok()? };
 
@@ -229,6 +238,11 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         state_mmap.as_ptr() as usize % 64,
         0,
         "FATAL C-ABI BOUNDARY: Memory-mapped .state file is not 64-byte aligned! OS page mapping failed."
+    );
+    assert_eq!(
+        axons_mmap.as_ptr() as usize % 32,
+        0,
+        "FATAL C-ABI BOUNDARY: Memory-mapped .axons file is not 32-byte aligned!"
     );
 
     let (axon_heads, soma_to_axon) = {
@@ -247,7 +261,17 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         let state_size = data.len();
 
         let s2a = if state_size > 0 {
-            let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + genesis_core::constants::MAX_DENDRITE_SLOTS * (4 + 2 + 1);
+            // [DOD FIX] The 1166-Byte Invariant (i32 weights)
+            let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + genesis_core::constants::MAX_DENDRITE_SLOTS * (4 + 4 + 1);
+
+            // [DOD HARD BARRIER]
+            if state_size % bytes_per_neuron != 0 {
+                panic!(
+                    "FATAL C-ABI MISMATCH: .state file size ({}) is not a multiple of {} bytes. You are loading a stale graph from the i16 era! Run build_brain.py to re-bake.",
+                    state_size, bytes_per_neuron
+                );
+            }
+
             let padded_n = (state_size / bytes_per_neuron) as u32;
 
             let voltage_offset = 0;
@@ -356,7 +380,7 @@ fn run_night_phase<S: Read + Write>(
     
     // 3. Obtain slices directly from SHM (Zero-Copy)
     let (weights, targets, flags, handovers) = unsafe {
-        let w_ptr = shm_ptr.add(w_off) as *mut i16;
+        let w_ptr = shm_ptr.add(w_off) as *mut i32;
         let t_ptr = shm_ptr.add(t_off) as *mut u32;
         let f_ptr = shm_ptr.add(f_off) as *const u8;
         let h_ptr = shm_ptr.add(h_off) as *mut genesis_core::ipc::AxonHandoverEvent;
@@ -427,6 +451,7 @@ fn run_night_phase<S: Read + Write>(
             ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
             _zone_hash,
             req.max_sprouts,
+            req.prune_threshold, // [DOD FIX] For initial weight protection
             shm_ptr,         // NEW: For prune writing
         )
     } else {

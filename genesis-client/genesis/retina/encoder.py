@@ -20,7 +20,7 @@ class RetinaEncoder:
         self.base_threshold = base_threshold
 
         # C-ABI Warp Alignment (строго кратно 32 битам на каждый тик)
-        self.padded_N = math.ceil(self.N / 32) * 32
+        self.padded_N = math.ceil(self.N / 64) * 64
         self.bytes_per_tick = self.padded_N // 8
         self.total_bytes = self.bytes_per_tick * self.B
 

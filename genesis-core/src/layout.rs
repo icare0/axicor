@@ -293,7 +293,7 @@ pub struct VramState {
 
     // Dendrites (Size: 128 * padded_n)
     pub dendrite_targets: *mut u32,
-    pub dendrite_weights: *mut i16,
+    pub dendrite_weights: *mut i32,
     pub dendrite_timers: *mut u8,
 
     // Axons (Size: total_axons)

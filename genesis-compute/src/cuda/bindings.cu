@@ -24,7 +24,7 @@ struct SoA_State {
   uint32_t* __restrict__ soma_to_axon;
 
   uint32_t* __restrict__ dendrite_targets;
-  int16_t* __restrict__ dendrite_weights;
+  int32_t* __restrict__ dendrite_weights;
   uint8_t* __restrict__ dendrite_timers;
 
   BurstHeads8* __restrict__ axon_heads;
@@ -118,7 +118,7 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
   // Вычисляем индекс слова в плоском массиве bitmask
   uint32_t effective_tick =
       (input_stride == 0) ? 0 : (current_tick / input_stride);
-  uint32_t words_per_tick = (total_virtual_axons + 31) / 32;
+  uint32_t words_per_tick = (total_virtual_axons + 63) / 64 * 2;
 
   uint32_t word_idx = (effective_tick * words_per_tick) + (tid / 32);
   uint32_t bit_idx = tid % 32;
@@ -440,7 +440,7 @@ void launch_extract_outgoing_spikes(const BurstHeads8 *axon_heads,
 
 struct DendriteSlot {
   uint32_t target;
-  int16_t weight;
+  int32_t weight; // [DOD FIX] i32 weights
   uint8_t timer;
 };
 
@@ -457,10 +457,11 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
   state.flags[tid] = flag & 0xF1;
   
   uint8_t variant_id = (flag >> 4) & 0x0F;
-  // [DOD FIX] Удалено чтение из VARIANT_LUT. Используем переданный global_prune_threshold.
-  int16_t prune_threshold = global_prune_threshold;
+  // [DOD FIX] Shift human-readable threshold into i32 Mass Domain
+  int32_t prune_threshold = (int32_t)global_prune_threshold << 16;
 
-  __shared__ DendriteSlot smem[WARP_SIZE][MAX_DENDRITE_SLOTS];
+  // [DOD FIX] Жёстко 32 потока, чтобы 12-байтная структура уложилась в 48 KB Shared Memory.
+  __shared__ DendriteSlot smem[32][MAX_DENDRITE_SLOTS];
   uint32_t lane_id = threadIdx.x;
 
   // 1. КООПЕРАТИВНОЕ ЧТЕНИЕ (Coalesced Load)
@@ -495,7 +496,7 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
 
   // 3. PRUNING (Обрезка слабых связей)
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
-    int16_t w = smem[lane_id][slot].weight;
+    int32_t w = smem[lane_id][slot].weight;
     int32_t abs_w = w >= 0 ? w : -w;
     if (smem[lane_id][slot].target != 0 && abs_w < prune_threshold) {
       smem[lane_id][slot].target = 0;
@@ -545,7 +546,7 @@ struct ShardVramPtrs {
   uint8_t* __restrict__ timers;
   uint32_t* __restrict__ soma_to_axon;
   uint32_t* __restrict__ dendrite_targets;
-  int16_t* __restrict__ dendrite_weights;
+  int32_t* __restrict__ dendrite_weights;
   uint8_t* __restrict__ dendrite_timers;
   BurstHeads8* __restrict__ axon_heads; // отдельный буфер
 };
@@ -576,7 +577,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   size_t sz_timers = (size_t)padded_n * sizeof(uint8_t);
   size_t sz_s2a = (size_t)padded_n * sizeof(uint32_t);
   size_t sz_targets = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(uint32_t);
-  size_t sz_weights = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(int16_t);
+  size_t sz_weights = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(int32_t);
   size_t sz_dtimers = (size_t)padded_n * MAX_DENDRITES_SV * sizeof(uint8_t);
 
   size_t total_state = sz_voltage + sz_flags + sz_thresh + sz_timers + sz_s2a +
@@ -608,7 +609,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   off += sz_s2a;
   out_vram->dendrite_targets = (uint32_t *)((char *)base + off);
   off += sz_targets;
-  out_vram->dendrite_weights = (int16_t *)((char *)base + off);
+  out_vram->dendrite_weights = (int32_t *)((char *)base + off);
   off += sz_weights;
   out_vram->dendrite_timers = (uint8_t *)((char *)base + off);
 
@@ -697,8 +698,9 @@ void cu_free_shard(ShardVramPtrs *vram) {
 // Без stream — ночная фаза синхронна.
 // =====================================================================
 extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded_n, int16_t prune_threshold) {
-  dim3 threads(WARP_SIZE, 1);
-  dim3 blocks((padded_n + WARP_SIZE - 1) / WARP_SIZE, 1);
+  // [DOD FIX] Запуск строго 32 потоков на блок для лимита в 48KB Shared Memory
+  dim3 threads(32, 1);
+  dim3 blocks((padded_n + 32 - 1) / 32, 1);
 
   SoA_State state;
   state.dendrite_targets = ptrs->dendrite_targets;

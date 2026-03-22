@@ -36,10 +36,10 @@ pub fn calculate_state_blob_size(neuron_count: usize) -> (usize, usize) {
     let soma_flags_sz       = padded_n * std::mem::size_of::<u8>();
     let threshold_sz        = padded_n * std::mem::size_of::<i32>();
     let timers_sz           = padded_n * std::mem::size_of::<u8>();
-    let soma_to_axon_sz     = padded_n * std::mem::size_of::<u32>();
+    let soma_to_axon_sz = padded_n * std::mem::size_of::<u32>();
     let dendrite_targets_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<u32>();
-    let dendrite_weights_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<i16>();
-    let dendrite_timers_sz  = padded_n * MAX_DENDRITES * std::mem::size_of::<u8>();
+    let dendrite_weights_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<i32>();
+    let dendrite_timers_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<u8>();
 
     let total = soma_voltage_sz
         + soma_flags_sz
@@ -76,8 +76,8 @@ pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
     let timers           = off; off += padded_n * 1;
     let soma_to_axon     = off; off += padded_n * 4;
     let dendrite_targets = off; off += padded_n * MAX_DENDRITES * 4;
-    let dendrite_weights = off; off += padded_n * MAX_DENDRITES * 2;
-    let dendrite_timers  = off; off += padded_n * MAX_DENDRITES * 1;
+    let dendrite_weights = off; off += padded_n * MAX_DENDRITES * 4;
+    let dendrite_timers = off; off += padded_n * MAX_DENDRITES * 1;
     StateOffsets {
         soma_voltage, soma_flags, threshold_offset, timers,
         soma_to_axon, dendrite_targets, dendrite_weights, dendrite_timers,

@@ -110,7 +110,7 @@ pub fn default_socket_port(zone_hash: u32) -> u16 {
 }
 
 pub const fn shm_size(padded_n: usize) -> usize {
-    let weights_bytes = padded_n * 128 * 2;
+    let weights_bytes = padded_n * 128 * 4;
     let targets_bytes = padded_n * 128 * 4;
     let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
     let prunes_bytes = MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>();
@@ -146,7 +146,7 @@ const _: () = assert!(std::mem::size_of::<ShmHeader>() == 64, "ShmHeader MUST be
 impl ShmHeader {
     pub fn new(zone_hash: u32, padded_n: u32, total_axons: u32) -> Self {
         let weights_offset = std::mem::size_of::<ShmHeader>() as u32;
-        let weights_bytes = padded_n * 128 * 2;
+        let weights_bytes = padded_n * 128 * 4;
         let targets_offset = weights_offset + weights_bytes;
         let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;

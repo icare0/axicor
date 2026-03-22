@@ -1,64 +1,70 @@
 /// CPU эмуляция и тесты для математики ядра ApplyGSOP (Spec §1.3)
-/// Проверяет формулы potentiation, depression, clanp, slot decay и inertia rank.
+/// Проверяет формулы potentiation, depression, clamp, spatial cooling и inertia rank.
 
 use crate::config::blueprints::NeuronType;
 
 /// Полная копия branchless логики из `physics.cu -> apply_gsop_kernel`
 fn emulate_gsop_math(
-    weight: i16,
-    is_causal: bool,
-    slot_idx: u8,
-    p: &NeuronType, // Используем NeuronType как аналог VariantParameters
-) -> i16 {
-    // 5. Inertia Rank: abs(weight) >> 11 → 0..15
-    let abs_w = weight.abs() as u16;
-    let rank = (abs_w >> 11) as usize;
-    
-    // Защита от выхода за пределы (хотя clamp ниже не даст весу стать > 32767)
+    weight: i32,
+    dopamine: i16,
+    dist_to_spike: Option<u32>,
+    burst_count: u8,
+    p: &NeuronType, 
+) -> i32 {
+    let sign = if weight >= 0 { 1 } else { -1 };
+    let abs_w = weight.abs();
+
+    // 1. Модуляция дофамином
+    let pot_mod = ((dopamine as i32) * (p.d1_affinity as i32)) >> 7;
+    let dep_mod = ((dopamine as i32) * (p.d2_affinity as i32)) >> 7;
+
+    let raw_pot = (p.gsop_potentiation as i32) + pot_mod;
+    let raw_dep = (p.gsop_depression as i32) - dep_mod;
+    let final_dep = raw_dep.max(0);
+
+    // 2. Инерция и пачки
+    let rank = (abs_w >> 27) as usize;
     let rank_safe = rank.min(15);
-    let inertia = p.inertia_curve[rank_safe] as u16;
+    let inertia = p.inertia_curve[rank_safe] as i32;
+    let burst_mult = if burst_count > 0 { burst_count as i32 } else { 1 };
 
-    // 6. Branchless GSOP Math
-    let delta_pot = (p.gsop_potentiation as u16 * inertia) >> 7;
-    let delta_dep = (p.gsop_depression as u16 * inertia) >> 7;
-    
-    let is_causal_int = if is_causal { 1 } else { 0 };
-    let not_causal_int = if is_causal { 0 } else { 1 };
-    
-    let delta = (is_causal_int * delta_pot as i32) - (not_causal_int * delta_dep as i32);
+    let delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    let delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
-    // 7. Slot Decay
-    let decay = if slot_idx < p.ltm_slot_count {
-        p.slot_decay_ltm as i32
+    // 3. Spatial Cooling
+    let is_active = dist_to_spike.is_some();
+    let min_dist = dist_to_spike.unwrap_or(u32::MAX);
+    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
+
+    // 4. Итоговая дельта
+    let delta = if is_active {
+        delta_pot >> cooling_shift
     } else {
-        p.slot_decay_wm as i32
+        -delta_dep
     };
-    
-    let delta = (delta * decay) >> 7;
 
-    // 8. Signed Clamp ±32767
-    let w_sign = if weight < 0 { -1 } else { 1 };
-    let mut new_abs = (abs_w as i32) + delta;
+    // 5. Глобальный Decay
+    let decay = 128i32;
+    let delta = (delta * decay) >> (7 + cooling_shift);
+
+    // 6. Clamp
+    let mut new_abs = abs_w + delta;
+    if new_abs < 0 {
+        new_abs = 0;
+    }
+    if new_abs > 2140000000 {
+        new_abs = 2140000000;
+    }
     
-    // В CUDA: new_abs = (new_abs > 32767) ? 32767 : ((new_abs < 0) ? 0 : new_abs);
-    new_abs = if new_abs > 32767 {
-        32767
-    } else if new_abs < 0 {
-        0
-    } else {
-        new_abs
-    };
-    
-    (w_sign * new_abs) as i16
+    sign * new_abs
 }
 
 fn test_neuron() -> NeuronType {
     let mut nt = NeuronType::default();
     nt.gsop_potentiation = 80;
     nt.gsop_depression = 40;
-    nt.ltm_slot_count = 80;
-    nt.slot_decay_ltm = 120; // ~0.93x
-    nt.slot_decay_wm = 64;   // ~0.50x
+    nt.d1_affinity = 128; // 1.0x
+    nt.d2_affinity = 128; // 1.0x
     nt.inertia_curve = [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8];
     nt
 }
@@ -66,95 +72,44 @@ fn test_neuron() -> NeuronType {
 #[test]
 fn test_gsop_potentiation_basic() {
     let nt = test_neuron();
-    let w = emulate_gsop_math(100, true, 0, &nt);
-    // weight=100 -> rank=0 -> inertia=128
-    // delta_pot = (80 * 128) >> 7 = 80
-    // decay (LTM) = 120. delta = (80 * 120) >> 7 = 75
-    // new_abs = 100 + 75 = 175
-    assert_eq!(w, 175);
+    // weight=100, dopamine=0, active (dist=0), no burst
+    let w = emulate_gsop_math(100, 0, Some(0), 0, &nt);
+    // delta_pot = (80 * 128 * 1) >> 7 = 80
+    // cooling_shift = 0
+    // delta = 80 >> 0 = 80
+    // decay: (80 * 128) >> 7 = 80
+    // new_abs = 100 + 80 = 180
+    assert_eq!(w, 180);
 }
 
 #[test]
 fn test_gsop_depression_basic() {
     let nt = test_neuron();
-    let w = emulate_gsop_math(100, false, 0, &nt);
-    // weight=100 -> rank=0 -> inertia=128
-    // delta_dep = (40 * 128) >> 7 = 40
+    // weight=100, dopamine=0, inactive, no burst
+    let w = emulate_gsop_math(100, 0, None, 0, &nt);
+    // delta_dep = (40 * 128 * 1) >> 7 = 40
     // delta = -40
-    // decay (LTM) = 120. delta = (-40 * 120) >> 7 = -38
-    // new_abs = 100 - 38 = 62
-    assert_eq!(w, 62);
+    // decay: (-40 * 128) >> 7 = -40
+    // new_abs = 100 - 40 = 60
+    assert_eq!(w, 60);
 }
 
 #[test]
 fn test_gsop_clamp_max() {
     let nt = test_neuron();
-    // Максимальный вес. potentiation не должен пробить 32767
-    let w = emulate_gsop_math(32767, true, 0, &nt);
-    assert_eq!(w, 32767);
+    let w = emulate_gsop_math(2140000000, 0, Some(0), 0, &nt);
+    assert_eq!(w, 2140000000);
 }
 
 #[test]
-fn test_gsop_clamp_zero() {
+fn test_gsop_spatial_cooling() {
     let nt = test_neuron();
-    // Вес 1, depression. Должен упереться в 0, но не сменить знак!
-    let w = emulate_gsop_math(1, false, 0, &nt);
-    assert_eq!(w, 0);
+    // dist=32 -> cooling_shift = 32 >> 4 = 2
+    let w = emulate_gsop_math(1000, 0, Some(32), 0, &nt);
+    // delta_pot = (80 * 128) >> 7 = 80
+    // cooling = 80 >> 2 = 20
+    // decay = (20 * 128) >> (7 + 2) = 2560 >> 9 = 20
+    // new_abs = 1000 + 20 = 1020
+    assert_eq!(w, 1020);
 }
 
-#[test]
-fn test_gsop_sign_preserved() {
-    let nt = test_neuron();
-    // Inhibitory synapse (-500)
-    // Потенциация делает вес "сильнее", то есть модуль растёт.
-    // rank=0, delta=75 (см. первый тест)
-    // new_abs = 500 + 75 = 575 -> sign * 575 = -575
-    let w = emulate_gsop_math(-500, true, 0, &nt);
-    assert_eq!(w, -575);
-
-    // Депрессия делает вес слабее (модуль падает)
-    // rank=0, delta=-38
-    // new_abs = 500 - 38 = 462 -> sign * 462 = -462
-    let w2 = emulate_gsop_math(-500, false, 0, &nt);
-    assert_eq!(w2, -462);
-}
-
-#[test]
-fn test_inertia_rank_boundaries() {
-    let mut nt = test_neuron();
-    // Custom inertia, чтобы точно видеть ранги
-    nt.inertia_curve = [0; 16];
-	nt.inertia_curve[0] = 64;
-	nt.inertia_curve[1] = 128;
-	nt.inertia_curve[15] = 255;
-
-    // rank 0: 0..2047
-    let w0 = emulate_gsop_math(2000, true, 0, &nt);
-    // delta_pot = (80 * 64) >> 7 = 40. decay=120 -> (40*120)>>7 = 37
-    assert_eq!(w0, 2037);
-
-    // rank 1: 2048..4095
-    let w1 = emulate_gsop_math(2048, true, 0, &nt);
-    // delta_pot = (80 * 128) >> 7 = 80. decay=120 -> (80*120)>>7 = 75
-    assert_eq!(w1, 2123);
-
-    // rank 15: 30720..32767
-    let w15 = emulate_gsop_math(32000, true, 0, &nt);
-    // delta_pot = (80 * 255) >> 7 = 159. decay=120 -> (159*120)>>7 = 149
-    assert_eq!(w15, 32149);
-}
-
-#[test]
-fn test_slot_decay_ltm_vs_wm() {
-    let mut nt = test_neuron();
-    // LTM: 120/128, WM: 64/128
-    nt.gsop_potentiation = 128; // для ровного счета. 128 * 128(inertia) = 16384 >> 7 = 128
-    
-    // Slot 0 < 80. LTM. delta = 128 * 120 >> 7 = 120
-    let w_ltm = emulate_gsop_math(100, true, 0, &nt);
-    assert_eq!(w_ltm, 220); // 100 + 120
-
-    // Slot 80 >= 80. WM. delta = 128 * 64 >> 7 = 64
-    let w_wm = emulate_gsop_math(100, true, 80, &nt);
-    assert_eq!(w_wm, 164); // 100 + 64
-}

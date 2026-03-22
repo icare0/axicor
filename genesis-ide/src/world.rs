@@ -180,7 +180,7 @@ fn check_geometry_applied(
     let geom_handle = buffers.add(ShaderStorageBuffer::from(loaded.0.clone()));
 
     // Инициализация маски выделения (1 бит = 1 нейрон)
-    let num_words = (num_neurons + 31) / 32;
+    let num_words = (num_neurons + 63) / 64 * 2;
     let selection_bitmask = vec![0u32; num_words];
     let selection_handle = buffers.add(ShaderStorageBuffer::from(selection_bitmask.clone()));
     

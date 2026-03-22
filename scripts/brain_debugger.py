@@ -24,9 +24,10 @@ from pathlib import Path
 MAX_DENDRITES = 128
 
 def compute_padded_n(file_size):
-    """Обратная формула: file_size = padded_n * (4+1+4+1+4 + 128*(4+2+1))"""
-    bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + MAX_DENDRITES * (4 + 2 + 1)
-    # = 14 + 128*7 = 14 + 896 = 910
+    """Обратная формула: file_size = padded_n * (4+1+4+1+4 + 128*(4+4+1))"""
+    # [DOD FIX] The 1166-Byte Invariant (i32 weights)
+    bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + MAX_DENDRITES * (4 + 4 + 1)
+    # = 14 + 128*9 = 14 + 1152 = 1166
     padded_n = file_size // bytes_per_neuron
     assert padded_n * bytes_per_neuron == file_size, \
         f"File size {file_size} not aligned to {bytes_per_neuron} bytes/neuron"
@@ -47,7 +48,7 @@ def parse_state(path):
     s2a     = np.frombuffer(data[off:off + n*4], dtype=np.uint32); off += n*4
     
     dend_tgt = np.frombuffer(data[off:off + n*MAX_DENDRITES*4], dtype=np.uint32).reshape(MAX_DENDRITES, n); off += n*MAX_DENDRITES*4
-    dend_w   = np.frombuffer(data[off:off + n*MAX_DENDRITES*2], dtype=np.int16).reshape(MAX_DENDRITES, n); off += n*MAX_DENDRITES*2
+    dend_w   = np.frombuffer(data[off:off + n*MAX_DENDRITES*4], dtype=np.int32).reshape(MAX_DENDRITES, n); off += n*MAX_DENDRITES*4
     dend_t   = np.frombuffer(data[off:off + n*MAX_DENDRITES],   dtype=np.uint8).reshape(MAX_DENDRITES, n); off += n*MAX_DENDRITES
     
     assert off == len(data), f"Parse error: consumed {off}, total {len(data)}"
@@ -133,7 +134,7 @@ def report_dendrites(s, name):
     # Все активные веса
     active_weights = w[connected]
     
-    print(f"\n  🔗 DENDRITE WEIGHTS (i16)")
+    print(f"\n  🔗 DENDRITE WEIGHTS (i32)")
     if len(active_weights) == 0:
         print(f"    ⚠ NO CONNECTED SYNAPSES")
         return
@@ -167,7 +168,7 @@ def report_dendrites(s, name):
     
     # Распределение весов (гистограмма)
     abs_w = np.abs(active_weights.astype(np.int32))
-    hist_edges = [0, 100, 500, 1000, 2000, 3500, 5000, 10000, 32768]
+    hist_edges = [0, 100, 500, 1000, 2000, 3500, 5000, 10000, 2140000000]
     hist, _ = np.histogram(abs_w, bins=hist_edges)
     print(f"\n    |Weight| Distribution:")
     for i in range(len(hist)):

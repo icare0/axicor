@@ -9,8 +9,7 @@ use rayon::prelude::*;
 #[repr(C)]
 struct TempSlot {
     target: u32,
-    weight: i16,
-    _pad: u16,
+    weight: i32,
 }
 
 pub fn connect_dendrites(
@@ -68,15 +67,14 @@ pub fn connect_dendrites(
                     // [DOD FIX] Dale's Law: Presynaptic neuron dictates the synapse sign
                     let owner_type = &types[owner_type_idx];
                     let weight = if owner_type.is_inhibitory {
-                        -(owner_type.initial_synapse_weight as i16)
+                        -((owner_type.initial_synapse_weight as i32) << 16)
                     } else {
-                        owner_type.initial_synapse_weight as i16
+                        (owner_type.initial_synapse_weight as i32) << 16
                     };
 
                     slots[*count] = TempSlot {
                         target: genesis_core::layout::pack_dendrite_target(axon_id as u32, seg_ref.seg_idx as u32),
                         weight,
-                        _pad: 0,
                     };
                     *count += 1;
                 }

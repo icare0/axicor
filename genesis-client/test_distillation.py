@@ -11,9 +11,10 @@ def test_distillation():
     
     # Эмуляция VRAM шарда на 100к нейронов
     # 64 (Header) + Weights (100k * 128 * 2) + Targets (100k * 128 * 4) + Handovers...
-    WEIGHTS_SIZE = PADDED_N * 128 * 2
+    WEIGHTS_SIZE = PADDED_N * 128 * 4
     TARGETS_SIZE = PADDED_N * 128 * 4
-    SHM_SIZE = 64 + WEIGHTS_SIZE + TARGETS_SIZE + (10000 * 20)
+    # [DOD FIX] Strict C-ABI v4 Header requirements
+    SHM_SIZE = 64 + WEIGHTS_SIZE + TARGETS_SIZE + (10000 * 20) + (10000 * 8) + PADDED_N
     
     shm_path = f"/dev/shm/genesis_shard_{ZONE_HASH:08X}"
     

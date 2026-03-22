@@ -10,7 +10,7 @@ class GenesisSurgeon:
     def __init__(self, memory: GenesisMemory):
         self.mem = memory
 
-    def incubate_gaba(self, baseline_weight: int = -30000) -> int:
+    def incubate_gaba(self, baseline_weight: int = -2000000000) -> int:
         mask = (self.mem.targets != 0) & (self.mem.weights < 0)
         self.mem.weights[mask] = baseline_weight
         return int(np.sum(mask))
@@ -50,7 +50,8 @@ class GenesisSurgeon:
 
             # Выживают только сильные связи (Закон Дейла: abs() захватывает тормозные)
             # Признак жизни: target != 0 и вес выше порога
-            valid_mask = (frontier_targets != 0) & (np.abs(frontier_weights) > prune_threshold)
+            # [DOD FIX] Compare Mass Domain weights against shifted threshold
+            valid_mask = (frontier_targets != 0) & (np.abs(frontier_weights) > (prune_threshold << 16))
 
             # Находим координаты выживших синапсов в локальном окне фронтира
             row_idx, col_idx = np.where(valid_mask)
@@ -111,8 +112,8 @@ class GenesisSurgeon:
         # 3. Восстановление топологии
         self.mem.targets[syn_mask] = payload["targets"]
         
-        # 4. Монументализация (Ранг 15 -> 32767)
+        # 4. Монументализация (Ранг 15 -> 2.14B)
         # Сохраняем знак источника (Dale's Law), но выкручиваем силу на максимум
         implant_weights = payload["weights"]
-        signs = np.sign(implant_weights).astype(np.int16)
-        self.mem.weights[syn_mask] = signs * 32767
+        signs = np.sign(implant_weights).astype(np.int32)
+        self.mem.weights[syn_mask] = signs * 2140000000

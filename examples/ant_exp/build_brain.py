@@ -1,3 +1,7 @@
+#=============================================================
+#       ВРЕМЕННО НЕ РАБОТАЕТ / ТРЕБУЕТ РЕФАКТОРИНГА
+#=============================================================
+
 #!/usr/bin/env python3
 import os
 import sys
@@ -23,29 +27,28 @@ def build_ant_connectome():
     builder.sim_params["tick_duration_us"] = 100
 
     # ============================================================
-    # АППАРАТНЫЕ ПРОФИЛИ (Strict Reward-Gated Plasticity)
+    # АППАРАТНЫЕ ПРОФИЛИ (Strict C-ABI Constants)
     # ============================================================
-    # pot=0 (рост только от дофамина), dep=2 (постоянное выжигание мусора)
-    exc_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
-    inh_type = builder.gnm_lib("VISp4/114").set_plasticity(pot=0, dep=2)
-    
-    motor_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
+    # [DOD FIX] Никаких хардкодов plasticity! Используем Mass Domain и библиотечные дефолты.
+    exc_type = builder.gnm_lib("VISp4/141")
+    inh_type = builder.gnm_lib("VISp4/114")
+
+    motor_type = builder.gnm_lib("VISp4/141")
     motor_type.name = "Motor_Pyramidal"
     for d in motor_type.data_list:
         d["name"] = "Motor_Pyramidal"
-        d["initial_synapse_weight"] = 12000 # Форсируем сильный стартовый контакт
-        d["dendrite_radius_um"] = 500.0     # Широкий захват дендритов
+        d["dendrite_radius_um"] = 500.0     # Широкий захват для конвергенции сигнала
 
     # ============================================================
     # SHARD 1: SENSORY CORTEX (Входной шлюз)
     # ============================================================
     sensory = builder.add_zone("SensoryCortex", width_vox=64, depth_vox=64, height_vox=16)
-    
-    sensory.add_layer("L4_Input", height_pct=1.0, density=0.15) \
+
+    # [DOD FIX] Снижаем плотность до 10%, чтобы не пробить лимит в 128 слотов
+    sensory.add_layer("L4_Input", height_pct=1.0, density=0.10) \
            .add_population(exc_type, fraction=0.9) \
            .add_population(inh_type, fraction=0.1)
-           
-    # Strict VRAM Stride Alignment: 28 * 16 = 448 pixels
+
     sensory.add_input("ant_sensors", width=28, height=16, entry_z="top")
     sensory.add_output("to_thoracic", width=16, height=16)
 
@@ -53,12 +56,12 @@ def build_ant_connectome():
     # SHARD 2: THORACIC GANGLION (Генератор Паттернов / Хаб)
     # ============================================================
     thoracic = builder.add_zone("ThoracicGanglion", width_vox=64, depth_vox=64, height_vox=32)
-    
-    thoracic.add_layer("L_Lower", height_pct=0.5, density=0.2) \
+
+    thoracic.add_layer("L_Lower", height_pct=0.5, density=0.08) \
             .add_population(exc_type, fraction=0.7) \
             .add_population(inh_type, fraction=0.3)
 
-    thoracic.add_layer("L_Upper", height_pct=0.5, density=0.2) \
+    thoracic.add_layer("L_Upper", height_pct=0.5, density=0.08) \
             .add_population(exc_type, fraction=0.6) \
             .add_population(inh_type, fraction=0.4)
 
@@ -68,15 +71,14 @@ def build_ant_connectome():
     # SHARD 3: MOTOR CORTEX (Выходной шлюз + Winner-Takes-All)
     # ============================================================
     motor = builder.add_zone("MotorCortex", width_vox=64, depth_vox=64, height_vox=32)
-    
-    motor.add_layer("L5_Lower", height_pct=0.6, density=0.25) \
-         .add_population(motor_type, fraction=0.4) \
-         .add_population(inh_type, fraction=0.6) # Winner-Takes-All Inhibition
 
-    motor.add_layer("L5_Upper", height_pct=0.4, density=0.15) \
+    motor.add_layer("L5_Lower", height_pct=0.6, density=0.10) \
+         .add_population(motor_type, fraction=0.4) \
+         .add_population(inh_type, fraction=0.6)
+
+    motor.add_layer("L5_Upper", height_pct=0.4, density=0.08) \
          .add_population(exc_type, fraction=1.0)
 
-    # Выход строго с пирамид
     motor.add_output("motor_out", width=16, height=8, target_type="Motor_Pyramidal")
 
     # ============================================================

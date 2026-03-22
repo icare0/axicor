@@ -128,66 +128,74 @@ pub const fn update_homeostasis(
 // GSOP Plasticity (Spec 04 §2.4, §2.5)
 // ---------------------------------------------------------------------------
 
-/// Inertia Rank: разделяем диапазон |weight| (0..32767) на 15 рангов по 2048.
-/// `rank = abs_w >> 11`. Это 1 такт ALU, без ветвлений.
+/// Inertia Rank: разделяем диапазон |weight| (0..2.14 млрд) на 16 рангов.
+/// `rank = abs_w >> 27`. Это 1 такт ALU, без ветвлений.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
-    let rank = (abs_weight >> 11) as usize;
-    if rank > 14 { 14 } else { rank }
+    let rank = (abs_weight >> 27) as usize; // 2.14 млрд >> 27 = 15
+    if rank > 15 { 15 } else { rank }
 }
 
-/// Вычисляет новый вес синапса с учетом GSOP, инерции и слот-декея.
-///
-/// # Аргументы
-/// - `current_weight`: текущий вес (i16). Знак = тип синапса (Dale's Law).
-/// - `is_active_tail`: true = каузальное совпадение (potentiation).
-/// - `potentiation`: GSOP delta при совпадении (из Constant Memory).
-/// - `depression`: GSOP delta при промахе (из Constant Memory).
-/// - `inertia_multiplier`: Значение из `inertia_curve[rank]` (0..255, fixed-point base=128).
-/// - `slot_decay`: Множитель слота (LTM или WM, fixed-point base=128).
-///
-/// # Контракт
-/// - Знак веса НИКОГДА не меняется (Закон Дейла).
-/// - `i16::MIN` (-32768) обрабатывается корректно (каст в i32 перед abs).
-/// - Результат clamped к `[-32767, 32767]` (abs_w clamped к `[0, 32767]`).
-#[inline(always)]
-pub const fn compute_gsop_weight(
-    current_weight: i16,
-    is_active_tail: bool,
-    potentiation: i16,
-    depression: i16,
-    inertia_multiplier: u8,
-    slot_decay: u8,
-) -> i16 {
-    // 1. Знак — фиксируем раз и навсегда (Dale's Law)
-    let sign: i32 = if current_weight < 0 { -1 } else { 1 };
+/// Вычисляет новое значение синаптического веса согласно алгоритму GSOP (STDP).
+/// Математика оптимизирована под целочисленные вычисления (Fixed Point).
+pub fn compute_gsop_weight(
+    current_weight: i32,
+    dopamine: i16,
+    d1_affinity: u8,
+    d2_affinity: u8,
+    gsop_potentiation: u16,
+    gsop_depression: u16,
+    inertia: u8,
+    dist_to_spike: Option<u32>,
+    burst_mult: u8,
+) -> i32 {
+    let sign = if current_weight >= 0 { 1 } else { -1 };
+    let abs_w = current_weight.abs();
 
-    // 2. Безопасный abs: i16::MIN (-32768) as i32 = -32768, abs = 32768.
-    //    Далее clamp до 32767.
-    let abs_w = (current_weight as i32).abs();
+    // 1. Модуляция дофамином (D1 бустит LTP, D2 подавляет LTD при награде)
+    // Целочисленная физика: (i16 * u8) >> 7
+    let pot_mod = ((dopamine as i32) * (d1_affinity as i32)) >> 7;
+    let dep_mod = ((dopamine as i32) * (d2_affinity as i32)) >> 7;
 
-    // 3. Inertia: масштабируем delta на кривую инерции (fixed-point >>7)
-    let raw_delta = if is_active_tail {
-        (potentiation as i32 * inertia_multiplier as i32) >> 7
+    let raw_pot = (gsop_potentiation as i32) + pot_mod;
+    let raw_dep = (gsop_depression as i32) - dep_mod;
+
+    // Защита от отрицательной депрессии (Dead Zone Guard)
+    let final_dep = if raw_dep < 0 { 0 } else { raw_dep };
+
+    // 2. Базовый дельта-импульс с учетом инерции и силы пачки
+    // [BIT ACCURACY] Умножение ДО сдвига строго как в CUDA
+    let delta_pot = (raw_pot * (inertia as i32) * (burst_mult as i32)) >> 7;
+    let delta_dep = (final_dep * (inertia as i32) * (burst_mult as i32)) >> 7;
+
+    // 3. Пространственное охлаждение (Spatial Cooling)
+    // Чем дальше спайк от синапса, тем слабее эффект LTP
+    let is_active = dist_to_spike.is_some();
+    let min_dist = if let Some(d) = dist_to_spike { d } else { u32::MAX };
+    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
+
+    // 4. Итоговая дельта
+    let delta = if is_active {
+        delta_pot >> cooling_shift
     } else {
-        -((depression as i32 * inertia_multiplier as i32) >> 7)
+        -delta_dep
     };
 
-    // 4. Slot Decay: масштабируем delta на коэффициент слота (fixed-point >>7)
-    let delta = (raw_delta * slot_decay as i32) >> 7;
+    // 5. Глобальный коэффициент затухания (Decay)
+    let decay = 128i32; // 1.0 в Fixed Point 7
+    let delta = (delta * decay) >> (7 + cooling_shift);
 
-    // 5. Вычисляем новый абсолютный вес
+    // 6. Применяем изменение и ограничиваем лимитами i32 с Headroom
+    // Потолок 2.14 млрд оставляет запас до i32::MAX для предотвращения wrap-around.
     let mut new_abs = abs_w + delta;
-
-    // 6. Клэмп [0, 32767] — вес не переходит через 0 и не превышает i16::MAX
     if new_abs < 0 {
         new_abs = 0;
-    } else if new_abs > 32767 {
-        new_abs = 32767;
     }
-
+    if new_abs > 2140000000 {
+        new_abs = 2140000000;
+    }
     // 7. Восстанавливаем знак
-    (sign * new_abs) as i16
+    (sign * new_abs) as i32
 }
 
 #[cfg(test)]

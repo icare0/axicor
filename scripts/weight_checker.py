@@ -3,12 +3,12 @@ import sys
 def check_shard(name, path):
     try:
         data = np.fromfile(path, dtype=np.uint8)
-        # Рассчитываем N (14 байт заголовка + 128 слотов по 7 байт на дендрит)
-        n = len(data) // (14 + 128 * 7)
-        off_tgt = n * 14
-        off_w = off_tgt + n * 128 * 4
-        # Читаем веса (i16)
-        w = np.frombuffer(data[off_w : off_w + n*128*2], dtype=np.int16)
+        # [DOD FIX] 1166 bytes per neuron (14 soma + 128 * (4 targets + 4 weights + 1 timers))
+        n = len(data) // 1166
+        # Soma: 14*n, Targets: 128*n*4, Weights: 128*n*4
+        off_w = 14 * n + 128 * n * 4
+        # Читаем веса (i32)
+        w = np.frombuffer(data[off_w : off_w + n * 128 * 4], dtype=np.int32)
         
         active = w[w != 0]
         if len(active) == 0:
@@ -24,10 +24,11 @@ def check_shard(name, path):
         
         status = "✅ OK" if 0.5 <= deviation <= 2.0 else "⚠️ I-DOMINANCE" if deviation < 0.5 else "⚠️ E-DOMINANCE"
         
+        # [DOD FIX] Shift Mass Domain back to Charge Domain
         print(f"[{name}] 🧠 Stats:")
         print(f"  - Active Synapses: {len(active)} ({(len(active)/(n*128))*100:.2f}% density)")
-        print(f"  - Avg Weight:      {np.mean(np.abs(active)):.2f}")
-        print(f"  - Max/Min:         {np.max(active)} / {np.min(active)}")
+        print(f"  - Avg Weight:      {np.mean(np.abs(active)) / 65536.0:.2f}")
+        print(f"  - Max/Min:         {np.max(active) // 65536} / {np.min(active) // 65536}")
         print(f"  - Exc/Inh Ratio:   {exc_count} / {inh_count} ({actual_ratio:.4f}) | Target: {target_ratio:.2f} | {status}")
         print(f"  - Balance Health:  {deviation*100:.2f}% of target")
     except Exception as e:

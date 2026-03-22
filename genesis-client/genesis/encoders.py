@@ -12,7 +12,7 @@ class PwmEncoder:
         
         # GPU ожидает массив u32 (по 32 виртуальных аксона в слове).
         # Строка каждого тика обязана быть кратна 4 байтам (32 битам).
-        self.padded_N = math.ceil(self.N / 32) * 32
+        self.padded_N = math.ceil(self.N / 64) * 64
         self.bytes_per_tick = self.padded_N // 8
         self.total_bytes = self.bytes_per_tick * self.B
         
@@ -51,7 +51,7 @@ class PopulationEncoder:
         self.N = self.V * self.M
         self.B = batch_size
         
-        self.padded_N = math.ceil(self.N / 32) * 32
+        self.padded_N = math.ceil(self.N / 64) * 64
         self.bytes_per_tick = self.padded_N // 8
         self.total_bytes = self.bytes_per_tick * self.B
         

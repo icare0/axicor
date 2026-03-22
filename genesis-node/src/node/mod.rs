@@ -76,8 +76,8 @@ pub struct NodeRuntime {
     pub total_ticks: Arc<AtomicU32>,
     pub local_ip: std::net::Ipv4Addr,
     pub local_port: u16,
-    /// [DOD] Маршруты выходов: zone_hash -> (TargetAddr, matrix_hash)
-    pub output_routes: HashMap<u32, Vec<(String, u32)>>,
+    /// [DOD] Маршруты выходов: zone_hash -> (TargetAddr, MatrixHash, PixelOffset, ChunkPixels)
+    pub output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>>,
     // [DOD] Владение дочерними процессами (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
     // [DOD FIX] Метаданные шардов для Hot-Reload
@@ -86,6 +86,8 @@ pub struct NodeRuntime {
     pub virtual_offset_map: HashMap<u32, u32>,
     pub sync_batch_ticks: u32,
     pub cluster_secret: u64, // [DOD FIX]
+    // [DOD FIX] Преаллоцированный буфер для транспонирования выходов без аллокаций
+    pub egress_transpose_buffer: Vec<u8>,
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -100,7 +102,7 @@ impl NodeRuntime {
         _telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
-        output_routes: HashMap<u32, Vec<(String, u32)>>,
+        output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>>,
         intra_gpu_channels: Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
         inter_node_channels: Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
         inter_node_router: Arc<crate::network::router::InterNodeRouter>,
@@ -200,6 +202,7 @@ impl NodeRuntime {
             virtual_offset_map,
             sync_batch_ticks,
             cluster_secret,
+            egress_transpose_buffer: Vec::with_capacity(1024 * 1024), // 1MB резерв
         };
 
         node
@@ -389,15 +392,39 @@ impl NodeRuntime {
 
             // Ship outputs to network targets ONLY POST SYNC!
             for (zone_hash, pinned_out_ptr, output_bytes) in pending_outputs {
+                let batch_size_usize = batch_size as usize;
+                let total_pixels = output_bytes / batch_size_usize;
+                let pinned_out_slice = unsafe { std::slice::from_raw_parts(pinned_out_ptr as *const u8, output_bytes) };
+
+                // 160 KB копируются в кэше L1/L2 процессора за наносекунды. Никаких аллокаций и memset!
+                unsafe {
+                    // Гарантируем, что capacity хватит. reserve() аллоцирует только если нужно.
+                    if output_bytes > self.egress_transpose_buffer.capacity() {
+                        self.egress_transpose_buffer.reserve(output_bytes);
+                    }
+                    // Теперь сдвиг безопасен
+                    self.egress_transpose_buffer.set_len(output_bytes);
+                }
+                
+                for t in 0..batch_size_usize {
+                    for p in 0..total_pixels {
+                        self.egress_transpose_buffer[p * batch_size_usize + t] = pinned_out_slice[t * total_pixels + p];
+                    }
+                }
+
+                // 2. Нарезаем и отправляем строго по L7-чанкам
                 if let Some(routes) = self.output_routes.get(&zone_hash) {
-                    for (addr, m_hash) in routes {
+                    for (addr, m_hash, pixel_offset, chunk_pixels) in routes {
+                        let byte_offset = pixel_offset * batch_size_usize;
+                        let byte_size = chunk_pixels * batch_size_usize;
+                        let payload = &self.egress_transpose_buffer[byte_offset .. byte_offset + byte_size];
+
                         self.services.io_server.send_output_batch_pool(
                             &self.network.egress_pool,
                             &addr,
                             zone_hash,
                             *m_hash,
-                            pinned_out_ptr,
-                            output_bytes,
+                            payload,
                         );
                         // [DOD FIX] Возрождаем счетчик UDP OUT!
                         self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);

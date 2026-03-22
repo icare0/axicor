@@ -26,8 +26,10 @@
 *   `timers`             [N] × `u8`    (1N bytes)
 *   `soma_to_axon`       [N] × `u32`   (4N bytes)
 *   `dendrite_targets`   [128 × N] × `u32` (512N bytes)
-*   `dendrite_weights`   [128 × N] × `i16` (256N bytes)
+*   `dendrite_weights`   [128 × N] × `i32` (512N bytes)
 *   `dendrite_timers`    [128 × N] × `u8`  (128N bytes)
+
+**The 1166-Byte Invariant:** Soma (14) + 128 * (Targets:4 + Weights:4 + Timers:1) = 1166 байт на нейрон.
 
 *Примечание для Edge (ESP32): При дистилляции 128 слотов урезаются до 32 (WTA Distillation).*
 
@@ -35,12 +37,13 @@
 Вынесены в отдельный файл, так как количество аксонов `A` (`total_axons` = Local + Ghost + Virtual) не равно `N`.
 *   `axon_heads`         [A] × `BurstHeads8` (32A bytes)
 
-**Инвариант 64-байтного Выравнивания Аксонов:** 
-Структура `BurstHeads8` обязана быть выровнена по 64 байтам. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение. 64-байтовое выравнивание гарантирует идеальную работу L2 кэша и AMD Wavefront.
+**Инвариант 32-байтного Выравнивания Аксонов:** 
+Структура `BurstHeads8` обязана быть выровнена по 32 байтам. 8 голов по 4 байта = ровно 32 байта. Это гарантирует загрузку всех голов за одну транзакцию L1 кэша и идеальное попадание в 32-байтный сектор памяти. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение. 32-байтовое выравнивание гарантирует идеальную работу кэша.
 
 ```cpp
-// 64-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша и отсутствие cache thrashing в L2.
-struct alignas(64) BurstHeads8 {
+// 32-byte alignment гарантирует идеальное попадание в 32-байтный сектор L1 кэша (1 транзакция).
+// alignas(64) привел бы к потере 50% VRAM (32 байта мусора на каждый аксон).
+struct alignas(32) BurstHeads8 {
     uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
@@ -251,6 +254,8 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI). 
 Каждый массив данных начинается строго по границе **64 байт**.
 
+**The 1025-Byte SHM Invariant:** Header(64) + Weights(N*512) + Targets(N*512) + Flags(N*1). Итого 1025 байт на нейрон в SHM.
+
 | Смещение | Поле | Тип | Описание |
 | :--- | :--- | :--- | :--- |
 | `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
@@ -259,7 +264,7 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 | `0x06` | `_pad` | `u16` | Выравнивание |
 | `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 64) |
 | `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
-| `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (кратно 64) |
+| `0x10` | `weights_offset` | `u32` | Смещение до i32 массива весов (кратно 64) |
 | `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей (кратно 64) |
 | `0x18` | `epoch` | `u64` | Глобальный счетчик батчей (BSP Epoch) |
 | `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual аксоны |
@@ -341,20 +346,21 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 
 **Проблема:** 128 дендритов лежат поколонно (Columnar Layout, stride = N). Глобальный Radix Sort с таким stride убьёт кэш.
 
-**Решение: Shared Memory Staging**
+**Решение: Shared Memory Staging (The 48 KB Budget)**
 
-1. Ядро загружает 128 слотов для 32 нейронов варпа в Shared Memory (AoS [Neuron][Slot])
-   - Per slot: `weight` (i16, 2B) + `target` (u32, 4B) + `timer` (u8, 1B) = **7 bytes**
-   - Per neuron: 128 × 7 = **896 bytes**
-   - Per warp (32 neurons): **~28 KB** → идеально в Shared Memory (48-96 KB/SM)
+1. Ядро загружает 128 слотов для **32 нейронов** в Shared Memory (AoS [Neuron][Slot])
+   - **ХАРД-ЛИМИТ 32 ПОТОКА:** Даже на AMD (где Wavefront = 64) ядро **ОБЯЗАНО** запускаться блоками строго по 32 потока. Это ограничивает потребление Shared Memory (LDS) и гарантирует запуск на любом железе.
+   - **Физика лимита:** Структура `DendriteSlot` (Target:4 + Weight:4 + Timer:1 + padding) весит **12 байт**.
+   - При 32 потоках: 12B × 128 слотов × 32 потока = **49 152 байта (48 KB)**. Это идеально укладывается в L1/Shared кэш как NVIDIA (где 48 KB — золотой стандарт), так и AMD.
+   - При 64 потоках (AMD default): Потребление составило бы 96 KB, что **физически разорвёт лимит LDS в 64 KB** на один блок в архитектурах RDNA/CDNA, вызвав фатальную ошибку запуска ядра.
 
-2. **Bitonic Sort** (лучше Radix для N=128 на GPU) по `abs(weight)` descending - целочисленный, без float
+2. **Bitonic Sort** по `abs(weight)` descending - целочисленный, 32-битный.
 
-3. **Auto LTM/WM Promotion:** Сортировка автоматически ставит сильнейшие связи в слоты 0-79 (LTM, low decay), слабые - в 80-127 (WM, high decay). Никакой ручной логики перемещения.
+3. **Auto LTM/WM Promotion:** Сортировка автоматически уплотняет сильнейшие связи в начало массива.
 
-4. **Pruning:** Слоты в хвосте с `abs(weight) < prune_threshold` → `target_packed = 0` (Sentinel пустого слота)
+4. **Pruning:** Слоты в хвосте с `abs(weight) < (prune_threshold << 16)` → `target = 0`.
 
-5. Запись обратно в глобальную память в Columnar Layout
+5. **Запись:** Возврат в глобальную память в Columnar Layout. Благодаря сортировке, пустые слоты (0) всегда оказываются в конце, что позволяет использовать оптимизацию **Early Exit** в Day Phase.
 
 ```
 Shared Memory (AoS, per warp):

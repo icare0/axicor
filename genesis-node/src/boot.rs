@@ -272,7 +272,7 @@ impl Bootloader {
     }
 
     fn load_all_shards_into_vram(zone_manifests_with_paths: &[(ZoneManifest, PathBuf)], sync_batch_ticks: u32) 
-        -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
+        -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32, usize, usize)>>)> 
     {
         // [DOD FIX] Явно биндим контекст устройства к главному потоку перед загрузкой!
         unsafe { genesis_compute::ffi::gpu_set_device(0); }
@@ -280,7 +280,7 @@ impl Bootloader {
         let mut engines = Vec::new();
         let mut io_contexts = Vec::new();
         let mut all_geo_data = Vec::new();
-        let mut output_routes: HashMap<u32, Vec<(String, u32)>> = HashMap::new();
+        let mut output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>> = HashMap::new();
         let mut axon_head_ptrs = HashMap::new();
         let mut s2a_maps = HashMap::new();
 
@@ -314,21 +314,23 @@ impl Bootloader {
                         current_bit_offset = (current_bit_offset + 31) & !31;
                     }
                     
+                    let mut current_pixel_offset = 0usize;
                     for output in &io_config.outputs {
                         let hash = genesis_core::hash::fnv1a_32(output.name.as_bytes());
                         let source_hash = genesis_core::hash::fnv1a_32(output.source_zone.as_bytes());
-                        
+                        let chunk_pixels = (output.width * output.height) as usize;
+
                         if source_hash == zone_hash {
                             let target = zone_manifest.network.external_udp_out_target
                                 .clone()
                                 .unwrap_or_else(|| "127.0.0.1:8092".to_string());
-                            
+
                             output_routes.entry(zone_hash).or_insert_with(Vec::new)
-                                .push((target.clone(), hash));
+                                .push((target.clone(), hash, current_pixel_offset, chunk_pixels));
                             println!("[Boot] Registered Output Route: {} (0x{:08X}) -> {}", output.name, hash, target);
                         }
-                    }
-                }
+                        current_pixel_offset += chunk_pixels;
+                    }                }
             }
 
             // [DOD FIX] virtual_offset must be valid even for zones without external I/O
@@ -364,7 +366,7 @@ impl Bootloader {
             all_geo_data.extend(geo_data);
 
             // [DOD FIX] Hardcode removed: let sync_batch_ticks = 100u32;
-            let input_words_per_tick = (num_virtual_axons + 31) / 32;
+            let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
             let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
 
             let io_ctx = crate::network::io_server::ZoneIoContext {

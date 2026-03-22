@@ -89,6 +89,22 @@
 | `segment_length_um` | `voxel_size_um`, `segment_length_voxels` | `voxel_size_um × segment_length_voxels` | `25 мкм × 2 = 50 мкм` | Промежуточный расчёт для `v_seg` |
 | `matrix_spatial_scale` | `zone_width_um`, `matrix_width_px`, `zone_depth_um`, `matrix_height_px` | `(width_um / width_px, depth_um / height_px)` | `(1000 мкм / 64 px, 1000 мкм / 64 px) = (15.625, 15.625)` | Масштаб проекции пикселя на территорию зоны |
 
+### 1.7. Фундаментальные инварианты памяти (C-ABI)
+
+Движок Genesis опирается на два жёстко зафиксированных расчёта плотности данных. Любое отклонение от этих формул разрушает Zero-Copy mmap контракты.
+
+#### 1.7.1. The 1166-Byte Invariant (VRAM/State)
+Размер полного состояния одного нейрона в видеопамяти и в файле `.state`.
+**Формула:** `Soma (14) + 128 * (Targets:4 + Weights:4 + Timers:1) = 1166 байт`.
+*   **Soma (14B):** Voltage(4) + Flags(1) + Threshold(4) + Timer(1) + SomaToAxon(4).
+*   **Dendrites (1152B):** 128 слотов, каждый по 9 байт (Target Axon ID & Offset, 32-bit Weight, 8-bit Synaptic Timer).
+
+#### 1.7.2. SHM Night Phase IPC v4 (Exchange)
+Размер блока данных в Shared Memory на один нейрон во время Ночной Фазы.
+**Формула:** `Header(64) + Weights(N*512) + Targets(N*512) + Flags(N*1) = 1025 байт на нейрон`.
+*   Веса (`i32`) и цели (`u32`) занимают по 4 байта на слот (128 слотов = 512 байт).
+*   Флаги сомы передаются для управления активностью роста (Activity Gate).
+
 **Реализация:** Все расчёты инкапсулированы в [`genesis_core::physics::compute_derived_physics()`](https://github.com/your-repo/genesis-core/src/physics.rs) - каноническая реализация вычисления производных из raw параметров.
 
 **Конвейер пересчёта (Startup → GPU):**

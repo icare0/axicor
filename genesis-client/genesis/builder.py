@@ -22,19 +22,31 @@ class NeuronBlueprint:
         return self
 
 class IoMatrixDesigner:
-    def __init__(self, width: int, height: int):
+    def __init__(self, width: int, height: int, is_input: bool = True):
         self.width = width
         self.height = height
-        self.padded_pixels = ((width * height + 31) // 32) * 32
-        self.bytes_per_tick = self.padded_pixels // 8
+        self.is_input = is_input
+
+        if self.is_input:
+            # 64-bit alignment (8 bytes) для битовых масок
+            self.padded_pixels = ((width * height + 63) // 64) * 64
+            self.bytes_per_tick = self.padded_pixels // 8
+        else:
+            # 64-byte alignment (L2 Cache Line) для сырых u8 массивов
+            self.padded_pixels = ((width * height + 63) // 64) * 64
+            self.bytes_per_tick = self.padded_pixels
 
     def fragment(self, sync_batch_ticks: int, mtu: int = 65507) -> list[dict]:
         # 1. Полезная нагрузка (20 байт — ExternalIoHeader)
         max_payload = mtu - 20
         # 2. Байт на тик (целочисленное деление)
         max_bytes_per_tick = max_payload // sync_batch_ticks
-        # 3. Пикселей на чанк (кратность 32 бита / 4 байта)
-        max_aligned_pixels = (max_bytes_per_tick // 4) * 32
+        
+        # 3. Пикселей на чанк (кратность 64 бита / 8 байт для масок или L2 кэш для u8)
+        if self.is_input:
+            max_aligned_pixels = (max_bytes_per_tick // 8) * 64
+        else:
+            max_aligned_pixels = (max_bytes_per_tick // 64) * 64
 
         # 4. Проверка вместимости
         if self.padded_pixels <= max_aligned_pixels:
@@ -112,7 +124,7 @@ class ZoneDesigner:
                 raise ValueError(f"Invalid entry_z: '{entry_z}'. Must be 'top', 'mid', 'bottom' or a float string.")
 
         # 2. Фрагментация
-        designer = IoMatrixDesigner(width, height)
+        designer = IoMatrixDesigner(width, height, is_input=True)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
 
@@ -133,7 +145,7 @@ class ZoneDesigner:
 
     def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1):
         # 1. Фрагментация
-        designer = IoMatrixDesigner(width, height)
+        designer = IoMatrixDesigner(width, height, is_input=False)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
 
@@ -270,12 +282,12 @@ class BrainBuilder:
             raw_axons = padded_n + virtual_axons + ghost_capacity
             total_axons = math.ceil(raw_axons / 32) * 32
 
-            # C-ABI Invariants (The 910-Byte Invariant)
-            vram_bytes = (padded_n * 910) + (total_axons * 32)
+            # [DOD FIX] The 1166-Byte Invariant (i32 weights)
+            vram_bytes = (padded_n * 1166) + (total_axons * 32)
             
             # SHM Night Phase IPC v4 (Header:64 + Weights + Targets + Flags + Handovers + Prunes)
-            # 64 + (N*256) + (N*512) + (N*1) + (10000*20) + (10000*8)
-            shm_bytes = 64 + (padded_n * 769) + 280_000
+            # 64 + (N*512) + (N*512) + (N*1) + (10000*20) + (10000*8)
+            shm_bytes = 64 + (padded_n * 1025) + 280_000
 
             total_vram += vram_bytes
             total_shm += shm_bytes

@@ -18,7 +18,7 @@ pub type CudaStream = *mut c_void;
 //   timers             [N]     u8    | 1N bytes
 //   soma_to_axon       [N]     u32   | 4N bytes
 //   dendrite_targets   [128*N] u32   | 512N bytes
-//   dendrite_weights   [128*N] i16   | 256N bytes
+//   dendrite_weights   [128*N] i32   | 512N bytes
 //   dendrite_timers    [128*N] u8    | 128N bytes
 //   axon_heads         [A]     u32   | 4A bytes  (A = total_axons)
 // =============================================================================
@@ -34,7 +34,7 @@ pub struct ShardVramPtrs {
 
     // --- Columnar Dendrites (Длина = padded_n * MAX_DENDRITES) ---
     pub dendrite_targets:  *mut u32,   // Packed: DenseID + SegmentOffset
-    pub dendrite_weights:  *mut i16,   // Синаптический вес [-32768..+32767]
+    pub dendrite_weights:  *mut i32,   // Синаптический вес до 2.1 млрд
     pub dendrite_timers:   *mut u8,    // Синаптическая рефрактерность
 
     // --- Axon Heads (Длина = total_axons: Local + Ghost + Virtual) ---

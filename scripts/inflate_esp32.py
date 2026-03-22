@@ -7,7 +7,9 @@ import numpy as np
 ESP_SLOTS = 32
 DESKTOP_SLOTS = 128
 SOMA_STATIC_BYTES = 14  # 4(V) + 1(F) + 4(T) + 1(Ref) + 4(S2A)
-ESP_BYTES_PER_NEURON = SOMA_STATIC_BYTES + (ESP_SLOTS * 7)
+# [DOD FIX] 1166 bytes invariant logic applied to ESP32 (SOMA_STATIC_BYTES + ESP_SLOTS * 9)
+# 14 + 32 * (4 + 4 + 1) = 14 + 32 * 9 = 14 + 288 = 302
+ESP_BYTES_PER_NEURON = SOMA_STATIC_BYTES + (ESP_SLOTS * 9)
 
 def inflate_blob(esp_path: str, out_path: str):
     file_size = os.path.getsize(esp_path)
@@ -31,15 +33,15 @@ def inflate_blob(esp_path: str, out_path: str):
         tgt_esp = np.frombuffer(mm_in, dtype=np.uint32, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
         off += padded_n * ESP_SLOTS * 4
 
-        wgt_esp = np.frombuffer(mm_in, dtype=np.int16, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
-        off += padded_n * ESP_SLOTS * 2
+        wgt_esp = np.frombuffer(mm_in, dtype=np.int32, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
+        off += padded_n * ESP_SLOTS * 4
 
         tmr_esp = np.frombuffer(mm_in, dtype=np.uint8, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
 
         # 3. Аллокация десктопных матриц (заполняются нулями по умолчанию)
         print(f"[*] Broadcasting SIMD matrices (32 -> 128 slots)...")
         tgt_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.uint32)
-        wgt_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.int16)
+        wgt_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.int32)
         tmr_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.uint8)
 
         # 4. Векторизованный перенос живых синапсов в верхние слоты

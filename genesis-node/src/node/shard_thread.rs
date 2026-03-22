@@ -107,11 +107,11 @@ impl ThreadWorkspace {
         panic!("SHM file {:?} not ready after 3s (is genesis-baker-daemon running?)", path);
     }
 
-    pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i16] {
+    pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i32] { // [DOD FIX] i32
         let len = padded_n * 128;
         unsafe {
             std::slice::from_raw_parts_mut(
-                self.shm_buffer.as_mut_ptr().add(self.weights_offset) as *mut i16,
+                self.shm_buffer.as_mut_ptr().add(self.weights_offset) as *mut i32, // [DOD FIX] i32
                 len,
             )
         }
@@ -154,7 +154,7 @@ fn execute_day_phase(
     tick_base: u32, // <--- ADD
 ) {
     let _sync_batch_ticks = 100u32;
-    let input_words_per_tick = (num_virtual_axons + 31) / 32;
+    let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
 
     let schedule = bsp_barrier.get_read_schedule();
     
@@ -537,7 +537,7 @@ fn init_io_buffers(
     num_outputs: u32,
     sync_batch_ticks: u32,
 ) -> genesis_compute::compute::shard::IoDeviceBuffers {
-    let input_words_per_tick = (num_virtual_axons + 31) / 32;
+    let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
     let mut d_input = ptr::null_mut();
     let mut d_spikes = ptr::null_mut();
     let mut d_output = ptr::null_mut();

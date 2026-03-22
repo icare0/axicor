@@ -73,7 +73,7 @@ void init_brain() { // [DOD FIX] Без аргументов!
     sram.flags = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
     sram.threshold_offset = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
     sram.refractory_timer = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
-    sram.dendrite_weights = (int16_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
+    sram.dendrite_weights = (int32_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int32_t));
     sram.dendrite_timers = (uint8_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint8_t));
     
     // Выравнивание строго по 32 байтам для векторных инструкций Xtensa
@@ -203,7 +203,8 @@ void tui_render_stats_int(uint8_t* buffer, uint32_t tps, int32_t dopamine, uint3
 
 // [DOD FIX] Night Phase: Сортировка и прунинг синапсов (Core 1)
 void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global_prune_threshold) {
-    int16_t threshold = global_prune_threshold;
+    // [DOD FIX] Mass Domain Shift
+    int32_t threshold = (int32_t)global_prune_threshold << 16;
     
     // [DOD FIX] Оптимизация под Columnar Layout (SRAM Locality)
     for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
@@ -212,7 +213,7 @@ void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global
             uint32_t target = flash.dendrite_targets[col_idx];
             if (target == 0) continue;
 
-            int16_t w = sram.dendrite_weights[col_idx];
+            int32_t w = sram.dendrite_weights[col_idx];
             // [DOD FIX] Обнуляем только SRAM. Flash-память остается неизменной.
             // Связь структурно жива, но электрически мертва (Amnesia).
             if (std::abs((int)w) < threshold) {
@@ -313,10 +314,11 @@ void day_phase_task(void *pvParameter) {
                     ((h.h6 - seg_idx) <= prop) |
                     ((h.h7 - seg_idx) <= prop);
 
-                int16_t w = sram.dendrite_weights[col_idx];
+                int32_t w = sram.dendrite_weights[col_idx];
                 
-                // [DOD FIX] Branchless 1-cycle ALU masking
-                i_in += (w & -(int32_t)is_active);
+                // [DOD FIX] Downscale mass to electrical charge (1 : 65536)
+                int32_t charge = w >> 16;
+                i_in += (charge & -(int32_t)is_active);
             }
 
             current_voltage += i_in;
@@ -328,30 +330,33 @@ void day_phase_task(void *pvParameter) {
             current_voltage = p.rest_potential + (sign * leaked_abs);
 
             int32_t effective_threshold = p.threshold + sram.threshold_offset[tid];
-            if (current_voltage >= effective_threshold) {
-                current_voltage = p.rest_potential;
-                sram.refractory_timer[tid] = p.refractory_period;
-				
-                uint8_t burst_count = (flags >> 1) & 0x07;
-                burst_count += (burst_count < 7);
-                sram.flags[tid] = (flags & 0xF0) | (burst_count << 1) | 0x01;
-                
-                BurstHeads8& ah = sram.axon_heads[tid];
-                ah.h7 = ah.h6;
-                ah.h6 = ah.h5;
-                ah.h5 = ah.h4;
-                ah.h4 = ah.h3;
-                ah.h3 = ah.h2;
-                ah.h2 = ah.h1;
-                ah.h1 = ah.h0;
-                ah.h0 = 0;
+            int32_t final_spike = (current_voltage >= effective_threshold) ? 1 : 0;
 
-            } else {
-                // [DOD FIX] Снимаем только мгновенный спайк, аккумулятор живет до Ночи
-                sram.flags[tid] &= ~0x01;
+            current_voltage = final_spike * p.rest_potential + (1 - final_spike) * current_voltage;
+            sram.threshold_offset[tid] += final_spike * p.homeostasis_penalty;
+            sram.refractory_timer[tid] = final_spike * p.refractory_period + (1 - final_spike) * sram.refractory_timer[tid];
+
+            if (final_spike) {
+                uint32_t my_axon = flash.soma_to_axon[tid];
+                if (my_axon != 0xFFFFFFFF) {
+                    BurstHeads8& ah = sram.axon_heads[my_axon];
+                    ah.h7 = ah.h6;
+                    ah.h6 = ah.h5;
+                    ah.h5 = ah.h4;
+                    ah.h4 = ah.h3;
+                    ah.h3 = ah.h2;
+                    ah.h2 = ah.h1;
+                    ah.h1 = ah.h0;
+                    ah.h0 = 0;
+                }
             }
 
             sram.voltage[tid] = current_voltage;
+
+            // [DOD FIX] Унифицированный Branchless Flag Update
+            uint8_t burst_count = (flags >> 1) & 0x07;
+            burst_count += final_spike * (burst_count < 7);
+            sram.flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
         }
 
         // 3. Apply GSOP 
@@ -377,7 +382,7 @@ void day_phase_task(void *pvParameter) {
                 if (target_packed == 0) break;
 
                 // [DOD FIX] Поднимаем чтение веса. Предиктор переходов легко проглотит этот branch.
-                int16_t w = sram.dendrite_weights[col_idx];
+                int32_t w = sram.dendrite_weights[col_idx];
                 if (w == 0) continue; 
 
                 uint32_t seg_idx = target_packed >> 24;
@@ -407,8 +412,8 @@ void day_phase_task(void *pvParameter) {
                 int32_t w_sign = (w >= 0) ? 1 : -1;
                 int32_t abs_w = w >= 0 ? w : -w;
 
-                uint32_t rank = abs_w >> 11;
-                if (rank > 14) rank = 14;
+                uint32_t rank = abs_w >> 27;
+                if (rank > 15) rank = 15;
                 int32_t inertia = p.inertia_curve[rank];
 
                 int16_t dopamine = global_dopamine.load(std::memory_order_relaxed);
@@ -434,11 +439,11 @@ void day_phase_task(void *pvParameter) {
 
                 int32_t new_abs = abs_w + delta;
                 
-                // Branchless clamp to 0..32767
+                // Branchless clamp to 0..2.14B
                 new_abs = new_abs & ~(new_abs >> 31);
-                if (new_abs > 32767) new_abs = 32767;
+                if (new_abs > 2140000000) new_abs = 2140000000;
 
-                sram.dendrite_weights[col_idx] = (int16_t)(new_abs * w_sign);
+                sram.dendrite_weights[col_idx] = (int32_t)(new_abs * w_sign);
             }
         }
 

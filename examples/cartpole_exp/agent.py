@@ -15,13 +15,13 @@ import gymnasium as gym
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
 
 from genesis.client import GenesisMultiClient
+from genesis.contract import GenesisIoContract
 from genesis.encoders import PopulationEncoder
 from genesis.decoders import PwmDecoder
 from genesis.control import GenesisControl
 from genesis.tuner import GenesisAutoTuner, Phase
 from genesis.memory import GenesisMemory
 from genesis.surgeon import GenesisSurgeon
-from genesis.brain import fnv1a_32
 
 # ЕКСПЕРИМЕНТАЛЬНЫЕ ПАРАМЕТРЫ ЛИШЬ ДЛЯ ДЕМОНСТРАЦИИ
 #          СБОРКИ СКРИПТА СРЕДЫ ОБУЧЕНИЯ
@@ -30,59 +30,60 @@ from genesis.brain import fnv1a_32
 #============================================================
 #       CLIENT & ENVIRONMENT SETTINGS
 #============================================================
-EPISODES = 20_000_000         # Количество эпизодов до остановки обучения
-BATCH_SIZE = 20               # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
-ENCODER_SIGMA = 0.2           # Сигма энкодера (разброс признаков)
+EPISODES = 20_000_000           # Количество эпизодов до остановки обучения
+BATCH_SIZE = 20                 # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
+ENCODER_SIGMA = 0.2             # Сигма энкодера (разброс признаков)
+PHISICS_SIMULATION_STEP = 0.002 # Шаг физической симуляции 0.02 Невозможно для SNN, спайки не успеют пройти структуру.
 
 #============================================================
 #       TRAINING: EXPLORATION (Base State)
 #============================================================
 # Целевой показатель (SMA за окно) для перехода к Дистилляции
-EXPLORATION_TARGET_SCORE = 400
+EXPLORATION_TARGET_SCORE = 600
 
-EXPLORE_NIGHT_INTERVAL = 10_000       # Периодичность сна
-EXPLORE_PRUNE_THRESHOLD = 10           # «фильтр выживания» для синапсов
+EXPLORE_NIGHT_INTERVAL = 30_000       # Периодичность сна
+EXPLORE_PRUNE_THRESHOLD = 750           # «фильтр выживания» для синапсов
 EXPLORE_MAX_SPROUTS = 128             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-EXPLORE_DOPAMINE_PULSE = 0          # Околонулевая эрозия
-EXPLORE_DOPAMINE_REWARD = 3          # Микро-награда
-EXPLORE_DOPAMINE_PUNISHMENT = -10     # Death Signal
+EXPLORE_DOPAMINE_PULSE = -5          # Околонулевая эрозия
+EXPLORE_DOPAMINE_REWARD = 10          # Микро-награда
+EXPLORE_DOPAMINE_PUNISHMENT = -255     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
-EXPLORE_D1_AFFINITY = 150             # Аффинность D1
-EXPLORE_D2_AFFINITY = 220             # Аффинность D2
-EXPLORE_LEAK_RATE = 850               # Коэффициент утечки
-EXPLORE_HOMEOS_PENALTY = 2500         # Штраф за homeostasis
-EXPLORE_HOMEOS_DECAY = 100             # Декремент homeostasis
+EXPLORE_D1_AFFINITY = None             # Аффинность D1
+EXPLORE_D2_AFFINITY = None             # Аффинность D2
+EXPLORE_LEAK_RATE = None               # Коэффициент утечки
+EXPLORE_HOMEOS_PENALTY = None         # Штраф за homeostasis
+EXPLORE_HOMEOS_DECAY = None             # Декремент homeostasis
 # Тюнинг Градиента (Error Gradient)
 EXPLORE_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
 EXPLORE_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
 EXPLORE_ANGLE_LIMIT = 0.2094          # 12 градусов
 EXPLORE_VELOCITY_LIMIT = 2.0          # Максимальная скорость
 # Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
-EXPLORE_SHOCK_BASE = 1                # Базовое кол-во батчей боли (минимум при любом падении)
-EXPLORE_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
-EXPLORE_SHOCK_VEL_MULT = 0            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
-EXPLORE_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
+EXPLORE_SHOCK_BASE = 5                # Базовое кол-во батчей боли (минимум при любом падении)
+EXPLORE_SHOCK_SCORE_BITSHIFT = 5      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
+EXPLORE_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+EXPLORE_SHOCK_MAX_BATCHES = 20         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               Этап DISTILLATION
 #============================================================
 # Целевой показатель (SMA за окно) для перехода к Кристаллизации
-DISTILLATION_TARGET_SCORE = 600
+DISTILLATION_TARGET_SCORE = 1000
 
-DISTILLATION_NIGHT_INTERVAL = 30_000       # Периодичность сна
-DISTILLATION_PRUNE_THRESHOLD = 100           # «фильтр выживания» для синапсов
-DISTILLATION_MAX_SPROUTS = 0             # Максимальное количество новых связей
+DISTILLATION_NIGHT_INTERVAL = 150_000       # Периодичность сна
+DISTILLATION_PRUNE_THRESHOLD = 750           # «фильтр выживания» для синапсов
+DISTILLATION_MAX_SPROUTS = 16             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-DISTILLATION_DOPAMINE_PULSE = -2          # Околонулевая эрозия
-DISTILLATION_DOPAMINE_REWARD = 10          # Микро-награда
-DISTILLATION_DOPAMINE_PUNISHMENT = -100     # Death Signal
+DISTILLATION_DOPAMINE_PULSE = -10          # Околонулевая эрозия
+DISTILLATION_DOPAMINE_REWARD = 20          # Микро-награда
+DISTILLATION_DOPAMINE_PUNISHMENT = -255     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
-DISTILLATION_D1_AFFINITY = 90             # Аффинность D1
-DISTILLATION_D2_AFFINITY = 150             # Аффинность D2
-DISTILLATION_LEAK_RATE = 2500               # Коэффициент утечки
-DISTILLATION_HOMEOS_PENALTY = 2500         # Штраф за homeostasis
-DISTILLATION_HOMEOS_DECAY = 100             # Декремент homeostasis
+DISTILLATION_D1_AFFINITY = None             # Аффинность D1
+DISTILLATION_D2_AFFINITY = None             # Аффинность D2
+DISTILLATION_LEAK_RATE = None               # Коэффициент утечки
+DISTILLATION_HOMEOS_PENALTY = None         # Штраф за homeostasis
+DISTILLATION_HOMEOS_DECAY = None             # Декремент homeostasis
 # Тюнинг Градиента (Error Gradient)
 DISTILLATION_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
 DISTILLATION_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
@@ -90,9 +91,9 @@ DISTILLATION_ANGLE_LIMIT = 0.2094          # 12 градусов
 DISTILLATION_VELOCITY_LIMIT = 2.0          # Максимальная скорость
 # Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
 DISTILLATION_SHOCK_BASE = 5                # Базовое кол-во батчей боли (минимум при любом падении) - Здесь уже за неудачи нужно наказывать
-DISTILLATION_SHOCK_SCORE_BITSHIFT = 15      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Наказываем сильнее за то что не смог удержать.
-DISTILLATION_SHOCK_VEL_MULT = 1            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
-DISTILLATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
+DISTILLATION_SHOCK_SCORE_BITSHIFT = 2      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Наказываем сильнее за то что не смог удержать.
+DISTILLATION_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+DISTILLATION_SHOCK_MAX_BATCHES = 25         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               Этап CRYSTALLIZED
@@ -100,13 +101,13 @@ DISTILLATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: ма�
 # Целевой показатель (SMA за окно) для перехода к Кристаллизации
 CRYSTALLIZATION_TARGET_SCORE = 800
 
-CRYSTALLIZATION_NIGHT_INTERVAL = 500_000       # Периодичность сна
-CRYSTALLIZATION_PRUNE_THRESHOLD = 500           # «фильтр выживания» для синапсов
-CRYSTALLIZATION_MAX_SPROUTS = 128             # Максимальное количество новых связей
+CRYSTALLIZATION_NIGHT_INTERVAL = 50_000       # Периодичность сна
+CRYSTALLIZATION_PRUNE_THRESHOLD = 5000           # «фильтр выживания» для синапсов
+CRYSTALLIZATION_MAX_SPROUTS = 16             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-CRYSTALLIZATION_DOPAMINE_PULSE = 0          # Околонулевая эрозия
-CRYSTALLIZATION_DOPAMINE_REWARD = 2          # Микро-награда
-CRYSTALLIZATION_DOPAMINE_PUNISHMENT = -255     # Death Signal
+CRYSTALLIZATION_DOPAMINE_PULSE = -10          # Околонулевая эрозия
+CRYSTALLIZATION_DOPAMINE_REWARD = 20          # Микро-награда
+CRYSTALLIZATION_DOPAMINE_PUNISHMENT = -15     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
 CRYSTALLIZATION_D1_AFFINITY = 172             # Аффинность D1
 CRYSTALLIZATION_D2_AFFINITY = 252             # Аффинность D2
@@ -119,10 +120,10 @@ CRYSTALLIZATION_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорос
 CRYSTALLIZATION_ANGLE_LIMIT = 0.2094          # 12 градусов
 CRYSTALLIZATION_VELOCITY_LIMIT = 2.0          # Максимальная скорость
 # Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
-CRYSTALLIZATION_SHOCK_BASE = 0                # Базовое кол-во батчей боли (минимум при любом падении)
+CRYSTALLIZATION_SHOCK_BASE = 1                # Базовое кол-во батчей боли (минимум при любом падении)
 CRYSTALLIZATION_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
-CRYSTALLIZATION_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
-CRYSTALLIZATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
+CRYSTALLIZATION_SHOCK_VEL_MULT = 1            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+CRYSTALLIZATION_SHOCK_MAX_BATCHES = 3         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               END OF CONFIGURATION
@@ -188,21 +189,20 @@ def run_cartpole():
 
     # Синхронизация времени Вселенной и Мозга (1 шаг = 2 мс = 20 тиков)
     env = gym.make("CartPole-v1").unwrapped
-    env.tau = 0.002
+    env.tau = PHISICS_SIMULATION_STEP
     state, _ = env.reset()
     
-    zone_hash = fnv1a_32(b"SensoryCortex")
-    matrix_hash = fnv1a_32(b"cartpole_sensors")    
-    
-    # 64 сенсора (4 переменных * 16 нейронов) * BATCH_SIZE тиков / 8 бит
-    input_payload_size = (64 * BATCH_SIZE) // 8 
+    # 2. Чтение I/O Контрактов (Auto-Wiring)
+    zone_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/CartPole-example/baked/SensoryCortex"))
+    contract = GenesisIoContract(zone_dir, "SensoryCortex")
+    client_cfg = contract.get_client_config(BATCH_SIZE)
 
-    # 2. Инициализация HFT Транспорта
+    # Инициализация HFT Транспорта (динамическая распаковка матриц и чанков)
     client = GenesisMultiClient(
         addr=("127.0.0.1", 8081),
-        matrices=[{'zone_hash': zone_hash, 'matrix_hash': matrix_hash, 'payload_size': input_payload_size}]
+        **client_cfg
     )
-    
+
     # ЖЕСТКАЯ ПРИВЯЗКА К ПОРТУ ОТВЕТОВ: Нода шлет GSOO пакеты на этот порт
     try:
         client.sock.bind(("0.0.0.0", 8092))
@@ -210,10 +210,9 @@ def run_cartpole():
         print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents before running. Error: {e}")
         sys.exit(1)
 
-    # 3. DOD Энкодеры и Декодеры (Без аллокаций)
-    encoder = PopulationEncoder(variables_count=4, neurons_per_var=16, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
-    # Выход MotorCortex: 128 моторных нейронов (64 на лево, 64 на право)
-    decoder = PwmDecoder(num_outputs=128, batch_size=BATCH_SIZE)
+    # 3. Фабрика DOD Энкодеров и Декодеров
+    encoder = contract.create_population_encoder("cartpole_sensors", vars_count=4, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
+    decoder = contract.create_pwm_decoder("motor_out", batch_size=BATCH_SIZE)
 
     # 4. Векторизованная нормализация
     bounds = np.array([[-2.4, 2.4], [-3.0, 3.0], [-0.41, 0.41], [-2.0, 2.0]], dtype=np.float16)
@@ -258,22 +257,13 @@ def run_cartpole():
         crystallized_d2=CRYSTALLIZATION_D2_AFFINITY
     )
     
-    # [DOD FIX] Принудительная установка интервалов
-    control.set_night_interval(EXPLORE_NIGHT_INTERVAL)
-    control.set_prune_threshold(EXPLORE_PRUNE_THRESHOLD)
-    control.set_max_sprouts(EXPLORE_MAX_SPROUTS)
-    
-    # Регуляция мембранной физики
-    control.set_membrane_physics(0, EXPLORE_LEAK_RATE, EXPLORE_HOMEOS_PENALTY, EXPLORE_HOMEOS_DECAY)
-    control.set_membrane_physics(1, int(EXPLORE_LEAK_RATE * 1.5), int(EXPLORE_HOMEOS_PENALTY * 0.8), EXPLORE_HOMEOS_DECAY)
-    
     # Подключаем Memory Plane для аналитики графа
     print("⏳ Ожидание инициализации Genesis Node (Shared Memory)...")
     memory = None
     for i in range(20):
         try:
             # Открываем не в read_only для Surgeon и Distillation
-            memory = GenesisMemory(zone_hash, read_only=False)
+            memory = GenesisMemory(contract.zone_hash, read_only=False)
             surgeon = GenesisSurgeon(memory)
             print("✅ Telemetry Plane (Zero-Copy mmap) подключен!")
             break
@@ -296,7 +286,7 @@ def run_cartpole():
     
     print(f"🚀 Starting Genesis DOD CartPole Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
     
-    # [DOD FIX] Zero-Overhead Math: Локальное кэширование параметров вне горячего цикла
+    # [DOD FIX] Плоское кэширование переменных для O(1) доступа в Hot Loop
     current_params = PHASE_PARAMS[Phase.EXPLORATION]
 
     while episodes < EPISODES:
@@ -367,8 +357,9 @@ def run_cartpole():
         rx = client.step(dopamine_signal)
         
         total_motor = decoder.decode_from(rx)
-        # Winner-Takes-All: Суммируем спайки по левой (0-63) и правой (64-127) группам
-        action = 0 if np.sum(total_motor[:64]) > np.sum(total_motor[64:]) else 1
+        # Winner-Takes-All: Суммируем спайки по левой и правой группам
+        half_idx = decoder.N // 2
+        action = 0 if np.sum(total_motor[:half_idx]) > np.sum(total_motor[half_idx:]) else 1
 
         state, reward, terminated, truncated, _ = env.step(action)
         score += 1

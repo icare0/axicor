@@ -53,14 +53,21 @@ class GenesisAutoTuner:
             self.control.set_max_sprouts(p["sprouts"])
         
         # Рецепторы (variant 0/1)
-        if p.get("d1") is not None and p.get("d2") is not None:
-            self.control.set_dopamine_receptors(0, p["d1"], p["d2"])
-            self.control.set_dopamine_receptors(1, p["d1"], p["d2"])
+        if p.get("d1") is not None or p.get("d2") is not None:
+            self.control.set_dopamine_receptors(0, p.get("d1"), p.get("d2"))
+            self.control.set_dopamine_receptors(1, p.get("d1"), p.get("d2"))
         
         # Физика
-        if p.get("leak") is not None and p.get("homeos_penalty") is not None and p.get("homeos_decay") is not None:
-            self.control.set_membrane_physics(0, p["leak"], p["homeos_penalty"], p["homeos_decay"])
-            self.control.set_membrane_physics(1, int(p["leak"] * 1.5), int(p["homeos_penalty"] * 0.8), p["homeos_decay"])
+        if p.get("leak") is not None or p.get("homeos_penalty") is not None or p.get("homeos_decay") is not None:
+            l_base = p.get("leak")
+            hp_base = p.get("homeos_penalty")
+            hd_base = p.get("homeos_decay")
+
+            l_inh = int(l_base * 1.5) if l_base is not None else None
+            hp_inh = int(hp_base * 0.8) if hp_base is not None else None
+
+            self.control.set_membrane_physics(0, l_base, hp_base, hd_base)
+            self.control.set_membrane_physics(1, l_inh, hp_inh, hd_base)
 
         # [DOD FIX] Плоское кэширование переменных для O(1) доступа в Hot Loop
         if p.get("target") is not None: self.target_score = p["target"]

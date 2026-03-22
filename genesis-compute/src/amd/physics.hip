@@ -9,15 +9,15 @@ struct alignas(32) BurstHeads8 {
 };
 
 struct ShardVramPtrs {
-  int32_t* __restrict__ soma_voltage;
+  int32_t* __restrict__ soma_voltage; // base ptr всего state-блоба
   uint8_t* __restrict__ soma_flags;
   int32_t* __restrict__ threshold_offset;
   uint8_t* __restrict__ timers;
   uint32_t* __restrict__ soma_to_axon;
   uint32_t* __restrict__ dendrite_targets;
-  int16_t* __restrict__ dendrite_weights;
+  int32_t* __restrict__ dendrite_weights; // [DOD FIX] Был int16_t*, ломал смещения в памяти!
   uint8_t* __restrict__ dendrite_timers;
-  BurstHeads8* __restrict__ axon_heads;
+  BurstHeads8* __restrict__ axon_heads; // отдельный буфер
 };
 
 #define AXON_SENTINEL 0x80000000
@@ -195,7 +195,10 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
                ((h.h6 - seg_idx) < prop) | ((h.h7 - seg_idx) < prop);
 
     if (hit) {
-      i_in += (int32_t)vram.dendrite_weights[col_idx];
+      // [DOD FIX] Downscale mass to electrical charge (1 : 65536)
+      // Arithmetic shift preserves Dale's Law (sign)
+      int32_t charge = (int32_t)vram.dendrite_weights[col_idx] >> 16;
+      i_in += charge;
     }
   }
 
@@ -243,25 +246,26 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
   // 7. Сдвиг голов аксона при спайке (Burst Shift)
   if (final_spike) {
-    // [DOD FIX] Bit 0: Instant Spike (GSOP), Bit 1: Batch Accumulator (Sprouting)
-    flags = (flags & 0xFC) | 0x03;
-
     uint32_t my_axon = vram.soma_to_axon[tid];
     if (my_axon != 0xFFFFFFFF) {
       BurstHeads8 h = vram.axon_heads[my_axon];
       push_burst_head(&h);
       vram.axon_heads[my_axon] = h;
     }
-  } else {
-    flags = flags & ~0x01;
   }
 
-  // 8. Запись в VRAM
+  // 8. Запись в VRAM (Zero-Warp Divergence)
   vram.soma_voltage[tid] = current_voltage;
-  // [DOD FIX] Branchless BDP Counter update
+
+  // Извлекаем чистый BDP аккумулятор (биты 3:1)
   uint8_t burst_count = (flags >> 1) & 0x07;
+  
+  // Инкремент только если был спайк, не превышая лимит 7
   burst_count += final_spike * (burst_count < 7);
-  vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
+
+  // Сборка C-ABI байта: Type [7:4] | Burst [3:1] | Spike 
+  // 0xF0 сбрасывает младшие 4 бита, сохраняя только Type ID
+  vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | final_spike;
   vram.threshold_offset[tid] = thresh_offset;
   vram.timers[tid] = new_timer;
 }
@@ -307,12 +311,11 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 
     bool is_active = (min_dist != 0xFFFFFFFF);
 
-    int16_t w = vram.dendrite_weights[col_idx];
+    int32_t w = vram.dendrite_weights[col_idx];
     int16_t sign = (w >= 0) ? 1 : -1;
-    int32_t abs_w = (int32_t)w;
-    if (abs_w < 0) abs_w = -abs_w;
+    int32_t abs_w = (w >= 0) ? w : -w;
 
-    int32_t rank = abs_w >> 11;
+    int32_t rank = abs_w >> 27;
     if (rank > 15) rank = 15;
     int32_t inertia = p.inertia_curve[rank];
 
@@ -340,9 +343,9 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int32_t new_abs = abs_w + delta;
     new_abs = new_abs & ~(new_abs >> 31);
 
-    if (new_abs > 32767) new_abs = 32767;
+    if (new_abs > 2140000000) new_abs = 2140000000;
 
-    vram.dendrite_weights[col_idx] = (int16_t)(new_abs * sign);
+    vram.dendrite_weights[col_idx] = (int32_t)(new_abs * sign);
   }
 }
 

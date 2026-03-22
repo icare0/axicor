@@ -57,7 +57,7 @@ struct SramState {
     int32_t* threshold_offset;
     uint8_t* refractory_timer;
 
-    int16_t* dendrite_weights;
+    int32_t* dendrite_weights;
     uint8_t* dendrite_timers; // [DOD FIX] Таймеры синапсов (Columnar)
     BurstHeads8* axon_heads;
 };

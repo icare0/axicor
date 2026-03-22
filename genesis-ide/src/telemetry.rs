@@ -87,9 +87,10 @@ fn decode_telemetry_frame(data: &[u8]) -> Option<(u64, Vec<u32>)> {
     
     if data.len() < 16 + count * 4 { return None; }
     
-    let spikes = data[16..]
+    let spikes_data = &data[16..16 + count * 4];
+    // [DOD FIX] Safe unaligned iteration. Избегает паники TargetAlignmentGreaterAndInputNotAligned
+    let spikes: Vec<u32> = spikes_data
         .chunks_exact(4)
-        .take(count)
         .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
         .collect();
         

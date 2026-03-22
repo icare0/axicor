@@ -9,7 +9,7 @@ def test_checkpointing():
     PADDED_N = 10_000 # Для теста 10к хватит
     
     # Расчет размеров
-    WEIGHTS_SIZE = PADDED_N * 128 * 2
+    WEIGHTS_SIZE = PADDED_N * 128 * 4
     TARGETS_SIZE = PADDED_N * 128 * 4
     FLAGS_SIZE = PADDED_N * 1
     

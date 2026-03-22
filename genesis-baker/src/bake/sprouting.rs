@@ -29,14 +29,14 @@ pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
 
 /// Вычисляет "силу" сомы на базе накопленных весов всех её входящих синапсов.
 /// Используется для аттракции аксонов к функционально важным нейронам.
-pub fn compute_power_index(soma_idx: usize, weights: &[i16], padded_n: usize) -> f32 {
-    let mut power = 0u32;
+pub fn compute_power_index(soma_idx: usize, weights: &[i32], padded_n: usize) -> f32 {
+    let mut power = 0u64; // [DOD FIX] 128 * 2.14B переполнит u32, используем u64
     for slot in 0..MAX_DENDRITE_SLOTS {
         let w = weights[slot * padded_n + soma_idx];
-        power += w.unsigned_abs() as u32; // Без float, без бранчей
+        power += w.unsigned_abs() as u64; // Без float, без бранчей
     }
-    // Нормализация в 0.0..1.0 (128 слотов по 32767 макс веса)
-    power as f32 / (MAX_DENDRITE_SLOTS as f32 * 32767.0)
+    // Нормализация в 0.0..1.0 (128 слотов по 2.14B макс веса)
+    power as f32 / (MAX_DENDRITE_SLOTS as f32 * 2140000000.0)
 }
 
 use genesis_core::config::blueprints::BlueprintsConfig;
@@ -118,7 +118,7 @@ fn nudge_axon(
 
 pub fn run_sprouting_pass(
     targets: &mut [u32],
-    weights: &mut [i16],
+    weights: &mut [i32],
     flags: &[u8],
     ghost_origins: &[u32], // [DOD FIX] Origin Tracking
     handovers: &mut [AxonHandoverEvent],
@@ -138,6 +138,7 @@ pub fn run_sprouting_pass(
     master_seed: u64,
     zone_hash: u32,
     max_sprouts_per_night: u16,
+    prune_threshold: i16, // [DOD FIX] For initial weight protection
     shm_ptr: *mut u8, // [DOD FIX] For prune writing
 ) -> (usize, usize, Vec<genesis_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
@@ -210,7 +211,12 @@ pub fn run_sprouting_pass(
 
     // 1. Living Axons (Локальные)
     for soma_idx in 0..padded_n {
-        if (flags[soma_idx] & 0x02) != 0 {
+        // [DOD FIX] Проверяем аккумулятор спайков за весь батч (биты 3:1), а не только последнюю микросекунду
+        let f = flags[soma_idx];
+        let burst_count = (f >> 1) & 0x07;
+        let is_spiking = f & 0x01;
+
+        if burst_count != 0 || is_spiking != 0 {
             let axon_id = soma_to_axon[soma_idx];
             if axon_id != u32::MAX && (axon_id as usize) < total_axons {
                 nudge_axon(
@@ -239,8 +245,15 @@ pub fn run_sprouting_pass(
     for i in 0..padded_n {
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 { continue; }
-        // [DOD FIX] Читаем все 3 бита burst_count (биты 1, 2, 3). Маска 0x0E (0000_1110)
-        if (flags[i] & 0x0E) == 0 { continue; }
+        
+        // [DOD FIX] Проверяем аккумулятор спайков за весь батч (биты 3:1), а не только последнюю микросекунду
+        let f = flags[i];
+        let burst_count = (f >> 1) & 0x07;
+        let is_spiking = f & 0x01;
+
+        if burst_count == 0 && is_spiking == 0 {
+            continue; // Нейрон физически молчал весь день
+        }
 
         let my_pos = PackedPosition(my_pos_raw);
         let my_type_idx = my_pos.type_id() as usize;
@@ -248,10 +261,13 @@ pub fn run_sprouting_pass(
         let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
 
         let mut sprouts_tonight = 0;
-        for slot in (0..MAX_DENDRITE_SLOTS).rev() {
+        // [DOD FIX] Итерируемся ВПЕРЕД (0..128).
+        // Массив уплотнен (dense) после GPU Sort & Prune.
+        // Первый встреченный 0 — это конец плотного блока и идеальное место для нового синапса.
+        for slot in 0..MAX_DENDRITE_SLOTS {
             let col_idx = slot * padded_n + i;
             if targets[col_idx] != 0 {
-                break; // Слоты плотные, конец пустых
+                continue; // Пропускаем живые синапсы, ищем первый пустой слот
             }
 
             let mut best_candidate = None;
@@ -310,9 +326,18 @@ pub fn run_sprouting_pass(
 
                 let (is_inhibitory_src, initial_weight) = if let Some(bp) = blueprints {
                     if let Some(nt) = bp.neuron_types.get(type_id) {
-                        (nt.is_inhibitory, nt.initial_synapse_weight as i16)
-                    } else { (false, 74) }
-                } else { (false, 74) };
+                        // [DOD FIX] Shift u16 blueprint weight into i32 Mass Domain
+                        let mut start_w = (nt.initial_synapse_weight as i32) << 16;
+                        // Shift prune threshold to match Mass Domain comparison
+                        let prune_i32 = (prune_threshold.abs() as i32) << 16;
+                        
+                        // Защита от Dead on Arrival
+                        if start_w <= prune_i32 {
+                            start_w = prune_i32 + start_w.max(100 << 16);
+                        }
+                        (nt.is_inhibitory, start_w)
+                    } else { (false, 74i32 << 16) }
+                } else { (false, 74i32 << 16) };
 
                 targets[col_idx] = new_target;
                 weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };

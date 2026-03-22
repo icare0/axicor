@@ -34,7 +34,7 @@ pub struct ShardSoA {
 
     // Транспонированная матрица дендритов (Columnar Layout)
     pub dendrite_targets: Vec<u32>,
-    pub dendrite_weights: Vec<i16>,
+    pub dendrite_weights: Vec<i32>,
     pub dendrite_timers: Vec<u8>, // Refractory timers for synapses
 
     // Аксоны
@@ -133,7 +133,7 @@ pub fn write_state_blob(
     timers: &[u8],
     soma_to_axon: &[u32],
     dendrite_targets: &[u32], // Длина: padded_n * 128
-    dendrite_weights: &[i16], // Длина: padded_n * 128
+    dendrite_weights: &[i32], // Длина: padded_n * 128
     dendrite_timers: &[u8],  // Длина: padded_n * 128
 ) -> std::io::Result<()> {
     let (_, total_size) = calculate_state_blob_size(padded_n);

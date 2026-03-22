@@ -48,23 +48,23 @@ class GenesisControl:
             d["settings"]["plasticity"]["prune_threshold"] = threshold
         self._update_manifest(mutate)
 
-    def set_dopamine_receptors(self, variant_id: int, d1_affinity: int, d2_affinity: int):
+    def set_dopamine_receptors(self, variant_id: int, d1_affinity: int = None, d2_affinity: int = None):
         """Настраивает восприимчивость конкретного типа нейронов к наградам (R-STDP)."""
         def mutate(d):
             for v in d.get("variants", []):
                 if v["id"] == variant_id:
-                    v["d1_affinity"] = d1_affinity
-                    v["d2_affinity"] = d2_affinity
+                    if d1_affinity is not None: v["d1_affinity"] = d1_affinity
+                    if d2_affinity is not None: v["d2_affinity"] = d2_affinity
         self._update_manifest(mutate)
 
-    def set_membrane_physics(self, variant_id: int, leak_rate: int, homeostasis_penalty: int, homeostasis_decay: int):
+    def set_membrane_physics(self, variant_id: int, leak_rate: int = None, homeostasis_penalty: int = None, homeostasis_decay: int = None):
         """Zero-Downtime патч физики GLIF и гомеостаза для конкретного типа нейронов."""
         def mutate(d):
             for v in d.get("variants", []):
                 if v["id"] == variant_id:
-                    v["leak_rate"] = leak_rate
-                    v["homeostasis_penalty"] = homeostasis_penalty
-                    v["homeostasis_decay"] = homeostasis_decay
+                    if leak_rate is not None: v["leak_rate"] = leak_rate
+                    if homeostasis_penalty is not None: v["homeostasis_penalty"] = homeostasis_penalty
+                    if homeostasis_decay is not None: v["homeostasis_decay"] = homeostasis_decay
         self._update_manifest(mutate)
 
     def set_max_sprouts(self, max_sprouts: int):

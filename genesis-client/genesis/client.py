@@ -8,31 +8,50 @@ MAX_UDP_PAYLOAD = 65507
 HEADER_SIZE = 20
 HEADER_FMT = "<IIIIhH"  # 20 bytes: magic, zone_hash, matrix_hash, size, reward, pad
 GSIO_MAGIC = 0x4F495347
+GSOO_MAGIC = 0x4F4F5347  # Genesis Standard Output
 
 class GenesisMultiClient:
-    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], timeout: float = 2.0):
+    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0):
         """
         :param addr: (ip, port) ноды (External UDP In)
         :param matrices: Список словарей [{'zone_hash': int, 'matrix_hash': int, 'payload_size': int}]
+        :param rx_layout: Список ожидаемых чанков ответа [{'matrix_hash': int, 'size': int}]
         :param timeout: Тайм-аут ожидания ответа от ноды (Biological Amnesia)
         """
         self.addr = addr
         self.num_chunks = len(matrices)
+        self.rx_layout = rx_layout or []
+        self.expected_chunks = len(self.rx_layout)
         
-        # 1. Единая Memory Arena под весь "Пирог"
+        # 1. Единая Memory Arena под весь "Пирог" (TX)
         total_tx_size = sum(HEADER_SIZE + m['payload_size'] for m in matrices)
         self._tx_arena = bytearray(total_tx_size)
         
-        # 2. Арена под ответ (Output_History)
-        self._rx_buf = bytearray(MAX_UDP_PAYLOAD)
+        # 2. Арена под ответ (RX) — Zero-Copy Assembler
+        # Мы заранее знаем размер всех чанков из rx_layout
+        total_rx_size = sum(m['size'] for m in self.rx_layout)
+        self._rx_arena = bytearray(total_rx_size)
+        self._rx_view = memoryview(self._rx_arena)
+        
+        # Маппинг hash -> (offset, size) для мгновенной сборки
+        self._rx_map = {}
+        offset = 0
+        for m in self.rx_layout:
+            self._rx_map[m['matrix_hash']] = (offset, m['size'])
+            offset += m['size']
+
+        # Буфер для приема одного UDP пакета
+        self._udp_buf = bytearray(MAX_UDP_PAYLOAD)
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # [DOD FIX] Раздуваем аппаратный буфер приема ОС до 8 МБ под пулеметные очереди L7-чанков
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
         self.sock.settimeout(timeout)
         
         self.payload_views = []
         self._tx_packets = []
         
-        # 3. Нарезка арены (Zero-Copy)
+        # 3. Нарезка TX арены (Zero-Copy)
         offset = 0
         for m in matrices:
             size = m['payload_size']
@@ -49,41 +68,49 @@ class GenesisMultiClient:
             self._tx_packets.append(packet_view)
             
             # View только на payload, натянутый на NumPy. 
-            # Юзер будет писать прямо в эту память.
             payload_view = packet_view[HEADER_SIZE:]
             np_view = np.ndarray((size,), dtype=np.uint8, buffer=payload_view)
             self.payload_views.append(np_view)
             
             offset += HEADER_SIZE + size
 
-    def step(self, reward: int = 0, expected_rx_hash: int = None) -> memoryview:
+    def step(self, reward: int = 0) -> memoryview:
         """
-        Hot Loop. Выполняется 100+ раз в секунду.
-        Пользователь УЖЕ записал биты в массивы self.payload_views[...].
+        Hot Loop. Zero-Copy L7 Assembler.
         """
-        # Инъекция дофамина. Пишем reward только в первый чанк (ноде этого хватит), 
-        # смещение 16 байт = позиция `global_reward` в `ExternalIoHeader`
+        # 1. TX: Пулеметная очередь
         if self.num_chunks > 0:
             struct.pack_into("<h", self._tx_arena, 16, reward)
 
-        # Пулеметная очередь в сеть без аллокаций
         for packet in self._tx_packets:
             self.sock.sendto(packet, self.addr)
 
-        # Барьер синхронизации: ждем ответ от моторов
+        # 2. RX: Ассемблер
+        if self.expected_chunks == 0:
+            return self._rx_view[0:0]
+
+        chunks_received = 0
         try:
-            while True:
-                size, _ = self.sock.recvfrom_into(self._rx_buf, MAX_UDP_PAYLOAD)
+            while chunks_received < self.expected_chunks:
+                size, _ = self.sock.recvfrom_into(self._udp_buf, MAX_UDP_PAYLOAD)
+                if size < HEADER_SIZE: continue
+
+                # Разбор L7 заголовка GSOO
+                magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._udp_buf, 0)
                 
-                if expected_rx_hash is not None:
-                    magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._rx_buf, 0)
-                    if m_hash != expected_rx_hash:
-                        continue  # Игнорируем пакет и ждем нужный (например, motor_out)
-                        
-                # Возвращаем Zero-Copy срез ответа (без 20-байтового заголовка GSOO)
-                return memoryview(self._rx_buf)[HEADER_SIZE:size]
+                # Строгая защита: клиент принимает только ВЫХОДЫ (GSOO_MAGIC) от ноды
+                if magic != GSOO_MAGIC: continue
+
+                # Прямое попадание в арену через маппинг
+                if m_hash in self._rx_map:
+                    offset, expected_size = self._rx_map[m_hash]
+                    # Копируем payload пакета в нужное место арены без лишних аллокаций
+                    self._rx_view[offset : offset + expected_size] = self._udp_buf[HEADER_SIZE : HEADER_SIZE + expected_size]
+                    chunks_received += 1
+            
+            return self._rx_view
+            
         except (socket.timeout, TimeoutError):
-            # [Biological Amnesia] Агент обязан перешагнуть потерю пакета.
-            print("⚠️ [GenesisClient] UDP Timeout. Triggering Biological Amnesia (Spike Drop).")
-            # Возвращаем пустой срез памяти без аллокаций
-            return memoryview(self._rx_buf)[0:0]
+            print(f"⚠️ [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
+            return self._rx_view[0:0]
+

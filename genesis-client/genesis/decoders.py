@@ -31,11 +31,11 @@ class PwmDecoder:
         # 1. Zero-copy каст байтов. Под капотом создается только view на память ОС.
         raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=0)
         
-        # 2. Виртуальный reshape (Тики, Моторы). Меняет только strides, без копирования.
-        spikes_2d = raw_bytes.reshape((self.B, self.N))
+        # 2. Виртуальный reshape (Моторы, Тики). [Pixel][Batch]
+        spikes_2d = raw_bytes.reshape((self.N, self.B))
         
-        # 3. Векторизованная сумма по оси тиков (по времени). Запись прямо в преаллоцированный буфер!
-        np.sum(spikes_2d, axis=0, dtype=np.float16, out=self._sum_buffer)
+        # 3. Векторизованная сумма по оси тиков (axis=1). Запись прямо в преаллоцированный буфер!
+        np.sum(spikes_2d, axis=1, dtype=np.float16, out=self._sum_buffer)
         
         # 4. Нормализация к диапазону [0.0, 1.0] (In-place)
         np.multiply(self._sum_buffer, self._inv_b, out=self._out_buffer)
@@ -72,11 +72,11 @@ class PopulationDecoder:
         # 1. Zero-copy каст байтов
         raw_bytes = np.frombuffer(rx_view, dtype=np.uint8, count=self.payload_size, offset=0)
         
-        # 2. Reshape (Batch, Variables, Neurons_per_Var)
-        spikes_3d = raw_bytes.reshape((self.B, self.V, self.M))
+        # 2. Reshape (Variables, Neurons_per_Var, Batch)
+        spikes_3d = raw_bytes.reshape((self.V, self.M, self.B))
         
-        # 3. Суммируем спайки по тикам (Time Integration)
-        np.sum(spikes_3d, axis=0, dtype=np.float16, out=self._sum_buffer)
+        # 3. Суммируем спайки по тикам (Time Integration, axis=2)
+        np.sum(spikes_3d, axis=2, dtype=np.float16, out=self._sum_buffer)
         
         # 4. Находим общую массу спайков на каждую переменную
         np.sum(self._sum_buffer, axis=1, out=self._mass_buffer)

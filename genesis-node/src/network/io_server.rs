@@ -7,7 +7,6 @@ use genesis_compute::memory::PinnedBuffer;
 use crate::network::router::RoutingTable;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 
 /// Контекст I/O для конкретной зоны. Содержит персональный InputSwapchain.
 pub struct ZoneIoContext {
@@ -261,31 +260,31 @@ impl ExternalIoServer {
     }
     /// O(1) Отправка Output_History через Lock-Free Egress Pool
     pub fn send_output_batch_pool(
-        &self, 
+        &self,
         pool: &crate::network::egress::EgressPool,
-        target_addr_str: &str, 
-        zone_hash: u32, 
-        matrix_hash: u32, 
-        pinned_output_addr: usize, 
-        output_bytes: usize,
+        target_addr_str: &str,
+        zone_hash: u32,
+        matrix_hash: u32,
+        payload: &[u8], // [DOD FIX] Берем безопасный срез
     ) {
-        let Ok(target_addr) = target_addr_str.parse::<SocketAddr>() else { return; };
+        let Ok(target_addr) = target_addr_str.parse::<std::net::SocketAddr>() else { return; };
+        let output_bytes = payload.len();
         let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
+        
         if total_size > genesis_core::constants::MAX_UDP_PAYLOAD {
             panic!("Output batch exceeds UDP MTU.");
         }
 
-        // [DOD FIX] Hardware Backpressure (вместо паники)
         let mut msg = loop {
             if let Some(m) = pool.free_queue.pop() {
                 break m;
             }
-            std::hint::spin_loop(); // Замедляем GPU, если сеть (NIC) не успевает
+            std::hint::spin_loop();
         };
 
         unsafe {
             let header = msg.buffer.as_mut_ptr() as *mut ExternalIoHeader;
-            (*header).magic = GSOO_MAGIC; // Contract §12
+            (*header).magic = GSOO_MAGIC; 
             (*header).zone_hash = zone_hash;
             (*header).matrix_hash = matrix_hash;
             (*header).payload_size = output_bytes as u32;
@@ -293,7 +292,7 @@ impl ExternalIoServer {
             (*header)._padding = 0;
 
             std::ptr::copy_nonoverlapping(
-                pinned_output_addr as *const u8,
+                payload.as_ptr(),
                 msg.buffer.as_mut_ptr().add(std::mem::size_of::<ExternalIoHeader>()),
                 output_bytes
             );
