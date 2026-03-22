@@ -21,32 +21,24 @@ def build_cartpole_brain():
     
     builder = BrainBuilder(project_name="CartPoleAgent", output_dir=out_dir, gnm_lib_path=gnm_path)
     
-    # Тонкая настройка физики под HFT-цикл (100 ticks = 10 ms)
-    # Тонкая настройка физики под HFT-цикл (2ms шаг)
-    # v_seg = (0.5 * 1000 * 0.1) / (25 * 2) = 1.0 (Strict Integer)
+    # Настройка физики
     builder.sim_params["sync_batch_ticks"] = 20
     builder.sim_params["tick_duration_us"] = 100
     builder.sim_params["signal_speed_m_s"] = 0.5
     builder.sim_params["segment_length_voxels"] = 2
-    
-    # Компактный резервуар: 16x16x30 вокселей (растягиваем по Z для лучшей изоляции слоев)
-    cortex = builder.add_zone("SensoryCortex", width_vox=32, depth_vox=32, height_vox=128)
 
-    try:
-        exc_type = builder.gnm_lib("VISp4/141")
-        inh_type = builder.gnm_lib("VISp4/114")
-        
-        motor_type = builder.gnm_lib("VISp4/141")
-        motor_type.name = "Motor_Pyramidal"
-        for d in motor_type.data_list:
-            d["name"] = "Motor_Pyramidal"
-    except FileNotFoundError as e:
-        print(f"❌ Ошибка: {e}")
-        sys.exit(1)
+#===================================================================================
+#                                   ЗОНЫ И СЛОИ
+#===================================================================================
+    # Блюпринты нейронов из GNM-Library
+    exc_type = builder.gnm_lib("VISp4/141")
+    inh_type = builder.gnm_lib("VISp4/114")
+    motor_type = builder.gnm_lib("VISp4/141")
+    motor_type.name = ("L5_spiny_MTG_13")
     
-    # ============================================================
-    # СЛОИ (Архитектура AntV4 Middle Layer + Isolation)
-    # ============================================================
+#===================================================================================
+
+    cortex = builder.add_zone("SensoryCortex", width_vox=32, depth_vox=32, height_vox=128)
     # 1. Слой входов (Нижняя треть: 0-10 вокселей)
     cortex.add_layer("L4_Sensory", height_pct=0.33, density=0.05)\
           .add_population(exc_type, fraction=0.7) \

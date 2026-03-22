@@ -1,5 +1,6 @@
 import os
 import toml
+import numpy as np
 from typing import Dict, Any
 from .builder import IoMatrixDesigner
 from .encoders import PopulationEncoder, PwmEncoder
@@ -76,3 +77,62 @@ class GenesisIoContract:
             raise KeyError(f"Output '{name}' not found in contract. Available: {list(self.outputs.keys())}")
         
         return PwmDecoder(total_neurons, batch_size)
+
+    def create_input_facade(self, name: str, buffer: Any) -> Any:
+        """
+        [DOD] Генерирует Zero-Cost фасад для входного преаллоцированного буфера.
+        Свойства класса жестко привязываются к индексам массива через замыкания (closures).
+        """
+        if name not in self.inputs:
+            raise KeyError(f"Input '{name}' not found in contract.")
+        
+        layout = self.inputs[name].get("layout", [])
+
+        class DynamicInputFacade:
+            def __init__(self, buf):
+                self.raw_buffer = buf
+
+        # Фабрика для жесткой фиксации индекса в области видимости лямбды
+        def make_prop(idx):
+            return property(
+                lambda self: self.raw_buffer[idx], 
+                lambda self, val: self.raw_buffer.__setitem__(idx, val)
+            )
+
+        for i, var_name in enumerate(layout):
+            if not var_name: 
+                continue
+            setattr(DynamicInputFacade, var_name, make_prop(i))
+
+        return DynamicInputFacade(buffer)
+
+    def create_output_facade(self, name: str, buffer: Any) -> Any:
+        """
+        [DOD] Генерирует Read-Only фасад для выходного буфера моторов.
+        """
+        # Учитываем, что выход может быть нефрагментированным или чанком 0
+        target_out = None
+        if name in self.outputs:
+            target_out = self.outputs[name]
+        elif f"{name}_chunk_0" in self.outputs:
+            target_out = self.outputs[f"{name}_chunk_0"]
+            
+        if not target_out:
+            raise KeyError(f"Output '{name}' not found in contract.")
+            
+        layout = target_out.get("layout", [])
+
+        class DynamicOutputFacade:
+            def __init__(self, buf):
+                self.raw_buffer = buf
+
+        # Read-only фабрика
+        def make_prop(idx):
+            return property(lambda self: self.raw_buffer[idx])
+
+        for i, var_name in enumerate(layout):
+            if not var_name: 
+                continue
+            setattr(DynamicOutputFacade, var_name, make_prop(i))
+
+        return DynamicOutputFacade(buffer)

@@ -14,72 +14,55 @@
 > **ГЛАВНЫЙ ЗАКОН (Zero-Garbage)**
 > Внутри горячего цикла `while True:` **запрещено создавать объекты**. Никаких списков `[]`, никаких кастов `float()`, никаких циклов `for` по сенсорам. Любая аллокация разбудит сборщик мусора (GC) Питона, и вы убьете жесткий бюджет в 10 мс.
 
-### Эталонный цикл (CartPole Agent)
+### Эталонный цикл с использованием Zero-Cost Facade
 
 ```python
 import time
 import numpy as np
 from genesis.client import GenesisMultiClient
+from genesis.contract import GenesisIoContract
 from genesis.encoders import PopulationEncoder
 from genesis.decoders import PwmDecoder
-from genesis.brain import fnv1a_32
 
-# Константы R-STDP (Time-Scaled)
-DOPAMINE_PULSE = -25         # Фоновая эрозия 
-DOPAMINE_REWARD = 30         # Пульс за правильные действия
-DOPAMINE_PUNISHMENT = -255   # Death Signal
+# 1. Загрузка контрактов и преаллокация
+contract_an = GenesisIoContract("baked/SensoryCortex", "SensoryCortex")
+cfg_in = contract_an.get_client_config(BATCH_SIZE=10)
 
-BATCH_SIZE = 10 # Strict BSP Sync: 1 пакет = 10 тиков (1 мс)
+client = GenesisMultiClient(addr=("127.0.0.1", 8081), matrices=cfg_in["matrices"], rx_layout=[])
 
-# 1. Преаллокация и инициализация (ВНЕ горячего цикла)
-zone_hash = fnv1a_32(b"SensoryCortex")
-matrix_hash = fnv1a_32(b"cartpole_sensors")
-input_payload_size = (64 * BATCH_SIZE) // 8
+# Плоский буфер аватара (Zero-Garbage)
+obs_padded = np.zeros(64, dtype=np.float16)
+bounds = np.zeros((64, 2), dtype=np.float16)
 
-client = GenesisMultiClient(
-    addr=("127.0.0.1", 8081),
-    matrices=[{'zone_hash': zone_hash, 'matrix_hash': matrix_hash, 'payload_size': input_payload_size}]
-)
+# 2. Натягивание Zero-Cost Фасадов на сырую память
+avatar_in = contract_an.create_input_facade("sensors", obs_padded)
 
-# Энкодер: 4 переменных -> 64 рецептора. Декодер: 128 моторных выходов.
-encoder = PopulationEncoder(variables_count=4, neurons_per_var=16, batch_size=BATCH_SIZE)
-decoder = PwmDecoder(num_outputs=128, batch_size=BATCH_SIZE)
+# Физические лимиты для нормализации (исключаем деление на ноль)
+bounds[0] = [-50.0, 50.0]  # pos_x
+bounds[1] = [-50.0, 50.0]  # pos_y
 
-# Векторизованная нормализация (Матрица диапазонов среды)
-bounds = np.array([[-2.4, 2.4], [-3.0, 3.0], [-0.41, 0.41], [-2.0, 2.0]], dtype=np.float16)
 range_diff = bounds[:, 1] - bounds[:, 0]
+range_diff[range_diff == 0] = 1.0
+
+encoder = contract_an.create_population_encoder("sensors", vars_count=64, batch_size=10)
 
 while True:
     # --- ZERO-GARBAGE HOT LOOP ---
 
-    # 1. Zero-Cost Normalization [0.0, 1.0]
-    norm_state = np.clip((state - bounds[:, 0]) / range_diff, 0.0, 1.0).astype(np.float16)
+    # 1. Запись через Фасад (O(1) сдвиг указателя, без словарей)
+    avatar_in.pos_x = state["x"]
+    avatar_in.pos_y = state["y"]
 
-    # 2. Определение дофаминового сигнала
-    if terminated or truncated:
-        # THE DEATH SIGNAL: Пролонгированный шок для выжигания связей
-        for _ in range(15):
-            client.step(DOPAMINE_PUNISHMENT)
-        env.reset()
-        continue
-    elif score > 0 and score % 10 == 0:
-        dopamine_signal = DOPAMINE_REWARD
-    else:
-        dopamine_signal = DOPAMINE_PULSE
+    # 2. Векторизованная нормализация всего массива
+    norm_state = np.clip((obs_padded - bounds[:, 0]) / range_diff, 0.0, 1.0)
 
-    # 3. Zero-Copy Encoding (Прямо в сетевой буфер)
-    encoder.encode_into(norm_state, client.payload_views, 0)
-
-    # 4. Lockstep Barrier (Блокирующий пинг-понг с GPU)
+    # 3. Транспорт в VRAM (1 вызов C-ABI)
+    encoder.encode_into(norm_state, client.payload_views)
     rx = client.step(dopamine_signal)
-
-    # 5. Zero-Copy Decoding (Смещение 0, т.к. step() уже отрезал C-ABI заголовок)
-    total_motor = decoder.decode_from(rx, 0)
-    
-    # Winner-Takes-All
-    action = 0 if np.sum(total_motor[:64]) > np.sum(total_motor[64:]) else 1
-    state, reward, terminated, truncated, _ = env.step(action)
 ```
+
+### Паттерн Memory-Mapped Facade
+Синтаксис `avatar_in.pos_x = 5.0` выглядит как ООП, но работает со скоростью сырого C. Под капотом `create_input_facade` читает `io.toml` и генерирует Python `@property` геттеры/сеттеры, которые жестко привязаны к индексам преаллоцированного массива `obs_padded`.
 
 ### ⚙️ Как это работает под капотом (DOD)
 

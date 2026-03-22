@@ -8,6 +8,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.894.120] - 2026-03-22 12:05:29
+
+**[Performance] Optimize GPU kernels and memory layout**
+
+### Added
+- Transition dendrite_weights from i16 to i32 in VRAM layout to store full Mass Domain (range up to 2,140,000,000)
+- Implement Mass/Charge Domain separation: store weights as i32 mass, convert to charge via `w >> 16` in UpdateNeurons kernel
+- Enforce hard limit of 32 threads per CUDA/AMD block for sort_and_prune kernel to stay within 48 KB Shared Memory budget (12B * 128 slots * 32 threads)
+- Optimize inject_inputs_kernel dense packing to `words_per_tick_total = (total_num_pixels + 63) / 64 * 2`
+- Implement branchless burst flag assembly in CUDA: `vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | final_spike`
+- Implement Cold Start Auto-Wiring: GenesisIoContract parses baked io.toml to auto-compute C-ABI alignment and L7 fragmentation
+- Add Zero-Copy L7 Assembler in GenesisMultiClient: transparently reassembles MTU-chunked UDP payloads with 64-byte alignment
+- Enforce 8 MB OS socket buffer (SO_RCVBUF) to prevent UDP overflow from L7 chunk bursts
+- Expose SDK Telemetry Translation: get_network_stats() returns avg_weight/max_weight divided by 65536.0 (Charge Domain)
+- Update all VRAM calculations in specs to reflect 1166-byte per neuron and i32 dendrite_weights
+- Revise Python examples (ant_agent.py, cartpole_exp/agent.py, build_brain.py) to use new GenesisIoContract and GenesisMultiClient
+- Correct STDP inertia rank calculation from `abs(weight) >> 11` to `abs(weight) >> 27`
+- Document Hebbian Structural Rule: dendrite sprouts only if soma was active (`flags[i] & 0x01 != 0`)
+
+## [0.882.120] - 2026-03-22 02:26:59
+
+**[Cartpole] Tune hyperparameters and refactor axon growth for PackedPosit**
+
+### Added
+- Increase EXPLORE_PRUNE_THRESHOLD from 5 to 10 and EXPLORE_DOPAMINE_PUNISHMENT from -5 to -10
+- Set DISTILLATION_MAX_SPROUTS to 0, increase DISTILLATION_PRUNE_THRESHOLD to 100, and adjust D1/D2 affinities and leak rate
+- Modify CRYSTALLIZATION_DOPAMINE_PUNISHMENT to -255 and CRYSTALLIZATION_DOPAMINE_REWARD to 2
+- Change SensoryCortex dimensions to 16x16x120 and increase layer densities to 0.50
+- Replace manual bitwise unpacking in grow_single_axon(), inject_ghost_axons(), and inject_handover_events() with PackedPosition
+- Update nudge_axon() in sprouting.rs to use PackedPosition for tip coordinates and type mask
+- Add unit tests test_packed_position_consistency and test_sprouting_position_unpacking in new test modules
+- Replace manual warp padding in generate_placement_from_config() with align_to_warp()
+- Remove unused slot_decay_ltm and slot_decay_wm fields from GenesisConstantMemory in tests
+- Fix test_concurrent_somas_connect_to_same_axon to use shard.padded_n for position vector size
+
+## [0.878.120] - 2026-03-21 21:30:14
+
+**Update GNM-Library synaptic parameters and recalibrate genesis-client mo**
+
+### Added
+- Update initial_synapse_weight from species-specific values to uniform 1500 across all cortical, cerebellar, hippocampal, striatal, thalamic, and Drosophila neuron types
+- Change gsop_potentiation from 100 to 20 and gsop_depression from variable values to uniform 24
+- Replace inertia_curve arrays with new exponential decay profiles across all 1818 neuron configuration files
+- Increase prune_threshold from species-specific values (5-25) to uniform 100
+- Simplify genesis/encoders.py by removing redundant normalization and clipping operations
+- Optimize genesis/decoders.py with more efficient tensor operations and reduced branching
+- Streamline genesis/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
+- Update genesis/retina/encoder.py with improved contrast sensitivity parameters
+- Reorganize agent.py training loop for better readability and performance
+- Update build_brain.py to use recalibrated library configurations
+- Remove obsolete scripts/reset_weights.py utility
+- Modify scripts/recalibrate_library.py to apply new synaptic parameter profiles
+- Remove legacy weight reset functionality
+
+
 ## [0.866.120] - 2026-03-21 21:30:14
 
 **Update GNM-Library synaptic parameters and recalibrate genesis-client mo**

@@ -1,4 +1,5 @@
 use crate::network::{SpikeEvent, SpikeBatchHeader};
+use crate::network::bsp::BspBarrier;
 use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
@@ -185,10 +186,12 @@ impl InterNodeRouter {
     /// Запускает слушатель межзональных спайков (Sender-Side Mapping)
     pub async fn spawn_ghost_listener(
         port: u16,
-        bsp_barrier: Arc<crate::network::bsp::BspBarrier>,
+        bsp_barrier: Arc<BspBarrier>,
         routing_table: Arc<RoutingTable>,
+        cluster_secret: u64, // [DOD FIX] Проброс секрета для аутентификации RCU
     ) {
-        let sock = tokio::net::UdpSocket::bind(("127.0.0.1", port)).await.expect("FATAL: Ghost Bind failed");
+        // [DOD FIX] Слушаем все интерфейсы (0.0.0.0), чтобы принимать спайки от других физических нод
+        let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
         
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65507];
@@ -196,10 +199,26 @@ impl InterNodeRouter {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
                     if size < 16 { continue; }
 
-                    // Safe: network buffer may be unaligned; copy to aligned storage
-                    let mut hdr_buf = [0u8; 16];
-                    hdr_buf.copy_from_slice(&buf[0..16]);
-                    let header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&hdr_buf);
+                    // [DOD FIX] Перехват пакетов Control Plane (ROUT_MAGIC) до парсинга Data Plane
+                    let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+                    if magic == genesis_core::ipc::ROUT_MAGIC {
+                        if size >= std::mem::size_of::<genesis_core::ipc::RouteUpdate>() {
+                            let update = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const genesis_core::ipc::RouteUpdate) };
+                            if update.cluster_secret == cluster_secret {
+                                let mut new_map = unsafe { (*routing_table.get_map_ptr()).clone() };
+                                let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
+                                let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
+                                new_map.insert(update.zone_hash, (new_addr, update.mtu));
+                                unsafe { routing_table.update_routes(new_map); }
+                                println!("📡 [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                            } else {
+                                eprintln!("⚠️ [Security] Unauthorized ROUT_MAGIC on Fast-Path");
+                            }
+                        }
+                        continue;
+                    }
+
+                    let header = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeaderV2) };
                     let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
 
                     // 1. Biological Amnesia: Игнорируем пакеты из прошлого

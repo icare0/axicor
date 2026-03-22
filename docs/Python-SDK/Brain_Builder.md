@@ -86,44 +86,21 @@ Python SDK (`BrainBuilder`) выступает в роли первого эше
 ### 4.4. 4-Bit Type Limit
 Внутри одной зоны (Shard) может быть не более 16 уникальных типов нейронов, так как `type_mask` занимает строго 4 бита в массиве `soma_flags`. Попытка добавить 17-й тип через `add_population` мгновенно прерывается ошибкой.
 
-## 5. Connectome Resource Estimation
-
-Механическая симпатия требует понимания цены каждого нейрона до начала аллокации. Метод `builder.dry_run_stats()` позволяет рассчитать точный бюджет памяти на основе строгих C-ABI контрактов.
-
-### 5.1. VRAM Budget (The 910-Byte Invariant)
-В Axicor каждый нейрон имеет фиксированный "вес" в видеопамяти. Это позволяет предсказывать потребление ресурсов с точностью до байта.
-
-| Компонент | Структура (C-ABI) | Размер | Итого на нейрон |
-| :--- | :--- | :--- | :--- |
-| **Soma State** | `voltage(4B), flags(1B), offset(4B), timer(1B), s2a(4B)` | 14 байт | |
-| **Dendrite Slots** | 128 слотов × `target(4B), weight(2B), timer(1B)` | 896 байт | |
-| **Total State** | | | **910 байт** |
-
-**Финальная формула VRAM:**
-`VRAM_Total = (padded_n * 910) + (total_axons * 32)` байт.
-*   `padded_n`: количество нейронов, округленное до 32 (Warp Alignment).
-*   `total_axons`: сумма всех соматических, виртуальных и призрачных аксонов.
-*   `32 байта`: размер структуры `BurstHeads8` (8 голов по 4 байта).
-
-### 5.2. Shared Memory Budget (/dev/shm)
-Shared Memory используется для Zero-Copy обмена данными в фазе ночи. Размер файла статичен и не растет во время симуляции.
-
-*   **Header:** 64 байта (`ShmHeader`).
-*   **Weights Matrix:** `padded_n * 128 * 2` байт.
-*   **Targets Matrix:** `padded_n * 128 * 4` байт.
-*   **Flags Buffer:** `padded_n * 1` байт.
-
-### 5.3. Практический пример (Scale Test)
-Для сети в **1 000 000 нейронов** (при `ghost_capacity=0`):
-1.  **VRAM State:** ~867.8 MB.
-2.  **Axon Heads:** ~30.5 MB.
-3.  **SHM:** ~762.9 MB.
-4.  **Итого:** ~1.62 GB памяти для работы "миллионника" в режиме реального времени.
+## 5. Определение Входов и Выходов (I/O Matrix & Blueprint Wiring)
+Входы и выходы привязываются к физическим слоям зоны. Для избежания ООП-оверхеда на стороне клиента, мы используем семантическую разметку `layout`.
 
 ```python
-stats = builder.dry_run_stats()
-print(f"📊 Project: {builder.project_name}")
-print(f"  • VRAM Required: {stats.vram_gb:.2f} GB")
-print(f"  • SHM Required:  {stats.shm_mb:.2f} MB")
-print(f"  • GPU Efficiency: {100 - (stats.warp_waste_pct):.1f}% (Warp Utilization)")
+# Матрица 8x8 (64 виртуальных аксона)
+# Первые 3 слота привязываются к читаемым именам, остальные 61 добиваются нулями (Padding)
+cortex.add_input("sensors", width=8, height=8, entry_z="top", layout=[
+    "pos_x", "pos_y", "angle_joint_0"
+])
+
+# Выходная матрица 16x8
+cortex.add_output("motors", width=16, height=8, target_type="All", layout=[
+    "motor_left", "motor_right"
+])
 ```
+
+Физика layout: Rust-компилятор (Data Plane) игнорирует эти строки. Он берет width=8, height=8 и аппаратно аллоцирует ровно 64 слота, выровненных по границе кэш-линии (The 64-Byte Alignment Rule). Python SDK (Control Plane) читает эти строки из io.toml и динамически генерирует Zero-Cost Фасад, где pos_x — это прямое замыкание на memoryview, а pos_y на memoryview.
+

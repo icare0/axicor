@@ -119,7 +119,7 @@ impl NodeRuntime {
         let total_ticks = Arc::new(AtomicU32::new(0));
 
         let bsp_listener_clone = bsp_barrier.clone();
-        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone, routing_table.clone()));
+        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone, routing_table.clone(), cluster_secret));
 
         // [DOD] Structured Concurrency: Оркестратор спавнит демонов сам
         let daemons = Self::spawn_baker_daemons(&shards);

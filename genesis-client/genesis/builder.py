@@ -3,6 +3,8 @@ import glob
 import math
 import warnings
 import toml
+import subprocess
+import sys
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -115,7 +117,7 @@ class ZoneDesigner:
         self.inputs: List[Dict[str, Any]] = []
         self.outputs: List[Dict[str, Any]] = []
         
-    def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1):
+    def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1, growth_steps: int = 1000, layout: list[str] = None):
         # 1. Валидация entry_z
         if entry_z not in ["top", "mid", "bottom"]:
             try:
@@ -139,11 +141,13 @@ class ZoneDesigner:
                 "height": chunk["height"],
                 "stride": stride,
                 "entry_z": entry_z,
-                "uv_rect": chunk["uv_rect"]
+                "uv_rect": chunk["uv_rect"],
+                "growth_steps": growth_steps,
+                "layout": layout or []
             })
         return self
 
-    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1):
+    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, layout: list[str] = None):
         # 1. Фрагментация
         designer = IoMatrixDesigner(width, height, is_input=False)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
@@ -159,7 +163,8 @@ class ZoneDesigner:
                 "width": chunk["width"],
                 "height": chunk["height"],
                 "stride": stride,
-                "uv_rect": chunk["uv_rect"]
+                "uv_rect": chunk["uv_rect"],
+                "layout": layout or []
             })
         return self
         
@@ -205,6 +210,27 @@ class BrainBuilder:
             "axon_growth_max_steps": 250
         }
 
+        # Индексация библиотеки для O(1) поиска по внутреннему имени
+        self._lib_index: Dict[str, str] = {}
+        self._index_gnm_library()
+
+    def _index_gnm_library(self):
+        """Сканирует библиотеку при старте и строит индекс по внутренним именам (O(1) поиск)."""
+        search_pattern = f"{self.gnm_lib_path}/**/*.toml"
+        for filepath in glob.glob(search_pattern, recursive=True):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = toml.load(f)
+                # [DOD FIX] `[[neuron_type]]` — это массив (list), а не словарь (dict).
+                if "neuron_type" in data and isinstance(data["neuron_type"], list) and len(data["neuron_type"]) > 0:
+                    # [DOD FIX] Берем нулевой индекс, так как [[neuron_type]] — это массив таблиц
+                    name = data["neuron_type"][0].get("name")
+                    if name:
+                        self._lib_index[name] = filepath
+            except Exception as e:
+                # Жесткий логгинг. Мы не имеем права молча проглатывать ошибки структуры данных.
+                print(f"[Indexer Warning] Failed to parse {filepath}: {e}")
+
     def add_zone(self, name: str, width_vox: int, depth_vox: int, height_vox: int) -> ZoneDesigner:
         zone = ZoneDesigner(self, name, width_vox, depth_vox, height_vox)
         self.zones.append(zone)
@@ -230,23 +256,30 @@ class BrainBuilder:
 
     def gnm_lib(self, query: str) -> NeuronBlueprint:
         """
-        Умный поиск по библиотеке. 
-        Например query="VISp4/64" найдет "GNM-Library/Cortex/L4/spiny/VISp4/64.toml"
+        Умный поиск по библиотеке.
+        Сначала ищет точное совпадение по внутреннему имени (name) внутри TOML.
+        Если не найдено — ищет совпадение по части пути к файлу.
         """
-        search_pattern = f"{self.gnm_lib_path}/**/*{query}*.toml"
-        matches = glob.glob(search_pattern, recursive=True)
-        
-        if not matches:
-            raise FileNotFoundError(f"⚠️ Blueprint matching '{query}' not found in {self.gnm_lib_path}")
+        # 1. Поиск по внутреннему имени (O(1))
+        if query in self._lib_index:
+            target_file = self._lib_index[query]
+        else:
+            # 2. Fallback: поиск по части пути файла
+            search_pattern = f"{self.gnm_lib_path}/**/*{query}*.toml"
+            matches = glob.glob(search_pattern, recursive=True)
+
+            if not matches:
+                raise FileNotFoundError(f"⚠️ Blueprint matching '{query}' not found in {self.gnm_lib_path}")
             
-        # Исправлено: берем первый найденный файл
-        target_file = matches[0]
+            # [DOD FIX] Извлекаем первый элемент из массива glob
+            target_file = matches[0]
+
         with open(target_file, "r", encoding="utf-8") as f:
             data = toml.load(f)
-            
+
         if "neuron_type" not in data or not data["neuron_type"]:
             raise ValueError(f"Invalid blueprint format in {target_file}")
-            
+
         return NeuronBlueprint(target_file, data["neuron_type"])
 
     def dry_run_stats(self) -> str:
@@ -438,5 +471,30 @@ class BrainBuilder:
                 
         with open(self.output_dir / "brain.toml", "w", encoding="utf-8") as f:
             toml.dump(brain_config, f)
-            
+
         print(f"✅ DNA successfully created at '{self.output_dir}'")
+        return self  # [DOD FIX] Поддержка чейнинга методов
+
+    def bake(self, clean: bool = False):
+        """
+        Вызывает Rust-компилятор genesis-baker для генерации бинарных VRAM-дампов.
+        """
+        print("\n🔥 Запускаем Genesis Baker (CPU Compiler)...")
+        brain_toml_path = self.output_dir / "brain.toml"
+        
+        cmd = [
+            "cargo", "run", "--release", "-p", "genesis-baker", "--bin", "baker", "--",
+            "--brain", str(brain_toml_path.absolute())
+        ]
+        
+        if clean:
+            cmd.append("--clean")
+            
+        # Запускаем процесс. Предполагается, что скрипт вызывается из корня workspace
+        result = subprocess.run(cmd)
+
+        if result.returncode == 0:
+            print("\n✅ Модель успешно запечена и готова к загрузке на GPU.")
+        else:
+            print("\n❌ Ошибка компиляции коннектома. Проверьте логи Rust-компилятора.")
+            sys.exit(1)
