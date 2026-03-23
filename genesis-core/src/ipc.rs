@@ -18,7 +18,7 @@
 pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
 
 /// IPC protocol version. Bump on incompatible ShmHeader changes.
-pub const SHM_VERSION: u8 = 2;
+pub const SHM_VERSION: u8 = 3;
 
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 pub const MAX_PRUNES_PER_NIGHT: usize = 10_000; // [DOD FIX]
@@ -114,8 +114,12 @@ pub const fn shm_size(padded_n: usize) -> usize {
     let targets_bytes = padded_n * 128 * 4;
     let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
     let prunes_bytes = MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>();
-    let flags_bytes = padded_n;
-    64 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes
+    let flags_bytes = (padded_n + 63) & !63; // Align to 64 bytes
+    let voltage_bytes = padded_n * 4;
+    let threshold_bytes = padded_n * 4;
+    let timers_bytes = (padded_n + 63) & !63; // Align to 64 bytes
+    
+    128 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes + voltage_bytes + threshold_bytes + timers_bytes
 }
 
 #[repr(C)]
@@ -124,7 +128,7 @@ pub struct ShmHeader {
     pub magic: u32,             // 0..4
     pub version: u8,            // 4..5
     pub state: u8,              // 5..6
-    pub _pad: u16,              // 6..8 (бывший zone_id)
+    pub _pad: u16,              // 6..8
     pub padded_n: u32,          // 8..12
     pub dendrite_slots: u32,    // 12..16
     pub weights_offset: u32,    // 16..20
@@ -133,19 +137,24 @@ pub struct ShmHeader {
     pub total_axons: u32,       // 32..36
     pub handovers_offset: u32,  // 36..40
     pub handovers_count: u32,   // 40..44
-    pub zone_hash: u32,         // 44..48 [DOD FIX: Уникальный ID]
+    pub zone_hash: u32,         // 44..48
     pub prunes_offset: u32,         // 48..52
     pub prunes_count: u32,          // 52..56
     pub incoming_prunes_count: u32, // 56..60
     pub flags_offset: u32,          // 60..64
+    // --- Extended Header (v3) ---
+    pub voltage_offset: u32,          // 64..68
+    pub threshold_offset_offset: u32, // 68..72
+    pub timers_offset: u32,           // 72..76
+    pub _reserved: [u32; 13],         // 76..128
 }
 
 
-const _: () = assert!(std::mem::size_of::<ShmHeader>() == 64, "ShmHeader MUST be 64 bytes");
+const _: () = assert!(std::mem::size_of::<ShmHeader>() == 128, "ShmHeader MUST be 128 bytes");
 
 impl ShmHeader {
     pub fn new(zone_hash: u32, padded_n: u32, total_axons: u32) -> Self {
-        let weights_offset = std::mem::size_of::<ShmHeader>() as u32;
+        let weights_offset = 128u32;
         let weights_bytes = padded_n * 128 * 4;
         let targets_offset = weights_offset + weights_bytes;
         let targets_bytes = padded_n * 128 * 4;
@@ -154,6 +163,12 @@ impl ShmHeader {
         let prunes_offset = handovers_offset + handovers_bytes;
         let prunes_bytes = (MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>()) as u32;
         let flags_offset = prunes_offset + prunes_bytes;
+        let flags_bytes = ((padded_n + 63) & !63) as u32;
+        let voltage_offset = flags_offset + flags_bytes;
+        let voltage_bytes = padded_n * 4;
+        let threshold_offset_offset = voltage_offset + voltage_bytes;
+        let threshold_bytes = padded_n * 4;
+        let timers_offset = threshold_offset_offset + threshold_bytes;
 
         Self {
             magic: SHM_MAGIC,
@@ -173,6 +188,10 @@ impl ShmHeader {
             prunes_count: 0,
             incoming_prunes_count: 0,
             flags_offset,
+            voltage_offset,
+            threshold_offset_offset,
+            timers_offset,
+            _reserved: [0; 13],
         }
     }
 

@@ -4,23 +4,15 @@ import struct
 import numpy as np
 
 class GenesisMemory:
-    # Строгий C-ABI v2 (64 bytes) -> genesis-core/src/ipc.rs
-    # magic(I), version(B), state(B), pad(H)
-    # padded_n(I), dendrite_slots(I), weights_off(I), targets_off(I)
-    # epoch(Q)
-    # total_axons(I), handovers_off(I), handovers_count(I), zone_hash(I)
-    # prunes_off(I), prunes_count(I), incoming_prunes(I), flags_off(I)
-    SHM_HEADER_FMT = "<IBBHIIIIQIIIIIIII"
-    SHM_HEADER_SIZE = 64
+    # Строгий C-ABI v3 (128 bytes) -> genesis-core/src/ipc.rs
+    SHM_HEADER_FMT = "<IBBHIIIIQIIIIIIIIIII13I"
+    SHM_HEADER_SIZE = 128
     MAGIC = 0x47454E53 # "GENS"
 
     def __init__(self, zone_hash: int, read_only: bool = False):
         self.zone_hash = zone_hash
         path = f"/dev/shm/genesis_shard_{zone_hash:08X}"
         
-        # Если read_only=True, открываем строго на чтение (Zero-Copy Introspection).
-        # Если открыть на запись, numpy мутации могут крашнуть GPU-рантайм, 
-        # используйте осторожно для дистилляции (Pruning).
         mode = os.O_RDONLY if read_only else os.O_RDWR
         prot = mmap.PROT_READ if read_only else mmap.PROT_READ | mmap.PROT_WRITE
         
@@ -37,11 +29,13 @@ class GenesisMemory:
         self.weights_offset = header[6]
         self.targets_offset = header[7]
         self.flags_offset = header[16]
+        self.voltage_offset = header[17]
+        self.threshold_offset_offset = header[18]
+        self.timers_offset = header[19]
         
         assert self.dendrite_slots == 128, "C-ABI violation: dendrite_slots != 128"
         
         # 2. Натягиваем матрицы прямо на оперативную память ОС
-        # [128, padded_n] - Columnar Layout (Coalesced GPU access)
         self.weights = np.ndarray(
             (self.dendrite_slots, self.padded_n), 
             dtype=np.int32, 
@@ -61,6 +55,27 @@ class GenesisMemory:
             dtype=np.uint8,
             buffer=self._mm,
             offset=self.flags_offset
+        )
+
+        self.voltage = np.ndarray(
+            (self.padded_n,),
+            dtype=np.int32,
+            buffer=self._mm,
+            offset=self.voltage_offset
+        )
+
+        self.threshold_offset = np.ndarray(
+            (self.padded_n,),
+            dtype=np.int32,
+            buffer=self._mm,
+            offset=self.threshold_offset_offset
+        )
+
+        self.timers = np.ndarray(
+            (self.padded_n,),
+            dtype=np.uint8,
+            buffer=self._mm,
+            offset=self.timers_offset
         )
 
     def save_checkpoint(self, filepath: str):
@@ -152,21 +167,14 @@ class GenesisMemory:
         }
 
     def distill_graph(self, prune_threshold: int) -> int:
-        """
-        Zero-Copy дистилляция графа (In-place Pruning).
-        Выжигает исследовательский шум (слабые связи) напрямую в памяти ОС (VRAM-дамп).
+        # [DOD FIX] Перевод порога в Mass Domain (i32)
+        mass_threshold = prune_threshold << 16
         
-        :param prune_threshold: Порог отсечения. Связи с abs(weight) < prune_threshold удаляются.
-        :return: Количество выжженных (удаленных) связей.
-        """
-        # Векторизованный поиск (SIMD-accelerated).
-        # self.targets != 0 гарантирует, что мы не трогаем уже пустые слоты (Zero-Index Trap)
-        weak_mask = (self.targets != 0) & (np.abs(self.weights) < prune_threshold)
-        
+        # Векторизованный поиск слабого мусора
+        weak_mask = (self.targets != 0) & (np.abs(self.weights) < mass_threshold)
         pruned_count = int(np.sum(weak_mask))
         
-        # Физическое уничтожение связей в Shared Memory (Zero-Copy).
-        # Для CUDA-ядра target == 0 означает аппаратный Early Exit.
+        # Физическое уничтожение
         self.targets[weak_mask] = 0
         self.weights[weak_mask] = 0
         

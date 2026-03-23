@@ -22,20 +22,29 @@ from genesis.decoders import PwmDecoder
 from genesis.control import GenesisControl
 from genesis.memory import GenesisMemory
 from genesis.brain import fnv1a_32
+from genesis.contract import GenesisIoContract
 
 # ==========================================
 # 1. Глобальная инициализация (Zero-Downtime)
 # ==========================================
-BATCH_SIZE = 20  # [DOD FIX] Strict BSP Sync: 20 тиков (2 мс)
-zone_hash = fnv1a_32(b"SensoryCortex")
-matrix_hash = fnv1a_32(b"cartpole_sensors")
-input_payload_size = (64 * BATCH_SIZE) // 8
+# [DOD FIX] Синхронизировано с build_brain.py (10 тиков = 80 байт C-ABI)
+BATCH_SIZE = 10
+
+# [DOD FIX] Синхронизация путей с актуальной моделью
+baked_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Genesis-Models/cartpole_exp/baked/MotorCortex"))
+manifest_path = os.path.join(baked_dir, "manifest.toml")
+
+if not os.path.exists(manifest_path):
+    print(f"❌ FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
+    sys.exit(1)
+
+contract = GenesisIoContract(baked_dir, "MotorCortex")
+zone_hash = contract.zone_hash
 
 print("🔌 Connecting to Genesis Node (Data & Memory Planes)...")
-client = GenesisMultiClient(
-    addr=("127.0.0.1", 8081),
-    matrices=[{'zone_hash': zone_hash, 'matrix_hash': matrix_hash, 'payload_size': input_payload_size}]
-)
+# [DOD FIX] Используем контракт для конфигурации клиента (включая RX Layout)
+client_cfg = contract.get_client_config(BATCH_SIZE)
+client = GenesisMultiClient(addr=("127.0.0.1", 8081), **client_cfg)
 
 try:
     client.sock.bind(("0.0.0.0", 8092))
@@ -43,13 +52,14 @@ except OSError as e:
     print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents before running. Error: {e}")
     sys.exit(1)
 
-encoder = PopulationEncoder(variables_count=4, neurons_per_var=16, batch_size=BATCH_SIZE, sigma=0.2)
-decoder = PwmDecoder(num_outputs=128, batch_size=BATCH_SIZE)
+# [DOD FIX] Автоматическое создание энкодеров/декодеров из контракта
+encoder = contract.create_population_encoder("sensors", vars_count=4, batch_size=BATCH_SIZE, sigma=0.2)
+# [DOD FIX] Подключаем оба физических полушария для честной оценки Optuna
+dec_left = contract.create_pwm_decoder("motor_left", batch_size=BATCH_SIZE)
+dec_right = contract.create_pwm_decoder("motor_right", batch_size=BATCH_SIZE)
 
-manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Genesis-Models/CartPole-example/baked/SensoryCortex/manifest.toml"))
-if not os.path.exists(manifest_path):
-    print(f"❌ FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
-    sys.exit(1)
+out_l_sz = contract.outputs["motor_left"]["width"] * contract.outputs["motor_left"]["height"] * BATCH_SIZE
+out_r_sz = contract.outputs["motor_right"]["width"] * contract.outputs["motor_right"]["height"] * BATCH_SIZE
 
 control = GenesisControl(manifest_path)
 memory = GenesisMemory(zone_hash, read_only=False)
@@ -90,17 +100,21 @@ def objective(trial):
 
     # 3. Tabula Rasa (Хирургическое стирание VRAM)
     memory.clear_weights()
+    # [DOD FIX] Жесткое обнуление электрического состояния и гомеостаза!
+    memory.voltage.fill(0)
+    memory.flags.fill(0)
+    memory.threshold_offset.fill(0)
+    memory.timers.fill(0)
 
-    # [DOD FIX] Синхронизация времени Вселенной и Мозга (1 шаг = 2 мс = 20 тиков)
+    # [DOD FIX] Оставляем оригинальную физику среды (tau = 0.02s = 20 мс)
     env = gym.make("CartPole-v1").unwrapped
-    env.tau = 0.002
     state, _ = env.reset()
     norm_state = np.zeros(4, dtype=np.float16)
     
-    # [DOD FIX] Deep Survival Metrics (400 seconds window)
+    # [DOD FIX] Fail-Fast Survival Metrics (30 секунд удержания = Абсолютный успех)
     global_steps = 0
     max_score = 0
-    MAX_STEPS = 200000
+    MAX_STEPS = 1500
     score = 0
     terminated, truncated = False, False
 
@@ -111,10 +125,10 @@ def objective(trial):
             max_score = max(max_score, score)
             
             # Жестко транслируем кадр ошибки в VRAM
-            encoder.encode_into(norm_state, client.payload_views[0], 0)
+            encoder.encode_into(norm_state, client.payload_views[0])
             
-            # Болевой шок на 10 батчей (20 мс биологического времени)
-            for _ in range(10):
+            # Болевой шок на 20 батчей (20 мс биологического времени)
+            for _ in range(20):
                 client.step(-255)
 
             stats = memory.get_network_stats()
@@ -149,12 +163,25 @@ def objective(trial):
         # 3. Линейная алгебра дофамина (без if/else)
         dop_sig = int(dopamine_reward * (1.0 - error) + dopamine_pulse * error)
 
-        # --- SINGLE BATCH HFT (2 ms) ---
-        encoder.encode_into(norm_state, client.payload_views[0], 0)
-        rx = client.step(dop_sig)
+        # [DOD FIX] Разгоняем мозг до скорости физики (0.02s = 20 мс). 
+        # BATCH_SIZE = 10 тиков (1 мс). Нам нужно 20 батчей.
+        force_left = 0.0
+        force_right = 0.0
         
-        total_motor = decoder.decode_from(rx, 0)
-        action = 0 if np.sum(total_motor[:64]) > np.sum(total_motor[64:]) else 1
+        encoder.encode_into(norm_state, client.payload_views[0])
+        
+        for _ in range(20):
+            rx = client.step(dop_sig)
+            rx_view = memoryview(rx)
+            
+            # [DOD FIX] Жесткий L7-демультиплексинг по двум полушариям
+            motor_l = dec_left.decode_from(rx_view[0 : out_l_sz])
+            motor_r = dec_right.decode_from(rx_view[out_l_sz : out_l_sz + out_r_sz])
+            
+            force_left += np.sum(motor_l)
+            force_right += np.sum(motor_r)
+        
+        action = 0 if force_left > force_right else 1
 
         state, reward, terminated, truncated, _ = env.step(action)
         score += 1

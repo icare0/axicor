@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.937.124] - 2026-03-23 05:53:32
+
+**Implement Intra-GPU Ghost Sync with Zero-Copy L2 Routing**
+
+### Added
+- Implement `cu_ghost_sync_kernel` in `genesis-compute/src/cuda/physics.cu` and `genesis-compute/src/amd/physics.hip` for Zero-Copy L2 Cache Routing
+- Add Sender-Side Filtering: transfer spike to target Ghost axon only if its absolute age (`head / v_seg`) is less than `sync_batch_ticks`
+- Enforce temporal continuity via hardware reverse scan of `BurstHeads8` array (from `h7` to `h0`) to preserve burst queue timing
+- Extend FFI signature for `launch_ghost_sync` to include `sync_batch_ticks` and `v_seg` parameters in `genesis-compute/src/ffi.rs` and mock
+- Remove old `ghost_sync_kernel` and its launch wrapper from `genesis-compute/src/cuda/bindings.cu` and `genesis-compute/src/amd/bindings.hip`
+- Update `IntraGpuChannel::sync_ghosts` in `genesis-node/src/network/intra_gpu.rs` to pass new `sync_batch_ticks` and `v_seg` parameters
+- Update mock implementation in `genesis-compute/src/mock_ffi.rs` to match new function signature
+- Add section "2.5.1. Intra-GPU Ghost Sync (Zero-Copy L2 Routing)" to `docs/specs/06_distributed.md`
+- Document mechanics of `cu_ghost_sync_kernel` reading 32-byte `BurstHeads8` struct via L1 cache transaction
+- Specify deterministic white matter delay equal to 1 batch and zero PCIe traffic
+
+
 ## [0.934.124] - 2026-03-23 05:18:12
 
 **Implement Temporal Sync and BDP Decay with Zero Warp Divergence**

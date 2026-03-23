@@ -53,6 +53,9 @@ pub struct ThreadWorkspace {
     pub targets_offset: usize,
     pub handovers_offset: usize,
     pub flags_offset: usize,
+    pub voltage_offset: usize,
+    pub threshold_offset_offset: usize,
+    pub timers_offset: usize,
     pub shm_buffer: MmapMut,
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
@@ -95,7 +98,10 @@ impl ThreadWorkspace {
                     weights_offset: header.weights_offset as usize,
                     targets_offset: header.targets_offset as usize,
                     handovers_offset: header.handovers_offset as usize,
-                    flags_offset: header.flags_offset as usize, // [DOD FIX]
+                    flags_offset: header.flags_offset as usize,
+                    voltage_offset: header.voltage_offset as usize,
+                    threshold_offset_offset: header.threshold_offset_offset as usize,
+                    timers_offset: header.timers_offset as usize,
                     shm_buffer: mmap,
                     checkpoint_state_buffer: vec![0u8; 0],
                     checkpoint_axons_buffer: vec![0u8; 0],
@@ -131,6 +137,33 @@ impl ThreadWorkspace {
         unsafe {
             std::slice::from_raw_parts_mut(
                 self.shm_buffer.as_mut_ptr().add(self.flags_offset) as *mut u8,
+                padded_n,
+            )
+        }
+    }
+
+    pub fn voltage_slice_mut(&mut self, padded_n: usize) -> &mut [i32] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.voltage_offset) as *mut i32,
+                padded_n,
+            )
+        }
+    }
+
+    pub fn threshold_offset_slice_mut(&mut self, padded_n: usize) -> &mut [i32] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.threshold_offset_offset) as *mut i32,
+                padded_n,
+            )
+        }
+    }
+
+    pub fn timers_slice_mut(&mut self, padded_n: usize) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.timers_offset) as *mut u8,
                 padded_n,
             )
         }
@@ -291,6 +324,23 @@ fn execute_night_phase(
             padded_n * std::mem::size_of::<u8>(),
         );
 
+        // [DOD FIX] DMA: Hot state to SHM (Capture voltage and homeostasis before night work)
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.soma_voltage as *const _,
+            padded_n * std::mem::size_of::<i32>(),
+        );
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.threshold_offset as *const _,
+            padded_n * std::mem::size_of::<i32>(),
+        );
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.timers_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.timers as *const _,
+            padded_n * std::mem::size_of::<u8>(),
+        );
+
         // 1. GPU Defragmentation & Prune
         genesis_compute::ffi::launch_sort_and_prune(
             &shard.vram.ptrs,
@@ -347,6 +397,30 @@ fn execute_night_phase(
                         workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
                         dendrites_count * std::mem::size_of::<i16>(),
                     );
+
+                    // [DOD FIX] Push state BACK to GPU. If Python modified it (Tabula Rasa), 
+                    // this is where the GPU learns about the reset.
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.soma_voltage as *mut _,
+                        workspace.voltage_slice_mut(padded_n).as_ptr() as *const _,
+                        padded_n * std::mem::size_of::<i32>(),
+                    );
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.soma_flags as *mut _,
+                        workspace.flags_slice_mut(padded_n).as_ptr() as *const _,
+                        padded_n * std::mem::size_of::<u8>(),
+                    );
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.threshold_offset as *mut _,
+                        workspace.threshold_offset_slice_mut(padded_n).as_ptr() as *const _,
+                        padded_n * std::mem::size_of::<i32>(),
+                    );
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.timers as *mut _,
+                        workspace.timers_slice_mut(padded_n).as_ptr() as *const _,
+                        padded_n * std::mem::size_of::<u8>(),
+                    );
+
                     genesis_compute::ffi::gpu_device_synchronize();
                 }
 

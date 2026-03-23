@@ -251,15 +251,15 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 ### 1.7. SHM Binary Contract (Night Phase IPC v4)
 
 Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory. 
-Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI). 
+Нулевой оффсет файла всегда содержит 128-байтный `ShmHeader` (Little-Endian, C-ABI). 
 Каждый массив данных начинается строго по границе **64 байт**.
 
-**The 1025-Byte SHM Invariant:** Header(64) + Weights(N*512) + Targets(N*512) + Flags(N*1). Итого 1025 байт на нейрон в SHM.
+**The 1025-Byte SHM Invariant:** Header(128) + Weights(N*512) + Targets(N*512) + Flags(N*1). Итого 1025 байт на нейрон в SHM.
 
 | Смещение | Поле | Тип | Описание |
 | :--- | :--- | :--- | :--- |
 | `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
-| `0x04` | `version` | `u8` | Текущая версия = **2** |
+| `0x04` | `version` | `u8` | Текущая версия = **3** |
 | `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
 | `0x06` | `_pad` | `u16` | Выравнивание |
 | `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 64) |
@@ -275,15 +275,17 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 | `0x34` | `prunes_count` | `u32` | Количество исходящих прунов |
 | `0x38` | `incoming_prunes_count`| `u32` | Количество входящих прунов от соседей |
 | `0x3C` | `flags_offset` | `u32` | Смещение до `soma_flags` (кратно 64) |
+| `0x40` | `voltage_offset` | `u32` | Смещение до i32 потенциала нейронов |
+| `0x44` | `threshold_offset_offset` | `u32` | Смещение до i32 порогов гомеостаза |
+| `0x48` | `timers_offset` | `u32` | Смещение до u8 таймеров рефрактерности |
 
-**Общий размер: ровно 64 байта. Ни одного свободного байта больше нет. Любое расширение потребует перехода на 128-байтный заголовок.**
+**Общий размер: ровно 128 байт. Любое расширение потребует использования _reserved-полей.**
 
-#### Семантика Полей v2
+#### Семантика Полей v3
 
-- **`version = 2`:** Поддежка `prunes_offset`, `incoming_prunes_count` и `flags_offset` для механики Living Axons.
-- **`prunes_offset`:** Очередь `AxonHandoverPrune` - события удаления аксонов при Pruning (ночная фаза). Рантайм читает и отправляет соседям, которые удаляют Ghost Axons.
-- **`incoming_prunes_count`:** Счётчик входящих прун-событий от соседних зон. Рантайм обновляет этот счётчик для синхронизации с Baker.
-- **`flags_offset`:** Прямое смещение до массива `soma_flags[padded_n]` для быстрого доступа вне стандартной раскладки SoA.
+- **`version = 3`:** Поддежка полной синхронизации состояния нейронов (`voltage`, `threshold`, `timers`) для реализации Biological Amnesia (Tabula Rasa).
+- **`voltage_offset` / `threshold_offset_offset`:** Позволяют внешним агентам (Optuna) полностью сбрасывать электрическое состояние зоны между триалами.
+
 
 **Инвариант:** Все смещения (offset) должны быть кратны 64 байтам. Baker гарантирует это выравнивание при формировании блобов.
 

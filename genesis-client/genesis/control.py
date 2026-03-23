@@ -48,6 +48,13 @@ class GenesisControl:
             d["settings"]["plasticity"]["prune_threshold"] = threshold
         self._update_manifest(mutate)
 
+    def set_checkpoints_interval(self, ticks: int):
+        """Zero-Downtime триггер: Форсирует сброс VRAM-дампа на диск (D2H DMA)."""
+        def mutate(d):
+            if "settings" not in d: d["settings"] = {}
+            d["settings"]["save_checkpoints_interval_ticks"] = ticks
+        self._update_manifest(mutate)
+
     def set_dopamine_receptors(self, variant_id: int, d1_affinity: int = None, d2_affinity: int = None):
         """Настраивает восприимчивость конкретного типа нейронов к наградам (R-STDP)."""
         def mutate(d):

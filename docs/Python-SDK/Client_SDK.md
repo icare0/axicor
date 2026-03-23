@@ -141,15 +141,15 @@ client = GenesisMultiClient(
 *   Это означает, что Python всегда показывает **Charge Domain** (электрический заряд в микровольтах), соответствующий биологической силе синапса, скрывая внутреннюю "массу" обучения.
 
 #### Структура `ShmHeader` (64 bytes)
-```c
-struct alignas(64) ShmHeader {
+// Строго 128 байт (L2 Cache Line x2)
+struct alignas(128) ShmHeader {
     uint32_t magic;             // 0x00: 0x47454E53 ("GENS")
-    uint8_t  version;           // 0x04: 2
-    uint8_t  state;             // 0x05: ShmState enum (0=Idle, 2=Sprouting)
+    uint8_t  version;           // 0x04: 3
+    uint8_t  state;             // 0x05: ShmState enum
     uint16_t _pad;              // 0x06: Padding
     uint32_t padded_n;          // 0x08: Нейроны (Кратно 32 для Warp Alignment!)
     uint32_t dendrite_slots;    // 0x0C: Всегда 128
-    uint32_t weights_offset;    // 0x10: Смещение до i16[128 * padded_n]
+    uint32_t weights_offset;    // 0x10: Смещение до i32[128 * padded_n]
     uint32_t targets_offset;    // 0x14: Смещение до u32[128 * padded_n]
     uint64_t epoch;             // 0x18: Глобальный такт
     uint32_t total_axons;       // 0x20: Local + Ghost + Virtual
@@ -160,6 +160,12 @@ struct alignas(64) ShmHeader {
     uint32_t prunes_count;      // 0x34: Исходящие удаления
     uint32_t incoming_prunes;   // 0x38: Входящие удаления
     uint32_t flags_offset;      // 0x3C: Смещение до u8[padded_n]
+
+    // --- Extended Header (v3) ---
+    uint32_t voltage_offset;          // 0x40: Смещение до i32[padded_n]
+    uint32_t threshold_offset_offset; // 0x44: Смещение до i32[padded_n]
+    uint32_t timers_offset;           // 0x48: Смещение до u8[padded_n]
+    uint32_t _reserved[1];           // 0x4C..0x80: Выравнивание до 128 байт
 };
 ```
 

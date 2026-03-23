@@ -60,6 +60,27 @@ def run_cartpole():
         memory = None
         print("⚠️ SHM not found. Running without memory telemetry.")
 
+    print("⚙️ Прошивка ASIC-параметров из Optuna...")
+    # 0 - Возбуждающие (Excitatory), 1 - Тормозные (Inhibitory)
+    ctrl.set_membrane_physics(0, leak_rate=2523, homeostasis_penalty=8418, homeostasis_decay=69)
+    ctrl.set_membrane_physics(1, leak_rate=int(2523 * 1.5), homeostasis_penalty=int(8418 * 0.8), homeostasis_decay=69)
+    
+    ctrl.set_dopamine_receptors(0, d1_affinity=170, d2_affinity=99)
+    ctrl.set_dopamine_receptors(1, d1_affinity=170, d2_affinity=99)
+    
+    ctrl.set_prune_threshold(26)
+    ctrl.set_night_interval(2000) # Частый сон для быстрой кристаллизации
+
+    # Обнуляем состояние VRAM перед стартом
+    if memory:
+        memory.clear_weights()
+        memory.voltage.fill(0)
+        memory.flags.fill(0)
+        memory.threshold_offset.fill(0)
+        memory.timers.fill(0)
+
+    is_crystallized = False
+
     PHASE_PARAMS = {
         Phase.EXPLORATION: {'dopamine_pulse': -5, 'dopamine_punish': -255, 'shock_base': 5, 'shock_vel_mult': 5, 'shock_max_batches': 20},
         Phase.DISTILLATION: {'dopamine_pulse': -10, 'dopamine_punish': -255, 'shock_base': 5, 'shock_vel_mult': 5, 'shock_max_batches': 25},
@@ -81,6 +102,7 @@ def run_cartpole():
     # ============================================================
     # 3. Фабрика DOD Энкодеров и Декодеров
     # ============================================================
+    # [DOD FIX] Синхронизировано с контрактом
     enc_sensors = contract.create_population_encoder("sensors", vars_count=4, batch_size=BATCH_SIZE, sigma=0.15)
     
     # Разделенные аппаратные порты
@@ -113,8 +135,6 @@ def run_cartpole():
 
     episodes = 0
     score = 0
-    dopamine = 10
-
     print(f"🚀 Starting Lock-Free HFT Loop (BATCH_SIZE={BATCH_SIZE})...")
 
     while True:
@@ -133,6 +153,34 @@ def run_cartpole():
         # ===================================================================
         # ТРАНСПОРТ И ДОФАМИН (Temporal Sync: 10 батчей = 20 мс физики)
         # ===================================================================
+        
+        # Автомат Кристаллизации
+        if not is_crystallized:
+            if score > 0 and score % 10 == 0:
+                dopamine = 206  # Massive LTP
+            else:
+                dopamine = -64  # Acid bath LTD
+
+            # Если маятник продержался 500 шагов (10 секунд реального времени) - навык идеален
+            if score >= 500:
+                print("\n❄️ CRYSTALLIZATION TRIGGERED! Перевод сети в ASIC-режим...")
+                
+                # 1. Аппаратно отключаем пластичность и ночную фазу
+                ctrl.disable_all_plasticity()
+                ctrl.set_night_interval(0)
+                
+                # 2. Форсируем DMA-сброс идеального VRAM на SSD
+                # Оркестратор Ноды увидит это изменение и сам сделает gpu_memcpy_device_to_host
+                ctrl.set_checkpoints_interval(BATCH_SIZE)
+                
+                print("💾 VRAM-дамп форсирован. Ожидайте 'checkpoint.state' на диске в папке baked/MotorCortex/")
+                print("⚠️ Вы можете остановить этот скрипт (Ctrl+C). Затем запустите distill_esp32.py для экспорта на микроконтроллер!")
+                
+                is_crystallized = True
+                dopamine = 0 # Чистый инференс
+        else:
+            dopamine = 0 # Zero-Cost Inference
+
         force_left = 0.0
         force_right = 0.0
 
@@ -195,10 +243,8 @@ def run_cartpole():
             state, _ = env.reset()
             score = 0
             episodes += 1
-            dopamine = current_params['dopamine_pulse']
         else:
-            # Фоновое закрепление выживания
-            dopamine = 50
+            pass
 
 if __name__ == '__main__':
     run_cartpole()
