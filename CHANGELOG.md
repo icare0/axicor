@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.926.123] - 2026-03-23 04:44:32
+
+**Implement Warp-Aggregated Telemetry with Zero-Cost DMA for CLI Dashboard**
+
+### Added
+- Implement Warp-Aggregated Atomics collection via `cu_extract_telemetry_kernel` using `__ballot_sync` for spike mask
+- Add Zero-Copy DMA path: 4-byte `cudaMemcpyAsync` from VRAM to Pinned RAM, CPU reads via `std::ptr::read_volatile`
+- Integrate `launch_extract_telemetry` and `gpu_reset_telemetry_count` into the ShardEngine hot loop after each tick
+- Add `telemetry_ids_d`, `telemetry_count_d`, and `telemetry_count_pinned_h` fields to ShardEngine struct
+- Allocate VRAM buffers via `gpu_malloc` and Pinned RAM via `gpu_host_alloc` in constructor
+- Properly free all telemetry buffers in the Drop implementation
+- Replace CPU-side spike counting with `gpu_memcpy_device_to_host_async` of `telemetry_count_d` to `telemetry_count_pinned_h`
+- Update `ctx.telemetry.update_zone_spikes` using the DMA-fetched atomic counter
+- Simplify `launch_extract_telemetry` signature to accept raw pointers (`flags_d`, `out_ids_d`, `out_count_d`)
+- Update `gpu_reset_telemetry_count` to target a `uint32_t* count_d` buffer
+- Align CUDA (`bindings.cu`), AMD HIP (`bindings.hip`), and mock (`mock_ffi.rs`) implementations
+- Document Zero-Copy DMA update for `[ZONE] Hash: N spikes` in `docs/specs/011_cli_dashboard.md`
+- Add `ExtractTelemetry` as phase 7 to the pipeline table in `docs/specs/07_gpu_runtime.md`
+- Detail Warp-Aggregated Telemetry (Zero-Cost Observer) mechanics in section 2.1.1
+- Synchronize `BATCH_SIZE` to 10 ticks (80 bytes C-ABI) matching `build_brain.py`
+- Increase `set_night_interval` to 30_000 and adjust dopamine baseline to 50
+- Extend brain warm-up loop to 20 batches to cover 20 ms of physics
+
+
 ## [0.920.123] - 2026-03-23 03:42:24
 
 **[Performance] Transition SpatialGrid and AxonSegmentGrid to flat arrays **

@@ -75,7 +75,7 @@ struct alignas(64) VariantParameters {
 #define MAX_DENDRITE_SLOTS 128
 #define AXON_SENTINEL 0x80000000
 
-__device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
+__device__ __forceinline__ void push_burst_head(BurstHeads8* h, uint32_t v_seg) {
   h->h7 = h->h6;
   h->h6 = h->h5;
   h->h5 = h->h4;
@@ -83,7 +83,8 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
   h->h3 = h->h2;
   h->h2 = h->h1;
   h->h1 = h->h0;
-  h->h0 = 0;
+  // [DOD FIX] Wrap-around u32. При следующем Propagate голова станет ровно 0.
+  h->h0 = (uint32_t)(0 - v_seg); 
 }
 
 // =====================================================================
@@ -117,7 +118,7 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
   // Рождение сигнала = Burst Shift
   if ((mask_word >> bit_idx) & 1) {
     BurstHeads8 b = state.axon_heads[virtual_offset + tid];
-    push_burst_head(&b);
+    push_burst_head(&b, 1);
     state.axon_heads[virtual_offset + tid] = b;
   }
 }
@@ -146,7 +147,7 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
   // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
   if (target_axon < state.total_axons) {
     BurstHeads8 b = state.axon_heads[target_axon];
-    push_burst_head(&b);
+    push_burst_head(&b, 1);
     state.axon_heads[target_axon] = b;
   }
 }

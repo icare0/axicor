@@ -177,8 +177,9 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
    - **Квадратичная кристаллизация:** Если нейрон истерит по делу (`burst_count > 1`), базовая дельта умножается на количество спайков в серии (до x7).
    - **Branchless Math:** 
      ```cpp
-     // Инкремент в UpdateNeurons (без warp divergence)
-     burst_count += final_spike * (burst_count < 7);
+     // Инкремент и органическое затухание в UpdateNeurons (Zero Warp Divergence)
+     // Если final_spike == 0, умножение мгновенно обнуляет счетчик серии.
+     burst_count = final_spike * (burst_count + (burst_count < 7 ? 1 : 0));
      
      // Умножение в ApplyGSOP
      int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
@@ -360,8 +361,9 @@ __global__ void propagate_axons_kernel(u32 total_axons, u32* axon_heads, u32 v_s
 }
 ```
 
-- **Рождение сигнала = сброс `axon_heads[id] = 0`:**
-  - Локальный спайк: `UpdateNeurons` (шаг 7, predicated store)
+- **Рождение сигнала (Temporal Sync):** Голова аксона устанавливается не в 0, а в `(uint32_t)(0 - v_seg)`.
+  - Благодаря wrap-around физике `u32`, это дает `0xFFFFFFFF - v_seg + 1`. Следующим же шагом ядро `Propagate` безусловно прибавляет `v_seg`, и голова становится ровно `0`. Это предотвращает темпоральный парадокс, когда дендрит на нулевом сегменте пропускает спайк из-за несовпадения тактов.
+  - Локальный спайк: UpdateNeurons (Burst Shift)
   - Сетевой спайк: `ApplySpikeBatch` (Ghost аксоны)
   - Внешний стимул: `InjectInputs` (виртуальные аксоны)
 - **1 спайк в полёте:** `signal_propagation_length < soma_refractory_period` → первый поезд успевает доехать до конца до рождения второго.

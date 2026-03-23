@@ -317,6 +317,7 @@ pub struct SpikeEventV2 {
 
 1. Аксон шарда A стреляет → CPU формирует `SpikeBatch` с готовым `ghost_id` (Sender-Side Mapping).
 2. Шард B получает массив `ghost_indices[]` → ядро `ApplySpikeBatch`: `axon_heads[ghost_id] = 0` за O(1).
+- **Защита памяти:** Ядро `ApplySpikeBatch` обязано использовать `ghost_id` напрямую для адресации в массив (`axon_heads[ghost_id]`), а не использовать `tid` потока. Это гарантирует O(1) маршрутизацию без повреждения чужой памяти.
 
 **Шаг 3: Пропагация**
 

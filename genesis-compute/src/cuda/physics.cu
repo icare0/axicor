@@ -29,7 +29,7 @@ __global__ void cu_reset_burst_counters_kernel(ShardVramPtrs vram, uint32_t padd
     vram.soma_flags[tid] &= 0xF1;
 }
 
-__device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
+__device__ __forceinline__ void push_burst_head(BurstHeads8* h, uint32_t v_seg) {
   h->h7 = h->h6;
   h->h6 = h->h5;
   h->h5 = h->h4;
@@ -37,7 +37,8 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
   h->h3 = h->h2;
   h->h2 = h->h1;
   h->h1 = h->h0;
-  h->h0 = 0;
+  // [DOD FIX] Wrap-around u32. При следующем Propagate голова станет ровно 0.
+  h->h0 = (uint32_t)(0 - v_seg); 
 }
 
 #define MAX_DENDRITES 128
@@ -88,7 +89,8 @@ __constant__ VariantParameters VARIANT_LUT[16];
 __global__ void cu_inject_inputs_kernel(BurstHeads8* __restrict__ axon_heads,
                                         const uint32_t* __restrict__ input_bitmask,
                                         uint32_t virtual_offset,
-                                        uint32_t num_virtual_axons) {
+                                        uint32_t num_virtual_axons,
+                                        uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_virtual_axons)
     return;
@@ -102,7 +104,7 @@ __global__ void cu_inject_inputs_kernel(BurstHeads8* __restrict__ axon_heads,
   // Ветвление минимизировано: пишем только если есть пульс
   if (is_active) {
     BurstHeads8 h = axon_heads[virtual_offset + tid];
-    push_burst_head(&h);
+    push_burst_head(&h, v_seg);
     axon_heads[virtual_offset + tid] = h;
   }
 }
@@ -114,21 +116,21 @@ __global__ void cu_inject_inputs_kernel(BurstHeads8* __restrict__ axon_heads,
 __global__ void cu_apply_spike_batch_kernel(BurstHeads8* __restrict__ axon_heads,
                                             const uint32_t* __restrict__ incoming_spikes,
                                             uint32_t num_incoming_spikes,
-                                            uint32_t total_axons) {
+                                            uint32_t total_axons,
+                                            uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_incoming_spikes)
     return;
 
-  // Sender-Side Mapping гарантирует, что incoming_spikes[tid] — это готовый
-  // локальный индекс в массиве axon_heads. Никаких трансляций ID.
   uint32_t ghost_id = incoming_spikes[tid];
 
-  // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
-  if (ghost_id < total_axons) {
-    BurstHeads8 h = axon_heads[ghost_id];
-    push_burst_head(&h);
-    axon_heads[ghost_id] = h;
-  }
+  if (ghost_id >= total_axons)
+    return;
+
+  // [DOD FIX] Читаем аксон по ghost_id, а не по tid! Внедряем спайк через сдвиг.
+  BurstHeads8 h = axon_heads[ghost_id];
+  push_burst_head(&h, v_seg);
+  axon_heads[ghost_id] = h;
 }
 
 // ============================================================================
@@ -157,7 +159,7 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
-                                         uint32_t padded_n, uint32_t current_tick) {
+                                         uint32_t padded_n, uint32_t current_tick, uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -251,28 +253,25 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   current_voltage = is_glif_spiking * p.rest_potential + (1 - is_glif_spiking) * current_voltage;
   thresh_offset += is_glif_spiking * p.homeostasis_penalty;
   uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
-// 7. Сдвиг голов аксона при спайке (Burst Shift)
-if (final_spike) {
-  uint32_t my_axon = vram.soma_to_axon[tid];
-  if (my_axon != 0xFFFFFFFF) {
-    BurstHeads8 h = vram.axon_heads[my_axon];
-    push_burst_head(&h);
-    vram.axon_heads[my_axon] = h;
+  // 7. Сдвиг голов аксона при спайке (Burst Shift)
+  if (final_spike) {
+    uint32_t my_axon = vram.soma_to_axon[tid];
+    if (my_axon != 0xFFFFFFFF) {
+      BurstHeads8 h = vram.axon_heads[my_axon];
+      push_burst_head(&h, v_seg);
+      vram.axon_heads[my_axon] = h;
+    }
   }
-}
 
-// 8. Запись в VRAM (Zero-Warp Divergence)
-vram.soma_voltage[tid] = current_voltage;
+  // 8. Запись в VRAM (Zero-Warp Divergence)
+  vram.soma_voltage[tid] = current_voltage;
 
-// Извлекаем чистый BDP аккумулятор (биты 3:1)
-uint8_t burst_count = (flags >> 1) & 0x07;
-
-// Инкремент только если был спайк, не превышая лимит 7
-burst_count += final_spike * (burst_count < 7);
-
-// Сборка C-ABI байта: Type [7:4] | Burst [3:1] | Spike 
-// 0xF0 сбрасывает младшие 4 бита, сохраняя только Type ID
-vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | final_spike;
+  // [DOD FIX] BDP Decay. Сбрасывается в 0, если final_spike == 0. Растет, если final_spike == 1.
+  uint8_t burst_count = (flags >> 1) & 0x07;
+  burst_count = final_spike * (burst_count + (burst_count < 7 ? 1 : 0));
+  
+  // Записываем обратно, сохраняя Type ID (верхние 4 бита)
+  vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
   vram.threshold_offset[tid] = thresh_offset;
   vram.timers[tid] = new_timer;
 }
@@ -461,27 +460,28 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
   if (num_virtual_axons > 0 && input_bitmask != nullptr) {
     int blocks_in = (num_virtual_axons + threads - 1) / threads;
     cu_inject_inputs_kernel<<<blocks_in, threads, 0, stream>>>(
-        vram->axon_heads, input_bitmask, virtual_offset, num_virtual_axons);
+        vram->axon_heads, input_bitmask, virtual_offset, num_virtual_axons, v_seg);
   }
 
   // 2. ApplySpikeBatch (Сетевые спайки от соседних зон)
   if (num_incoming_spikes > 0 && incoming_spikes != nullptr) {
     int blocks_spikes = (num_incoming_spikes + threads - 1) / threads;
     cu_apply_spike_batch_kernel<<<blocks_spikes, threads, 0, stream>>>(
-        vram->axon_heads, incoming_spikes, num_incoming_spikes, total_axons);
+        vram->axon_heads, incoming_spikes, num_incoming_spikes, total_axons, v_seg);
   }
 
-  // 3. PropagateAxons
-  int blocks_axons = (total_axons + threads - 1) / threads;
-  cu_propagate_axons_kernel<<<blocks_axons, threads, 0, stream>>>(vram->axon_heads,
-                                                       total_axons, v_seg);
+  // 3. PropagateAxons (Безусловный сдвиг всех голов)
+  int blocks_prop = (total_axons + threads - 1) / threads;
+  cu_propagate_axons_kernel<<<blocks_prop, threads, 0, stream>>>(
+      vram->axon_heads, total_axons, v_seg);
 
   // 4. UpdateNeurons (GLIF)
-  int blocks_neurons = (padded_n + threads - 1) / threads;
-  cu_update_neurons_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, current_tick);
+  int blocks_update = (padded_n + threads - 1) / threads;
+  cu_update_neurons_kernel<<<blocks_update, threads, 0, stream>>>(
+      *vram, padded_n, current_tick, v_seg);
 
   // 5. ApplyGSOP (Пластичность 3D STDP)
-  cu_apply_gsop_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, dopamine);
+  cu_apply_gsop_kernel<<<blocks_update, threads, 0, stream>>>(*vram, padded_n, dopamine);
 
   // 6. RecordReadout
   if (num_outputs > 0 && mapped_soma_ids != nullptr &&
