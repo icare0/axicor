@@ -20,12 +20,12 @@ python3 examples/cartpole_exp/build_brain.py
 
 # Для NVIDIA (CUDA)
 ```bash
-cargo run --release -p genesis-node -- --brain CartPole-example --log
+cargo run --release -p genesis-node -- --brain cartpole_exp --log
 ```
 
 # Для AMD (ROCm / HIP)
 ```bash
-cargo run --release -p genesis-node --features amd -- --brain CartPole-example --log
+cargo run --release -p genesis-node --features amd -- --brain cartpole_exp --log
 ```
 
 **Шаг 3. Подключите среду (RL Agent)**

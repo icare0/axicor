@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.908.122] - 2026-03-23 02:15:05
+
+**[Agent] Replace manual FlyAvatarState with GenesisControl and implement **
+
+### Added
+- Remove FlyAvatarState class and inline float variables from agent.py
+- Add GenesisControl import and initialize RL reactor with exploration phase settings
+- Implement dopamine reward calculation based on linear velocity (vel_x) with i16 bounds
+- Fix virtual axon length in topology.rs to span entire zone height for scaled cortex penetration
+- Fix time progression in node/mod.rs by incrementing current_tick with batch_size as u64
+- Remove FlyAvatarState class and inline float variables from agent.py
+- Add GenesisControl import and initialize RL reactor with exploration phase settings
+- Implement dopamine reward calculation based on linear velocity (vel_x) with i16 bounds
+- Fix virtual axon length in topology.rs to span entire zone height for scaled cortex penetration
+- Fix time progression in node/mod.rs by incrementing current_tick with batch_size as u64
+
+
 ## [0.905.120] - 2026-03-23 00:46:00
 
 **Implement Fly Environment integration with FlyAvatarState dataclass**

@@ -117,7 +117,7 @@ class ZoneDesigner:
         self.inputs: List[Dict[str, Any]] = []
         self.outputs: List[Dict[str, Any]] = []
         
-    def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1, growth_steps: int = 1000, layout: list[str] = None):
+    def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1, growth_steps: int = 1000, layout: list[str] = None, uv_rect: list[float] = None):
         # 1. Валидация entry_z
         if entry_z not in ["top", "mid", "bottom"]:
             try:
@@ -141,13 +141,13 @@ class ZoneDesigner:
                 "height": chunk["height"],
                 "stride": stride,
                 "entry_z": entry_z,
-                "uv_rect": chunk["uv_rect"],
+                "uv_rect": uv_rect if uv_rect else chunk["uv_rect"],
                 "growth_steps": growth_steps,
                 "layout": layout or []
             })
         return self
 
-    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, layout: list[str] = None):
+    def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, layout: list[str] = None, uv_rect: list[float] = None):
         # 1. Фрагментация
         designer = IoMatrixDesigner(width, height, is_input=False)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
@@ -163,7 +163,7 @@ class ZoneDesigner:
                 "width": chunk["width"],
                 "height": chunk["height"],
                 "stride": stride,
-                "uv_rect": chunk["uv_rect"],
+                "uv_rect": uv_rect if uv_rect else chunk["uv_rect"],
                 "layout": layout or []
             })
         return self
