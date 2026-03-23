@@ -89,7 +89,7 @@ def run_cartpole():
 
     tuner = GenesisAutoTuner(
         ctrl,
-        target_score=1500.0,
+        target_score=150.0,
         # Жесткая экономика: выживают только те связи, которые получают мощный LTP
         explore_prune=1000, explore_night=10_000, explore_sprouts=64,
         distill_prune=1500, distill_night=30_000, distill_sprouts=16,

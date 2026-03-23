@@ -8,6 +8,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.963.125] - 2026-03-24 00:36:57
+
+**Implement interactive resizable UI layout with 3D viewport and widget sy**
+
+### Added
+- Implement Resizer component and DragState resource for interactive split panel resizing in layout/interaction.rs
+- Add border_interaction_system and border_drag_system with cursor-based flex-basis adjustment
+- Implement ViewportContainer component for 3D scene integration in layout/systems.rs
+- Add ActiveSlider resource and slider_drag_system in widgets/slider.rs with precise value clamping
+- Implement button_system with hover/pressed state handling in widgets/button.rs
+- Add populate_neuron_physics_panel integration for "Neuron Physics" leaf panel
+- Extend initial_layout in layout/tree.rs with new "Simulation Control / Analytics" right panel at 85% ratio
+- Implement theme system with color_bg_root, color_bg_panel, color_text_main, and color_border functions
+- Add conditional background colors: Color::NONE for viewport, color_bg_panel for other panels
+- Add setup_3d_scene and sync_camera_viewport systems in viewport.rs with separate Camera2d order
+- Register interaction systems: border_interaction_system, border_drag_system, slider_drag_system, button_system
+- Expose widgets and panels modules through layout/mod.rs public re-exports
+- Update main.rs to initialize DragState and ActiveSlider resources
+- Add slider.rs with SliderWidget component, value text display, and drag interaction
+- Implement button.rs with ButtonWidget component and visual state transitions
+- Create modular widgets structure with button and slider modules
+
+## [0.947.125] - 2026-03-23 16:17:38
+
+**Implement SHM v3 with full neuron state sync and CartPole crystallizatio**
+
+### Added
+- Extend ShmHeader from 64 to 128 bytes with voltage_offset, threshold_offset_offset, and timers_offset fields
+- Update SHM version from 2 to 3 to support full neuron state synchronization (voltage, threshold, timers)
+- Enforce 128-byte alignment for ShmHeader and document the new 128-byte invariant in specs
+- Add GenesisIoContract to automatically generate client config from manifest.toml
+- Replace hardcoded encoder/decoder creation with contract.create_population_encoder and contract.create_pwm_decoder calls
+- Implement L7 demultiplexing for dual motor hemispheres in bayesian_search.py
+- Add memory.voltage.fill(0), memory.threshold_offset.fill(0), and memory.timers.fill(0) for hard electrical state reset
+- Implement crystallization state machine in agent.py to disable plasticity and force VRAM checkpoint upon skill mastery
+- Add control.set_membrane_physics, set_dopamine_receptors, set_prune_threshold, and set_night_interval for ASIC parameter flashing
+- Synchronize BATCH_SIZE to 10 ticks across bayesian_search.py and agent.py
+- Update baked model directory path to "../Genesis-Models/cartpole_exp/baked/MotorCortex"
+- Fix payload size calculations and loop iterations to match new batch size and physics timing (20 batches = 20 ms)
+- Extend shard memory validation and state handling in genesis-core/src/ipc.rs for v3 header
+- Update memory mapping logic in genesis-client/genesis/memory.py to handle new voltage, threshold_offset, and timers arrays
+- Add control plane methods in genesis-client/genesis/control.py for setting membrane physics and dopamine receptors
+
+
 ## [0.937.124] - 2026-03-23 05:53:32
 
 **Implement Intra-GPU Ghost Sync with Zero-Copy L2 Routing**
