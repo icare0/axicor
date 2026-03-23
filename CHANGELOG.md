@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.905.120] - 2026-03-23 00:46:00
+
+**Implement Fly Environment integration with FlyAvatarState dataclass**
+
+### Added
+- Import and instantiate flygym.Fly environment in examples/FLY_ex/agent.py
+- Define FlyAvatarState dataclass to store float variables for coordinates, Euler angles, velocities, and joint angles
+- Connect environment to Main loop and I/O by replacing gym.make stub with fly environment initialization
+- Extract data from env.step() and populate FlyAvatarState on each HFT cycle tick
+- Add new examples/FLY_exp/agent.py with 325 lines of fly environment integration code
+- Update examples/FLY_exp/build_brain.py with 222 lines of modifications for brain building
+- Create examples/FLY_exp/inspector_fly.py with 45 lines for fly inspection utilities
+- Modify genesis-client/genesis/builder.py with 90 lines of updates for improved brain construction
+- Add genesis-client/genesis/contract.py with 60 lines of new contract management code
+- Revise docs/Python-SDK/Brain_Builder.md with 53 lines of changes
+- Update docs/Python-SDK/QuickStart_SDK.md with 75 lines of modifications
+- Import and instantiate flygym.Fly environment in examples/FLY_ex/agent.py
+- Define FlyAvatarState dataclass to store float variables for coordinates, Euler angles, velocities, and joint angles
+- Connect environment to Main loop and I/O by replacing gym.make stub with fly environment initialization
+- Extract data from env.step() and populate FlyAvatarState on each HFT cycle tick
+- Add new examples/FLY_exp/agent.py with 325 lines of fly environment integration code
+- Update examples/FLY_exp/build_brain.py with 222 lines of modifications for brain building
+- Create examples/FLY_exp/inspector_fly.py with 45 lines for fly inspection utilities
+- Modify genesis-client/genesis/builder.py with 90 lines of updates for improved brain construction
+- Add genesis-client/genesis/contract.py with 60 lines of new contract management code
+- Revise docs/Python-SDK/Brain_Builder.md with 53 lines of changes
+- Update docs/Python-SDK/QuickStart_SDK.md with 75 lines of modifications
+
+
 ## [0.894.120] - 2026-03-22 12:05:29
 
 **[Performance] Optimize GPU kernels and memory layout**

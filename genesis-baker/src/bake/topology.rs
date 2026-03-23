@@ -84,9 +84,11 @@ pub fn build_local_topology_internal(
                     };
 
                     let mut segments = Vec::new();
-                    let length = 15.min(zone_h);
+                    // [DOD FIX] Виртуальные аксоны обязаны прошивать кору насквозь, 
+                    // чтобы достать до нижних слоев в масштабированных (40+ вокселей) зонах!
+                    let length = zone_h;
                     let mut final_z = start_z;
-                    
+
                     for i in 0..length {
                         let z = (start_z as i32 + i as i32 * z_step).clamp(0, zone_h.saturating_sub(1) as i32) as u32;
                         final_z = z;

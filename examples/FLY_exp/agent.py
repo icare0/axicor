@@ -21,6 +21,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from genesis.client import GenesisMultiClient
 from genesis.contract import GenesisIoContract
+from genesis.control import GenesisControl
 from genesis.memory import GenesisMemory
 
 #============================================================
@@ -28,93 +29,6 @@ from genesis.memory import GenesisMemory
 #============================================================
 BATCH_SIZE = 20                 # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
 ENCODER_SIGMA = 0.2             # Сигма энкодера (разброс признаков)
-
-#============================================================
-#               АВАТАР МУХИ (FLOAT ПЕРЕМЕННЫЕ)
-#============================================================
-class FlyAvatarState:
-    """Группировка всех float-переменных состояния аватара для удобства"""
-    def __init__(self):
-        # --- Глобальная позиция и ориентация (Голова/Тело) ---
-        self.pos_x: float = 0.0
-        self.pos_y: float = 0.0
-        self.pos_z: float = 0.0
-        self.roll: float = 0.0
-        self.pitch: float = 0.0
-        self.yaw: float = 0.0
-        
-        # --- Линейные и угловые скорости тела ---
-        self.vel_x: float = 0.0
-        self.vel_y: float = 0.0
-        self.vel_z: float = 0.0
-        self.ang_vel_roll: float = 0.0
-        self.ang_vel_pitch: float = 0.0
-        self.ang_vel_yaw: float = 0.0
-
-        # --- Состояние суставов (УГЛЫ ЛАП: LF, LM, LH, RF, RM, RH) ---
-        # Левая передняя (Left Front)
-        self.angle_LF_coxa: float = 0.0
-        self.angle_LF_femur: float = 0.0
-        self.angle_LF_tibia: float = 0.0
-        self.angle_LF_tarsus: float = 0.0
-
-        # Левая средняя (Left Middle)
-        self.angle_LM_coxa: float = 0.0
-        self.angle_LM_femur: float = 0.0
-        self.angle_LM_tibia: float = 0.0
-        self.angle_LM_tarsus: float = 0.0
-
-        # Левая задняя (Left Hind)
-        self.angle_LH_coxa: float = 0.0
-        self.angle_LH_femur: float = 0.0
-        self.angle_LH_tibia: float = 0.0
-        self.angle_LH_tarsus: float = 0.0
-
-        # Правая передняя (Right Front)
-        self.angle_RF_coxa: float = 0.0
-        self.angle_RF_femur: float = 0.0
-        self.angle_RF_tibia: float = 0.0
-        self.angle_RF_tarsus: float = 0.0
-
-        # Правая средняя (Right Middle)
-        self.angle_RM_coxa: float = 0.0
-        self.angle_RM_femur: float = 0.0
-        self.angle_RM_tibia: float = 0.0
-        self.angle_RM_tarsus: float = 0.0
-
-        # Правая задняя (Right Hind)
-        self.angle_RH_coxa: float = 0.0
-        self.angle_RH_femur: float = 0.0
-        self.angle_RH_tibia: float = 0.0
-        self.angle_RH_tarsus: float = 0.0
-
-        # --- Состояние суставов (УГЛЫ КРЫЛЬЕВ) ---
-        # Левое (Left) и Правое (Right) крыло (углы маха/вращения)
-        self.angle_L_wing_roll: float = 0.0
-        self.angle_L_wing_pitch: float = 0.0
-        self.angle_L_wing_yaw: float = 0.0
-        
-        self.angle_R_wing_roll: float = 0.0
-        self.angle_R_wing_pitch: float = 0.0
-        self.angle_R_wing_yaw: float = 0.0
-
-        # --- Скорости суставов (опционально, объединил) ---
-        # (Если понадобятся индивидуальные скорости каждого сустава лап — можно расписать по аналогии)
-        self.legs_joint_velocities: float = 0.0  
-        self.wings_joint_velocities: float = 0.0 
-
-        # --- Силы и Контакты (End Effectors & Sensors) ---
-        # Силы реакции опоры на каждую из 6 лап
-        self.contact_force_LF: float = 0.0
-        self.contact_force_LM: float = 0.0
-        self.contact_force_LH: float = 0.0
-        self.contact_force_RF: float = 0.0
-        self.contact_force_RM: float = 0.0
-        self.contact_force_RH: float = 0.0
-        
-        # Сенсоры внешней среды
-        self.odor_intensity: float = 0.0         # Интенсивность запаха (обоняние)
-        self.vision_features: float = 0.0        # Визуальные признаки (зрение 32x32)
 
 def sanitize_flygym_xmls():
     """
@@ -195,7 +109,20 @@ def run_fly():
     dec_mot = c_desc.create_pwm_decoder("motors", batch_size=BATCH_SIZE)
 
     # ============================================================
-    # 3. Среда и Преаллокация Памяти
+    # 3. RL REACTOR (EXPLORATION PHASE)
+    # Атомарная перезапись манифеста для агрессивного обучения
+    # ============================================================
+    print("🧬 Инициализация RL Реактора (Фаза: EXPLORATION)...")
+    ctrl_desc = GenesisControl(os.path.join(base_dir, "DESCENDING", "manifest.toml"))
+    # Частый сон (каждые 30k тиков) для быстрого закрепления опыта
+    ctrl_desc.set_night_interval(30_000)
+    # Низкий порог прунинга (позволяем нейронам ошибаться и сохранять слабые связи)
+    ctrl_desc.set_prune_threshold(750)
+    # Агрессивный структурный рост (много новых аксонов каждую ночь)
+    ctrl_desc.set_max_sprouts(128)
+
+    # ============================================================
+    # 4. Среда и Преаллокация Памяти
     # ============================================================
     print("🩹 Запуск препроцессора ассетов...")
     sanitize_flygym_xmls()
@@ -276,7 +203,7 @@ def run_fly():
         norm_refl = np.clip((buf_refl - bounds_refl[:, 0]) / rd_refl, 0.0, 1.0)
 
         # ===================================================================
-        # ТРАНСПОРТ В VRAM (4 параллельных канала)
+        # ТРАНСПОРТ В VRAM И ДОФАМИН
         # ===================================================================
         # [DOD FIX] Передаем энкодеру строгий O(1) срез активных переменных (без паддинга),
         # чтобы NumPy смог сделать Zero-Cost Broadcasting.
@@ -285,7 +212,20 @@ def run_fly():
         enc_prop.encode_into(norm_prop[:42], client.payload_views[2])
         enc_refl.encode_into(norm_refl[:6],  client.payload_views[3])
 
-        rx = client.step(0)  # Барьер и Дофамин
+        # [DOD] Извлекаем линейную скорость по оси X (индекс 1 матрицы 4x3)
+        # state["fly"] содержит pos(3), vel(3), ang_pos(3), ang_vel(3)
+        # vel_x - это индекс 3 (если считать от 0)
+        vel_x = state["fly"].flatten()[3]
+
+        # Вычисляем награду в границах i16 (-32768 .. 32767)
+        if vel_x > 0.02:
+            # Движение вперед: сильный дофаминовый всплеск
+            dopamine = int(min(vel_x * 1000.0, 32767))
+        else:
+            # Простой или движение назад: фоновая эрозия связей (LTD)
+            dopamine = -15
+
+        rx = client.step(dopamine)  # Упаковка в C-ABI заголовок и транспорт
 
         # ===================================================================
         # МОТОРЫ

@@ -494,8 +494,9 @@ impl NodeRuntime {
             let wall_ms = batch_start.elapsed().as_millis() as u64;
             batch_start = std::time::Instant::now();
 
-            current_tick += batch_size;
             batch_counter += 1;
+            // [DOD FIX] Восстанавливаем ход времени! Без этого GPU застрянет в первых N тиках.
+            current_tick += batch_size as u64;
             
             self.services.telemetry.batch_number.store(batch_counter, Ordering::Relaxed);
             self.services.telemetry.total_ticks.store(current_tick as u64, Ordering::Relaxed);
