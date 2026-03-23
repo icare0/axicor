@@ -752,4 +752,21 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
   return 0;
 }
 
+void gpu_reset_telemetry_count(uint32_t* count_d, hipStream_t stream) {
+    hipMemsetAsync(count_d, 0, sizeof(uint32_t), stream);
+}
+
+void launch_extract_telemetry(
+    const uint8_t* flags_d,
+    uint32_t* out_ids_d,
+    uint32_t* out_count_d,
+    uint32_t padded_n,
+    hipStream_t stream
+) {
+    int threads = 256;
+    int blocks = (padded_n + threads - 1) / threads;
+    hipLaunchKernelGGL(cu_extract_telemetry_kernel, dim3(blocks), dim3(threads), 0, stream,
+                       flags_d, out_ids_d, out_count_d, padded_n);
+}
+
 } // Final closing brace for extern "C"

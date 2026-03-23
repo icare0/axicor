@@ -18,6 +18,9 @@ unsafe impl Sync for IoDeviceBuffers {}
 pub struct ShardEngine {
     pub vram: VramState,
     pub stream: crate::ffi::CudaStream,
+    pub telemetry_ids_d: *mut u32,
+    pub telemetry_count_d: *mut u32,
+    pub telemetry_count_pinned_h: *mut u32, // Залоченная в RAM страница для DMA
 }
 
 unsafe impl Send for ShardEngine {}
@@ -33,7 +36,18 @@ impl ShardEngine {
             assert_eq!(err, 0, "FATAL: cudaStreamCreate failed");
             println!("✅ ShardEngine created CUDA Stream: {:?}", stream);
         }
-        Self { vram, stream }
+
+        let telemetry_ids_d: *mut u32;
+        let telemetry_count_d: *mut u32;
+        let telemetry_count_pinned_h: *mut u32;
+
+        unsafe {
+            telemetry_ids_d = crate::ffi::gpu_malloc(vram.padded_n as usize * 4) as *mut u32;
+            telemetry_count_d = crate::ffi::gpu_malloc(4) as *mut u32;
+            telemetry_count_pinned_h = crate::ffi::gpu_host_alloc(4) as *mut u32;
+        }
+
+        Self { vram, stream, telemetry_ids_d, telemetry_count_d, telemetry_count_pinned_h }
     }
 
     /// Выполняет весь батч (sync_batch_ticks) автономно на GPU.
@@ -68,7 +82,10 @@ impl ShardEngine {
         }
 
         // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча
-        unsafe { crate::ffi::cu_reset_burst_counters(&self.vram.ptrs, self.vram.padded_n, self.stream); }
+        unsafe {
+            crate::ffi::cu_reset_burst_counters(&self.vram.ptrs, self.vram.padded_n, self.stream);
+            crate::ffi::gpu_reset_telemetry_count(self.telemetry_count_d, self.stream);
+        }
 
         // 2. Hot Loop по тикам
 
@@ -117,6 +134,16 @@ impl ShardEngine {
                 )
             };
             assert_eq!(err, 0, "FATAL: Day Phase Pipeline failed at tick {}", tick);
+
+            unsafe {
+                crate::ffi::launch_extract_telemetry(
+                    self.vram.ptrs.soma_flags as *const u8,
+                    self.telemetry_ids_d,
+                    self.telemetry_count_d,
+                    self.vram.padded_n,
+                    self.stream
+                );
+            }
         }
 
         // 4. Batch is queued in the stream. CPU is immediately free.
@@ -127,6 +154,11 @@ impl ShardEngine {
 impl Drop for ShardEngine {
     fn drop(&mut self) {
         #[cfg(not(feature = "mock-gpu"))]
-        unsafe { crate::ffi::gpu_stream_destroy(self.stream); }
+        unsafe {
+            crate::ffi::gpu_stream_destroy(self.stream);
+            crate::ffi::gpu_free(self.telemetry_ids_d as *mut _);
+            crate::ffi::gpu_free(self.telemetry_count_d as *mut _);
+            crate::ffi::gpu_host_free(self.telemetry_count_pinned_h as *mut _);
+        }
     }
 }

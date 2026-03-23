@@ -681,10 +681,19 @@ pub fn spawn_shard_thread(
 
                         // Update spikes in UI
                         {
-                            let actual_spikes = pinned_out.as_slice().iter().filter(|&&x| x != 0).count() as u32;
+                            unsafe {
+                                genesis_compute::ffi::gpu_memcpy_device_to_host_async(
+                                    desc.engine.telemetry_count_pinned_h as *mut _,
+                                    desc.engine.telemetry_count_d as *const _,
+                                    4,
+                                    desc.engine.stream
+                                );
+                                
+                                genesis_compute::ffi::gpu_stream_synchronize(desc.engine.stream);
 
-                            // [DOD FIX] Zero-cost обновление через атомик, никакого лока планировщика
-                            ctx.telemetry.update_zone_spikes(hash, actual_spikes);
+                                let actual_spikes = std::ptr::read_volatile(desc.engine.telemetry_count_pinned_h);
+                                ctx.telemetry.update_zone_spikes(hash, actual_spikes);
+                            }
                         }
 
                         // Отправка отчета оркестратору

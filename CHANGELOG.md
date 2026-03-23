@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.920.123] - 2026-03-23 03:42:24
+
+**[Performance] Transition SpatialGrid and AxonSegmentGrid to flat arrays **
+
+### Added
+- Replace HashMap<u64, Vec<u32>> with flat_cells Vec<(u64, u32)> and cell_index HashMap<u64, Range<u32>>
+- Implement parallel sorting using rayon's par_sort_unstable_by_key for O(N log N) build
+- Update for_each_in_radius to perform single lookup then iterate over slice for cache locality
+- Apply same flat grid transformation to AxonSegmentGrid in both build_from_paths and build_from_axons
+- Maintain reverse iteration for axon processing to prioritize outer axons for dendritic slots
+- Consolidate cell index construction loop in build() and build_from_axons()
+- Remove zero-position (x=0, y=0, z=0, type=0) entries during grid population
+- Inline hash_cell function and simplify coordinate packing logic
+- Update comments to reflect DOD (Data-Oriented Design) fixes and flat grid transition
+
+## [0.912.123] - 2026-03-23 03:17:11
+
+**[Examples] Refactor cartpole_exp example for improved training and stabi**
+
+### Added
+- Simplify agent.py by removing redundant multi-phase configuration and consolidating parameters
+- Replace separate motor decoders with unified motor_out decoder and adjust encoder to cartpole_sensors
+- Update build_brain.py to use new brain name cartpole_exp and adjust tick_duration_us to 1000
+- Fix README.md command-line arguments to reference new brain name cartpole_exp
+- Remove genesis-client builder.py debug print statement for cleaner output
+
+
 ## [0.908.122] - 2026-03-23 02:15:05
 
 **[Agent] Replace manual FlyAvatarState with GenesisControl and implement **

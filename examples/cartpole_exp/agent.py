@@ -23,7 +23,8 @@ from genesis.control import GenesisControl
 from genesis.tuner import GenesisAutoTuner, Phase
 from genesis.memory import GenesisMemory
 
-BATCH_SIZE = 20
+# [DOD FIX] Синхронизировано с build_brain.py (10 тиков = 80 байт C-ABI)
+BATCH_SIZE = 10
 
 def run_cartpole():
     print("🧠 Инициализация DOD-шлюза CartPole...")
@@ -49,7 +50,7 @@ def run_cartpole():
     print("🧬 Инициализация Авто-Тюнера и SHM...")
     ctrl = GenesisControl(os.path.join(base_dir, "MotorCortex", "manifest.toml"))
     # [DOD FIX] Агрессивный базовый прунинг
-    ctrl.set_night_interval(10_000)
+    ctrl.set_night_interval(30_000)
     ctrl.set_prune_threshold(1000)
     ctrl.set_max_sprouts(64)
     
@@ -135,9 +136,9 @@ def run_cartpole():
         force_left = 0.0
         force_right = 0.0
 
-        # Разгоняем мозг до скорости физики. Сенсорная маска (Pulse) 
-        # будет аппаратным эхом поддерживать деполяризацию все 10 батчей.
-        for _ in range(10):
+        # Разгоняем мозг до скорости физики (0.02s = 20 мс). 
+        # BATCH_SIZE = 10 тиков (1 мс). Нам нужно 20 батчей, чтобы прожить 20 мс.
+        for _ in range(20):
             rx = client.step(dopamine)
             rx_view = memoryview(rx)
             
@@ -197,7 +198,7 @@ def run_cartpole():
             dopamine = current_params['dopamine_pulse']
         else:
             # Фоновое закрепление выживания
-            dopamine = 10
+            dopamine = 50
 
 if __name__ == '__main__':
     run_cartpole()

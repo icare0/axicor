@@ -246,6 +246,8 @@ Gauge::default()
 
 **Oversized Alert** скрыт при `oversized_skips == 0`. Появляется при первом skip, фон amber.
 
+**[DOD Invariant]:** Показатель `[ZONE] Hash: N spikes` обновляется через Zero-Copy DMA из Pinned RAM. TUI поток читает `AtomicU32` из структуры `LockFreeTelemetry`, который атомарно обновляется оркестратором после каждого батча. Формирование этой цифры стоит CPU ровно 0 тактов на обход массивов.
+
 ---
 
 ### 4.5 Button Bar

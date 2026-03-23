@@ -232,17 +232,16 @@ extern "C" {
         total_pixels: u32,
     );
 
-    pub fn gpu_reset_telemetry_count(
-        ptrs: *const ShardVramPtrs,
-        stream: CudaStream,
-    );
+    // Zero-Cost обнуление атомика перед батчем
+    pub fn gpu_reset_telemetry_count(count_d: *mut u32, stream: CudaStream);
 
+    // Аппаратная сборка спайков
     pub fn launch_extract_telemetry(
-        ptrs: *const ShardVramPtrs,
+        flags_d: *const u8,
+        out_ids_d: *mut u32,
+        out_count_d: *mut u32,
         padded_n: u32,
-        out_ids: *mut u32,
-        out_count_pinned: *mut u32,
-        stream: CudaStream,
+        stream: CudaStream
     );
 
     pub fn cu_allocate_io_buffers(

@@ -310,6 +310,15 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 | 4 | `UpdateNeurons` | GLIF + дендритный цикл + проверка порога + срыв спайка | [05_signal_physics.md §1.5](./05_signal_physics.md) |
 | 5 | `ApplyGSOP` | Пластичность: Timer-as-Contact-Flag режим STDP | [05_signal_physics.md §1.3](./05_signal_physics.md) |
 | 6 | `RecordReadout` | Чтение spike flags из mapped_soma_ids, запись в output_history | [05_signal_physics.md §3.2](./05_signal_physics.md) |
+| 7 | ExtractTelemetry | Warp-Aggregated Atomics сбор статистики активности | 07_gpu_runtime.md §2.1.1 |
+
+#### 2.1.1. Warp-Aggregated Telemetry (Zero-Cost Observer)
+
+Сбор статистики спайков для дашбордов и IDE выполняется без прерывания горячего цикла и без скачивания массивов на хост.
+
+- **Механика:** Ядро `cu_extract_telemetry_kernel` сканирует массив `soma_flags`. Используется аппаратная инструкция `__ballot_sync` (или `__ballot` на AMD), чтобы за 1 такт собрать маску стреляющих нейронов со всего варпа (32 потока).
+- **Сжатие транзакций:** Лидер варпа делает ровно один `atomicAdd` в счетчик спайков в VRAM. Это снижает конкуренцию за шину памяти в 32 раза.
+- **Zero-Copy DMA:** По завершении батча оркестратор выполняет асинхронный `cudaMemcpyAsync` размером ровно **4 байта** в залоченную страницу памяти хоста (Pinned RAM). CPU читает это значение за 1 такт (`std::ptr::read_volatile`), не блокируясь на мьютексах и не обходя массивы.
 
 
 ### 2.2. Фаза «Ночь» (Per-Zone Offline Maintenance)

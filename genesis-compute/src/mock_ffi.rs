@@ -234,23 +234,13 @@ pub extern "C" fn launch_ghost_sync(
 ) -> i32 { 0 }
 
 #[no_mangle]
-pub extern "C" fn gpu_reset_telemetry_count(
-    _ptrs: *const ShardVramPtrs,
-    _stream: *mut c_void,
-) {
-    log_call("ResetTelemetryCount", 0);
-}
+pub extern "C" fn gpu_reset_telemetry_count(_count_d: *mut u32, _stream: *mut std::ffi::c_void) {}
 
 #[no_mangle]
 pub extern "C" fn launch_extract_telemetry(
-    _ptrs: *const ShardVramPtrs,
+    _flags_d: *const u8,
+    _out_ids_d: *mut u32,
+    _out_count_d: *mut u32,
     _padded_n: u32,
-    _out_ids: *mut u32,
-    out_count_pinned: *mut u32,
-    _stream: *mut c_void,
-) {
-    log_call("ExtractTelemetry", 0);
-    if !out_count_pinned.is_null() {
-        unsafe { std::ptr::write_volatile(out_count_pinned, 0); }
-    }
-}
+    _stream: *mut std::ffi::c_void
+) {}

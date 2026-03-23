@@ -779,21 +779,20 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
   return 0;
 }
 
-void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, cudaStream_t stream) {
-    (void)ptrs; (void)stream;
+void gpu_reset_telemetry_count(uint32_t* count_d, cudaStream_t stream) {
+    cudaMemsetAsync(count_d, 0, sizeof(uint32_t), stream);
 }
 
-void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
-    if (out_ids == nullptr || out_count_pinned == nullptr || ptrs == nullptr) return;
-
+void launch_extract_telemetry(
+    const uint8_t* flags_d,
+    uint32_t* out_ids_d,
+    uint32_t* out_count_d,
+    uint32_t padded_n,
+    cudaStream_t stream
+) {
     int threads = 256;
     int blocks = (padded_n + threads - 1) / threads;
-    
     cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
-        ptrs->soma_flags,
-        out_ids,
-        out_count_pinned,
-        padded_n
+        flags_d, out_ids_d, out_count_d, padded_n
     );
-}
-} // Final closing brace for extern "C"
+}} // Final closing brace for extern "C"
