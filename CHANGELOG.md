@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.934.124] - 2026-03-23 05:18:12
+
+**Implement Temporal Sync and BDP Decay with Zero Warp Divergence**
+
+### Added
+- Implement wrap-around u32 temporal sync in push_burst_head() to set axon head to `(uint32_t)(0 - v_seg)` preventing temporal paradox in dendrite spike processing
+- Implement BDP decay in cu_update_neurons_kernel with branchless math: `burst_count = final_spike * (burst_count + (burst_count < 7 ? 1 : 0))`
+- Enforce O(1) ghost axon routing in cu_apply_spike_batch_kernel by reading axon_heads[ghost_id] directly, not by thread ID
+- Add v_seg parameter to push_burst_head, cu_inject_inputs_kernel, cu_apply_spike_batch_kernel, and cu_update_neurons_kernel
+- Fix memory protection in cu_apply_spike_batch_kernel with early return if ghost_id >= total_axons to prevent VRAM corruption from bad network indices
+- Refactor BDP accumulator handling in cu_update_neurons_kernel to preserve Type ID in upper 4 bits of soma_flags
+- Update docs/specs/05_signal_physics.md with new burst count logic and temporal sync explanation for axon head initialization
+- Update docs/specs/06_distributed.md with memory protection rule for ApplySpikeBatch kernel using ghost_id for direct addressing
+
+
 ## [0.926.123] - 2026-03-23 04:44:32
 
 **Implement Warp-Aggregated Telemetry with Zero-Cost DMA for CLI Dashboard**

@@ -227,9 +227,11 @@ pub extern "C" fn launch_extract_outgoing_spikes(
 pub extern "C" fn launch_ghost_sync(
     _src_heads: *const genesis_core::layout::BurstHeads8,
     _dst_heads: *mut genesis_core::layout::BurstHeads8,
-    _d_incoming_spikes: *mut u32,
-    _h_incoming_spikes: *const u32,
-    _schedule_capacity: u32,
+    _src_indices: *const u32,
+    _dst_indices: *const u32,
+    _count: u32,
+    _sync_batch_ticks: u32,
+    _v_seg: u32,
     _stream: *mut c_void,
 ) -> i32 { 0 }
 

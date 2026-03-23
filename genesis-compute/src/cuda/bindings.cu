@@ -339,34 +339,6 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
 // =====================================================================
 // Ядро 7: Синхронизация Ghost Axons
 // =====================================================================
-__global__ void ghost_sync_kernel(const BurstHeads8* __restrict__ src_axon_heads,
-                                  BurstHeads8* __restrict__ dst_axon_heads,
-                                  const uint32_t* __restrict__ src_indices,
-                                  const uint32_t* __restrict__ dst_indices, uint32_t count) {
-  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= count)
-    return;
-  uint32_t src_idx = src_indices[tid];
-  uint32_t dst_idx = dst_indices[tid];
-
-  // [DOD FIX] Аппаратная защита от отравленных индексов.
-  // Легальный axon_id << 2^31. Всё что >= 0x80000000:
-  //   0x80000000 = AXON_SENTINEL (мёртвый аксон)
-  //   0xFFFFFFFF = u32::MAX (сома без аксона, soma_to_axon default)
-  // Такой src_idx → out-of-bounds в VRAM → Page Fault → Context Poison.
-  if (src_idx < 0x80000000u) {
-    dst_axon_heads[dst_idx] = src_axon_heads[src_idx];
-  }
-}
-
-void launch_ghost_sync(const BurstHeads8 *src_heads, BurstHeads8 *dst_heads,
-                       const uint32_t *src_indices, const uint32_t *dst_indices,
-                       uint32_t count, cudaStream_t stream) {
-  uint32_t threads = 256;
-  uint32_t blocks = (count + threads - 1) / threads;
-  ghost_sync_kernel<<<blocks, threads, 0, stream>>>(
-      src_heads, dst_heads, src_indices, dst_indices, count);
-}
 
 #pragma pack(push, 1)
 struct SpikeEvent {

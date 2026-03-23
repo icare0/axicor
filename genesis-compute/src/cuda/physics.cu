@@ -432,7 +432,67 @@ __global__ void cu_extract_telemetry_kernel(
     }
 }
 
+// ============================================================================
+// Intra-GPU Ghost Sync Kernel (Zero-Copy L2 Cache Routing)
+// ============================================================================
+__global__ void cu_ghost_sync_kernel(
+    const BurstHeads8* __restrict__ src_heads,
+    BurstHeads8* __restrict__ dst_heads,
+    const uint32_t* __restrict__ src_indices,
+    const uint32_t* __restrict__ dst_indices,
+    uint32_t count,
+    uint32_t sync_batch_ticks,
+    uint32_t v_seg
+) {
+    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= count) return;
+
+    uint32_t src_axon = src_indices[tid];
+    uint32_t dst_ghost = dst_indices[tid];
+
+    BurstHeads8 s_h = src_heads[src_axon];
+    BurstHeads8 d_h = dst_heads[dst_ghost];
+
+    // Кастуем структуру в массив для O(1) развертки
+    const uint32_t* s_arr = (const uint32_t*)&s_h;
+
+    // [DOD] Обратный обход (от h7 до h0) гарантирует сохранение 
+    // временного порядка пулеметной очереди при перекладывании
+    #pragma unroll
+    for (int i = 7; i >= 0; i--) {
+        uint32_t head = s_arr[i];
+        
+        // Защита от сентинелей и мертвых аксонов
+        if (head >= 0x70000000u) continue;
+
+        uint32_t age = head / v_seg;
+        
+        // Sender-Side Extraction: Спайк родился ВНУТРИ этого батча
+        if (age < sync_batch_ticks) {
+            push_burst_head(&d_h, v_seg);
+        }
+    }
+
+    dst_heads[dst_ghost] = d_h;
+}
+
 extern "C" {
+void launch_ghost_sync(
+    const BurstHeads8* src_heads,
+    BurstHeads8* dst_heads,
+    const uint32_t* src_indices,
+    const uint32_t* dst_indices,
+    uint32_t count,
+    uint32_t sync_batch_ticks,
+    uint32_t v_seg,
+    cudaStream_t stream
+) {
+    int threads = 256;
+    int blocks = (count + threads - 1) / threads;
+    cu_ghost_sync_kernel<<<blocks, threads, 0, stream>>>(
+        src_heads, dst_heads, src_indices, dst_indices, count, sync_batch_ticks, v_seg
+    );
+}
 
 // ============================================================================
 // Day Phase Orchestrator

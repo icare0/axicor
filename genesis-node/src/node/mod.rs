@@ -432,9 +432,12 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] 4. Intra-GPU Ghost Sync + Inter-Node Extraction
+            // [DOD] 4. Intra-GPU Ghost Sync
             for (src_ptr, dst_ptr, channel) in &self.network.intra_gpu_channels {
-                unsafe { channel.sync_ghosts(*src_ptr, *dst_ptr, std::ptr::null_mut()); }
+                unsafe { 
+                    let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
+                    channel.sync_ghosts(*src_ptr, *dst_ptr, batch_size, v_seg, std::ptr::null_mut()); 
+                }
             }
 
             for (src_ptr, channel) in &self.network.inter_node_channels {
