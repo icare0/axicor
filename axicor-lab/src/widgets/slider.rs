@@ -29,25 +29,23 @@ pub fn spawn_slider(
     parent.spawn(NodeBundle {
         style: Style {
             width: Val::Percent(100.0),
-            height: Val::Px(40.0),
+            height: Val::Px(32.0),
             flex_direction: FlexDirection::Row,
             align_items: AlignItems::Center,
-            column_gap: Val::Px(10.0),
-            padding: UiRect::horizontal(Val::Px(10.0)),
             ..default()
         },
         ..default()
     }).with_children(|row| {
         // Label
         row.spawn(TextBundle::from_section(
-            format!("{}:", label),
+            label,
             TextStyle {
-                font_size: 14.0,
+                font_size: TEXT_SIZE_BODY,
                 color: color_text_dim(),
                 ..default()
             },
         ).with_style(Style {
-            width: Val::Px(70.0),
+            width: Val::Px(80.0),
             ..default()
         }));
 
@@ -56,7 +54,8 @@ pub fn spawn_slider(
             NodeBundle {
                 style: Style {
                     flex_grow: 1.0,
-                    height: Val::Px(6.0),
+                    height: Val::Px(4.0),
+                    margin: UiRect::horizontal(Val::Px(12.0)),
                     ..default()
                 },
                 background_color: color_border().into(),
@@ -78,18 +77,26 @@ pub fn spawn_slider(
         }).id();
 
         // Value Text
-        text_node_id = row.spawn(TextBundle::from_section(
-            format!("{:.1}{}", default_val, unit),
-            TextStyle {
-                font_size: 14.0,
-                color: color_text_main(),
+        text_node_id = row.spawn(TextBundle {
+            text: Text {
+                sections: vec![TextSection::new(
+                    format!("{:.1}{}", default_val, unit),
+                    TextStyle {
+                        font_size: TEXT_SIZE_BODY,
+                        color: color_text_main(),
+                        ..default()
+                    },
+                )],
+                justify: JustifyText::Right,
                 ..default()
             },
-        ).with_style(Style {
-            width: Val::Px(80.0),
-            justify_content: JustifyContent::FlexEnd,
+            style: Style {
+                width: Val::Px(70.0),
+                justify_content: JustifyContent::FlexEnd,
+                ..default()
+            },
             ..default()
-        })).id();
+        }).id();
     });
 
     let unit_string = unit.to_string();
@@ -134,9 +141,11 @@ pub fn slider_drag_system(
             let rect_center = gt.translation().truncate();
             let rect_size = node.size();
             
-            // Bevy's screen-space coordinate system can be tricky.
-            // For simple case, let's use window width/height.
-            let ratio = ((cursor_pos.x - (window.width() / 2.0 + rect_center.x - rect_size.x / 2.0)) / rect_size.x).clamp(0.0, 1.0);
+            // Bevy's screen-space coordinate system: cursor_pos is top-left origin, Y down.
+            // GlobalTransform translation is center origin, Y up.
+            let rect_left = window.width() / 2.0 + rect_center.x - rect_size.x / 2.0;
+            
+            let ratio = ((cursor_pos.x - rect_left) / rect_size.x).clamp(0.0, 1.0);
             slider.value = slider.min + ratio * (slider.max - slider.min);
             
             // Update fill

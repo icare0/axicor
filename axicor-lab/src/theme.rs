@@ -13,3 +13,9 @@ pub fn color_accent() -> Color { COLOR_ACCENT }
 pub fn color_border() -> Color { COLOR_BORDER }
 pub fn color_text_main() -> Color { COLOR_TEXT_MAIN }
 pub fn color_text_dim() -> Color { COLOR_TEXT_DIM }
+
+pub const PANEL_HEADER_HEIGHT: f32 = 30.0;
+pub const TEXT_SIZE_HEADER: f32 = 13.0;
+pub const TEXT_SIZE_BODY: f32 = 14.0;
+pub const TEXT_SIZE_TITLE: f32 = 16.0;
+pub const PANEL_BORDER_RADIUS: f32 = 10.0;

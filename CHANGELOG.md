@@ -8,6 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.979.125] - 2026-03-24 00:37:15
+
+**Implement interactive resizable UI layout with 3D viewport and widget sy**
+
+### Added
+- Implement Resizer component and DragState resource for interactive split panel resizing in layout/interaction.rs
+- Add border_interaction_system and border_drag_system with cursor-based flex-basis adjustment
+- Implement ViewportContainer component for 3D scene integration in layout/systems.rs
+- Add ActiveSlider resource and slider_drag_system in widgets/slider.rs with precise value clamping
+- Implement button_system with hover/pressed state handling in widgets/button.rs
+- Add populate_neuron_physics_panel integration for "Neuron Physics" leaf panel
+- Extend initial_layout in layout/tree.rs with new "Simulation Control / Analytics" right panel at 85% ratio
+- Implement theme system with color_bg_root, color_bg_panel, color_text_main, and color_border functions
+- Add conditional background colors: Color::NONE for viewport, color_bg_panel for other panels
+- Add setup_3d_scene and sync_camera_viewport systems in viewport.rs with separate Camera2d order
+- Register interaction systems: border_interaction_system, border_drag_system, slider_drag_system, button_system
+- Expose widgets and panels modules through layout/mod.rs public re-exports
+- Update main.rs to initialize DragState and ActiveSlider resources
+- Add slider.rs with SliderWidget component, value text display, and drag interaction
+- Implement button.rs with ButtonWidget component and visual state transitions
+- Create modular widgets structure with button and slider modules
+
+
 ## [0.963.125] - 2026-03-24 00:36:57
 
 **Implement interactive resizable UI layout with 3D viewport and widget sy**

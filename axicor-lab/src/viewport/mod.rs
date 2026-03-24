@@ -1,3 +1,5 @@
+pub mod mask;
+
 use bevy::prelude::*;
 use bevy::render::camera::Viewport;
 use crate::layout::systems::ViewportContainer;
@@ -11,7 +13,6 @@ pub fn setup_3d_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Camera
-    // Set order to 0. UI camera will be set to 1.
     commands.spawn((
         Camera3dBundle {
             camera: Camera {
@@ -28,7 +29,7 @@ pub fn setup_3d_scene(
     commands.spawn(PbrBundle {
         mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
         material: materials.add(StandardMaterial {
-            base_color: Color::rgb(0.486, 0.565, 1.0), // #7c90ff
+            base_color: Color::rgb(0.486, 0.565, 1.0),
             ..default()
         }),
         transform: Transform::from_xyz(0.0, 0.5, 0.0),
@@ -54,8 +55,6 @@ pub fn sync_camera_viewport(
 ) {
     let window = windows.single();
     let scale_factor = window.resolution.scale_factor();
-    let width = window.width();
-    let height = window.height();
     let physical_width = window.physical_width();
     let physical_height = window.physical_height();
 
@@ -64,38 +63,35 @@ pub fn sync_camera_viewport(
             let position = gt.translation();
             let size = node.size();
 
-            if size.x <= 0.0 || size.y <= 0.0 {
+            // 1. Calculate logical corners in screen space (top-left is 0,0)
+            let logical_left = position.x - size.x / 2.0 + window.width() / 2.0;
+            let logical_top = window.height() / 2.0 - (position.y + size.y / 2.0);
+            
+            // 2. Convert to physical pixels with flooring to stay inside boundaries
+            let x = (logical_left * scale_factor).floor() as u32;
+            let y = (logical_top * scale_factor).floor() as u32;
+            let mut w = (size.x * scale_factor).ceil() as u32;
+            let mut h = (size.y * scale_factor).ceil() as u32;
+
+            // 3. Strict clamping to physical window dimensions
+            // Ensure x and y are within window
+            let x = x.min(physical_width.saturating_sub(1));
+            let y = y.min(physical_height.saturating_sub(1));
+            
+            // Ensure x + w and y + h do not exceed window dimensions
+            w = w.min(physical_width.saturating_sub(x));
+            h = h.min(physical_height.saturating_sub(y));
+
+            // 4. Deactivate camera if viewport is too small to avoid wgpu errors
+            if w == 0 || h == 0 {
                 camera.is_active = false;
                 return;
             }
             camera.is_active = true;
 
-            // Calculate logical rect
-            let logical_left = position.x - size.x / 2.0 + width / 2.0;
-            let logical_top = height / 2.0 - (position.y + size.y / 2.0);
-            
-            // Convert to physical with rounding to be safe
-            let mut x = (logical_left * scale_factor).round() as i32;
-            let mut y = (logical_top * scale_factor).round() as i32;
-            let mut w = (size.x * scale_factor).round() as i32;
-            let mut h = (size.y * scale_factor).round() as i32;
-
-            // Clamp to physical window boundaries to prevent wgpu validation errors
-            x = x.clamp(0, physical_width as i32);
-            y = y.clamp(0, physical_height as i32);
-            
-            // Ensure width and height are at least 1 and fit within the remaining space
-            w = w.max(1).min(physical_width as i32 - x);
-            h = h.max(1).min(physical_height as i32 - y);
-
-            if w <= 0 || h <= 0 {
-                camera.is_active = false;
-                return;
-            }
-
             camera.viewport = Some(Viewport {
-                physical_position: UVec2::new(x as u32, y as u32),
-                physical_size: UVec2::new(w as u32, h as u32),
+                physical_position: UVec2::new(x, y),
+                physical_size: UVec2::new(w, h),
                 depth: 0.0..1.0,
             });
         }

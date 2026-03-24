@@ -9,21 +9,20 @@ pub fn populate_neuron_physics_panel(parent: &mut ChildBuilder) {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(10.0)),
-            row_gap: Val::Px(5.0),
+            row_gap: Val::Px(8.0),
             ..default()
         },
         ..default()
     }).with_children(|container| {
         container.spawn(TextBundle::from_section(
-            "Neuron Physics",
+            "Neuron Parameters",
             TextStyle {
-                font_size: 18.0,
-                color: color_text_main(),
+                font_size: TEXT_SIZE_TITLE,
+                color: color_accent(),
                 ..default()
             },
         ).with_style(Style {
-            margin: UiRect::bottom(Val::Px(10.0)),
+            margin: UiRect::bottom(Val::Px(12.0)),
             ..default()
         }));
 
@@ -46,7 +45,7 @@ pub fn populate_neuron_physics_panel(parent: &mut ChildBuilder) {
             style: Style {
                 width: Val::Percent(100.0),
                 justify_content: JustifyContent::Center,
-                padding: UiRect::vertical(Val::Px(10.0)),
+                padding: UiRect::top(Val::Px(16.0)),
                 ..default()
             },
             ..default()
