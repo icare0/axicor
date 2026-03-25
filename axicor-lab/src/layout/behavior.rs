@@ -2,14 +2,14 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use egui_tiles::{Behavior, TileId, UiResponse, LinearDir};
 use std::collections::HashMap;
-use crate::layout::data::{PluginInput, PluginGeometry, WindowDragState, PaneData, PluginDomain, ProjectStatus, ProjectFsCache};
+use crate::layout::data::{PluginInput, PluginGeometry, WindowDragState, PaneData, PluginDomain, ProjectStatus, ProjectFsCache, ZoneSelectedEvent};
 
 pub struct PaneBehavior<'a> {
     pub panes: &'a HashMap<Entity, PaneData>,
     pub rects: &'a mut HashMap<TileId, egui::Rect>,
     pub input_updates: Vec<(Entity, PluginInput)>,
     pub geometry_updates: Vec<(Entity, PluginGeometry)>,
-    pub zone_events: Vec<String>,
+    pub zone_events: Vec<ZoneSelectedEvent>,
     pub drag_state: &'a mut WindowDragState,
     pub fs_cache: &'a ProjectFsCache,
 }
@@ -21,16 +21,44 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
         let rect = ui.max_rect().shrink(5.0);
         self.rects.insert(tile_id, rect);
 
+        let mut input = PluginInput::default();
+
         if let Some(plugin) = self.panes.get(entity) {
-            // DOD: Hybrid Render (VRAM vs Native UI)
             match &plugin.domain {
                 PluginDomain::Viewport3D => {
                     if let Some(texture_id) = plugin.texture_id {
-                        ui.put(
+                        let resp = ui.put(
                             rect,
                             egui::Image::new(egui::load::SizedTexture::new(texture_id, rect.size()))
-                                .rounding(10.0),
+                                .rounding(10.0), // Убрали Sense, он тут мешает
                         );
+
+                        ui.ctx().input(|i| {
+                            if resp.hovered() {
+                                input.scroll_delta = i.raw_scroll_delta.y;
+                            }
+
+                            let rmb_down = i.pointer.button_down(egui::PointerButton::Secondary);
+                            let mmb_down = i.pointer.button_down(egui::PointerButton::Middle);
+                            let shift_down = i.modifiers.shift;
+
+                            // DOD: interact_pos хранит точку начала клика, даже если мышь улетела за экран.
+                            // Это дает нам идеальный лок фокуса на конкретном окне.
+                            if let Some(pos) = i.pointer.interact_pos() {
+                                if rect.contains(pos) {
+                                    if rmb_down || mmb_down {
+                                        let d = i.pointer.delta();
+                                        if mmb_down || (rmb_down && shift_down) {
+                                            input.is_middle_pressed = true;
+                                            input.cursor_delta = Vec2::new(d.x, d.y);
+                                        } else if rmb_down {
+                                            input.is_secondary_pressed = true;
+                                            input.cursor_delta = Vec2::new(d.x, d.y);
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     }
                 }
                 PluginDomain::ProjectExplorer => {
@@ -46,21 +74,21 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
                                         let status_icon = if proj.status == ProjectStatus::Ready { "🟢 Ready" } else { "🔴 Needs Bake" };
                                         
                                         ui.collapsing(egui::RichText::new(format!("🧠 {} [{}]", proj.name, status_icon)).color(egui::Color32::WHITE), |ui| {
-                                            
-                                            // DNA Block
                                             ui.collapsing(egui::RichText::new("🧬 DNA (Config)").color(egui::Color32::from_rgb(100, 200, 255)), |ui| {
-                                                for dna in &proj.dna_files {
-                                                    ui.label(format!("📄 {}", dna));
-                                                }
+                                                for dna in &proj.dna_files { ui.label(format!("📄 {}", dna)); }
                                             });
 
-                                            // Shards Block
                                             ui.collapsing(egui::RichText::new("⚙️ Shards (Compiled)").color(egui::Color32::from_rgb(255, 150, 150)), |ui| {
                                                 if proj.shards.is_empty() {
                                                     ui.label(egui::RichText::new("Missing or Stale").color(egui::Color32::DARK_GRAY));
                                                 } else {
                                                     for shard in &proj.shards {
-                                                        ui.label(format!("🖧 {}", shard));
+                                                        if ui.selectable_label(false, format!("🖧 {}", shard)).clicked() {
+                                                            self.zone_events.push(ZoneSelectedEvent {
+                                                                project_name: proj.name.clone(),
+                                                                shard_name: shard.clone(),
+                                                            });
+                                                        }
                                                     }
                                                 }
                                             });
@@ -86,13 +114,13 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
                 }
             }
 
-            // Death Mark
+            // DOD: Death Mark превью
             let is_squashed = rect.width() < 100.0 || rect.height() < 100.0;
             if is_squashed {
                 ui.painter().rect_filled(rect, 10.0, egui::Color32::from_black_alpha(150));
             }
 
-            // Hitboxes (Initiation only)
+            // Хитбоксы окон (оставляем после UI плагинов, чтобы они перехватывали клик на гранях)
             if !self.drag_state.is_dragging {
                 let thickness = 10.0;
                 let edges = [
@@ -104,11 +132,9 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
 
                 for (edge_rect, axis, normal_sign) in edges {
                     let resp = ui.interact(edge_rect, ui.id().with(axis).with(normal_sign as i32), egui::Sense::drag());
-                    
                     if resp.hovered() {
                         ui.painter().rect_filled(edge_rect, 5.0, egui::Color32::from_white_alpha(13));
                     }
-
                     if resp.drag_started() {
                         self.drag_state.is_dragging = true;
                         self.drag_state.source_tile = Some(tile_id);
@@ -120,20 +146,9 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
                 }
             }
 
-            // Local Inputs
-            let pointer_pos = ui.ctx().pointer_hover_pos();
-            let mut input = PluginInput::default();
-            if let Some(pos) = pointer_pos {
-                if rect.contains(pos) {
-                    let local = pos - rect.min;
-                    input.local_cursor = Vec2::new(local.x, local.y);
-                    input.is_pressed = ui.ctx().input(|i| i.pointer.primary_down());
-                }
-            }
+            // Отправляем чистый PluginInput и геометрию в ECS
             self.input_updates.push((*entity, input));
-
-            let new_size = Vec2::new(rect.width(), rect.height());
-            self.geometry_updates.push((*entity, PluginGeometry { size: new_size }));
+            self.geometry_updates.push((*entity, PluginGeometry { size: Vec2::new(rect.width(), rect.height()) }));
         }
         UiResponse::None
     }

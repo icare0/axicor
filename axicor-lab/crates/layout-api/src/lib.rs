@@ -13,10 +13,33 @@ pub enum PluginDomain {
     NodeEditor,
 }
 
-#[derive(Component, Debug, Default, Clone)]
+#[derive(Component, Debug, Default, Clone, Copy)]
 pub struct PluginInput {
     pub local_cursor: Vec2,
-    pub is_pressed: bool,
+    pub cursor_delta: Vec2,
+    pub scroll_delta: f32,
+    pub is_primary_pressed: bool,
+    pub is_secondary_pressed: bool, // For rotation (RMB)
+    pub is_middle_pressed: bool,    // For panning (MMB)
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ViewportCamera {
+    pub target: Vec3,
+    pub radius: f32,
+    pub alpha: f32, // Rotation around Y
+    pub beta: f32,  // Rotation up/down
+}
+
+impl Default for ViewportCamera {
+    fn default() -> Self {
+        Self {
+            target: Vec3::ZERO,
+            radius: 40.0, // Дистанция, охватывающая весь шард
+            alpha: std::f32::consts::PI / 4.0, // Изометрия по умолчанию
+            beta: 0.5,
+        }
+    }
 }
 
 #[derive(Component, Debug, Default, Clone)]
@@ -53,9 +76,10 @@ pub struct ProjectFsCache {
 
 // --- Events ---
 
-#[derive(Event)]
+#[derive(Event, Clone)]
 pub struct ZoneSelectedEvent {
-    pub zone_name: String,
+    pub project_name: String,
+    pub shard_name: String,
 }
 
 // --- Resources & Enums ---

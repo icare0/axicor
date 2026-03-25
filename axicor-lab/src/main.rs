@@ -5,7 +5,7 @@ use bevy::render::camera::RenderTarget;
 use bevy_egui::EguiPlugin;
 use project_explorer::ProjectExplorerPlugin;
 use crate::layout::data::*;
-use crate::layout::systems::{create_plugin_render_target, render_workspace_system, evaluate_drag_intents_system, execute_window_commands_system, window_garbage_collector_system};
+use crate::layout::systems::{create_plugin_render_target, render_workspace_system, load_zone_geometry_system, viewport_camera_control_system, evaluate_drag_intents_system, execute_window_commands_system, window_garbage_collector_system};
 use crate::layout::input::sync_plugin_geometry_system;
 
 fn main() {
@@ -21,6 +21,7 @@ fn main() {
         .add_plugins(ProjectExplorerPlugin)
         .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
         .insert_resource(Msaa::Off)
+        .init_resource::<ProjectFsCache>()
         .init_resource::<WorkspaceTree>()
         .init_resource::<WindowDragState>()
         .init_resource::<TopologyCache>()
@@ -30,6 +31,8 @@ fn main() {
         .add_systems(Update, (
             sync_plugin_geometry_system,
             render_workspace_system,
+            viewport_camera_control_system,
+            load_zone_geometry_system,
             evaluate_drag_intents_system,
             execute_window_commands_system,
             window_garbage_collector_system,
@@ -39,8 +42,6 @@ fn main() {
 
 fn setup_test_bench(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     // --- Viewport3D ---
@@ -55,17 +56,11 @@ fn setup_test_bench(
             transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
+        ViewportCamera::default(),
         PluginWindow { domain: PluginDomain::Viewport3D, texture: Some(tex_a) },
         PluginInput::default(),
         PluginGeometry { size: Vec2::new(800.0, 600.0) },
     )).id();
-
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
-        material: materials.add(StandardMaterial::from(Color::RED)),
-        transform: Transform::from_xyz(0.0, 0.0, 0.0),
-        ..default()
-    });
 
     // --- Project Explorer ---
     let entity_b = commands.spawn((

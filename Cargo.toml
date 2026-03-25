@@ -2,10 +2,12 @@
 members = [
     "genesis-core",
     "genesis-baker",
-    
-    "axicor-lab", "genesis-compute", "genesis-node", "genesis-retina",
-    "crates/layout-api",
-    "plugins/project_explorer",
+    "genesis-compute",
+    "genesis-node",
+    "genesis-retina",
+    "axicor-lab",
+    "axicor-lab/crates/layout-api",
+    "axicor-lab/plugins/project_explorer",
 ]
 resolver = "2"
 

@@ -2,9 +2,10 @@ use bevy::{
     prelude::*,
     render::{
         render_resource::{
-            Extent3d, TextureDimension, TextureFormat, TextureUsages,
+            Extent3d, TextureDimension, TextureFormat, TextureUsages, PrimitiveTopology,
         },
         render_asset::RenderAssetUsages,
+        view::RenderLayers,
     },
 };
 use bevy_egui::{egui, EguiContexts};
@@ -110,8 +111,152 @@ pub fn render_workspace_system(
     }
 
     // Process Intents
-    for zone_name in behavior.zone_events {
-        zone_events.send(ZoneSelectedEvent { zone_name });
+    for ev in behavior.zone_events {
+        zone_events.send(ev);
+    }
+}
+
+pub fn load_zone_geometry_system(
+    mut commands: Commands,
+    mut events: EventReader<ZoneSelectedEvent>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    viewports: Query<(Entity, &PluginWindow, Option<&Children>)>,
+) {
+    for ev in events.read() {
+        let path = format!("Genesis-Models/{}/baked/{}/shard.pos", ev.project_name, ev.shard_name);
+        
+        let Ok(data) = std::fs::read(&path) else {
+            eprintln!("FATAL: Missing shard geometry at {}", path);
+            continue;
+        };
+
+        // DOD: Мгновенный каст без парсинга (Zero-Copy Read)
+        let packed_positions: &[u32] = bytemuck::cast_slice(&data);
+
+        // Фаза 1: Динамический AABB (Axis-Aligned Bounding Box)
+        let mut min_bounds = Vec3::splat(f32::MAX);
+        let mut max_bounds = Vec3::splat(f32::MIN);
+        let mut valid_count = 0;
+
+        for &packed in packed_positions {
+            if packed == 0 { continue; }
+            let x = (packed & 0x3FF) as f32 * 0.025;
+            let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
+            let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
+
+            let pos = Vec3::new(x, z, -y); // Конвертация в Bevy-координаты (Y-up)
+            min_bounds = min_bounds.min(pos);
+            max_bounds = max_bounds.max(pos);
+            valid_count += 1;
+        }
+
+        if valid_count == 0 { continue; }
+
+        // Точный геометрический центр облака точек
+        let center = (min_bounds + max_bounds) * 0.5;
+
+        // Фаза 2: Нормализация и сборка буферов
+        let mut positions = Vec::with_capacity(valid_count);
+        let mut colors = Vec::with_capacity(valid_count);
+
+        for &packed in packed_positions {
+            if packed == 0 { continue; }
+            let x = (packed & 0x3FF) as f32 * 0.025;
+            let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
+            let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
+            let type_id = (packed >> 28) & 0xF;
+
+            // Сдвигаем точку, чтобы центр масс оказался строго в (0,0,0)
+            let pos = Vec3::new(x, z, -y) - center;
+            positions.push([pos.x, pos.y, pos.z]);
+
+            let color = if type_id % 2 == 0 {
+                [0.2, 0.8, 0.9, 1.0]
+            } else {
+                [0.9, 0.2, 0.2, 1.0]
+            };
+            colors.push(color);
+        }
+
+        let mut mesh = Mesh::new(PrimitiveTopology::PointList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+
+        let mesh_handle = meshes.add(mesh);
+        let mat_handle = materials.add(StandardMaterial {
+            unlit: true, // Отключаем расчет света для сырой геометрии
+            ..Default::default()
+        });
+
+        // Трансляция геометрии во все активные Viewport3D
+        for (vp_entity, plugin, _children) in viewports.iter() {
+            if plugin.domain != PluginDomain::Viewport3D { continue; }
+            
+            // DOD: Изоляция рендера без нарушения иерархии Transform
+            let layer_id = (vp_entity.index() % 32) as u8; 
+            
+            // Обновляем камеру, чтобы она видела только свой слой
+            commands.entity(vp_entity).insert(RenderLayers::layer(layer_id));
+
+            // Спавним облако точек НЕЗАВИСИМО от камеры, но в том же слое рендера
+            commands.spawn((
+                PbrBundle {
+                    mesh: mesh_handle.clone(),
+                    material: mat_handle.clone(),
+                    ..Default::default()
+                },
+                RenderLayers::layer(layer_id),
+            ));
+        }
+    }
+}
+
+pub fn viewport_camera_control_system(
+    // DOD: Запрашиваем геометрию и проекцию для синхронизации линзы
+    mut query: Query<(&mut Transform, &mut ViewportCamera, &PluginInput, &PluginGeometry, &mut Projection)>,
+) {
+    for (mut transform, mut cam, input, geom, mut projection) in query.iter_mut() {
+        
+        // DOD FIX 1: Жесткая синхронизация Aspect Ratio с RTT-текстурой
+        if geom.size.x > 0.0 && geom.size.y > 0.0 {
+            if let Projection::Perspective(ref mut persp) = *projection {
+                let current_aspect = geom.size.x / geom.size.y;
+                if (persp.aspect_ratio - current_aspect).abs() > 0.001 {
+                    persp.aspect_ratio = current_aspect;
+                }
+            }
+        }
+
+        // DOD FIX 2: Квантование сырой дельты скролла (защита от скачков)
+        if input.scroll_delta.abs() > 0.0 {
+            let tick = input.scroll_delta.signum(); // Строго +1.0 или -1.0
+            cam.radius -= tick * 0.15 * cam.radius; // Логарифмический шаг 15%
+            cam.radius = cam.radius.clamp(0.1, 1000.0);
+        }
+
+        // Вращение (ПКМ)
+        if input.is_secondary_pressed {
+            cam.alpha -= input.cursor_delta.x * 0.005;
+            cam.beta -= input.cursor_delta.y * 0.005;
+            cam.beta = cam.beta.clamp(-std::f32::consts::PI / 2.0 + 0.01, std::f32::consts::PI / 2.0 - 0.01);
+        }
+
+        // Панорамирование (СКМ или Shift + ПКМ)
+        if input.is_middle_pressed {
+            let right = transform.right();
+            let up = transform.up();
+            let pan_speed = cam.radius * 0.002;
+            cam.target -= right * input.cursor_delta.x * pan_speed;
+            cam.target += up * input.cursor_delta.y * pan_speed;
+        }
+
+        // Пересчет декартовых координат из сферических
+        let rotation = Quat::from_euler(EulerRot::YXZ, cam.alpha, cam.beta, 0.0);
+        let offset = rotation * Vec3::new(0.0, 0.0, cam.radius);
+        
+        transform.translation = cam.target + offset;
+        transform.look_at(cam.target, Vec3::Y);
     }
 }
 
@@ -231,8 +376,6 @@ pub fn execute_window_commands_system(
     mut tree_res: ResMut<WorkspaceTree>,
     mut commands_queue: ResMut<TreeCommands>,
     topology: Res<TopologyCache>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     for cmd in commands_queue.queue.drain(..) {
@@ -258,16 +401,11 @@ pub fn execute_window_commands_system(
                                 transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
                                 ..default()
                             },
+                            ViewportCamera::default(),
                             PluginWindow { domain, texture: Some(tex) },
                             PluginInput::default(),
                             PluginGeometry { size: Vec2::new(new_w, new_h) },
                         )).id();
-
-                        commands.spawn(PbrBundle {
-                            mesh: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
-                            material: materials.add(StandardMaterial::from(Color::GREEN)),
-                            ..default()
-                        });
                         id
                     }
                     PluginDomain::ProjectExplorer => {
