@@ -1,309 +1,301 @@
-use bevy::prelude::*;
-use crate::layout::tree::{AreaNode, WorkspaceTree, PanelType};
-use crate::layout::interaction::Resizer;
-use crate::panels::neuron_physics::populate_neuron_physics_panel;
-use crate::theme::*;
-use crate::viewport::mask::CornerMaskMaterial;
-
-#[derive(Component)]
-pub struct ViewportContainer;
-
-#[derive(Component)]
-pub struct WorkspaceRoot;
-
-#[derive(Component, Clone, Copy)]
-pub enum PanelAction {
-    SplitVertical,
-    SplitHorizontal,
-    Close,
-}
-
-#[derive(Component)]
-pub struct PanelButton {
-    pub id: u32,
-    pub action: PanelAction,
-}
-
-#[derive(Component)]
-pub struct PanelContainer {
-    pub id: u32,
-}
-
-#[derive(Component)]
-pub struct ResizerContainer {
-    pub split_id: u32,
-}
-
-pub fn setup_layout(
-    mut commands: Commands, 
-    tree: Res<WorkspaceTree>, 
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<CornerMaskMaterial>>,
-) {
-    commands.spawn(Camera2dBundle {
-        camera: Camera {
-            order: 1,
-            ..default()
+use bevy::{
+    prelude::*,
+    render::{
+        render_resource::{
+            Extent3d, TextureDimension, TextureFormat, TextureUsages,
         },
-        ..default()
-    });
+        render_asset::RenderAssetUsages,
+    },
+};
+use bevy_egui::{egui, EguiContexts};
+use egui_tiles::{LinearDir, Tile, Container, Linear, SimplificationOptions};
+use std::collections::HashMap;
+use crate::layout::data::*;
+use crate::layout::behavior::PaneBehavior;
 
-    spawn_workspace(&mut commands, &tree, &asset_server, &mut materials);
+/// Allocates an Image for RTT usage.
+pub fn create_plugin_render_target(images: &mut Assets<Image>, width: u32, height: u32) -> Handle<Image> {
+    let size = Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    
+    let mut image = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0; 4],
+        TextureFormat::Bgra8UnormSrgb,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    );
+    
+    image.texture_descriptor.usage |= TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
+    images.add(image)
 }
 
-pub fn spawn_workspace(
-    commands: &mut Commands, 
-    tree: &WorkspaceTree, 
-    asset_server: &AssetServer,
-    materials: &mut Assets<CornerMaskMaterial>,
+pub fn render_workspace_system(
+    mut contexts: EguiContexts,
+    tree_res: Option<ResMut<WorkspaceTree>>,
+    mut drag_state: ResMut<WindowDragState>,
+    mut topology: ResMut<TopologyCache>,
+    windows: Query<(Entity, &PluginWindow)>,
+    mut input_query: Query<&mut PluginInput>,
+    mut geometry_query: Query<&mut PluginGeometry>,
 ) {
-    commands.spawn((
-        NodeBundle {
-            style: Style {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            },
-            background_color: color_bg_root().into(),
-            ..default()
-        },
-        WorkspaceRoot,
-    )).with_children(|parent| {
-        spawn_nodes_recursive(parent, &tree.root, asset_server, materials);
-    });
-}
+    let mut tree_res = match tree_res {
+        Some(res) => res,
+        None => return,
+    };
 
-fn spawn_nodes_recursive(
-    parent: &mut ChildBuilder, 
-    node: &AreaNode, 
-    asset_server: &AssetServer,
-    materials: &mut Assets<CornerMaskMaterial>,
-) {
-    match node {
-        AreaNode::Split { id, direction, children, .. } => {
-            spawn_nodes_recursive(parent, &children.0, asset_server, materials);
-            
-            parent.spawn((
-                NodeBundle {
-                    style: Style {
-                        position_type: PositionType::Absolute,
-                        ..default()
-                    },
-                    background_color: Color::NONE.into(),
-                    ..default()
-                },
-                Interaction::default(),
-                Resizer {
-                    direction: *direction,
-                    split_id: *id,
-                },
-                ResizerContainer { split_id: *id },
-            ));
+    let mut panes = HashMap::new();
+    for (entity, plugin) in windows.iter() {
+        let texture_id = contexts.add_image(plugin.texture.clone());
+        panes.insert(entity, PaneData { texture_id });
+    }
 
-            spawn_nodes_recursive(parent, &children.1, asset_server, materials);
+    let mut behavior = PaneBehavior { 
+        panes: &panes, 
+        drag_state: &mut drag_state,
+        rects: &mut topology.rects,
+        input_updates: Vec::new(),
+        geometry_updates: Vec::new(),
+    };
+
+    let ctx = contexts.ctx_mut().clone();
+    egui::CentralPanel::default()
+        .frame(egui::Frame::none().fill(egui::Color32::from_rgb(25, 25, 25)))
+        .show(&ctx, |ui| {
+            tree_res.tree.ui(&mut behavior, ui);
+        });
+
+    // Write back to ECS
+    for (entity, input) in behavior.input_updates {
+        if let Ok(mut e_input) = input_query.get_mut(entity) {
+            *e_input = input;
         }
-        AreaNode::Leaf { id, panel_type } => {
-            let is_viewport = *panel_type == PanelType::ShardCanvas;
-            let is_neuron_physics = *panel_type == PanelType::NeuronPhysics;
-            let name = panel_type.name();
-            let node_id = *id;
+    }
+    for (entity, geom) in behavior.geometry_updates {
+        if let Ok(mut e_geom) = geometry_query.get_mut(entity) {
+            if (e_geom.size - geom.size).length_squared() > 1.0 {
+                *e_geom = geom;
+            }
+        }
+    }
+}
 
-            parent.spawn((
-                NodeBundle {
-                    style: Style {
-                        position_type: PositionType::Absolute,
-                        ..default()
-                    },
-                    background_color: Color::NONE.into(),
-                    ..default()
-                },
-                PanelContainer { id: node_id },
-            )).with_children(|outer| {
-                outer.spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        flex_direction: FlexDirection::Column,
-                        overflow: Overflow::clip(),
-                        ..default()
-                    },
-                    background_color: color_bg_panel().into(),
-                    ..default()
-                }).with_children(|inner| {
-                    // Header Area (Integrated Zone)
-                    inner.spawn(NodeBundle {
-                        style: Style {
-                            width: Val::Percent(100.0),
-                            height: Val::Px(PANEL_HEADER_HEIGHT),
-                            align_items: AlignItems::Center,
-                            padding: UiRect::horizontal(Val::Px(10.0)),
-                            justify_content: JustifyContent::SpaceBetween,
-                            border: UiRect::bottom(Val::Px(1.0)),
-                            ..default()
-                        },
-                        border_color: color_border().into(),
-                        background_color: Color::NONE.into(),
-                        ..default()
-                    }).with_children(|header| {
-                        header.spawn(TextBundle::from_section(
-                            name.to_uppercase(),
-                            TextStyle {
-                                font_size: TEXT_SIZE_HEADER,
-                                color: color_text_dim(),
-                                ..default()
-                            },
-                        ));
+pub fn evaluate_drag_intents_system(
+    mut contexts: EguiContexts,
+    mut drag_state: ResMut<WindowDragState>,
+    topology: Res<TopologyCache>,
+    mut commands_queue: ResMut<TreeCommands>,
+) {
+    if !drag_state.is_dragging { return; }
 
-                        header.spawn(NodeBundle {
-                            style: Style {
-                                flex_direction: FlexDirection::Row,
-                                column_gap: Val::Px(4.0),
-                                ..default()
-                            },
-                            ..default()
-                        }).with_children(|btns| {
-                            spawn_control_button(btns, "|", node_id, PanelAction::SplitVertical);
-                            spawn_control_button(btns, "-", node_id, PanelAction::SplitHorizontal);
-                            spawn_control_button(btns, "X", node_id, PanelAction::Close);
-                        });
-                    });
+    let ctx = contexts.ctx_mut();
+    let pointer_pos = ctx.pointer_interact_pos();
+    let primary_released = ctx.input(|i| i.pointer.any_released());
+    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
-                    // Content Area
-                    let mut content = inner.spawn(NodeBundle {
-                        style: Style {
-                            flex_grow: 1.0,
-                            padding: UiRect::all(Val::Px(10.0)),
-                            flex_direction: FlexDirection::Column,
-                            overflow: Overflow::clip(),
-                            ..default()
-                        },
-                        background_color: Color::NONE.into(),
-                        ..default()
-                    });
+    if escape_pressed {
+        *drag_state = WindowDragState::default();
+        return;
+    }
 
-                    if is_viewport {
-                        content.insert(ViewportContainer);
-                    }
+    if let (Some(src_tile), Some(start_pos), Some(current_pos), Some(drag_axis), Some(drag_normal)) = (
+        drag_state.source_tile, 
+        drag_state.start_pos, 
+        pointer_pos,
+        drag_state.drag_axis,
+        drag_state.drag_normal
+    ) {
+        if let Some(&src_rect) = topology.rects.get(&src_tile) {
+            let delta = current_pos - start_pos;
+            let component = if drag_axis == LinearDir::Horizontal { delta.x } else { delta.y };
 
-                    content.with_children(|content_parent| {
-                        if is_neuron_physics {
-                            populate_neuron_physics_panel(content_parent);
-                        } else if !is_viewport {
-                            content_parent.spawn(TextBundle::from_section(
-                                name,
-                                TextStyle {
-                                    font_size: TEXT_SIZE_BODY,
-                                    color: color_text_main(),
-                                    ..default()
-                                },
-                            ));
+            drag_state.intent = DragIntent::None;
+
+            if component.abs() > 20.0 {
+                let is_split = src_rect.contains(current_pos);
+                if is_split {
+                    if (if drag_axis == LinearDir::Horizontal { src_rect.width() } else { src_rect.height() }) > 200.0 {
+                        let mut fraction = if drag_axis == LinearDir::Horizontal {
+                            (current_pos.x - src_rect.min.x) / src_rect.width()
+                        } else {
+                            (current_pos.y - src_rect.min.y) / src_rect.height()
+                        };
+                        let min_f = 100.0 / if drag_axis == LinearDir::Horizontal { src_rect.width() } else { src_rect.height() };
+                        fraction = fraction.clamp(min_f, 1.0 - min_f);
+
+                        let insert_before = drag_normal < 0.0;
+                        drag_state.intent = DragIntent::Split { axis: drag_axis, fraction, insert_before };
+                        
+                        let split_pos = if drag_axis == LinearDir::Horizontal {
+                            src_rect.min.x + (src_rect.width() * fraction)
+                        } else {
+                            src_rect.min.y + (src_rect.height() * fraction)
+                        };
+                        
+                        let painter = ctx.debug_painter();
+                        if drag_axis == LinearDir::Horizontal {
+                            painter.vline(split_pos, src_rect.y_range(), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        } else {
+                            painter.hline(src_rect.x_range(), split_pos, egui::Stroke::new(2.0, egui::Color32::WHITE));
                         }
-                    });
+                    }
+                } else {
+                    // Merge Check
+                    if let Some((&victim_id, victim_rect)) = topology.rects.iter().find(|(id, r)| **id != src_tile && r.expand(8.0).contains(current_pos)) {
+                        let mut valid = false;
+                        let eps = 2.0;
+                        if drag_axis == LinearDir::Horizontal {
+                            if (src_rect.min.y - victim_rect.min.y).abs() < eps && (src_rect.max.y - victim_rect.max.y).abs() < eps { valid = true; }
+                        } else {
+                            if (src_rect.min.x - victim_rect.min.x).abs() < eps && (src_rect.max.x - victim_rect.max.x).abs() < eps { valid = true; }
+                        }
+                        if valid {
+                            drag_state.intent = DragIntent::Merge { victim: victim_id };
+                            ctx.debug_painter().rect_filled(*victim_rect, 0.0, egui::Color32::from_black_alpha(150));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if primary_released {
+        match drag_state.intent {
+            DragIntent::Split { axis, fraction, insert_before } => {
+                if let Some(src) = drag_state.source_tile {
+                    commands_queue.queue.push(TreeCommand::Split { target: src, axis, fraction, insert_before });
+                }
+            }
+            DragIntent::Merge { victim } => {
+                if let Some(src) = drag_state.source_tile {
+                    commands_queue.queue.push(TreeCommand::Merge { survivor: src, victim });
+                }
+            }
+            _ => {}
+        }
+        *drag_state = WindowDragState::default();
+    }
+}
+
+pub fn execute_window_commands_system(
+    mut commands: Commands,
+    mut tree_res: ResMut<WorkspaceTree>,
+    mut commands_queue: ResMut<TreeCommands>,
+    topology: Res<TopologyCache>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    for cmd in commands_queue.queue.drain(..) {
+        match cmd {
+            TreeCommand::Split { target, axis, fraction, insert_before } => {
+                // Read real parent size from topology cache
+                let parent_rect = topology.rects.get(&target).copied().unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)));
+                
+                // Calculate precise dimensions for the new window based on fraction
+                let (new_w, new_h) = if axis == LinearDir::Horizontal {
+                    (parent_rect.width() * fraction, parent_rect.height())
+                } else {
+                    (parent_rect.width(), parent_rect.height() * fraction)
+                };
+
+                // Allocate exact VRAM required on first pass
+                let tex = create_plugin_render_target(&mut images, new_w.max(1.0) as u32, new_h.max(1.0) as u32);
+                let new_entity = commands.spawn((
+                    Camera3dBundle {
+                        camera: Camera {
+                            target: bevy::render::camera::RenderTarget::Image(tex.clone()),
+                            clear_color: ClearColorConfig::Custom(Color::rgb(0.1, 0.1, 0.1)),
+                            ..default()
+                        },
+                        transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+                        ..default()
+                    },
+                    PluginWindow { texture: tex },
+                    PluginInput::default(),
+                    PluginGeometry { size: Vec2::new(new_w, new_h) },
+                )).id();
+
+                commands.spawn(PbrBundle {
+                    mesh: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
+                    material: materials.add(StandardMaterial::from(Color::GREEN)),
+                    ..default()
                 });
 
-                spawn_panel_masks(outer, materials);
-            });
-        }
-    }
-}
-
-fn spawn_panel_masks(parent: &mut ChildBuilder, materials: &mut Assets<CornerMaskMaterial>) {
-    let radius = PANEL_BORDER_RADIUS;
-    let color = color_bg_root();
-
-    // Corners
-    let positions = [
-        (UiRect::new(Val::Px(0.), Val::Auto, Val::Px(0.), Val::Auto), Vec2::new(1., 1.)), // TL
-        (UiRect::new(Val::Auto, Val::Px(0.), Val::Px(0.), Val::Auto), Vec2::new(0., 1.)), // TR
-        (UiRect::new(Val::Px(0.), Val::Auto, Val::Auto, Val::Px(0.)), Vec2::new(1., 0.)), // BL
-        (UiRect::new(Val::Auto, Val::Px(0.), Val::Auto, Val::Px(0.)), Vec2::new(0., 0.)), // BR
-    ];
-
-    for (style_rect, pivot) in positions {
-        parent.spawn(MaterialNodeBundle {
-            style: Style {
-                position_type: PositionType::Absolute,
-                left: style_rect.left,
-                right: style_rect.right,
-                top: style_rect.top,
-                bottom: style_rect.bottom,
-                width: Val::Px(radius),
-                height: Val::Px(radius),
-                ..default()
-            },
-            z_index: ZIndex::Local(10),
-            material: materials.add(CornerMaskMaterial { color, pivot }),
-            ..default()
-        });
-    }
-}
-
-fn spawn_control_button(parent: &mut ChildBuilder, label: &str, id: u32, action: PanelAction) {
-    parent.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(18.0),
-                height: Val::Px(18.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            background_color: Color::NONE.into(),
-            ..default()
-        },
-        PanelButton { id, action },
-    )).with_children(|btn| {
-        btn.spawn(TextBundle::from_section(
-            label,
-            TextStyle { font_size: 12.0, color: color_text_dim(), ..default() },
-        ));
-    });
-}
-
-pub fn sync_workspace_rects(
-    tree: Res<WorkspaceTree>,
-    windows: Query<&Window>,
-    mut panel_query: Query<(&PanelContainer, &mut Style), Without<ResizerContainer>>,
-    mut resizer_query: Query<(&ResizerContainer, &mut Style), Without<PanelContainer>>,
-) {
-    let window = windows.single();
-    let total_size = Vec2::new(window.width(), window.height());
-    let layout = tree.compute_layout(total_size);
-
-    for (id, rect) in layout.panels {
-        for (panel, mut style) in panel_query.iter_mut() {
-            if panel.id == id {
-                style.left = Val::Px(rect.position.x);
-                style.top = Val::Px(rect.position.y);
-                style.width = Val::Px(rect.size.x);
-                style.height = Val::Px(rect.size.y);
+                if let Some(&Tile::Pane(old_entity)) = tree_res.tree.tiles.get(target) {
+                    let old_id = tree_res.tree.tiles.insert_pane(old_entity);
+                    let new_id = tree_res.tree.tiles.insert_pane(new_entity);
+                    let (children, old_share, new_share) = if insert_before {
+                        (vec![new_id, old_id], 1.0 - fraction, fraction)
+                    } else {
+                        (vec![old_id, new_id], fraction, 1.0 - fraction)
+                    };
+                    let mut linear = Linear { dir: axis, children, ..default() };
+                    linear.shares.set_share(old_id, old_share);
+                    linear.shares.set_share(new_id, new_share);
+                    tree_res.tree.tiles.insert(target, Tile::Container(Container::Linear(linear)));
+                }
             }
-        }
-    }
-
-    for (split_id, rect, _dir) in layout.resizers {
-        for (resizer, mut style) in resizer_query.iter_mut() {
-            if resizer.split_id == split_id {
-                style.left = Val::Px(rect.position.x);
-                style.top = Val::Px(rect.position.y);
-                style.width = Val::Px(rect.size.x);
-                style.height = Val::Px(rect.size.y);
+            TreeCommand::Merge { survivor, victim } => {
+                if let Some(Tile::Pane(victim_entity)) = tree_res.tree.tiles.get(victim) {
+                    commands.entity(*victim_entity).despawn_recursive();
+                }
+                let mut parent_linear = None;
+                for (id, tile) in tree_res.tree.tiles.iter() {
+                    if let Tile::Container(Container::Linear(linear)) = tile {
+                        if linear.children.contains(&victim) && linear.children.contains(&survivor) {
+                            parent_linear = Some(*id);
+                            break;
+                        }
+                    }
+                }
+                if let Some(parent_id) = parent_linear {
+                    let v_rect = topology.rects.get(&victim).copied().unwrap_or(egui::Rect::NOTHING);
+                    let s_rect = topology.rects.get(&survivor).copied().unwrap_or(egui::Rect::NOTHING);
+                    if let Some(Tile::Container(Container::Linear(linear))) = tree_res.tree.tiles.get_mut(parent_id) {
+                        let is_horiz = linear.dir == LinearDir::Horizontal;
+                        let v_size = if is_horiz { v_rect.width() } else { v_rect.height() };
+                        let s_size = if is_horiz { s_rect.width() } else { s_rect.height() };
+                        for child in linear.children.clone() {
+                            let child_rect = topology.rects.get(&child).copied().unwrap_or(egui::Rect::NOTHING);
+                            let mut new_weight = if is_horiz { child_rect.width() } else { child_rect.height() };
+                            if child == survivor { new_weight = s_size + v_size; }
+                            linear.shares.set_share(child, new_weight);
+                        }
+                    }
+                }
+                tree_res.tree.tiles.remove(victim);
+                tree_res.tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
             }
         }
     }
 }
 
-pub fn workspace_rebuild_system(
+pub fn window_garbage_collector_system(
     mut commands: Commands,
-    tree: Res<WorkspaceTree>,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<CornerMaskMaterial>>,
-    root_query: Query<Entity, With<WorkspaceRoot>>,
+    mut contexts: EguiContexts,
+    mut tree_res: ResMut<WorkspaceTree>,
+    topology: Res<TopologyCache>,
 ) {
-    if tree.is_changed() {
-        for entity in root_query.iter() {
-            commands.entity(entity).despawn_recursive();
+    let primary_released = contexts.ctx_mut().input(|i| i.pointer.any_released());
+    if !primary_released { return; }
+
+    let pane_count = tree_res.tree.tiles.iter().filter(|(_, t)| matches!(t, Tile::Pane(_))).count();
+    let mut tiles_to_remove = Vec::new();
+    for (&tile_id, rect) in &topology.rects {
+        if rect.width() < 100.0 || rect.height() < 100.0 { tiles_to_remove.push(tile_id); }
+    }
+
+    if !tiles_to_remove.is_empty() && pane_count > tiles_to_remove.len() {
+        for tile_id in tiles_to_remove {
+            if let Some(Tile::Pane(entity)) = tree_res.tree.tiles.get(tile_id) {
+                commands.entity(*entity).despawn_recursive();
+            }
+            tree_res.tree.tiles.remove(tile_id);
         }
-        spawn_workspace(&mut commands, &tree, &asset_server, &mut materials);
+        tree_res.tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
     }
 }

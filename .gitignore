@@ -50,6 +50,7 @@ genesis-lite/sdkconfig.old
 
 # Папки
 genesis-lite/build/
+docs/bevy_docs/
 Genesis-Models/
 __pycache__/
 CodeReview/

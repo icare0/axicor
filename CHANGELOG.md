@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+
+## [0.983.125] - 2026-03-24 15:53:05
+
+**Implement workspace tree layout with interactive split resizing and pane**
+
+### Added
+- Replace flat layout with WorkspaceTree resource containing AreaNode enum (Split, Panel)
+- Add PanelContainer, ResizerContainer, and WorkspaceRoot components for entity mapping
+- Implement tree traversal functions find_split_rect and spawn_nodes_recursive for rendering
+- Add PanelButton component with PanelAction enum (SplitVertical, SplitHorizontal, Close)
+- Implement border_drag_system to update WorkspaceTree ratios via ResizerInfo and set_ratio
+- Add panel_control_system to handle PanelButton interactions for split_node and close_node
+- Replace first_child reference in Resizer with split_id for tree-based lookup
+- Compute drag ratios based on parent_rect position and size with gap subtraction
+- Add new WGSL shader ui_corner_mask.wgsl with CornerMaskMaterial struct and pivot-based masking
+- Apply corner rounding via CustomMaterial and shader to panel headers and viewports
+- Restyle slider widgets with track and thumb styling using theme colors
+- Replace viewport.rs with viewport/mod.rs and add mask.rs for material handling
+- Remove redundant pub mod widgets and pub mod panels from layout/mod.rs
+- Consolidate panel spawning logic into spawn_panel_contents with type-based dispatch
+- Move viewport mask material management into viewport::mask module
+- Update main.rs to reflect new layout systems and interaction setup
+
+
 ## [0.979.125] - 2026-03-24 00:37:15
 
 **Implement interactive resizable UI layout with 3D viewport and widget sy**
