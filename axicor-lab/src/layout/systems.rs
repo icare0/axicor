@@ -35,18 +35,22 @@ pub fn create_plugin_render_target(images: &mut Assets<Image>, width: u32, heigh
 }
 
 pub fn render_workspace_system(
+    mut commands: Commands,
     mut contexts: EguiContexts,
     tree_res: Option<ResMut<WorkspaceTree>>,
     mut drag_state: ResMut<WindowDragState>,
     mut topology: ResMut<TopologyCache>,
     fs_cache: Res<ProjectFsCache>,
+    brain_graph: Res<node_editor::BrainTopologyGraph>,
+    mut node_ui: ResMut<node_editor::NodeGraphUiState>,
     windows: Query<(Entity, &PluginWindow)>,
     mut input_query: Query<&mut PluginInput>,
     mut geometry_query: Query<&mut PluginGeometry>,
     mut zone_events: EventWriter<ZoneSelectedEvent>,
+    mut load_graph_events: EventWriter<LoadGraphEvent>,
     mut window_query: Query<&mut Window, With<PrimaryWindow>>,
     mut app_exit: EventWriter<AppExit>,
-    mut drag_request: ResMut<layout_api::WindowDragRequest>, // ДОБАВЛЕНО
+    mut drag_request: ResMut<layout_api::WindowDragRequest>,
 ) {
     // Безопасный захват
     let Ok(mut window) = window_query.get_single_mut() else { return; };
@@ -71,7 +75,12 @@ pub fn render_workspace_system(
         input_updates: Vec::new(),
         geometry_updates: Vec::new(),
         zone_events: Vec::new(),
+        load_graph_events: Vec::new(),
+        pane_swaps: Vec::new(),
+        domain_switches: Vec::new(),
         fs_cache: &fs_cache,
+        brain_graph: &brain_graph,
+        node_ui: &mut node_ui,
     };
 
     let ctx = contexts.ctx_mut().clone();
@@ -124,7 +133,7 @@ pub fn render_workspace_system(
                     // Никакого перекрытия хитбоксов. Клик по кнопкам больше не проглатывается!
                     let drag_rect = ui.available_rect_before_wrap();
                     let drag_response = ui.interact(drag_rect, ui.id().with("title_bar_drag"), egui::Sense::drag());
-                    
+
                     if drag_response.drag_started() {
                         drag_request.should_drag = true;
                     }
@@ -132,13 +141,64 @@ pub fn render_workspace_system(
             });
         });
 
-
-    // 2. Workspace Area
+    // 2. Workspace Area (Central Panel)
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(egui::Color32::from_rgb(25, 25, 25)))
         .show(&ctx, |ui| {
             tree_res.tree.ui(&mut behavior, ui);
         });
+
+    // 3. Исполнение намерений (Строго ПОСЛЕ tree.ui)
+    // 1. O(1) Своп окон
+    for (src_tile, dst_tile) in behavior.pane_swaps {
+        if let (Some(egui_tiles::Tile::Pane(src_entity)), Some(egui_tiles::Tile::Pane(dst_entity))) =
+            (tree_res.tree.tiles.get(src_tile).cloned(), tree_res.tree.tiles.get(dst_tile).cloned())
+        {
+            // Меняем сущности местами внутри тайлов. Пропорции окон не трогаем.
+            if let Some(egui_tiles::Tile::Pane(ref mut e)) = tree_res.tree.tiles.get_mut(src_tile) { *e = dst_entity; }
+            if let Some(egui_tiles::Tile::Pane(ref mut e)) = tree_res.tree.tiles.get_mut(dst_tile) { *e = src_entity; }
+        }
+    }
+
+    // 2. Смена домена
+    for (tile_id, new_domain) in behavior.domain_switches {
+        if let Some(egui_tiles::Tile::Pane(entity)) = tree_res.tree.tiles.get(tile_id).cloned() {
+            // Убиваем старый домен со всеми его Mesh, Camera и компонентами
+            commands.entity(entity).despawn_recursive();
+
+            // Рождаем новый чистый домен
+            let new_entity = commands.spawn((
+                PluginWindow {
+                    domain: new_domain,
+                    texture: None, // VRAM-бэкбуфер аллоцируется автоматически на следующем кадре
+                },
+                PluginGeometry::default(),
+                PluginInput::default(),
+            )).id();
+
+            // Если это Connectome Viewer - инжектируем ему 3D оптику
+            if new_domain == PluginDomain::Viewport3D {
+                commands.entity(new_entity).insert((
+                    Camera3dBundle {
+                        camera: Camera { 
+                            order: 1, 
+                            clear_color: ClearColorConfig::Default,
+                            is_active: false, // DOD FIX: Блокируем рендер. Камера мертва, пока нет RTT-буфера!
+                            ..default() 
+                        },
+                        ..default()
+                    },
+                    connectome_viewer::ViewportCamera::default(),
+                ));
+            }
+
+            // Прописываем новую сущность в тайл дерева
+            if let Some(egui_tiles::Tile::Pane(ref mut e)) = tree_res.tree.tiles.get_mut(tile_id) {
+                *e = new_entity;
+            }
+        }
+    }
+
 
     // Write back to ECS
     for (entity, input) in behavior.input_updates {
@@ -157,6 +217,25 @@ pub fn render_workspace_system(
     // Process Intents
     for ev in behavior.zone_events {
         zone_events.send(ev);
+    }
+    for ev in behavior.load_graph_events {
+        load_graph_events.send(ev);
+    }
+
+    // 4. DOD Garbage Collector (Убийство утекших ECS-доменов)
+    // Сканируем дерево UI. Любой PluginWindow, которого нет в сетке, будет уничтожен.
+    let mut active_panes = std::collections::HashSet::new();
+    for (_, tile) in tree_res.tree.tiles.iter() {
+        if let egui_tiles::Tile::Pane(pane_entity) = tile {
+            active_panes.insert(*pane_entity);
+        }
+    }
+
+    for (entity, _) in windows.iter() {
+        if !active_panes.contains(&entity) {
+            commands.entity(entity).despawn_recursive();
+            println!("[WM] Garbage Collector: Despawned leaked pane {:?}", entity);
+        }
     }
 }
 

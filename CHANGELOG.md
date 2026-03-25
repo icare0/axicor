@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1043.125] - 2026-03-25 19:58:38
+
+**[Architecture] Add new plugin modules and integrate into workspace**
+
+### Added
+- Add connectome-viewer and node-editor plugins to workspace members in root Cargo.toml
+- Integrate connectome-viewer and node-editor as dependencies in axicor-lab/Cargo.toml
+- Add WindowDragRequest resource to layout-api for window management
+- Implement load_zone_geometry_system with Zero-Copy Read of packed shard positions from Genesis-Models/{project}/{shard}/shard.pos
+- Add ShardGeometry component and ViewportCamera component with isometric default parameters
+- Implement viewport_camera_control_system with DOD FIX 1 for aspect ratio sync and DOD FIX 2 for scroll delta quantization
+- Add DOD garbage collection for existing geometry in load_zone_geometry_system
+- Create node-editor plugin with basic Plugin structure for future neuron graph processing
+- Refactor axicor-lab/src/layout/systems.rs imports and systems
+- Update axicor-lab/src/main.rs to include new plugin integrations
+
+
 ## [0.1023.125] - 2026-03-25 18:01:11
 
 **[Architecture] Consolidate axicor-lab workspace and refactor layout syst**

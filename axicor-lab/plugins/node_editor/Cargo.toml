@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.13"
+bevy_egui = "0.27"
+layout-api = { path = "../../crates/layout-api" }
+genesis-core = { workspace = true }

@@ -148,3 +148,8 @@ pub struct PaneData {
     pub domain: PluginDomain,
     pub texture_id: Option<egui::TextureId>,
 }
+
+#[derive(Event, Clone)]
+pub struct LoadGraphEvent {
+    pub project_name: String,
+}
