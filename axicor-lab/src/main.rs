@@ -3,8 +3,9 @@ mod layout;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy_egui::EguiPlugin;
+use project_explorer::ProjectExplorerPlugin;
 use crate::layout::data::*;
-use crate::layout::systems::*;
+use crate::layout::systems::{create_plugin_render_target, render_workspace_system, evaluate_drag_intents_system, execute_window_commands_system, window_garbage_collector_system};
 use crate::layout::input::sync_plugin_geometry_system;
 
 fn main() {
@@ -17,12 +18,14 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin)
+        .add_plugins(ProjectExplorerPlugin)
         .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
         .insert_resource(Msaa::Off)
         .init_resource::<WorkspaceTree>()
         .init_resource::<WindowDragState>()
         .init_resource::<TopologyCache>()
         .init_resource::<TreeCommands>()
+        .add_event::<ZoneSelectedEvent>()
         .add_systems(Startup, setup_test_bench)
         .add_systems(Update, (
             sync_plugin_geometry_system,
@@ -40,7 +43,7 @@ fn setup_test_bench(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    // --- Plugin A: Red Cube ---
+    // --- Viewport3D ---
     let tex_a = create_plugin_render_target(&mut images, 800, 600);
     let entity_a = commands.spawn((
         Camera3dBundle {
@@ -52,7 +55,7 @@ fn setup_test_bench(
             transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
-        PluginWindow { texture: tex_a },
+        PluginWindow { domain: PluginDomain::Viewport3D, texture: Some(tex_a) },
         PluginInput::default(),
         PluginGeometry { size: Vec2::new(800.0, 600.0) },
     )).id();
@@ -64,29 +67,19 @@ fn setup_test_bench(
         ..default()
     });
 
-    // --- Plugin B: Blue Sphere ---
-    let tex_b = create_plugin_render_target(&mut images, 800, 600);
+    // --- Project Explorer ---
     let entity_b = commands.spawn((
-        Camera3dBundle {
-            camera: Camera {
-                target: RenderTarget::Image(tex_b.clone()),
-                clear_color: ClearColorConfig::Custom(Color::rgb(0.15, 0.1, 0.1)),
-                ..default()
-            },
-            transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-            ..default()
-        },
-        PluginWindow { texture: tex_b },
+        PluginWindow { domain: PluginDomain::ProjectExplorer, texture: None },
         PluginInput::default(),
-        PluginGeometry { size: Vec2::new(800.0, 600.0) },
+        PluginGeometry { size: Vec2::new(400.0, 600.0) },
     )).id();
 
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Sphere::new(0.7)),
-        material: materials.add(StandardMaterial::from(Color::BLUE)),
-        transform: Transform::from_xyz(0.0, 0.0, 0.0),
-        ..default()
-    });
+    // --- Node Editor ---
+    let entity_c = commands.spawn((
+        PluginWindow { domain: PluginDomain::NodeEditor, texture: None },
+        PluginInput::default(),
+        PluginGeometry { size: Vec2::new(400.0, 600.0) },
+    )).id();
 
     // --- Global Light ---
     commands.spawn(PointLightBundle {
@@ -103,7 +96,11 @@ fn setup_test_bench(
     let mut tree = egui_tiles::Tree::empty("workspace");
     let pane1 = tree.tiles.insert_pane(entity_a);
     let pane2 = tree.tiles.insert_pane(entity_b);
-    let root = tree.tiles.insert_horizontal_tile(vec![pane1, pane2]);
+    let pane3 = tree.tiles.insert_pane(entity_c);
+    
+    // Horizontal layout: [Viewport3D] | [Vertical: Explorer over NodeEditor]
+    let right_col = tree.tiles.insert_vertical_tile(vec![pane2, pane3]);
+    let root = tree.tiles.insert_horizontal_tile(vec![pane1, right_col]);
     tree.root = Some(root);
     
     commands.insert_resource(WorkspaceTree { tree });

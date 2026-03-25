@@ -4,6 +4,8 @@ members = [
     "genesis-baker",
     
     "axicor-lab", "genesis-compute", "genesis-node", "genesis-retina",
+    "crates/layout-api",
+    "plugins/project_explorer",
 ]
 resolver = "2"
 

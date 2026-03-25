@@ -23,14 +23,16 @@ pub fn sync_plugin_geometry_system(
         }
 
         // 2. Resize RTT Image
-        if let Some(image) = images.get_mut(&plugin.texture) {
-            let current_size = image.texture_descriptor.size;
-            if current_size.width != size.x as u32 || current_size.height != size.y as u32 {
-                image.resize(Extent3d {
-                    width: size.x as u32,
-                    height: size.y as u32,
-                    depth_or_array_layers: 1,
-                });
+        if let Some(texture_handle) = &plugin.texture {
+            if let Some(image) = images.get_mut(texture_handle) {
+                let current_size = image.texture_descriptor.size;
+                if current_size.width != size.x as u32 || current_size.height != size.y as u32 {
+                    image.resize(Extent3d {
+                        width: size.x as u32,
+                        height: size.y as u32,
+                        depth_or_array_layers: 1,
+                    });
+                }
             }
         }
     }

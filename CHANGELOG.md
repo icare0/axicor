@@ -8,6 +8,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.996.125] - 2026-03-25 03:05:54
+
+**Implement dynamic tiling workspace with egui_tiles and Bevy render-to-te**
+
+### Added
+- Implement PaneBehavior struct conforming to egui_tiles::Behavior for Entity tiles
+- Add data structures: PluginInput, PluginGeometry, PluginWindow components and WorkspaceTree resource
+- Define DragIntent enum and WindowDragState resource for split/merge operations
+- Create TreeCommand enum and TreeCommands resource for deferred tree modifications
+- Add render_workspace_system that integrates EguiContexts with WorkspaceTree and PaneBehavior
+- Implement create_plugin_render_target function for allocating RTT Images with TextureUsages::RENDER_ATTACHMENT
+- Add sync_plugin_geometry_system that updates Perspective projection aspect ratios and resizes RTT images
+- Enforce DOD optimization in sync_plugin_geometry_system to block VRAM reallocation during mouse drag
+- Add pane_ui method in PaneBehavior that renders plugin windows via egui::Image with SizedTexture
+- Implement hitbox detection for split initiation using edge rects and egui::Sense::drag()
+- Support local input capture with PluginInput updates for cursor position and primary button state
+- Expose PluginGeometry updates from UI rects to drive projection and texture resizing
+- Add bevy_egui = "0.27" and egui_tiles = "0.8.0" dependencies to axicor-lab/Cargo.toml
+
+## [0.987.125] - 2026-03-24 15:53:05
+
+**Implement workspace tree layout with interactive split resizing and pane**
+
+### Added
+- Replace flat layout with WorkspaceTree resource containing AreaNode enum (Split, Panel)
+- Add PanelContainer, ResizerContainer, and WorkspaceRoot components for entity mapping
+- Implement tree traversal functions find_split_rect and spawn_nodes_recursive for rendering
+- Add PanelButton component with PanelAction enum (SplitVertical, SplitHorizontal, Close)
+- Implement border_drag_system to update WorkspaceTree ratios via ResizerInfo and set_ratio
+- Add panel_control_system to handle PanelButton interactions for split_node and close_node
+- Replace first_child reference in Resizer with split_id for tree-based lookup
+- Compute drag ratios based on parent_rect position and size with gap subtraction
+- Add new WGSL shader ui_corner_mask.wgsl with CornerMaskMaterial struct and pivot-based masking
+- Apply corner rounding via CustomMaterial and shader to panel headers and viewports
+- Restyle slider widgets with track and thumb styling using theme colors
+- Replace viewport.rs with viewport/mod.rs and add mask.rs for material handling
+- Remove redundant pub mod widgets and pub mod panels from layout/mod.rs
+- Consolidate panel spawning logic into spawn_panel_contents with type-based dispatch
+- Move viewport mask material management into viewport::mask module
+- Update main.rs to reflect new layout systems and interaction setup
+
+
 
 ## [0.983.125] - 2026-03-24 15:53:05
 

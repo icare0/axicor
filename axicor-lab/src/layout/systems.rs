@@ -38,9 +38,11 @@ pub fn render_workspace_system(
     tree_res: Option<ResMut<WorkspaceTree>>,
     mut drag_state: ResMut<WindowDragState>,
     mut topology: ResMut<TopologyCache>,
-    windows: Query<(Entity, &PluginWindow)>,
+    fs_cache: Res<ProjectFsCache>, 
+    windows: Query<(Entity, &PluginWindow)>, 
     mut input_query: Query<&mut PluginInput>,
     mut geometry_query: Query<&mut PluginGeometry>,
+    mut zone_events: EventWriter<ZoneSelectedEvent>,
 ) {
     let mut tree_res = match tree_res {
         Some(res) => res,
@@ -49,8 +51,11 @@ pub fn render_workspace_system(
 
     let mut panes = HashMap::new();
     for (entity, plugin) in windows.iter() {
-        let texture_id = contexts.add_image(plugin.texture.clone());
-        panes.insert(entity, PaneData { texture_id });
+        let texture_id = plugin.texture.as_ref().map(|t| contexts.add_image(t.clone()));
+        panes.insert(entity, PaneData { 
+            domain: plugin.domain, 
+            texture_id,
+        });
     }
 
     let mut behavior = PaneBehavior { 
@@ -59,9 +64,31 @@ pub fn render_workspace_system(
         rects: &mut topology.rects,
         input_updates: Vec::new(),
         geometry_updates: Vec::new(),
+        zone_events: Vec::new(),
+        fs_cache: &fs_cache,
     };
 
     let ctx = contexts.ctx_mut().clone();
+
+    // 1. Global Top Bar
+    egui::TopBottomPanel::top("axicor_top_bar")
+        .frame(egui::Frame::default().fill(egui::Color32::from_rgb(20, 20, 20)).inner_margin(4.0))
+        .show(&ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Save Brain DNA").clicked() { /* TODO */ }
+                    if ui.button("Exit").clicked() { /* TODO */ }
+                });
+                ui.menu_button("View", |ui| {
+                    if ui.button("Reset Layout").clicked() { /* TODO */ }
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new("Axicor Lab Alpha").color(egui::Color32::DARK_GRAY));
+                });
+            });
+        });
+
+    // 2. Workspace Area
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(egui::Color32::from_rgb(25, 25, 25)))
         .show(&ctx, |ui| {
@@ -81,6 +108,11 @@ pub fn render_workspace_system(
             }
         }
     }
+
+    // Process Intents
+    for zone_name in behavior.zone_events {
+        zone_events.send(ZoneSelectedEvent { zone_name });
+    }
 }
 
 pub fn evaluate_drag_intents_system(
@@ -88,8 +120,11 @@ pub fn evaluate_drag_intents_system(
     mut drag_state: ResMut<WindowDragState>,
     topology: Res<TopologyCache>,
     mut commands_queue: ResMut<TreeCommands>,
+    tree_res: Option<Res<WorkspaceTree>>,
+    windows_query: Query<&PluginWindow>,
 ) {
     if !drag_state.is_dragging { return; }
+    let tree_res = match tree_res { Some(res) => res, None => return };
 
     let ctx = contexts.ctx_mut();
     let pointer_pos = ctx.pointer_interact_pos();
@@ -127,7 +162,18 @@ pub fn evaluate_drag_intents_system(
                         fraction = fraction.clamp(min_f, 1.0 - min_f);
 
                         let insert_before = drag_normal < 0.0;
-                        drag_state.intent = DragIntent::Split { axis: drag_axis, fraction, insert_before };
+                        
+                        let domain = if let Some(Tile::Pane(e)) = tree_res.tree.tiles.get(src_tile) {
+                            if let Ok(plugin) = windows_query.get(*e) {
+                                plugin.domain
+                            } else {
+                                PluginDomain::Viewport3D
+                            }
+                        } else {
+                            PluginDomain::Viewport3D
+                        };
+
+                        drag_state.intent = DragIntent::Split { axis: drag_axis, fraction, insert_before, domain };
                         
                         let split_pos = if drag_axis == LinearDir::Horizontal {
                             src_rect.min.x + (src_rect.width() * fraction)
@@ -164,9 +210,9 @@ pub fn evaluate_drag_intents_system(
 
     if primary_released {
         match drag_state.intent {
-            DragIntent::Split { axis, fraction, insert_before } => {
+            DragIntent::Split { axis, fraction, insert_before, domain } => {
                 if let Some(src) = drag_state.source_tile {
-                    commands_queue.queue.push(TreeCommand::Split { target: src, axis, fraction, insert_before });
+                    commands_queue.queue.push(TreeCommand::Split { target: src, axis, fraction, insert_before, domain });
                 }
             }
             DragIntent::Merge { victim } => {
@@ -191,39 +237,54 @@ pub fn execute_window_commands_system(
 ) {
     for cmd in commands_queue.queue.drain(..) {
         match cmd {
-            TreeCommand::Split { target, axis, fraction, insert_before } => {
-                // Read real parent size from topology cache
+            TreeCommand::Split { target, axis, fraction, insert_before, domain } => {
                 let parent_rect = topology.rects.get(&target).copied().unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)));
-                
-                // Calculate precise dimensions for the new window based on fraction
                 let (new_w, new_h) = if axis == LinearDir::Horizontal {
                     (parent_rect.width() * fraction, parent_rect.height())
                 } else {
                     (parent_rect.width(), parent_rect.height() * fraction)
                 };
 
-                // Allocate exact VRAM required on first pass
-                let tex = create_plugin_render_target(&mut images, new_w.max(1.0) as u32, new_h.max(1.0) as u32);
-                let new_entity = commands.spawn((
-                    Camera3dBundle {
-                        camera: Camera {
-                            target: bevy::render::camera::RenderTarget::Image(tex.clone()),
-                            clear_color: ClearColorConfig::Custom(Color::rgb(0.1, 0.1, 0.1)),
-                            ..default()
-                        },
-                        transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-                        ..default()
-                    },
-                    PluginWindow { texture: tex },
-                    PluginInput::default(),
-                    PluginGeometry { size: Vec2::new(new_w, new_h) },
-                )).id();
+                let new_entity = match domain {
+                    PluginDomain::Viewport3D => {
+                        let tex = create_plugin_render_target(&mut images, new_w.max(1.0) as u32, new_h.max(1.0) as u32);
+                        let id = commands.spawn((
+                            Camera3dBundle {
+                                camera: Camera {
+                                    target: bevy::render::camera::RenderTarget::Image(tex.clone()),
+                                    clear_color: ClearColorConfig::Custom(Color::rgb(0.1, 0.1, 0.1)),
+                                    ..default()
+                                },
+                                transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+                                ..default()
+                            },
+                            PluginWindow { domain, texture: Some(tex) },
+                            PluginInput::default(),
+                            PluginGeometry { size: Vec2::new(new_w, new_h) },
+                        )).id();
 
-                commands.spawn(PbrBundle {
-                    mesh: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
-                    material: materials.add(StandardMaterial::from(Color::GREEN)),
-                    ..default()
-                });
+                        commands.spawn(PbrBundle {
+                            mesh: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
+                            material: materials.add(StandardMaterial::from(Color::GREEN)),
+                            ..default()
+                        });
+                        id
+                    }
+                    PluginDomain::ProjectExplorer => {
+                        commands.spawn((
+                            PluginWindow { domain, texture: None },
+                            PluginInput::default(),
+                            PluginGeometry { size: Vec2::new(new_w, new_h) },
+                        )).id()
+                    }
+                    _ => {
+                        commands.spawn((
+                            PluginWindow { domain, texture: None },
+                            PluginInput::default(),
+                            PluginGeometry { size: Vec2::new(new_w, new_h) },
+                        )).id()
+                    }
+                };
 
                 if let Some(&Tile::Pane(old_entity)) = tree_res.tree.tiles.get(target) {
                     let old_id = tree_res.tree.tiles.insert_pane(old_entity);

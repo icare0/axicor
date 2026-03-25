@@ -2,14 +2,16 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use egui_tiles::{Behavior, TileId, UiResponse, LinearDir};
 use std::collections::HashMap;
-use crate::layout::data::{PluginInput, PluginGeometry, WindowDragState, PaneData};
+use crate::layout::data::{PluginInput, PluginGeometry, WindowDragState, PaneData, PluginDomain, ProjectStatus, ProjectFsCache};
 
 pub struct PaneBehavior<'a> {
     pub panes: &'a HashMap<Entity, PaneData>,
-    pub drag_state: &'a mut WindowDragState,
     pub rects: &'a mut HashMap<TileId, egui::Rect>,
     pub input_updates: Vec<(Entity, PluginInput)>,
     pub geometry_updates: Vec<(Entity, PluginGeometry)>,
+    pub zone_events: Vec<String>,
+    pub drag_state: &'a mut WindowDragState,
+    pub fs_cache: &'a ProjectFsCache,
 }
 
 impl<'a> Behavior<Entity> for PaneBehavior<'a> {
@@ -19,15 +21,74 @@ impl<'a> Behavior<Entity> for PaneBehavior<'a> {
         let rect = ui.max_rect().shrink(5.0);
         self.rects.insert(tile_id, rect);
 
-        if let Some(data) = self.panes.get(entity) {
-            ui.put(
-                rect,
-                egui::Image::new(egui::load::SizedTexture::new(data.texture_id, rect.size()))
-                    .rounding(10.0),
-            );
+        if let Some(plugin) = self.panes.get(entity) {
+            // DOD: Hybrid Render (VRAM vs Native UI)
+            match &plugin.domain {
+                PluginDomain::Viewport3D => {
+                    if let Some(texture_id) = plugin.texture_id {
+                        ui.put(
+                            rect,
+                            egui::Image::new(egui::load::SizedTexture::new(texture_id, rect.size()))
+                                .rounding(10.0),
+                        );
+                    }
+                }
+                PluginDomain::ProjectExplorer => {
+                    ui.allocate_ui_at_rect(rect, |ui| {
+                        egui::Frame::none().fill(egui::Color32::from_rgb(30, 30, 30)).rounding(10.0).inner_margin(8.0).show(ui, |ui| {
+                            ui.set_min_size(rect.size());
+                            ui.heading(egui::RichText::new("📁 Project Explorer").strong().color(egui::Color32::WHITE));
+                            ui.separator();
+                            
+                            if !self.fs_cache.projects.is_empty() {
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    for proj in &self.fs_cache.projects {
+                                        let status_icon = if proj.status == ProjectStatus::Ready { "🟢 Ready" } else { "🔴 Needs Bake" };
+                                        
+                                        ui.collapsing(egui::RichText::new(format!("🧠 {} [{}]", proj.name, status_icon)).color(egui::Color32::WHITE), |ui| {
+                                            
+                                            // DNA Block
+                                            ui.collapsing(egui::RichText::new("🧬 DNA (Config)").color(egui::Color32::from_rgb(100, 200, 255)), |ui| {
+                                                for dna in &proj.dna_files {
+                                                    ui.label(format!("📄 {}", dna));
+                                                }
+                                            });
+
+                                            // Shards Block
+                                            ui.collapsing(egui::RichText::new("⚙️ Shards (Compiled)").color(egui::Color32::from_rgb(255, 150, 150)), |ui| {
+                                                if proj.shards.is_empty() {
+                                                    ui.label(egui::RichText::new("Missing or Stale").color(egui::Color32::DARK_GRAY));
+                                                } else {
+                                                    for shard in &proj.shards {
+                                                        ui.label(format!("🖧 {}", shard));
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        ui.add_space(4.0);
+                                    }
+                                });
+                            } else {
+                                ui.spinner();
+                            }
+                        });
+                    });
+                }
+                PluginDomain::NodeEditor => {
+                    ui.allocate_ui_at_rect(rect, |ui| {
+                        egui::Frame::none().fill(egui::Color32::from_rgb(40, 40, 45)).rounding(10.0).show(ui, |ui| {
+                            ui.set_min_size(rect.size());
+                            ui.heading(" 🕸 Node Graph");
+                            ui.separator();
+                            ui.label("Waiting for graph backend...");
+                        });
+                    });
+                }
+            }
 
             // Death Mark
-            if rect.width() < 100.0 || rect.height() < 100.0 {
+            let is_squashed = rect.width() < 100.0 || rect.height() < 100.0;
+            if is_squashed {
                 ui.painter().rect_filled(rect, 10.0, egui::Color32::from_black_alpha(150));
             }
 
