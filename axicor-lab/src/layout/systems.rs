@@ -1,12 +1,12 @@
 use bevy::{
     prelude::*,
-    render::{
-        render_resource::{
-            Extent3d, TextureDimension, TextureFormat, TextureUsages, PrimitiveTopology,
-        },
-        render_asset::RenderAssetUsages,
-        view::RenderLayers,
+    window::{PrimaryWindow, WindowMode},
+    app::AppExit,
+    render::render_resource::{
+        Extent3d, TextureDimension, TextureFormat, TextureUsages,
     },
+    render::render_asset::RenderAssetUsages,
+    winit::WinitWindows,
 };
 use bevy_egui::{egui, EguiContexts};
 use egui_tiles::{LinearDir, Tile, Container, Linear, SimplificationOptions};
@@ -39,12 +39,17 @@ pub fn render_workspace_system(
     tree_res: Option<ResMut<WorkspaceTree>>,
     mut drag_state: ResMut<WindowDragState>,
     mut topology: ResMut<TopologyCache>,
-    fs_cache: Res<ProjectFsCache>, 
-    windows: Query<(Entity, &PluginWindow)>, 
+    fs_cache: Res<ProjectFsCache>,
+    windows: Query<(Entity, &PluginWindow)>,
     mut input_query: Query<&mut PluginInput>,
     mut geometry_query: Query<&mut PluginGeometry>,
     mut zone_events: EventWriter<ZoneSelectedEvent>,
+    mut window_query: Query<&mut Window, With<PrimaryWindow>>,
+    mut app_exit: EventWriter<AppExit>,
+    mut drag_request: ResMut<layout_api::WindowDragRequest>, // ДОБАВЛЕНО
 ) {
+    // Безопасный захват
+    let Ok(mut window) = window_query.get_single_mut() else { return; };
     let mut tree_res = match tree_res {
         Some(res) => res,
         None => return,
@@ -71,23 +76,62 @@ pub fn render_workspace_system(
 
     let ctx = contexts.ctx_mut().clone();
 
-    // 1. Global Top Bar
+    // 1. Глобальный Top Bar (Borderless Control)
     egui::TopBottomPanel::top("axicor_top_bar")
         .frame(egui::Frame::default().fill(egui::Color32::from_rgb(20, 20, 20)).inner_margin(4.0))
         .show(&ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            ui.horizontal(|ui| {
+                // --- МЕНЮ (Слева) ---
                 ui.menu_button("File", |ui| {
-                    if ui.button("Save Brain DNA").clicked() { /* TODO */ }
-                    if ui.button("Exit").clicked() { /* TODO */ }
+                    if ui.button("Exit").clicked() { app_exit.send(AppExit); }
+                });
+                ui.menu_button("Settings", |ui| {
+                    if ui.button("Preferences").clicked() { /* TODO */ }
                 });
                 ui.menu_button("View", |ui| {
                     if ui.button("Reset Layout").clicked() { /* TODO */ }
                 });
+
+                // --- КНОПКИ ОС И DRAG AREA (Справа налево) ---
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("Axicor Lab Alpha").color(egui::Color32::DARK_GRAY));
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    let btn_size = egui::vec2(32.0, 24.0);
+
+                    // Кнопка Закрыть
+                    let close_btn = egui::Button::new(egui::RichText::new(" ✕ ").size(14.0)).fill(egui::Color32::TRANSPARENT);
+                    if ui.add_sized(btn_size, close_btn).clicked() {
+                        app_exit.send(AppExit);
+                    }
+
+                    // Кнопка Развернуть
+                    if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(" 🗖 ").size(14.0)).fill(egui::Color32::TRANSPARENT)).clicked() {
+                        window.mode = if window.mode == WindowMode::Windowed {
+                            WindowMode::BorderlessFullscreen
+                        } else {
+                            WindowMode::Windowed
+                        };
+                    }
+
+                    // Кнопка Свернуть
+                    if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(" 🗕 ").size(14.0)).fill(egui::Color32::TRANSPARENT)).clicked() {
+                        window.set_minimized(true);
+                    }
+
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new("Axicor Lab Alpha  ").color(egui::Color32::DARK_GRAY));
+
+                    // DOD FIX: Мертвая зона между меню и кнопками — это наш Drag Area.
+                    // Никакого перекрытия хитбоксов. Клик по кнопкам больше не проглатывается!
+                    let drag_rect = ui.available_rect_before_wrap();
+                    let drag_response = ui.interact(drag_rect, ui.id().with("title_bar_drag"), egui::Sense::drag());
+                    
+                    if drag_response.drag_started() {
+                        drag_request.should_drag = true;
+                    }
                 });
             });
         });
+
 
     // 2. Workspace Area
     egui::CentralPanel::default()
@@ -113,150 +157,6 @@ pub fn render_workspace_system(
     // Process Intents
     for ev in behavior.zone_events {
         zone_events.send(ev);
-    }
-}
-
-pub fn load_zone_geometry_system(
-    mut commands: Commands,
-    mut events: EventReader<ZoneSelectedEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    viewports: Query<(Entity, &PluginWindow, Option<&Children>)>,
-) {
-    for ev in events.read() {
-        let path = format!("Genesis-Models/{}/baked/{}/shard.pos", ev.project_name, ev.shard_name);
-        
-        let Ok(data) = std::fs::read(&path) else {
-            eprintln!("FATAL: Missing shard geometry at {}", path);
-            continue;
-        };
-
-        // DOD: Мгновенный каст без парсинга (Zero-Copy Read)
-        let packed_positions: &[u32] = bytemuck::cast_slice(&data);
-
-        // Фаза 1: Динамический AABB (Axis-Aligned Bounding Box)
-        let mut min_bounds = Vec3::splat(f32::MAX);
-        let mut max_bounds = Vec3::splat(f32::MIN);
-        let mut valid_count = 0;
-
-        for &packed in packed_positions {
-            if packed == 0 { continue; }
-            let x = (packed & 0x3FF) as f32 * 0.025;
-            let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
-            let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
-
-            let pos = Vec3::new(x, z, -y); // Конвертация в Bevy-координаты (Y-up)
-            min_bounds = min_bounds.min(pos);
-            max_bounds = max_bounds.max(pos);
-            valid_count += 1;
-        }
-
-        if valid_count == 0 { continue; }
-
-        // Точный геометрический центр облака точек
-        let center = (min_bounds + max_bounds) * 0.5;
-
-        // Фаза 2: Нормализация и сборка буферов
-        let mut positions = Vec::with_capacity(valid_count);
-        let mut colors = Vec::with_capacity(valid_count);
-
-        for &packed in packed_positions {
-            if packed == 0 { continue; }
-            let x = (packed & 0x3FF) as f32 * 0.025;
-            let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
-            let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
-            let type_id = (packed >> 28) & 0xF;
-
-            // Сдвигаем точку, чтобы центр масс оказался строго в (0,0,0)
-            let pos = Vec3::new(x, z, -y) - center;
-            positions.push([pos.x, pos.y, pos.z]);
-
-            let color = if type_id % 2 == 0 {
-                [0.2, 0.8, 0.9, 1.0]
-            } else {
-                [0.9, 0.2, 0.2, 1.0]
-            };
-            colors.push(color);
-        }
-
-        let mut mesh = Mesh::new(PrimitiveTopology::PointList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-
-        let mesh_handle = meshes.add(mesh);
-        let mat_handle = materials.add(StandardMaterial {
-            unlit: true, // Отключаем расчет света для сырой геометрии
-            ..Default::default()
-        });
-
-        // Трансляция геометрии во все активные Viewport3D
-        for (vp_entity, plugin, _children) in viewports.iter() {
-            if plugin.domain != PluginDomain::Viewport3D { continue; }
-            
-            // DOD: Изоляция рендера без нарушения иерархии Transform
-            let layer_id = (vp_entity.index() % 32) as u8; 
-            
-            // Обновляем камеру, чтобы она видела только свой слой
-            commands.entity(vp_entity).insert(RenderLayers::layer(layer_id));
-
-            // Спавним облако точек НЕЗАВИСИМО от камеры, но в том же слое рендера
-            commands.spawn((
-                PbrBundle {
-                    mesh: mesh_handle.clone(),
-                    material: mat_handle.clone(),
-                    ..Default::default()
-                },
-                RenderLayers::layer(layer_id),
-            ));
-        }
-    }
-}
-
-pub fn viewport_camera_control_system(
-    // DOD: Запрашиваем геометрию и проекцию для синхронизации линзы
-    mut query: Query<(&mut Transform, &mut ViewportCamera, &PluginInput, &PluginGeometry, &mut Projection)>,
-) {
-    for (mut transform, mut cam, input, geom, mut projection) in query.iter_mut() {
-        
-        // DOD FIX 1: Жесткая синхронизация Aspect Ratio с RTT-текстурой
-        if geom.size.x > 0.0 && geom.size.y > 0.0 {
-            if let Projection::Perspective(ref mut persp) = *projection {
-                let current_aspect = geom.size.x / geom.size.y;
-                if (persp.aspect_ratio - current_aspect).abs() > 0.001 {
-                    persp.aspect_ratio = current_aspect;
-                }
-            }
-        }
-
-        // DOD FIX 2: Квантование сырой дельты скролла (защита от скачков)
-        if input.scroll_delta.abs() > 0.0 {
-            let tick = input.scroll_delta.signum(); // Строго +1.0 или -1.0
-            cam.radius -= tick * 0.15 * cam.radius; // Логарифмический шаг 15%
-            cam.radius = cam.radius.clamp(0.1, 1000.0);
-        }
-
-        // Вращение (ПКМ)
-        if input.is_secondary_pressed {
-            cam.alpha -= input.cursor_delta.x * 0.005;
-            cam.beta -= input.cursor_delta.y * 0.005;
-            cam.beta = cam.beta.clamp(-std::f32::consts::PI / 2.0 + 0.01, std::f32::consts::PI / 2.0 - 0.01);
-        }
-
-        // Панорамирование (СКМ или Shift + ПКМ)
-        if input.is_middle_pressed {
-            let right = transform.right();
-            let up = transform.up();
-            let pan_speed = cam.radius * 0.002;
-            cam.target -= right * input.cursor_delta.x * pan_speed;
-            cam.target += up * input.cursor_delta.y * pan_speed;
-        }
-
-        // Пересчет декартовых координат из сферических
-        let rotation = Quat::from_euler(EulerRot::YXZ, cam.alpha, cam.beta, 0.0);
-        let offset = rotation * Vec3::new(0.0, 0.0, cam.radius);
-        
-        transform.translation = cam.target + offset;
-        transform.look_at(cam.target, Vec3::Y);
     }
 }
 
@@ -496,5 +396,21 @@ pub fn window_garbage_collector_system(
             tree_res.tree.tiles.remove(tile_id);
         }
         tree_res.tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
+    }
+}
+
+pub fn window_drag_execution_system(
+    mut drag_request: ResMut<layout_api::WindowDragRequest>,
+    window_query: Query<Entity, With<PrimaryWindow>>,
+    winit_windows: NonSend<WinitWindows>,
+) {
+    if drag_request.should_drag {
+        drag_request.should_drag = false; // Сбрасываем триггер
+        if let Ok(entity) = window_query.get_single() {
+            if let Some(winit_window) = winit_windows.get_window(entity) {
+                // Прямой системный вызов к оконному менеджеру ОС (X11/Wayland/Win32)
+                let _ = winit_window.drag_window();
+            }
+        }
     }
 }

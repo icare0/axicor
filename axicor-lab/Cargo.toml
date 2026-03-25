@@ -8,6 +8,8 @@ bevy = { version = "0.13", features = ["default"] }
 bevy_egui = "0.27"
 egui_tiles = "0.8.0"
 project-explorer = { path = "plugins/project_explorer" }
+connectome-viewer = { path = "plugins/connectome_viewer" }
+node-editor = { path = "plugins/node_editor" }
 layout-api = { path = "crates/layout-api" }
 bytemuck = { version = "1.15", features = ["derive"] }
 genesis-core = { workspace = true }

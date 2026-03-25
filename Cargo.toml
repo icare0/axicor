@@ -8,6 +8,8 @@ members = [
     "axicor-lab",
     "axicor-lab/crates/layout-api",
     "axicor-lab/plugins/project_explorer",
+    "axicor-lab/plugins/connectome_viewer",
+    "axicor-lab/plugins/node_editor",
 ]
 resolver = "2"
 

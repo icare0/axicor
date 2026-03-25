@@ -4,23 +4,33 @@ use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy_egui::EguiPlugin;
 use project_explorer::ProjectExplorerPlugin;
+use connectome_viewer::ConnectomeViewerPlugin;
+use node_editor::NodeEditorPlugin;
 use crate::layout::data::*;
-use crate::layout::systems::{create_plugin_render_target, render_workspace_system, load_zone_geometry_system, viewport_camera_control_system, evaluate_drag_intents_system, execute_window_commands_system, window_garbage_collector_system};
+use crate::layout::systems::{create_plugin_render_target, render_workspace_system, evaluate_drag_intents_system, execute_window_commands_system, window_garbage_collector_system, window_drag_execution_system};
 use crate::layout::input::sync_plugin_geometry_system;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Genesis IDE - Modular Layout".into(),
+                title: "Axicor Lab".into(),
+                decorations: false,
+                transparent: true, // DOD FIX: Блокируем отрисовку мусорного фона ОС при старте
+                window_theme: Some(bevy::window::WindowTheme::Dark),
                 ..default()
             }),
             ..default()
         }))
         .add_plugins(EguiPlugin)
-        .add_plugins(ProjectExplorerPlugin)
+        .add_plugins((
+            ProjectExplorerPlugin,
+            ConnectomeViewerPlugin,
+            NodeEditorPlugin,
+        ))
         .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
         .insert_resource(Msaa::Off)
+        .init_resource::<layout_api::WindowDragRequest>()
         .init_resource::<ProjectFsCache>()
         .init_resource::<WorkspaceTree>()
         .init_resource::<WindowDragState>()
@@ -31,11 +41,10 @@ fn main() {
         .add_systems(Update, (
             sync_plugin_geometry_system,
             render_workspace_system,
-            viewport_camera_control_system,
-            load_zone_geometry_system,
             evaluate_drag_intents_system,
             execute_window_commands_system,
             window_garbage_collector_system,
+            window_drag_execution_system,
         ).chain())
         .run();
 }
@@ -56,7 +65,7 @@ fn setup_test_bench(
             transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
-        ViewportCamera::default(),
+        connectome_viewer::ViewportCamera::default(),
         PluginWindow { domain: PluginDomain::Viewport3D, texture: Some(tex_a) },
         PluginInput::default(),
         PluginGeometry { size: Vec2::new(800.0, 600.0) },

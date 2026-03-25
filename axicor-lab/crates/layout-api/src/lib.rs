@@ -69,6 +69,11 @@ pub struct ProjectModel {
     pub shards: Vec<String>,
 }
 
+#[derive(Resource, Default)]
+pub struct WindowDragRequest {
+    pub should_drag: bool,
+}
+
 #[derive(Resource, Default, Clone, Debug)]
 pub struct ProjectFsCache {
     pub projects: Vec<ProjectModel>,

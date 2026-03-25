@@ -8,6 +8,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1023.125] - 2026-03-25 18:01:11
+
+**[Architecture] Consolidate axicor-lab workspace and refactor layout syst**
+
+### Added
+- Move crates/layout-api and plugins/project_explorer into axicor-lab subdirectory
+- Update workspace Cargo.toml and axicor-lab/Cargo.toml with new relative paths
+- Add bytemuck dependency to axicor-lab for zero-copy derives
+- Expand PluginInput struct with cursor_delta, scroll_delta, and separate is_primary_pressed/is_secondary_pressed/is_middle_pressed fields
+- Implement ViewportCamera component with target, radius, alpha, and beta fields and default isometric preset
+- Modify ZoneSelectedEvent to include project_name and shard_name
+- Implement detailed input capture for Viewport3D panes including scroll_delta, secondary (RMB), and middle (MMB) button tracking with cursor_delta
+- Replace zone_events Vec<String> with Vec<ZoneSelectedEvent> and trigger events on shard selection in ProjectExplorer
+- Reorder hitbox drawing to occur after plugin UI to ensure proper click interception
+- Modify sync_plugin_geometry_system to check WindowDragState and skip texture resizing during drag operations
+- Add size clamping protection in sync_plugin_geometry_system to prevent WGPU panics on zero-sized textures
+- Refactor input.rs to use Res<WindowDragState> and Query<(&PluginWindow, &PluginGeometry)>
+
+## [0.1011.125] - 2026-03-25 15:55:09
+
+**Implement dynamic tiling workspace with egui_tiles and Bevy render-to-te**
+
+### Added
+- Move layout data structures into new layout-api crate with PluginDomain enum and ProjectFsCache
+- Add project-explorer plugin crate with ProjectExplorerPlugin and ProjectExplorerPane
+- Integrate layout-api and project-explorer as dependencies in axicor-lab/Cargo.toml
+- Replace local data.rs with pub use layout_api::* to import PluginInput, PluginGeometry, WindowDragState, PaneData, PluginDomain, ProjectStatus, ProjectFsCache
+- Add workspace members crates/layout-api and plugins/project_explorer to root Cargo.toml
+- Extend PaneBehavior to handle PluginDomain variants: Viewport3D, ProjectExplorer, NodeEditor
+- Render Viewport3D panes via egui::Image with SizedTexture using texture_id from PaneData
+- Render ProjectExplorer panes with native egui UI showing ProjectFsCache projects, DNA files, and shards
+- Implement pane_ui method with DOD hybrid render logic to block VRAM reallocation during mouse drag
+- Add zone_events vector to PaneBehavior for plugin communication
+- Update sync_plugin_geometry_system to conditionally resize RTT images only when texture handle exists
+- Modify render_workspace_system to integrate EguiContexts with WorkspaceTree and PaneBehavior
+- Update sync_plugin_geometry_system to enforce DOD optimization and update Perspective projection aspect ratios
+- Implement hitbox detection for split initiation using edge rects and egui::Sense::drag()
+- Support local input capture with PluginInput updates for cursor position and primary button state
+- Expose PluginGeometry updates from UI rects to drive projection and texture resizing
+- Add bevy_egui = "0.27" and egui_tiles = "0.8.0" dependencies to axicor-lab/Cargo.toml
+- Include project-explorer and layout-api as path dependencies in axicor-lab/Cargo.toml
+
+
 ## [0.996.125] - 2026-03-25 03:05:54
 
 **Implement dynamic tiling workspace with egui_tiles and Bevy render-to-te**

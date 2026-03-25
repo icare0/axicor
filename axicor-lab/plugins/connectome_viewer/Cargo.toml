@@ -1,0 +1,9 @@
+[package]
+name = "connectome-viewer"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.13"
+bytemuck = { version = "1.15", features = ["derive"] }
+layout-api = { path = "../../crates/layout-api" }
