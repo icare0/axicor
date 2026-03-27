@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1067.125] - 2026-03-27 15:41:30
+
+**Implement unified pane behavior with domain switching and node editor**
+
+### Added
+- Remove legacy template config files: anatomy.toml, blueprints.toml, brain.toml, io.toml, shard.toml, simulation.toml
+- Refactor axicor-lab layout systems: move behavior logic into layout/behavior.rs, delete layout/systems.rs
+- Implement PaneBehavior with pane_swaps and domain_switches vectors for dynamic window management
+- Integrate NodeEditorPlugin with BrainTopologyGraph and NodeGraphUiState resources
+- Extend PluginDomain routing to include NodeEditor payload rendering
+- Add LoadGraphEvent to layout-api for project graph loading
+- Implement sync_topology_graph_system for Zero-Lock background reading of brain.toml and io.toml
+- Register LoadGraphEvent and sync system in NodeEditorPlugin build
+- Update Viewport3D input handling to use isolated payload_rect for interaction
+- Refactor genesis-baker daemon.rs and main.rs for improved structure
+- Implement unified header with plugin switcher menu for Connectome Viewer, Shard Assembler, and Project Explorer
+- Add draggable title for pane swapping using egui memory for Zero-Cost state
+- Render payload area with separator line and domain-specific content routing
+- Add NodeGraphUiState resource for Dumb View rendering state with pan, zoom, and node_positions
+- Update project_explorer plugin for refined UI integration
+- Update genesis-core config modules: anatomy.rs, brain.rs, io.rs
+- Refactor genesis-node boot.rs, main.rs, and network/ghosts.rs
+- Update examples: FLY_exp/agent.py, ant_exp/ant_agent.py, cartpole_exp/agent.py
+- Add *GEMINI.md to .gitignore
+- Update CHANGELOG.md with version 0.1047.125 details
+
+
 ## [0.1047.125] - 2026-03-25 22:26:46
 
 **Implement unified pane behavior with domain switching and node editor in**

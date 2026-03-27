@@ -92,8 +92,10 @@ struct alignas(64) VariantParameters {
     uint8_t adaptive_mode;                    // 54..55
     uint8_t _leak_pad[3];                     // 55..58
 
-    // === Блок 6: Pad (Смещения 58..64) ===
-    uint8_t _pad[6];                          // 58..64 (Выравнивание)
+    // === Блок 6: Neuromodulation & Pad (Смещения 58..64) ===
+    uint8_t d1_affinity;                      // 58..59 (Чувствительность к LTP)
+    uint8_t d2_affinity;                      // 59..60 (Чувствительность к подавлению LTD)
+    uint8_t _pad[4];                          // 60..64 (Выравнивание)
 };
 
 // Контейнер для 16 вариантов (Ровно 1024 байта)

@@ -611,7 +611,7 @@ Triggered during Night Phase plasticity if conditions met.
 Binary header for telemetry WebSocket packets:
 ```
 Offset  Field         Type      Purpose
-0-4     magic         u32       0xDEADBEEF (validation)
+0-4     magic         u32       0x4B495053 ("SPIK" in Little-Endian)
 4-12    tick          u64       Global simulation tick
 12-16   spikes_count  u32       # spikes in this frame
 16+     spike_data    [u32]     Spike soma IDs

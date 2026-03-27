@@ -669,43 +669,21 @@ impl RoutingTable {
 
 ### 4.1. Что Работает Сейчас [MVP]
 
-**Single-Node (Одна GPU):**
-- Columnar Memory Layout сохраняется.
-- CUDA kernels вычисляют весь день без синхронизации с сетью.
-- Шардирование по X/Y отключено - весь мозг на одной GPU VRAM.
+**Multi-Node (Cluster) & Single-Node:**
+- Изолированные шарды работают на разных GPU и машинах через UDP Fast-Path (`InterNodeChannel`).
+- Внутри одного GPU шарды общаются через Zero-Copy VRAM указатели (`IntraGpuChannel`).
+- L7-фрагментация пакетов (`SpikeBatchHeaderV2`) с динамическим адаптивным MTU для поддержки гетерогенных сетей (PC + ESP32).
+- Zero-Lock RCU-маршрутизация (`ROUT_MAGIC`) для Hot-Reload адресов нод при восстановлении или миграции.
 
-**BSP Barrier (Mock):**
-- `BspBarrier::new()` создаёт ping-pong буферы (`schedule_a`, `schedule_b`).
-- `sync_and_swap()` выполняет жёсткую синхронизацию (swap буферов).
-- Сокет **отключен** (`socket: None`) - для offline тестов.
-
-**SpikeSchedule:**
-```rust
-pub struct SpikeSchedule {
-    pub sync_batch_ticks: usize,
-    pub buffer: Vec<u32>,      // [sync_batch_ticks × MAX_SPIKES_PER_TICK]
-    pub counts: Vec<u32>,      // [sync_batch_ticks]
-}
-```
-- Flat 1D array для Single DMA to VRAM.
-- Каждый тик: GPU берёт `buffer[tick * MAX_SPIKES_PER_TICK .. +counts[tick]]`.
-- Map Phase (CPU) раскладывает спайки по `tick_offset` из `SpikeEvent`.
-
-**GhostConnection (Metadata):**
-```rust
-pub struct GhostConnection {
-    pub local_axon_id: u32,     // Индекс в axon_heads[] на целевом шарде
-    pub paired_src_soma: u32,   // Soma ID на источнике (для трассировки)
-}
-```
-- Загружается из файла `.ghosts` (Baker output).
-- Используется только для трансляции soma_id → ghost_id при спайке.
+**Autonomous Epoch Projection (AEP):**
+- `BspBarrier` полноценно использует асинхронный сетевой I/O.
+- Жёсткая синхронизация заменена на эластичную (Latency Hiding через Lock-Free очереди).
+- Biological Amnesia (Spike Drop) аппаратно отбрасывает отставшие из-за сетевого лага пакеты, защищая VRAM.
 
 ### 4.2. Что НЕ Работает Пока [PLANNED]
 
 | Функция | Статус | Причина |
 |---|---|---|
-| **Multi-Node (Network)** | PLANNED | Сокет не подключен, одна GPU |
 | **Dynamic AxonHandover** | PLANNED | Аксоны не растут через границы; они бакутся заранее |
 | **Periodic Boundaries (Toroidal)** | PLANNED | Замыкание Z и кольцо X/Y требуют изменения конфига |
 | **Slow Path Geometry Sync** | PLANNED | Геометрия вычисляется только раз при Baking |

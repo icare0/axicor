@@ -141,7 +141,7 @@ gsop_depression = 2
 До **16 уникальных типов** (0..15), каждый с полным набором параметров GLIF и GSOP:
 
 - **Индекс:** 0 - тип из фрагмента `[[neuron_types]]` в `blueprints.toml`
-- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, slot_decay_ltm, slot_decay_wm, signal_propagation_length
+- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, signal_propagation_length, adaptive_leak_max, adaptive_leak_gain, adaptive_mode, d1_affinity, d2_affinity
 - **Семантика:** определяется при конфигурации, не жёстко закодирована. Одна конфигурация может иметь типы {ExcitatoryFast, InhibitorySlow}, другая - {Relay, Memory, Burst, Regular}
 
 При Baking каждому нейрону из `anatomy.toml` назначается `type_idx` (0..15). При загрузке в VRAM `type_idx` кодируется в `flags[dense_index] >> 4`.

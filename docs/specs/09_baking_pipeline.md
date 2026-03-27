@@ -475,8 +475,17 @@ graph TD
 - Verified all file format constants (GXI_MAGIC, GXO_MAGIC = 0x47584900, 0x47584F00)
 - Added cross-references to 05_signal_physics.md kernel specs in Day Phase loop
 
-**Known Gaps**
+## 6. Slow Path Protocol (TCP GeometryServer)
 
-- GeometryServer request/response format (TCP 8001) not yet specified
-- Night Phase (sort & prune) out of scope for this version
-- Sprouting phase requires baker_socket IPC to genesis-baker-daemon
+Протокол передачи структурных изменений графа (Night Phase) между нодами. Работает поверх TCP (базовый порт 8010). Данные сериализуются через `bincode`.
+
+**GeometryRequest (Client → Server)**
+Enum, описывающий намерение:
+- `BulkHandover(Vec<AxonHandoverEvent>)`: Передача пачки проросших аксонов, пересекших границу шарда.
+- `BulkAck(Vec<AxonHandoverAck>)`: Подтверждение создания Ghost-аксонов на целевой стороне (передает выделенные `dst_ghost_id` обратно источнику).
+- `Prune(u32)`: Уведомление об удалении связи (передается `dst_ghost_id` для зачистки на целевом шарде).
+
+**GeometryResponse (Server → Client)**
+Enum, ответ сервера:
+- `Ack(AxonHandoverAck)`: Возвращает подтверждение с зарезервированным слотом (для одиночных пакетов).
+- `Ok`: Универсальное подтверждение успешной обработки (для BulkHandover и Prune).
