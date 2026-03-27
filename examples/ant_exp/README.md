@@ -20,12 +20,12 @@ python3 examples/ant_exp/build_brain.py
 
 # Для NVIDIA (CUDA)
 ```bash
-cargo run --release -p genesis-node -- --brain AntConnectome --log
+cargo run --release -p genesis-node -- Genesis-Models/ant_exp.axic --log
 ```
 
 # Для AMD (ROCm / HIP)
 ```bash
-cargo run --release -p genesis-node --features amd -- --brain AntConnectome --log
+cargo run --release -p genesis-node --features amd -- Genesis-Models/ant_exp.axic --log
 ```
 
 **Шаг 3. Подключите среду (DOD Hot Loop)**

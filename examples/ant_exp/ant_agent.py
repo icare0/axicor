@@ -11,6 +11,7 @@ import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
 
+from genesis.utils import fnv1a_32
 from genesis.client import GenesisMultiClient
 from genesis.contract import GenesisIoContract
 from genesis.control import GenesisControl

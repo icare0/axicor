@@ -1,15 +1,12 @@
-use std::path::Path;
 use genesis_core::ipc::{GhostsHeader, GhostConnection, GHST_MAGIC};
 
 /// Возвращает (src_soma_ids, target_ghost_ids)
-/// Поддерживает два формата файлов .ghosts:
+/// Поддерживает два формата данных .ghosts:
 /// 1. GHST (Header + GhostConnection Records)
 /// 2. Legacy (u32 Count + flat u32 arrays)
-pub fn load_ghosts(path: &Path) -> (Vec<u32>, Vec<u32>) {
-    let bytes = std::fs::read(path).expect("Fatal: Failed to read .ghosts file");
-    
+pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
     if bytes.len() < 4 {
-        panic!("Fatal: .ghosts file {:?} is too small ({} bytes)", path, bytes.len());
+        panic!("Fatal: .ghosts data is too small ({} bytes)", bytes.len());
     }
 
     let first_u32 = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
@@ -17,7 +14,7 @@ pub fn load_ghosts(path: &Path) -> (Vec<u32>, Vec<u32>) {
     if first_u32 == GHST_MAGIC {
         // --- НОВЫЙ ФОРМАТ (GHST) ---
         if bytes.len() < 16 {
-            panic!("Fatal: GHST file {:?} header too small", path);
+            panic!("Fatal: GHST data header too small");
         }
         unsafe {
             let header_ptr = bytes.as_ptr() as *const GhostsHeader;
@@ -40,8 +37,8 @@ pub fn load_ghosts(path: &Path) -> (Vec<u32>, Vec<u32>) {
         let count = first_u32 as usize;
         let expected_size = 4 + (count * 4 * 2);
         if bytes.len() < expected_size {
-            panic!("Fatal: Legacy .ghosts file {:?} truncated. Expected {}, got {}", 
-                path, expected_size, bytes.len());
+            panic!("Fatal: Legacy .ghosts data truncated. Expected {}, got {}", 
+                expected_size, bytes.len());
         }
 
         unsafe {

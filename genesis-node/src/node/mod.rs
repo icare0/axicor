@@ -13,7 +13,7 @@ use crate::network::router::InterNodeRouter;
 use crate::node::shard_thread::ShardAtomicSettings;
 
 pub struct ShardMetadata {
-    pub manifest_path: PathBuf,
+    pub manifest_path: PathBuf, // Still used for reporting/display
     pub last_modified: SystemTime,
     pub atomic_settings: Arc<ShardAtomicSettings>,
 }
@@ -208,6 +208,7 @@ impl NodeRuntime {
         node
     }
 
+    /* 
     fn reload_manifests(&self) {
         let mut metadata_map = self.manifest_metadata.lock().unwrap();
         for (hash, metadata) in metadata_map.iter_mut() {
@@ -248,6 +249,7 @@ impl NodeRuntime {
             }
         }
     }
+    */
 
     fn patch_routing_tables(&mut self) {
         let stream = std::ptr::null_mut(); 
@@ -294,15 +296,12 @@ impl NodeRuntime {
             #[cfg(unix)]
             let _ = std::fs::remove_file(&socket_addr);
 
-            // [DOD FIX] Pass root brain.toml so daemon can find simulation.toml and blueprints
-            let brain_path = desc.baked_dir
-                .parent().unwrap() // Выходим из папки зоны
-                .parent().unwrap() // Выходим из папки baked
-                .join("brain.toml");
+            // [DOD FIX] Шард-треды используют манифесты из /dev/shm
+            let manifest_shm_path = format!("/dev/shm/genesis_manifest_{:08X}.toml", desc.hash);
 
-            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?} (IPC: {})", desc.hash, desc.baked_dir, socket_addr);
+            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
             let child = Command::new(&daemon_path)
-                .arg("--brain").arg(&brain_path)
+                .arg("--manifest").arg(&manifest_shm_path)
                 .arg("--zone-hash")
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
@@ -508,7 +507,7 @@ impl NodeRuntime {
             if batch_counter > 0 && batch_counter % 50 == 0 {
                 // Remove console printing to keep TUI clean, stats are visible in Core Loop widget
                 // [DOD FIX] Hot-Reload entry point
-                self.reload_manifests();
+                // self.reload_manifests();
             }
         }
     }

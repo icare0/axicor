@@ -8,6 +8,7 @@ from .encoders import PwmEncoder, PopulationEncoder
 from .decoders import PwmDecoder, PopulationDecoder
 from .surgeon import GenesisSurgeon
 from .contract import GenesisIoContract
+from .axic import AxicReader
 
 __all__ = [
     "GenesisMultiClient",
@@ -24,5 +25,6 @@ __all__ = [
     "PwmDecoder",
     "PopulationDecoder",
     "GenesisSurgeon",
-    "GenesisIoContract"
+    "GenesisIoContract",
+    "AxicReader"
 ]

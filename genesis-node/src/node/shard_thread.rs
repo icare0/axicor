@@ -284,10 +284,10 @@ fn save_hot_checkpoint(
         genesis_compute::ffi::gpu_device_synchronize(); 
     }
 
-    let chk_state = baked_dir.join("checkpoint.state");
-    let tmp_state = baked_dir.join("checkpoint.state.tmp");
-    let chk_axons = baked_dir.join("checkpoint.axons");
-    let tmp_axons = baked_dir.join("checkpoint.axons.tmp");
+    let chk_state = baked_dir.join("shard.state");
+    let tmp_state = baked_dir.join("shard.state.tmp");
+    let chk_axons = baked_dir.join("shard.axons");
+    let tmp_axons = baked_dir.join("shard.axons.tmp");
 
     // 2. Атомарная запись на диск
     if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {

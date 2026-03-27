@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1047.125] - 2026-03-25 22:26:46
+
+**Implement unified pane behavior with domain switching and node editor in**
+
+### Added
+- Implement PaneBehavior with pane_swaps and domain_switches vectors for dynamic window management
+- Add LoadGraphEvent to layout-api for project graph loading
+- Integrate NodeEditorPlugin with BrainTopologyGraph and NodeGraphUiState resources
+- Extend PluginDomain routing to include NodeEditor payload rendering
+- Implement sync_topology_graph_system for Zero-Lock background reading of brain.toml and io.toml
+- Add BrainTopologyGraph resource with active_project, active_path, config, and io_configs cache
+- Add NodeGraphUiState resource for Dumb View rendering state with pan, zoom, and node_positions
+- Register LoadGraphEvent and sync system in NodeEditorPlugin build
+- Implement unified header with plugin switcher menu for Connectome Viewer, Shard Assembler, and Project Explorer
+- Add draggable title for pane swapping using egui memory for Zero-Cost state
+- Render payload area with separator line and domain-specific content routing
+- Update Viewport3D input handling to use isolated payload_rect for interaction
+- Add documentation for connectome_viewer, node_editor, and project_explorer plugins
+- Update specs/08_ide.md with new plugin integration details
+
+
 ## [0.1043.125] - 2026-03-25 19:58:38
 
 **[Architecture] Add new plugin modules and integrate into workspace**
@@ -23,7 +44,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Create node-editor plugin with basic Plugin structure for future neuron graph processing
 - Refactor axicor-lab/src/layout/systems.rs imports and systems
 - Update axicor-lab/src/main.rs to include new plugin integrations
-
 
 ## [0.1023.125] - 2026-03-25 18:01:11
 

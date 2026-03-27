@@ -2,14 +2,28 @@ import os
 import toml
 from typing import Callable, Any
 
+from .axic import AxicReader
+from .utils import fnv1a_32 # DOD FIX: Исправлен Circular Import
+
 class GenesisControl:
     """
     Control Plane SDK. 
     Управляет параметрами рантайма 'на лету' через атомарную перезапись manifest.toml.
     """
-    def __init__(self, manifest_path: str):
-        self.manifest_path = manifest_path
-        # [DOD FIX] Кешируем манифест для быстрого доступа к параметрам симуляции
+    def __init__(self, axic_path: str, zone_name: str):
+        self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
+        # [DOD FIX] Node экспортирует манифест в SHM. SDK меняет его там!
+        self.manifest_path = f"/dev/shm/genesis_manifest_{self.zone_hash:08X}.toml"
+        
+        if not os.path.exists(self.manifest_path):
+            reader = AxicReader(axic_path)
+            data = reader.read_file(f"baked/{zone_name}/manifest.toml")
+            if data:
+                with open(self.manifest_path, "wb") as f:
+                    f.write(data)
+            else:
+                raise FileNotFoundError(f"manifest.toml not found in {axic_path} for zone {zone_name}")
+                    
         with open(self.manifest_path, "r") as f:
             self.manifest = toml.load(f)
 

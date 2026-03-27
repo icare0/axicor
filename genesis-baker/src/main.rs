@@ -20,31 +20,40 @@ struct Cli {
 
     #[arg(long, default_value_t = false)]
     clean: bool,
+
+    // DOD FIX: Флаг бесшовного вызова (без stdin-блокировки)
+    #[arg(long, default_value_t = false)]
+    yes: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     let brain_config = genesis_core::config::brain::parse_brain_config(&cli.brain)
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    let project_dir = cli.brain.parent().unwrap_or(Path::new("."));
+    let sim_path = project_dir.join(&brain_config.simulation.config);
+
     if cli.clean {
-        // [DOD FIX] Terminal barrier for destructive actions
-        print!("[baker] WARNING: This will permanently delete all baked models. Continue? [y/N]: ");
-        std::io::Write::flush(&mut std::io::stdout()).unwrap();
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-        if input.trim().to_lowercase() != "y" {
-            println!("Aborting clean operation.");
-            return Ok(());
+        // Защита обходится, если передан флаг --yes
+        if !cli.yes {
+            print!("[baker] WARNING: This will permanently delete all baked models. Continue? [y/N]: ");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            if input.trim().to_lowercase() != "y" {
+                println!("Aborting clean operation.");
+                return Ok(());
+            }
         }
 
         println!("[baker] Clean flag set. Wiping baked directories...");
         for zone in &brain_config.zones {
-            if zone.baked_dir.exists() {
-                println!("[baker] Cleaning: {:?}", zone.baked_dir);
-                // Remove the directory contents safely
-                for entry in std::fs::read_dir(&zone.baked_dir)? {
+            let abs_baked_dir = project_dir.join(&zone.baked_dir);
+            if abs_baked_dir.exists() {
+                println!("[baker] Cleaning: {:?}", abs_baked_dir);
+                for entry in std::fs::read_dir(&abs_baked_dir)? {
                     let entry = entry?;
                     let path = entry.path();
                     if path.is_dir() {
@@ -58,25 +67,28 @@ fn main() -> Result<()> {
     }
 
     println!("[baker] Processing Brain Architecture: {} zones", brain_config.zones.len());
-    
-    // Store compilation results for ghost connections linking
-    // Tuple: (soma_to_axon_map, base_axons_count, packed_pos, size_um)
+
     let mut compiled_zones: std::collections::HashMap<String, bake::layout::CompiledShard> = std::collections::HashMap::new();
 
     // 1. Compile all zones
     for (zone_idx, zone) in brain_config.zones.iter().enumerate() {
         println!("\n[baker] === Compiling Zone: {} ===", zone.name);
-        // [DOD FIX] Путь к shard.toml хранится рядом с anatomy.toml
-        let shard_cfg_path = zone.anatomy.parent().unwrap().join("shard.toml");
-        
+
+        // DOD FIX: Резолвим относительные пути из brain.toml от директории проекта
+        let bp_path = project_dir.join(&zone.blueprints);
+        let an_path = project_dir.join(&zone.anatomy);
+        let io_path = project_dir.join(&zone.io);
+        let baked_dir = project_dir.join(&zone.baked_dir);
+        let shard_cfg_path = an_path.parent().unwrap().join("shard.toml");
+
         let workspace = parse_and_validate(
             &brain_config,
-            &brain_config.simulation.config,
-            &zone.blueprints,
-            &zone.anatomy,
-            &zone.io,
+            &sim_path,
+            &bp_path,
+            &an_path,
+            &io_path,
             &shard_cfg_path,
-            &zone.baked_dir,
+            &baked_dir,
             &zone.name,
             zone_idx as u16,
         )?;
@@ -86,33 +98,33 @@ fn main() -> Result<()> {
 
         compiled_zones.insert(zone.name.clone(), compiled_shard);
     }
-    
+
     // 2. Generate Ghost Maps
     if !brain_config.connections.is_empty() {
         println!("\n[baker] === Baking Ghost Axon Mappings ===");
     }
-    
+
     for conn in &brain_config.connections {
         let src_shard = compiled_zones.get(&conn.from).expect("Source zone missing");
         let dst_shard = compiled_zones.get(&conn.to).expect("Dest zone missing");
-        
-        // Target offset is the end of the dest zone's local axons
-        let dst_ghost_offset = dst_shard.local_axons_count as u32; 
-        
-        // [DOD FIX] Ghost file goes to RECEIVER's baked_dir, not sender's
-        let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.to).unwrap().baked_dir;
-        
+
+        let dst_ghost_offset = dst_shard.local_axons_count as u32;
+
+        // DOD FIX: Роутинг Ghost-файла строго в директорию приёмника относительно проекта
+        let target_zone_rel = &brain_config.zones.iter().find(|z| z.name == conn.to).unwrap().baked_dir;
+        let out_dir = project_dir.join(target_zone_rel);
+
         let sent_ghosts = if let (Some(w), Some(h)) = (conn.width, conn.height) {
             println!("[baker] Generating UV Atlas Projection {} -> {} ({}x{})", conn.from, conn.to, w, h);
             bake::atlas_map::bake_atlas_connection(
-                out_dir,
+                &out_dir,
                 &conn.from,
                 &conn.to,
-                &src_shard.packed_positions, // src_packed_pos
-                src_shard.bounds_um,  // src_size_um
-                (w, h),       // conn_grid
-                dst_ghost_offset, // This should be based on destination!
-                42, 
+                &src_shard.packed_positions,
+                src_shard.bounds_um,
+                (w, h),
+                dst_ghost_offset,
+                42,
             )
         } else {
             let ghosts = bake::ghost_map::build_ghost_mapping(
@@ -121,13 +133,26 @@ fn main() -> Result<()> {
                 &src_shard.soma_to_axon_map,
                 dst_ghost_offset,
             );
-            bake::ghost_map::write_ghosts_file(out_dir, &conn.from, &conn.to, &ghosts);
+            bake::ghost_map::write_ghosts_file(&out_dir, &conn.from, &conn.to, &ghosts);
             ghosts.header.connection_count
         };
-        
+
         println!("[baker] ✓ Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
-        // [REMOVED] Patching logic. The file is already pre-allocated to 200,000 ghosts.
     }
+
+    // --- AXIC PACKING PHASE ---
+    let project_name = project_dir.file_name().unwrap().to_str().unwrap();
+    let axic_path = project_dir.parent().unwrap().join(format!("{}.axic", project_name));
+
+    println!("\n[baker] 📦 Packing project into VFS Archive: {:?}", axic_path);
+    bake::axic::pack_directory_to_axic(project_dir, &axic_path)?;
+
+    // DOD FIX: Безусловное выжигание сырых бинарников. Они теперь в .axic.
+    let baked_dir = project_dir.join("baked");
+    if baked_dir.exists() {
+        std::fs::remove_dir_all(&baked_dir)?;
+    }
+    println!("[baker] 🗑️ Cleaned up 'baked' directory. Only .axic remains.");
 
     Ok(())
 }

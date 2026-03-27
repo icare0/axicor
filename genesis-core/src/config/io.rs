@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Represents external projection connections coming into this shard (White Matter/Atlas).
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct IoConfig {
     #[serde(default)]
     #[serde(rename = "input")]
@@ -20,7 +20,7 @@ fn default_entry_z() -> String { "top".to_string() }
 // [DOD FIX] Default UV Rect for Pie mode (100% overlap)
 fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct InputMap {
     pub name: String,
     #[serde(alias = "zone")] 
@@ -38,7 +38,7 @@ pub struct InputMap {
     pub uv_rect: [f32; 4],
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct OutputMap {
     pub name: String,
     #[serde(alias = "zone")]

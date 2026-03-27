@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.13"
+bevy_egui = "0.27"
 bytemuck = { version = "1.15", features = ["derive"] }
 layout-api = { path = "../../crates/layout-api" }

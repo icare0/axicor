@@ -3,13 +3,11 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use genesis_core::ipc::{
-    shm_file_path, ShmHeader, ShmState,
+    shm_file_path, ShmHeader,
     default_socket_path,
 };
 use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
-use genesis_core::constants::MAX_DENDRITE_SLOTS;
-
 
 struct NightPhaseContext {
     _baked_dir: PathBuf,
@@ -18,24 +16,17 @@ struct NightPhaseContext {
     _sim_config: genesis_baker::parser::simulation::SimulationConfig,
     _shard_bounds: genesis_baker::bake::axon_growth::ShardBounds,
     _master_seed: u64,
-    
-    // [Шаг 1] Ghost Allocator initialization
-    /// Индекс первого свободного слота для Ghost-аксонов
-    /// Начинается сразу после локальных аксонов: next_ghost_slot = manifest.memory.padded_n
+
     _next_ghost_slot_base: u32,
-    /// Максимальное количество аксонов (включая ghost capacity)
     _total_axons_max: u32,
-    
     _total_ghosts: u32,
     _max_x: u32,
     _max_y: u32,
-    
+
     _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     _soma_to_axon: Vec<u32>,
 
     _geom_mmap: memmap2::MmapMut,
-
-    // НОВЫЕ ММАПЫ
     _paths_mmap: memmap2::MmapMut,
     _pos_mmap: memmap2::Mmap,
 }
@@ -46,29 +37,27 @@ struct Cli {
     zone_hash: u32,
     #[arg(long)]
     baked_dir: PathBuf,
+    // DOD FIX: Принимаем манифест из /dev/shm
     #[arg(long)]
-    brain: Option<PathBuf>,
+    manifest: PathBuf, 
 }
 
 fn main() {
     let cli = Cli::parse();
     let zone_hash = cli.zone_hash;
 
-    // Путь к brain.toml для поиска blueprints.toml
-    let brain_toml: PathBuf = cli.brain.unwrap_or_else(|| PathBuf::from("config/brain.toml"));
-
-    // 1. Читаем манифест шарда, чтобы узнать точные размеры VRAM
-    let manifest_path = cli.baked_dir.join("manifest.toml");
-    let manifest_str = std::fs::read_to_string(&manifest_path).expect("Failed to read manifest.toml");
+    // 1. Читаем манифест шарда из /dev/shm
+    let manifest_path = &cli.manifest;
+    let manifest_str = std::fs::read_to_string(manifest_path).expect("Failed to read manifest.toml");
     let manifest: ZoneManifest = toml::from_str(&manifest_str).expect("Failed to parse manifest");
 
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons = (manifest.memory.virtual_axons + manifest.memory.ghost_capacity + manifest.memory.padded_n) as u32;
 
-    // 2. Вычисляем размер SHM используя централизованную функцию
+    // 2. Вычисляем размер SHM
     let shm_len = genesis_core::ipc::shm_size(padded_n as usize);
 
-    // 3. Создаем file-backed shared memory (cross-platform: Linux + Windows)
+    // 3. Создаем file-backed shared memory
     let shm_path = shm_file_path(cli.zone_hash);
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -87,18 +76,16 @@ fn main() {
 
     println!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
 
-    // Загружаем blueprints.toml для Dale's Law
-    let blueprints = load_blueprints(&brain_toml, zone_hash);
+    // Загружаем blueprints.toml из SRAM папки
+    let blueprints = load_blueprints(&cli.baked_dir);
 
     println!("🧠 Genesis Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
-    // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
-    let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml, zone_hash);
+    // Кешируем конфиги
+    let mut night_ctx = build_night_context(&cli.baked_dir, &cli.manifest, zone_hash);
 
     let socket_addr = default_socket_path(zone_hash);
-
-    // Keep file open so mmap stays valid
     let _shm_file = file;
 
     #[cfg(unix)]
@@ -129,7 +116,7 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_ref(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
                         eprintln!("❌ Night Phase error: {}", e);
                     }
                 }
@@ -139,83 +126,44 @@ fn main() {
     }
 }
 
-fn load_blueprints(brain_toml: &PathBuf, zone_hash: u32) -> Option<BlueprintsConfig> {
-    // [DOD FIX] Parse brain.toml properly and find the zone matching our zone_hash
-    if let Ok(src) = std::fs::read_to_string(brain_toml) {
-        if let Ok(brain_config) = toml::from_str::<genesis_core::config::brain::BrainConfig>(&src) {
-            for zone in &brain_config.zones {
-                let zh = genesis_core::hash::fnv1a_32(zone.name.as_bytes());
-                if zh == zone_hash {
-                    let bp_path = std::path::Path::new(&zone.blueprints);
-                    if bp_path.exists() {
-                        match BlueprintsConfig::load(bp_path) {
-                            Ok(bp) => {
-                                println!("   Blueprints loaded from {:?} (zone: {})", bp_path, zone.name);
-                                return Some(bp);
-                            }
-                            Err(e) => eprintln!("⚠️  Failed to load blueprints from {:?}: {}", bp_path, e),
-                        }
-                    } else {
-                        eprintln!("⚠️  Blueprints path {:?} does not exist for zone {}", bp_path, zone.name);
-                    }
-                    break;
-                }
+fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
+    let bp_path = baked_dir.join("BrainDNA").join("blueprints.toml");
+    if bp_path.exists() {
+        match BlueprintsConfig::load(&bp_path) {
+            Ok(bp) => {
+                println!("   Blueprints loaded from {:?}", bp_path);
+                return Some(bp);
             }
+            Err(e) => eprintln!("⚠️  Failed to load blueprints from {:?}: {}", bp_path, e),
         }
+    } else {
+        eprintln!("⚠️  blueprints.toml not found at {:?}", bp_path);
     }
-
-    eprintln!("⚠️  blueprints.toml not found for zone 0x{:08X} — Dale's Law will use default weights", zone_hash);
     None
 }
 
-
-/// Загружает конфиги для inject_ghost_axons один раз при старте Демона.
-/// Option<NightPhaseContext> — None если конфиги не найдены (graceful degradation).
-fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32) -> Option<NightPhaseContext> {
+fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path::PathBuf, _zone_hash: u32) -> Option<NightPhaseContext> {
     use genesis_baker::bake::axon_growth::{compute_layer_ranges, ShardBounds};
     use genesis_baker::parser::simulation::SimulationConfig;
 
-    // Читаем shard.toml (InstanceConfig) из BrainDNA поддиректории
     let dna_dir = baked_dir.join("BrainDNA");
-    let shard_cfg = genesis_core::config::InstanceConfig::load(&dna_dir.join("shard.toml")).ok()?;
-
-    // Читаем simulation.toml
-    let brain_dir = brain_toml.parent().unwrap_or(std::path::Path::new("."));
-    let sim_path = brain_dir.join("simulation.toml");
-    let sim_config = SimulationConfig::load(&sim_path)
-        .map_err(|e| eprintln!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
-
-    // Читаем blueprints для NeuronType list
-    let bp = load_blueprints(brain_toml, zone_hash)?;
+    let shard_cfg = genesis_core::config::InstanceConfig::load(&dna_dir.join("shard.toml")).map_err(|e| eprintln!("[Daemon] Cannot load shard.toml: {}", e)).ok()?;
+    let sim_config = SimulationConfig::load(&dna_dir.join("simulation.toml")).map_err(|e| eprintln!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
+    let bp = load_blueprints(baked_dir)?;
     let neuron_types = bp.neuron_types.clone();
-
-    // Читаем anatomy из BrainDNA
-    let anatomy_path = dna_dir.join("anatomy.toml");
-    let anatomy = genesis_baker::parser::anatomy::Anatomy::load(&anatomy_path)
-        .map_err(|e| eprintln!("[Daemon] Cannot load anatomy.toml: {}", e)).ok()?;
+    let anatomy = genesis_baker::parser::anatomy::Anatomy::load(&dna_dir.join("anatomy.toml")).map_err(|e| eprintln!("[Daemon] Cannot load anatomy.toml: {}", e)).ok()?;
 
     let layer_ranges = compute_layer_ranges(&anatomy, &sim_config);
-
-    // ShardBounds из shard.toml (world_offset + dimensions)
     let shard_bounds = ShardBounds::from_config(&shard_cfg);
-
-    // master_seed — детерминированный (Инвариант #7)
     let master_seed = genesis_core::seed::MasterSeed::from_str("GENESIS").raw();
 
-    // [Шаг 1] Читаем манифест для определения базы next_ghost_slot
-    let manifest_path = baked_dir.join("manifest.toml");
-    let manifest_str = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| eprintln!("[Daemon] Cannot read manifest.toml: {}", e)).ok()?;
-    let manifest: genesis_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str)
-        .map_err(|e| eprintln!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
+    let manifest_str = std::fs::read_to_string(manifest_path).map_err(|e| eprintln!("[Daemon] Cannot read manifest.toml: {}", e)).ok()?;
+    let manifest: genesis_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str).map_err(|e| eprintln!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
 
     let padded_n = manifest.memory.padded_n as u32;
-    // [DOD FIX] Вся математика аксонов обязана быть выровнена по варпам (кратно 32)
     let raw_axons = manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity;
     let total_axons_max = ((raw_axons + 31) & !31) as u32;
 
-    // [DOD FIX] Zero-Copy Memory Mapping instead of std::fs::read.
-    // Guarantees OS page alignment (4096 bytes) -> bytemuck is strictly safe.
     let chk_state = baked_dir.join("checkpoint.state");
     let chk_axons = baked_dir.join("checkpoint.axons");
     let base_state = baked_dir.join("shard.state");
@@ -233,7 +181,6 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
     let axons_file = std::fs::File::open(&axons_path).ok()?;
     let axons_mmap = unsafe { memmap2::Mmap::map(&axons_file).ok()? };
 
-    // Strict validation of the C-ABI Boundary invariant
     assert_eq!(
         state_mmap.as_ptr() as usize % 64,
         0,
@@ -246,10 +193,8 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
     );
 
     let (axon_heads, soma_to_axon) = {
-        // Zero-cost casting without allocations
         let mut axon_heads: Vec<genesis_core::layout::BurstHeads8> = {
             if !axons_mmap.is_empty() {
-                // [DOD FIX] No legacy 16-byte header. Pure raw slice.
                 bytemuck::cast_slice(&axons_mmap[..]).to_vec()
             } else {
                 vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
@@ -261,13 +206,11 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         let state_size = data.len();
 
         let s2a = if state_size > 0 {
-            // [DOD FIX] The 1166-Byte Invariant (i32 weights)
             let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + genesis_core::constants::MAX_DENDRITE_SLOTS * (4 + 4 + 1);
 
-            // [DOD HARD BARRIER]
             if state_size % bytes_per_neuron != 0 {
                 panic!(
-                    "FATAL C-ABI MISMATCH: .state file size ({}) is not a multiple of {} bytes. You are loading a stale graph from the i16 era! Run build_brain.py to re-bake.",
+                    "FATAL C-ABI MISMATCH: .state file size ({}) is not a multiple of {} bytes. Run build_brain.py to re-bake.",
                     state_size, bytes_per_neuron
                 );
             }
@@ -294,7 +237,6 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         (axon_heads, s2a)
     };
 
-    // [DOD FIX] total_ghosts берется из манифеста
     let total_ghosts = manifest.memory.ghost_capacity as u32;
     let max_x = shard_cfg.dimensions.w;
     let max_y = shard_cfg.dimensions.d;
@@ -305,7 +247,6 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
 
     println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
 
-    // Загрузка Paths (R/W) и Pos (R/O)
     let paths_path = baked_dir.join("shard.paths");
     let paths_file = std::fs::OpenOptions::new().read(true).write(true).open(&paths_path).ok()?;
     let paths_mmap = unsafe { memmap2::MmapMut::map_mut(&paths_file).ok()? };
@@ -313,7 +254,6 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
     let pos_path = baked_dir.join("shard.pos");
     let pos_file = std::fs::File::open(&pos_path).ok()?;
     let pos_mmap = unsafe { memmap2::Mmap::map(&pos_file).ok()? };
-
 
     Some(NightPhaseContext {
         _baked_dir: baked_dir.clone(),
@@ -339,18 +279,18 @@ fn run_night_phase<S: Read + Write>(
     mut stream: S,
     _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
-    mut ctx: Option<&mut NightPhaseContext>, // [DOD] Mut reference
+    mut ctx: Option<&mut NightPhaseContext>,
     shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read binary BakeRequest (16 bytes)
     let mut req_buf = [0u8; 16];
     stream.read_exact(&mut req_buf)?;
-    
+
     let req: &genesis_core::ipc::BakeRequest = unsafe { &*(req_buf.as_ptr() as *const _) };
     if req.magic != genesis_core::ipc::BAKE_MAGIC {
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
-    
+
     println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
 
     // [DOD FIX] Читаем карту владельцев призраков (Origin Tracking)
@@ -374,10 +314,10 @@ fn run_night_phase<S: Read + Write>(
     let h_off = hdr.handovers_offset as usize;
     let f_off = hdr.flags_offset as usize; // [DOD FIX] Flags extraction
     let h_count = hdr.handovers_count as usize;
-    let slot_n = padded_n * MAX_DENDRITE_SLOTS;
+    let slot_n = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
 
     let h_count_max = genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT as usize;
-    
+
     // 3. Obtain slices directly from SHM (Zero-Copy)
     let (weights, targets, flags, handovers) = unsafe {
         let w_ptr = shm_ptr.add(w_off) as *mut i32;
@@ -466,39 +406,29 @@ fn run_night_phase<S: Read + Write>(
     if let Some(ctx) = ctx.as_deref_mut() {
         // [DOD FIX] Асинхронный сброс грязных страниц на SSD (Crash Tolerance).
         // Не блокирует поток, ОС сама скинет данные на диск в фоне.
-        let _ = ctx._paths_mmap.flush_async();
         let _ = ctx._geom_mmap.flush_async();
+        let _ = ctx._paths_mmap.flush_async();
     }
 
-    // println!("   ↳ Sprouted {} new synapses, handovers: {}", new_synapses, generated_handovers);
+    // 5. Send ACK
+    let ack_magic = genesis_core::ipc::BAKE_READY_MAGIC;
+    stream.write_all(&ack_magic.to_le_bytes())?;
 
-    // 5. GSOP Plasticity / Ghost Integration (TODO/Placeholders)
-    // Here we would use `handovers` for GSOP or Growth logic.
-    // For now, mirroring the task's focus on IPC.
+    // Отправляем количество сгенерированных ACK-ответов
+    let ack_count = acks.len() as u32;
+    stream.write_all(&ack_count.to_le_bytes())?;
 
-    // 6. Signal Done via Shared Memory state
-    unsafe {
-        shm_ptr.add(5).write_volatile(ShmState::NightDone as u8);
-    }
-
-    // 7. Binary Acknowledgement с Payload'ом
-    let ack_magic = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
-    stream.write_all(&ack_magic)?;
-    
-    // [DOD FIX] Эта запись ОБЯЗАНА быть снаружи if! 
-    // Клиент всегда ждет 4 байта длины, даже если она 0.
-    let acks_count = acks.len() as u32;
-    stream.write_all(&acks_count.to_le_bytes())?;
-    
-    if acks_count > 0 {
-        let ack_bytes = unsafe { 
-            std::slice::from_raw_parts(acks.as_ptr() as *const u8, acks.len() * std::mem::size_of::<genesis_core::ipc::AxonHandoverAck>()) 
+    // Отправляем сами ACK (Lock-Free Memory Layout)
+    if ack_count > 0 {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                acks.as_ptr() as *const u8,
+                acks.len() * std::mem::size_of::<genesis_core::ipc::AxonHandoverAck>()
+            )
         };
-        stream.write_all(ack_bytes)?;
+        stream.write_all(bytes)?;
     }
-    stream.flush()?;
 
-    // println!("🌅 Night Phase complete ({} new synapses)", new_synapses);
+    stream.flush()?;
     Ok(())
 }
-

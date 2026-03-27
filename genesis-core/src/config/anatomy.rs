@@ -1,15 +1,15 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Полный `anatomy.toml` — список слоёв зоны.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AnatomyConfig {
     #[serde(rename = "layer")]
     pub layers: Vec<LayerConfig>,
 }
 
 /// Один [[layer]] блок из anatomy.toml.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LayerConfig {
     /// Имя слоя, например "L1", "L4", "Nuclear".
     pub name: String,

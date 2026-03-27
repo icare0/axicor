@@ -5,19 +5,26 @@ from typing import Dict, Any
 from .builder import IoMatrixDesigner
 from .encoders import PopulationEncoder, PwmEncoder
 from .decoders import PwmDecoder, PopulationDecoder
-from .brain import fnv1a_32
+from .axic import AxicReader
+from .utils import fnv1a_32 # DOD FIX: Исправлен Circular Import
 
 class GenesisIoContract:
-    def __init__(self, zone_baked_dir: str, zone_name: str):
+    def __init__(self, axic_path: str, zone_name: str):
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
+        reader = AxicReader(axic_path)
         
-        # SDK сам знает внутреннюю структуру компилятора
-        io_toml_path = os.path.join(zone_baked_dir, "BrainDNA", "io.toml")
-        if not os.path.exists(io_toml_path):
-            raise FileNotFoundError(f"FATAL: BrainDNA I/O manifest NOT FOUND at {io_toml_path}")
+        # [DOD] SDK загружает манифест из архива. 
+        # Путь в архиве: {zone_name}/io.toml (копируется в BrainDNA при бакинге)
+        # UPDATE: Инструкция говорит f"{zone_name}/io.toml"
+        io_bytes = reader.read_file(f"{zone_name}/io.toml")
+        if not io_bytes:
+            # Попробуем альтернативный путь если первый не сработал (совместимость)
+            io_bytes = reader.read_file(f"baked/{zone_name}/BrainDNA/io.toml")
             
-        with open(io_toml_path, "r", encoding="utf-8") as f:
-            self.data = toml.load(f)
+        if not io_bytes:
+            raise FileNotFoundError(f"io.toml not found in {axic_path} for zone {zone_name}")
+            
+        self.data = toml.loads(io_bytes.decode('utf-8'))
         
         self.inputs = {inp["name"]: inp for inp in self.data.get("input", [])}
         self.outputs = {out["name"]: out for out in self.data.get("output", [])}

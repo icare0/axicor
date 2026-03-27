@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::SystemTime;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -36,29 +36,58 @@ pub struct BootResult {
 /// Этот метод реализует O(1) деривацию размеров на основе файлового контракта:
 /// - .state: 910 байта на нейрон (SoA)
 /// - .axons: 32 байта на аксон (BurstHeads8)
-pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result<(ShardEngine, Vec<u32>)> {
-    let chk_state = baked_dir.join("checkpoint.state");
-    let chk_axons = baked_dir.join("checkpoint.axons");
-    let base_state = baked_dir.join("shard.state");
-    let base_axons = baked_dir.join("shard.axons");
+pub fn boot_shard_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: &str, manifest: &ZoneManifest, project_name: &str) -> Result<(ShardEngine, Vec<u32>, PathBuf)> {
+    // DOD FIX: Паттерн ROM / SRAM
+    let mem_zone_dir = PathBuf::from("Genesis-Models")
+        .join(format!("{}.axic.mem", project_name))
+        .join(zone_name);
 
-    // [DOD FIX] Strict Causal Continuity: Загружаем только синхронизированную пару
-    let (state_path, axons_path) = if chk_state.exists() && chk_axons.exists() {
-        println!("[Boot] 💾 Resuming from matched checkpoints (State + Active Tails)");
-        (chk_state, chk_axons)
+    std::fs::create_dir_all(&mem_zone_dir)?;
+
+    let state_path = mem_zone_dir.join("shard.state");
+    let axons_path = mem_zone_dir.join("shard.axons");
+
+    let (state_blob, axons_blob) = if state_path.exists() && axons_path.exists() {
+        println!("[Boot] 💾 Resuming from SRAM: {:?}", mem_zone_dir);
+        (std::fs::read(&state_path)?, std::fs::read(&axons_path)?)
     } else {
-        (base_state, base_axons)
-    };
+        println!("[Boot] 🆕 Unpacking ROM to SRAM for zone {}", zone_name);
+        
+        let state_vfs_path = format!("baked/{}/shard.state", zone_name);
+        let axons_vfs_path = format!("baked/{}/shard.axons", zone_name);
 
-    let state_blob = std::fs::read(&state_path)
-        .with_context(|| format!("FATAL: Missing .state file at {:?}", state_path))?;
-    let axons_blob = std::fs::read(&axons_path)
-        .with_context(|| format!("FATAL: Missing .axons file at {:?}", axons_path))?;
+        let state = archive.get_file(&state_vfs_path)
+            .with_context(|| format!("FATAL: Missing {} in archive", state_vfs_path))?.to_vec();
+        let axons = archive.get_file(&axons_vfs_path)
+            .with_context(|| format!("FATAL: Missing {} in archive", axons_vfs_path))?.to_vec();
+            
+        std::fs::write(&state_path, &state)?;
+        std::fs::write(&axons_path, &axons)?;
+
+        // Выгружаем геометрию для Демона Пластичности
+        if let Some(geom) = archive.get_file(&format!("baked/{}/shard.geom", zone_name)) {
+            std::fs::write(mem_zone_dir.join("shard.geom"), geom)?;
+        }
+        if let Some(paths) = archive.get_file(&format!("baked/{}/shard.paths", zone_name)) {
+            std::fs::write(mem_zone_dir.join("shard.paths"), paths)?;
+        }
+
+        // DOD FIX: Распаковываем ДНК в SRAM для Демона
+        let brain_dna_dir = mem_zone_dir.join("BrainDNA");
+        std::fs::create_dir_all(&brain_dna_dir)?;
+        for file in ["simulation.toml", "blueprints.toml", "anatomy.toml", "shard.toml"] {
+            if let Some(data) = archive.get_file(&format!("baked/{}/BrainDNA/{}", zone_name, file)) {
+                std::fs::write(brain_dna_dir.join(file), data)?;
+            }
+        }
+
+        (state, axons)
+    };
 
     assert!(
         axons_blob.len() % 32 == 0,
-        "C-ABI Alignment Violation: .axons file size ({}) is not a multiple of 32 bytes. Path: {:?}",
-        axons_blob.len(), axons_path
+        "C-ABI Alignment Violation: .axons size ({}) is not a multiple of 32 bytes for zone {}",
+        axons_blob.len(), zone_name
     );
 
     // [DOD FIX] Hardware pre-allocation for Dynamic Capacity Routing.
@@ -76,8 +105,8 @@ pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result
     let (_, expected_state_size) = calculate_state_blob_size(padded_n as usize);
     if state_blob.len() != expected_state_size {
         anyhow::bail!(
-            "FATAL: .state blob size mismatch for {:?}. Expected {}, got {}. Corruption or version skew!",
-            state_path, expected_state_size, state_blob.len()
+            "FATAL: .state blob size mismatch for zone {}. Expected {}, got {}. Corruption or version skew!",
+            zone_name, expected_state_size, state_blob.len()
         );
     }
 
@@ -93,29 +122,23 @@ pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result
     vram.upload_state(&state_blob);
     vram.upload_axon_heads(&axons_blob);
 
-    Ok((ShardEngine::new(vram), soma_to_axon))
+    Ok((ShardEngine::new(vram), soma_to_axon, mem_zone_dir))
 }
 
 impl Bootloader {
     /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
-    pub async fn boot_node(manifest_paths: &[PathBuf], telemetry: Arc<crate::tui::state::LockFreeTelemetry>) -> Result<BootResult> {
-        Self::boot_node_with_profile(manifest_paths, telemetry, crate::CpuProfile::Aggressive).await
+    pub async fn boot_node(archive: Arc<genesis_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>) -> Result<BootResult> {
+        Self::boot_node_with_profile(archive, project_name, zone_names, telemetry, crate::CpuProfile::Aggressive).await
     }
 
-    pub async fn boot_node_with_profile(manifest_paths: &[PathBuf], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
+    pub async fn boot_node_with_profile(archive: Arc<genesis_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
         // 1. Data/Config Phase: Load brain and simulation configs
-        let mut zone_manifests_with_paths = Vec::new();
+        let mut zone_manifests_with_names = Vec::new();
         let mut sim_config = None;
         let mut manifest_metadata = HashMap::new();
         
-        for path in manifest_paths {
-            let root_dir: &Path = path.parent().unwrap_or(Path::new("."));
-            let (zm, sc) = Self::parse_manifests(path, root_dir)?;
-            
-            // [DOD FIX] Initialize Hot-Reload metadata
-            let last_modified = std::fs::metadata(path)
-                .and_then(|m| m.modified())
-                .unwrap_or_else(|_| SystemTime::now());
+        for zone_name in zone_names {
+            let (zm, sc) = Self::parse_manifests_from_vfs(&archive, zone_name)?;
             
             let atomic_settings = Arc::new(crate::node::shard_thread::ShardAtomicSettings {
                 night_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.night_interval_ticks),
@@ -125,41 +148,36 @@ impl Bootloader {
             });
 
             manifest_metadata.insert(zm.zone_hash, crate::node::ShardMetadata {
-                manifest_path: path.clone(),
-                last_modified,
+                manifest_path: PathBuf::from(zone_name), // Virtual path
+                last_modified: SystemTime::now(), // VFS is immutable during runtime
                 atomic_settings,
             });
 
-            zone_manifests_with_paths.push((zm.clone(), root_dir.to_path_buf()));
+            zone_manifests_with_names.push((zm.clone(), zone_name.clone()));
             if sim_config.is_none() {
                 sim_config = Some(sc);
             }
-
-            // [TUI] Initialize ZoneMetrics
-            // Note: In the new system, Shards report spikes directly to the telemetry via hash.
-            // DashboardState (the rendering view) will likely need to be updated to match.
-            // For now, we only need to ensure the telemetry object is shared correctly.
         }
         
-        let sim_config = sim_config.context("No manifests provided")?;
+        let sim_config = sim_config.context("No zones provided")?;
 
         let sync_batch_ticks = sim_config.simulation.sync_batch_ticks;
         let cluster_secret = genesis_core::seed::seed_from_str(&sim_config.simulation.master_seed); // [DOD FIX]
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
-            Self::load_all_shards_into_vram(&zone_manifests_with_paths, sync_batch_ticks)?;
+            Self::load_all_shards_into_vram_vfs(&archive, project_name, &zone_manifests_with_names, sync_batch_ticks)?;
 
-        let first_manifest = zone_manifests_with_paths[0].0.clone();
+        let first_manifest = zone_manifests_with_names[0].0.clone();
         unsafe { Self::flash_hardware_physics(&first_manifest)? };
 
         // 3. Topology Interconnect: Build local and remote routing channels
         let (intra_gpu_channels, inter_node_channels, expected_peers) = 
-            Self::build_routing_channels(&zone_manifests_with_paths, &s2a_maps, &axon_head_ptrs)?;
+            Self::build_routing_channels_vfs(&archive, &zone_manifests_with_names, &s2a_maps, &axon_head_ptrs)?;
 
         // [DOD FIX] Прошиваем таблицу маршрутизации для межзонального Egress
         let mut initial_routes = HashMap::new();
-        for (zm, _) in &zone_manifests_with_paths {
+        for (zm, _) in &zone_manifests_with_names {
             for conn in &zm.connections {
                 let src_hash = genesis_core::hash::fnv1a_32(conn.from.as_bytes());
                 let dst_hash = genesis_core::hash::fnv1a_32(conn.to.as_bytes());
@@ -221,38 +239,27 @@ impl Bootloader {
         })
     }
 
-    fn parse_manifests(manifest_path: &Path, _root_dir: &Path) -> Result<(ZoneManifest, genesis_core::config::SimulationConfig)> {
-        let manifest_toml = std::fs::read_to_string(manifest_path).map_err(|e| {
-            let hint = if e.kind() == std::io::ErrorKind::NotFound {
-                "\nHint: Run 'cargo run --release -p genesis-baker --bin baker -- --brain config/brain.toml' first to create baked artifacts."
-            } else {
-                ""
-            };
-            anyhow::anyhow!("Failed to read manifest: {:?}{}", manifest_path, hint)
-        })?;
+    fn parse_manifests_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: &str) -> Result<(ZoneManifest, genesis_core::config::SimulationConfig)> {
+        let manifest_vfs_path = format!("baked/{}/manifest.toml", zone_name);
+        let manifest_bytes = archive.get_file(&manifest_vfs_path)
+            .with_context(|| format!("Failed to find manifest for zone {} at {}", zone_name, manifest_vfs_path))?;
         
-        let zone_manifest: ZoneManifest = toml::from_str(&manifest_toml)
-            .with_context(|| format!("Failed to parse zone manifest: {:?}", manifest_path))?;
+        let zone_manifest: ZoneManifest = toml::from_str(std::str::from_utf8(manifest_bytes)?)
+            .with_context(|| format!("Failed to parse zone manifest for {}", zone_name))?;
 
         let sim_ref = zone_manifest.simulation.as_ref().context("ZoneManifest missing simulation reference")?;
-        let sim_path = manifest_path.parent().unwrap().join(&sim_ref.config);
+        // В архиве simulation.toml лежит в корне или по пути из манифеста. 
+        // Бейкер кладет его в BrainDNA/simulation.toml внутри папки зоны.
+        let sim_vfs_path = format!("baked/{}/{}", zone_name, sim_ref.config.to_string_lossy());
         
-        println!("[Boot] Loading Simulation Config from: {:?}", sim_path);
-        let sim_toml = std::fs::read_to_string(&sim_path)
-            .with_context(|| format!("Failed to read simulation.toml at {:?}", sim_path))?;
-        let sim_config: genesis_core::config::SimulationConfig = toml::from_str(&sim_toml)
+        let sim_bytes = archive.get_file(&sim_vfs_path)
+            .with_context(|| format!("Failed to read simulation.toml at {}", sim_vfs_path))?;
+        let sim_config: genesis_core::config::SimulationConfig = toml::from_str(std::str::from_utf8(sim_bytes)?)
             .context("Failed to parse simulation.toml")?;
         
         Ok((zone_manifest, sim_config))
     }
 
-    fn _load_zone_manifest(root_dir: &Path, zones: &[genesis_core::config::brain::ZoneEntry]) -> Result<ZoneManifest> {
-        let first_manifest_path = root_dir.join(&zones[0].baked_dir).join("manifest.toml");
-        let manifest_toml = std::fs::read_to_string(&first_manifest_path)
-            .with_context(|| format!("Failed to read zone manifest: {:?}", first_manifest_path))?;
-        let manifest: ZoneManifest = toml::from_str(&manifest_toml)?;
-        Ok(manifest)
-    }
 
     unsafe fn flash_hardware_physics(first_manifest: &ZoneManifest) -> Result<()> {
         let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];
@@ -271,7 +278,7 @@ impl Bootloader {
         Ok(())
     }
 
-    fn load_all_shards_into_vram(zone_manifests_with_paths: &[(ZoneManifest, PathBuf)], sync_batch_ticks: u32) 
+    fn load_all_shards_into_vram_vfs(archive: &genesis_core::vfs::AxicArchive, project_name: &str, zone_manifests_with_names: &[(ZoneManifest, String)], sync_batch_ticks: u32) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32, usize, usize)>>)> 
     {
         // [DOD FIX] Явно биндим контекст устройства к главному потоку перед загрузкой!
@@ -284,25 +291,22 @@ impl Bootloader {
         let mut axon_head_ptrs = HashMap::new();
         let mut s2a_maps = HashMap::new();
 
-        for (zone_manifest, root_dir) in zone_manifests_with_paths {
-            let baked_dir = root_dir.clone();
+        for (zone_manifest, zone_name) in zone_manifests_with_names {
             let zone_hash = zone_manifest.zone_hash;
 
-            println!("[Boot] Loading Local Zone at {:?}", baked_dir);
-            let (engine, s2a) = boot_shard_from_disk(&baked_dir, zone_manifest)?;
+            println!("[Boot] Loading Local Zone {} from VFS", zone_name);
+            let (engine, s2a, mem_zone_dir) = boot_shard_from_vfs(archive, zone_name, zone_manifest, project_name)?;
 
             axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
             s2a_maps.insert(zone_hash, s2a);
 
-            let dna_dir = baked_dir.join("BrainDNA");
-            let io_config_path = dna_dir.join("io.toml");
-
+            let io_vfs_path = format!("baked/{}/BrainDNA/io.toml", zone_name);
             let mut expected_inputs = false;
             let mut expected_outputs = false;
             let mut matrix_offsets = HashMap::new();
 
-            if io_config_path.exists() {
-                if let Ok(io_config) = genesis_core::config::io::IoConfig::load(&io_config_path) {
+            if let Some(io_bytes) = archive.get_file(&io_vfs_path) {
+                if let Ok(io_config) = genesis_core::config::io::IoConfig::parse(std::str::from_utf8(io_bytes)?) {
                     expected_inputs = !io_config.inputs.is_empty();
                     expected_outputs = !io_config.outputs.is_empty();
 
@@ -330,37 +334,37 @@ impl Bootloader {
                             println!("[Boot] Registered Output Route: {} (0x{:08X}) -> {}", output.name, hash, target);
                         }
                         current_pixel_offset += chunk_pixels;
-                    }                }
+                    }
+                }
             }
 
             // [DOD FIX] virtual_offset must be valid even for zones without external I/O
             let virtual_offset = engine.vram.virtual_offset();
-            let gxi_path = baked_dir.join("shard.gxi");
+            
             let num_virtual_axons = if expected_inputs {
-                if !gxi_path.exists() {
-                    anyhow::bail!("FATAL: Zone expects inputs but {:?} is missing!", gxi_path);
-                }
-                let gxi = GxiFile::load(&gxi_path);
+                let gxi_vfs_path = format!("baked/{}/shard.gxi", zone_name);
+                let gxi_bytes = archive.get_file(&gxi_vfs_path)
+                    .with_context(|| format!("FATAL: Zone {} expects inputs but {} is missing from archive!", zone_name, gxi_vfs_path))?;
+                let gxi = GxiFile::load_from_bytes(gxi_bytes);
                 gxi.total_pixels
             } else {
                 0
             };
 
-            let gxo_path = baked_dir.join("shard.gxo");
             let (num_outputs, mapped_soma_ids_host) = if expected_outputs {
-                if !gxo_path.exists() {
-                    anyhow::bail!("FATAL: Zone expects outputs but {:?} is missing!", gxo_path);
-                }
-                let gxo = GxoFile::load(&gxo_path);
+                let gxo_vfs_path = format!("baked/{}/shard.gxo", zone_name);
+                let gxo_bytes = archive.get_file(&gxo_vfs_path)
+                    .with_context(|| format!("FATAL: Zone {} expects outputs but {} is missing from archive!", zone_name, gxo_vfs_path))?;
+                let gxo = GxoFile::load_from_bytes(gxo_bytes);
                 (gxo.total_pixels, Some(gxo.soma_ids))
             } else {
                 (0, None)
             };
 
-            let pos_path = baked_dir.join("shard.pos");
-            let pos_blob = std::fs::read(&pos_path)
-                .with_context(|| format!("Failed to read shard.pos: {:?}", pos_path))?;
-            let geo_data: Vec<u32> = pos_blob.chunks_exact(4)
+            let pos_vfs_path = format!("baked/{}/shard.pos", zone_name);
+            let pos_bytes = archive.get_file(&pos_vfs_path)
+                .with_context(|| format!("Failed to read {} from archive", pos_vfs_path))?;
+            let geo_data: Vec<u32> = pos_bytes.chunks_exact(4)
                 .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
                 .collect();
             all_geo_data.extend(geo_data);
@@ -377,10 +381,11 @@ impl Bootloader {
                 matrix_offsets,
             };
 
-            let instance_path = dna_dir.join("shard.toml");
-            let instance_config = genesis_core::config::InstanceConfig::load(&instance_path)
-                .map_err(anyhow::Error::msg)
-                .with_context(|| format!("Failed to load InstanceConfig from {:?}", instance_path))?;
+            let shard_toml_vfs_path = format!("baked/{}/BrainDNA/shard.toml", zone_name);
+            let shard_toml_bytes = archive.get_file(&shard_toml_vfs_path)
+                .with_context(|| format!("Failed to load {} from archive", shard_toml_vfs_path))?;
+            let instance_config = genesis_core::config::InstanceConfig::parse(std::str::from_utf8(shard_toml_bytes)?)
+                .map_err(anyhow::Error::msg)?;
 
             let incoming_grow = Arc::new(SegQueue::new());
 
@@ -393,7 +398,7 @@ impl Bootloader {
                 virtual_offset,
                 num_outputs,
                 mapped_soma_ids_host,
-                baked_dir,
+                baked_dir: mem_zone_dir, // Using SRAM path
                 config: instance_config,
                 v_seg,
                 incoming_grow,
@@ -404,8 +409,9 @@ impl Bootloader {
         Ok((engines, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes))
     }
 
-    fn build_routing_channels(
-        zone_manifests_with_paths: &[(ZoneManifest, PathBuf)],
+    fn build_routing_channels_vfs(
+        archive: &genesis_core::vfs::AxicArchive,
+        zone_manifests_with_names: &[(ZoneManifest, String)],
         s2a_maps: &HashMap<u32, Vec<u32>>,
         axon_head_ptrs: &HashMap<u32, *mut genesis_core::layout::BurstHeads8>
     ) -> Result<(
@@ -418,10 +424,8 @@ impl Bootloader {
         let mut expected_peers = 0;
 
         let mut all_connections = Vec::new();
-        let mut receiver_dirs: HashMap<u32, PathBuf> = HashMap::new();
         let mut receiver_manifests: HashMap<u32, &ZoneManifest> = HashMap::new();
-        for (zm, path) in zone_manifests_with_paths {
-            receiver_dirs.insert(zm.zone_hash, path.clone());
+        for (zm, _) in zone_manifests_with_names {
             receiver_manifests.insert(zm.zone_hash, zm);
             all_connections.extend(zm.connections.clone());
         }
@@ -445,21 +449,19 @@ impl Bootloader {
             if !is_src_local { continue; } // Outbound routing from remote source doesn't concern us
 
             // [DOD FIX] Ghost file lives in RECEIVER's baked_dir, not sender's.
-            // For outbound connections we don't need ghost data — just the routing table.
             if !is_dst_local {
                 println!("[Boot] Outbound connection {} -> {} (routing only, no local ghost file needed)", conn.from, conn.to);
                 continue;
             }
 
-            // We are the RECEIVER (is_dst_local). Ghost file must be in OUR baked_dir.
-            let root_dir = receiver_dirs.get(&dst_hash).unwrap();
+            // We are the RECEIVER (is_dst_local). Ghost file must be in OUR baked_dir in archive.
             let receiver_manifest = receiver_manifests.get(&dst_hash).unwrap();
             let capacity = receiver_manifest.memory.ghost_capacity as u32;
-            let ghosts_path = root_dir.join(format!("{}_{}.ghosts", conn.from, conn.to));
+            let ghosts_vfs_path = format!("baked/{}/{}_{}.ghosts", conn.to, conn.from, conn.to);
 
-            if ghosts_path.exists() {
-                let (src_somas, dst_ghosts) = load_ghosts(&ghosts_path);
-                println!("[Ghosts] Successfully loaded {} links from {:?}", src_somas.len(), ghosts_path);
+            if let Some(ghosts_bytes) = archive.get_file(&ghosts_vfs_path) {
+                let (src_somas, dst_ghosts) = load_ghosts(ghosts_bytes);
+                println!("[Ghosts] Successfully loaded {} links from archive: {}", src_somas.len(), ghosts_vfs_path);
                 let s2a = s2a_maps.get(&src_hash).context("S2A map missing for source zone")?;
 
                 let mut src_axons = Vec::with_capacity(src_somas.len());
@@ -477,8 +479,7 @@ impl Bootloader {
                 intra_gpu.push((src_ptr, dst_ptr, channel));
                 println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links, capacity: {})", conn.from, conn.to, src_axons.len(), capacity);
             } else {
-                // В режиме Ant-v4 это критично!
-                panic!("CRITICAL TOPOLOGY ERROR: Incoming ghost file not found: {:?}", ghosts_path);
+                panic!("CRITICAL TOPOLOGY ERROR: Incoming ghost file not found in archive: {}", ghosts_vfs_path);
             }
         }
         Ok((intra_gpu, inter_node, expected_peers))

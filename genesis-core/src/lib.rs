@@ -12,6 +12,7 @@ pub mod seed;
 pub mod signal;
 pub mod time;
 pub mod types;
+pub mod vfs;
 
 #[cfg(test)]
 #[path = "test_gsop_math.rs"]

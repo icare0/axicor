@@ -47,8 +47,12 @@ pub fn parse_brain_config(path: &std::path::Path) -> Result<BrainConfig, String>
     let content = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read brain config file at {:?}: {}", path, e))?;
 
-    let config: BrainConfig = toml::from_str(&content)
-        .map_err(|e| format!("Failed to parse brain config file {:?}: {}", path, e))?;
+    parse_brain_config_from_str(&content)
+}
+
+pub fn parse_brain_config_from_str(content: &str) -> Result<BrainConfig, String> {
+    let config: BrainConfig = toml::from_str(content)
+        .map_err(|e| format!("Failed to parse brain config from string: {}", e))?;
 
     Ok(config)
 }

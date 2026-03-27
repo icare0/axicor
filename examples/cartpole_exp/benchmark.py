@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from genesis.client import GenesisMultiClient
 from genesis.memory import GenesisMemory
-from genesis.brain import fnv1a_32
+from genesis.utils import fnv1a_32
 
 #============================================================
 #                   BENCHMARK CONFIG

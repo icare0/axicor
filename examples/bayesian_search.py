@@ -20,8 +20,7 @@ from genesis.client import GenesisMultiClient
 from genesis.encoders import PopulationEncoder
 from genesis.decoders import PwmDecoder
 from genesis.control import GenesisControl
-from genesis.memory import GenesisMemory
-from genesis.brain import fnv1a_32
+from genesis.utils import fnv1a_32
 from genesis.contract import GenesisIoContract
 
 # ==========================================

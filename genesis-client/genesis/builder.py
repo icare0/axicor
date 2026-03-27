@@ -391,7 +391,7 @@ class BrainBuilder:
             
         # 2. Генерируем brain.toml (Топология)
         brain_config = {
-            "simulation": {"config": str(sim_path.absolute())},
+            "simulation": {"config": "simulation.toml"},
             "zone": [],
             "connection": self.connections
         }
@@ -402,13 +402,14 @@ class BrainBuilder:
             zone_dir = self.output_dir / zone.name
             zone_dir.mkdir(exist_ok=True)
             
+            # DOD FIX: Строгие относительные пути для портативности .axic архивов!
             brain_config["zone"].append({
                 "name": zone.name,
-                "blueprints": str((zone_dir / "blueprints.toml").absolute()),
-                "anatomy": str((zone_dir / "anatomy.toml").absolute()),
-                "shard": str((zone_dir / "shard.toml").absolute()),
-                "io": str((zone_dir / "io.toml").absolute()),
-                "baked_dir": str((self.output_dir / "baked" / zone.name).absolute())
+                "blueprints": f"{zone.name}/blueprints.toml",
+                "anatomy": f"{zone.name}/anatomy.toml",
+                "shard": f"{zone.name}/shard.toml",
+                "io": f"{zone.name}/io.toml",
+                "baked_dir": f"baked/{zone.name}/"
             })
             
             anatomy_data = {"layer": []}

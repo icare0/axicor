@@ -35,13 +35,12 @@ pub enum CpuProfile {
     version
 )]
 struct Cli {
-    /// Путь к файлу brain.toml для автоматического запуска всех зон
-    #[arg(long)]
-    pub brain: Option<PathBuf>,
+    /// Путь к архиву .axic
+    pub archive: PathBuf,
 
-    /// Пути к манифестам зон (можно использовать вместе или вместо --brain)
-    #[arg(long = "manifest")]
-    pub manifests: Vec<PathBuf>,
+    /// Конкретные зоны для запуска (если не указано - запускаются все из архива)
+    #[arg(long = "zone")]
+    pub zones: Vec<String>,
 
     #[arg(long, default_value = "9000")]
     pub fast_path_port: u16,
@@ -67,45 +66,44 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
-        let mut manifest_paths = cli.manifests.clone();
+        println!("📦 Opening Axic Archive: {:?}", cli.archive);
+        let archive = Arc::new(genesis_core::vfs::AxicArchive::open(&cli.archive)
+            .context("Failed to open AXIC archive")?);
 
-        // Если указан --brain, читаем топологию и добавляем все манифесты автоматически
-        if let Some(brain_arg) = cli.brain {
-            // Умный резолвер путей (Convention over Configuration)
-            let brain_path = if brain_arg.exists() || brain_arg.to_string_lossy().ends_with(".toml") {
-                brain_arg // Это явный путь к файлу
-            } else {
-                // Это просто имя модели (например, "mouse_agent")
-                let models_root = std::env::var("GENESIS_MODELS_PATH")
-                    .unwrap_or_else(|_| {
-                        if std::path::Path::new("Genesis-Models").exists() {
-                            "Genesis-Models".to_string()
-                        } else {
-                            "Genesis_Models".to_string()
-                        }
-                    });
-                std::path::PathBuf::from(models_root).join(brain_arg).join("brain.toml")
-            };
+        // 2. Load topology from archive
+        let brain_bytes = archive.get_file("brain.toml")
+            .context("brain.toml not found in archive")?;
+        let brain_cfg = genesis_core::config::brain::parse_brain_config_from_str(std::str::from_utf8(brain_bytes)?)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
-            println!("🧠 Loading cluster topology from: {:?}", brain_path);
-            match genesis_core::config::brain::parse_brain_config(&brain_path) {
-                Ok(brain_cfg) => {
-                    for zone in brain_cfg.zones {
-                        let manifest_path = zone.baked_dir.join("manifest.toml");
-                        println!("  + Discovered zone: {} -> {:?}", zone.name, manifest_path);
-                        manifest_paths.push(manifest_path);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("❌ FATAL: Failed to parse brain config: {}", e);
-                    std::process::exit(1);
+        let mut zones_to_boot = Vec::new();
+        if cli.zones.is_empty() {
+            // Запускаем все зоны из конфига
+            for zone in &brain_cfg.zones {
+                zones_to_boot.push(zone.name.clone());
+            }
+        } else {
+            // Фильтруем по запросу пользователя
+            for zone_name in &cli.zones {
+                if brain_cfg.zones.iter().any(|z| &z.name == zone_name) {
+                    zones_to_boot.push(zone_name.clone());
+                } else {
+                    anyhow::bail!("Zone {} not found in archive", zone_name);
                 }
             }
         }
 
-        if manifest_paths.is_empty() {
-            eprintln!("❌ FATAL: No manifests provided. Use --brain <path/to/brain.toml> or --manifest <path>");
-            std::process::exit(1);
+        // 3. Export manifests to /dev/shm for SDK compatibility
+        for zone_name in &zones_to_boot {
+            let zone_name: &String = zone_name;
+            let zone_hash = genesis_core::hash::fnv1a_32(zone_name.as_bytes());
+            let manifest_shm_path = format!("/dev/shm/genesis_manifest_{:08X}.toml", zone_hash);
+            
+            let manifest_vfs_path = format!("baked/{}/manifest.toml", zone_name);
+            if let Some(manifest_bytes) = archive.get_file(&manifest_vfs_path) {
+                std::fs::write(&manifest_shm_path, manifest_bytes)
+                    .with_context(|| format!("Failed to export manifest to {}", manifest_shm_path))?;
+            }
         }
 
         // 0. Initialize CLI Monitor (TUI or Log)
@@ -114,8 +112,10 @@ fn main() -> Result<()> {
 
         println!("[Node] Starting Genesis Distributed Daemon...");
         
+        let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
+        
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node_with_profile(&manifest_paths, telemetry.clone(), cli.cpu_profile).await
+        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, telemetry.clone(), cli.cpu_profile).await
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join

@@ -1,5 +1,4 @@
 use genesis_core::constants::GXI_MAGIC;
-use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct GxiMatrix {
@@ -18,9 +17,8 @@ pub struct GxiFile {
 }
 
 impl GxiFile {
-    pub fn load(path: &Path) -> Self {
-        let bytes = std::fs::read(path).expect("Fatal: Failed to read .gxi file");
-        assert!(bytes.len() >= 12, "Fatal: .gxi file too small");
+    pub fn load_from_bytes(bytes: &[u8]) -> Self {
+        assert!(bytes.len() >= 12, "Fatal: .gxi data too small");
 
         unsafe {
             let ptr = bytes.as_ptr();

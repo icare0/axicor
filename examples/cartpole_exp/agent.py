@@ -32,8 +32,10 @@ def run_cartpole():
     # ============================================================
     # 1. Multi-Port Binding (Zero-Copy Contracts)
     # ============================================================
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/cartpole_exp/baked"))
-    contract = GenesisIoContract(os.path.join(base_dir, "MotorCortex"), "MotorCortex")
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models"))
+    axic_path = os.path.join(base_dir, "cartpole_exp.axic")
+
+    contract = GenesisIoContract(axic_path, "MotorCortex")
     
     client_cfg = contract.get_client_config(BATCH_SIZE)
     client = GenesisMultiClient(addr=("127.0.0.1", 8081), **client_cfg)
@@ -48,7 +50,7 @@ def run_cartpole():
     # 2. RL Реактор (State Machine & Telemetry)
     # ============================================================
     print("🧬 Инициализация Авто-Тюнера и SHM...")
-    ctrl = GenesisControl(os.path.join(base_dir, "MotorCortex", "manifest.toml"))
+    ctrl = GenesisControl(axic_path, "MotorCortex")
     # [DOD FIX] Агрессивный базовый прунинг
     ctrl.set_night_interval(30_000)
     ctrl.set_prune_threshold(1000)
@@ -173,7 +175,7 @@ def run_cartpole():
                 # Оркестратор Ноды увидит это изменение и сам сделает gpu_memcpy_device_to_host
                 ctrl.set_checkpoints_interval(BATCH_SIZE)
                 
-                print("💾 VRAM-дамп форсирован. Ожидайте 'checkpoint.state' на диске в папке baked/MotorCortex/")
+                print("💾 VRAM-дамп форсирован. Оркестратор Node сохранит checkpoint в рабочую директорию.")
                 print("⚠️ Вы можете остановить этот скрипт (Ctrl+C). Затем запустите distill_esp32.py для экспорта на микроконтроллер!")
                 
                 is_crystallized = True

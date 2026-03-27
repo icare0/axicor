@@ -20,12 +20,12 @@ python3 examples/FLY_exp/build_brain.py
 
 # Для NVIDIA (CUDA)
 ```bash
-cargo run --release -p genesis-node -- --brain FLY_exp --cpu-profile balanced --log
+cargo run --release -p genesis-node -- Genesis-Models/FLY_exp.axic --cpu-profile balanced --log
 ```
 
 # Для AMD (ROCm / HIP)
 ```bash
-cargo run --release -p genesis-node --features amd -- --brain FLY_exp --cpu-profile balanced --log
+cargo run --release -p genesis-node --features amd -- Genesis-Models/FLY_exp.axic --cpu-profile balanced --log
 ```
 
 **Шаг 3. Подключите среду (RL Agent)**

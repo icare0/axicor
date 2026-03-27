@@ -1,5 +1,4 @@
 use genesis_core::constants::GXO_MAGIC;
-use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct GxoMatrix {
@@ -18,9 +17,8 @@ pub struct GxoFile {
 }
 
 impl GxoFile {
-    pub fn load(path: &Path) -> Self {
-        let bytes = std::fs::read(path).expect("Fatal: Failed to read .gxo file");
-        assert!(bytes.len() >= 12, "Fatal: .gxo file too small");
+    pub fn load_from_bytes(bytes: &[u8]) -> Self {
+        assert!(bytes.len() >= 12, "Fatal: .gxo data too small");
                 
         unsafe {
             let ptr = bytes.as_ptr();

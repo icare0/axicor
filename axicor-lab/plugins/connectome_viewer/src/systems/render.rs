@@ -1,0 +1,49 @@
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
+use layout_api::{AllocatedPanes, PluginWindow};
+
+pub fn render_connectome_viewer_system(
+    mut contexts: EguiContexts,
+    allocated: Res<AllocatedPanes>,
+    window_query: Query<&PluginWindow>,
+) {
+    let Some(rect) = allocated.rects.get("axicor.viewport_3d") else { return; };
+
+    let mut texture_id = None;
+    for window in window_query.iter() {
+        if window.plugin_id == "axicor.viewport_3d" {
+            if let Some(handle) = &window.texture {
+                texture_id = Some(contexts.add_image(handle.clone()));
+            }
+            break;
+        }
+    }
+
+    let Some(ctx) = contexts.try_ctx_mut() else { return; };
+
+    // DOD FIX: Полный отказ от egui::Window. 
+    // Area не имеет логики расширения, фона и захвата фокуса.
+    egui::Area::new("ConnectomePortal".into())
+        .fixed_pos(rect.min)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            // Жестко отсекаем всё, что пытается вылезти за пределы выданного тайла
+            ui.set_clip_rect(*rect);
+            
+            let (content_rect, _) = layout_api::draw_unified_header(ui, *rect, "Connectome Viewer");
+
+            ui.allocate_ui_at_rect(content_rect, |ui| {
+                if let Some(tid) = texture_id {
+                    // DOD FIX: Текстура рендерится строго в content_rect, скругляем только низ
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(tid, content_rect.size()))
+                            .rounding(egui::Rounding { nw: 0.0, ne: 0.0, sw: 10.0, se: 10.0 })
+                    );
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(egui::RichText::new("VRAM Allocating...").color(egui::Color32::DARK_GRAY));
+                    });
+                }
+            });
+        });
+}

@@ -13,3 +13,4 @@ pub mod atlas_map;
 pub mod layout;
 pub mod seed;
 pub mod topology;
+pub mod axic;
