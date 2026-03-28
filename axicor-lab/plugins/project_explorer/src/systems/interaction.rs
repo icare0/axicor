@@ -48,3 +48,15 @@ axon_growth_max_steps = 500
         info!("✅ New model created at {:?}", base_dir);
     }
 }
+
+pub fn sync_smart_focus_system(
+    mut events: EventReader<layout_api::OpenFileEvent>,
+    mut query: Query<&mut crate::domain::ProjectExplorerState>,
+) {
+    for ev in events.read() {
+        // Когда любой плагин (включая Node Editor) открывает файл, Эксплорер берет его в фокус
+        for mut state in query.iter_mut() {
+            state.active_file = Some(ev.path.clone());
+        }
+    }
+}

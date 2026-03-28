@@ -23,57 +23,121 @@ pub fn render_editor_ui(
     let mut header_ui = ui.child_ui(header_rect, egui::Layout::left_to_right(egui::Align::Center));
     header_ui.add_space(layout_api::SYS_UI_SAFE_ZONE); // ЖЕСТКИЙ СИСТЕМНЫЙ ОТСТУП СЛЕВА (41.5px)
 
-    // Вычисляем текущие имена из уровня
-    let current_model = graph.project_name.clone().unwrap_or_else(|| "Unknown Model".to_string());
-    let current_dept = "Brain"; // Заглушка
-    let current_zone = "Select Zone"; // Заглушка
+    // Вычисляем цвета в зависимости от текущего уровня (EditorLevel)
+    let is_lvl_0 = state.level == crate::domain::EditorLevel::Model;
+    let is_lvl_1 = state.level == crate::domain::EditorLevel::Department;
+    
+    let color_model = if is_lvl_0 { Color32::WHITE } else { Color32::GRAY };
+    let color_dept  = if is_lvl_1 { Color32::WHITE } else { Color32::GRAY };
+    let color_zone  = if !is_lvl_0 && !is_lvl_1 { Color32::WHITE } else { Color32::GRAY };
 
-    // --- КРОШКИ ---
-    if let Some(new_model) = draw_searchable_breadcrumb(&mut header_ui, &current_model, &mut state.model_search, || {
-        let mut models = Vec::new();
-        if let Ok(entries) = std::fs::read_dir("Genesis-Models") {
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".axic") || e.path().is_dir() {
-                    models.push(name.replace(".axic", "").replace(" (Source)", ""));
+    let current_model = graph.project_name.clone().unwrap_or_else(|| "Select Model".to_string());
+    let current_dept = if is_lvl_0 { "Select Dept".to_string() } else { "brain".to_string() }; // Улучшим позже
+    let current_zone = if is_lvl_0 || is_lvl_1 { "Select Zone".to_string() } else { "Zone".to_string() };
+
+    // --- КРОШКА 1: MODELS ---
+    if let Some(new_model) = draw_searchable_breadcrumb(
+        &mut header_ui, 
+        &current_model, 
+        &mut state.model_search, 
+        color_model, 
+        || {
+            let mut models = Vec::new();
+            if let Ok(entries) = std::fs::read_dir("Genesis-Models") {
+                for e in entries.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".axic") || e.path().is_dir() { 
+                        models.push(name.replace(".axic", "").replace(" (Source)", "")); 
+                    }
                 }
             }
+            models.sort(); models.dedup();
+            (models, vec![])
         }
-        models.sort();
-        models.dedup(); // DOD FIX: Убираем дубликаты (архив vs папка)
-        (models, vec![]) // Модели всегда глобальны
-    }) {
-        // DOD FIX: Клик по модели теперь всегда открывает ее simulation.toml
-        let path = std::path::PathBuf::from("Genesis-Models")
-            .join(&new_model)
-            .join("simulation.toml");
+    ) {
+        let path = std::path::PathBuf::from("Genesis-Models").join(&new_model).join("simulation.toml");
         send_open(path);
     }
 
     header_ui.label(egui::RichText::new("›").color(Color32::DARK_GRAY));
 
-    if let Some(_new_dept) = draw_searchable_breadcrumb(&mut header_ui, current_dept, &mut state.dept_search, || {
-        let mut depts = Vec::new();
-        let proj_dir = std::path::PathBuf::from("Genesis-Models").join(&current_model.replace(" (Source)", ""));
-        if proj_dir.join("brain.toml").exists() { depts.push("Brain".to_string()); }
-        (depts, vec![])
-    }) {
-        let path = std::path::PathBuf::from("Genesis-Models").join(&current_model.replace(" (Source)", "")).join("brain.toml");
+    // --- КРОШКА 2: DEPARTMENTS ---
+    if let Some(new_dept) = draw_searchable_breadcrumb(
+        &mut header_ui, 
+        &current_dept, 
+        &mut state.dept_search, 
+        color_dept, 
+        || {
+            let mut local_depts = Vec::new();
+            let mut global_depts = Vec::new();
+            
+            // DOD FIX: Честно сканируем все модели для поиска Департаментов
+            if let Ok(models) = std::fs::read_dir("Genesis-Models") {
+                for m in models.flatten() {
+                    let m_name = m.file_name().to_string_lossy().replace(".axic", "").replace(" (Source)", "");
+                    let is_local = m_name == current_model;
+                    
+                    if let Ok(entries) = std::fs::read_dir(m.path()) {
+                        for e in entries.flatten() {
+                            let name = e.file_name().to_string_lossy().to_string();
+                            if name.ends_with(".toml") && name != "simulation.toml" && name != "manifest.toml" {
+                                let dept_name = name.replace(".toml", "");
+                                if is_local { local_depts.push(dept_name); }
+                                else { global_depts.push(format!("{}/{}", m_name, dept_name)); }
+                            }
+                        }
+                    }
+                }
+            }
+            local_depts.sort(); global_depts.sort();
+            (local_depts, global_depts)
+        }
+    ) {
+        let parts: Vec<&str> = new_dept.split('/').collect();
+        let (m_name, d_name) = if parts.len() == 2 { (parts[0], parts[1]) } else { (current_model.as_str(), new_dept.as_str()) };
+        let path = std::path::PathBuf::from("Genesis-Models").join(m_name).join(format!("{}.toml", d_name));
         send_open(path);
     }
 
     header_ui.label(egui::RichText::new("›").color(Color32::DARK_GRAY));
 
-    if let Some(new_zone) = draw_searchable_breadcrumb(&mut header_ui, current_zone, &mut state.zone_search, || {
-        let mut zones = Vec::new();
-        for z in &graph.zones { zones.push(z.clone()); }
-        zones.sort();
-        (zones, vec![])
-    }) {
-        let path = std::path::PathBuf::from("Genesis-Models")
-            .join(&current_model.replace(" (Source)", ""))
-            .join(&new_zone)
-            .join("shard.toml");
+    // --- КРОШКА 3: ZONES (SHARDS) ---
+    if let Some(new_zone) = draw_searchable_breadcrumb(
+        &mut header_ui, 
+        &current_zone, 
+        &mut state.zone_search, 
+        color_zone, 
+        || {
+            let mut local_zones = Vec::new();
+            let mut global_zones = Vec::new();
+            
+            // DOD FIX: Честно сканируем все модели для поиска Зон (Шардов)
+            if let Ok(models) = std::fs::read_dir("Genesis-Models") {
+                for m in models.flatten() {
+                    let m_name = m.file_name().to_string_lossy().replace(".axic", "").replace(" (Source)", "");
+                    let is_local = m_name == current_model;
+                    
+                    if let Ok(subdirs) = std::fs::read_dir(m.path()) {
+                        for sub in subdirs.flatten() {
+                            if sub.path().is_dir() {
+                                // Признак того, что это папка шарда
+                                if sub.path().join("shard.toml").exists() || sub.path().join("anatomy.toml").exists() {
+                                    let z_name = sub.file_name().to_string_lossy().to_string();
+                                    if is_local { local_zones.push(z_name); } 
+                                    else { global_zones.push(format!("{}/{}", m_name, z_name)); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            local_zones.sort(); global_zones.sort();
+            (local_zones, global_zones)
+        }
+    ) {
+        let parts: Vec<&str> = new_zone.split('/').collect();
+        let (m_name, z_name) = if parts.len() == 2 { (parts[0], parts[1]) } else { (current_model.as_str(), new_zone.as_str()) };
+        let path = std::path::PathBuf::from("Genesis-Models").join(m_name).join(z_name).join("shard.toml");
         send_open(path);
     }
 
@@ -271,11 +335,12 @@ fn draw_searchable_breadcrumb(
     ui: &mut egui::Ui,
     current_name: &str,
     search_buffer: &mut String,
+    active_color: Color32,
     fetch_items: impl FnOnce() -> (Vec<String>, Vec<String>), // (Local, Global)
 ) -> Option<String> {
     let mut selected = None;
     
-    ui.menu_button(egui::RichText::new(current_name).strong().color(Color32::WHITE), |ui| {
+    ui.menu_button(egui::RichText::new(current_name).strong().color(active_color), |ui| {
         let resp = ui.text_edit_singleline(search_buffer);
         resp.request_focus(); // Автофокус на поиске
         ui.separator();

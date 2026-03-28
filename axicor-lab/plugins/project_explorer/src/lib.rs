@@ -14,6 +14,7 @@ impl Plugin for ProjectExplorerPlugin {
                systems::scanner::fs_scanner_system,
                systems::render::render_project_explorer_system,
                systems::interaction::create_new_model_system,
+               systems::interaction::sync_smart_focus_system,
            ));
     }
 }

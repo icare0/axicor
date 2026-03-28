@@ -8,6 +8,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1126.127] - 2026-03-28 12:18:18
+
+**Implement Node Editor DOD UI with interactive breadcrumbs and pin draggi**
+
+### Added
+- Implement draw_searchable_breadcrumb for model, department, and zone selection with dynamic search buffers
+- Add header UI with custom navigation bar, system-safe left margin (SYS_UI_SAFE_ZONE), and breadcrumb trail
+- Support opening simulation.toml, department TOML files, and zone shard.toml via send_open callback
+- Add context menu for node creation with text input buffer (new_node_buffer) and Enter key support
+- Add dragging_pin state to NodeGraphUiState for tracking connection drag operations
+- Implement visual pin dragging with Bezier curve rendering during drag operations
+- Add connection creation via drag-and-drop between nodes with automatic routing
+- Support connection deletion via right-click context menu on connection lines
+- Add Department level to EditorLevel enum alongside Model, Zone, and Shard
+- Implement O(1) directory scanning for automatic department node creation from TOML files
+- Add search buffers (model_search, dept_search, zone_search) for interactive filtering
+- Support dynamic graph population when opening simulation.toml with automatic zone sorting
+- Change render_editor_ui graph parameter from &BrainTopologyGraph to &mut BrainTopologyGraph
+- Add send_open parameter to render_editor_ui for file opening events
+- Update render_node_editor_system to handle OpenFileEvent for level transitions
+- Modify UI layout to separate header and content areas with proper clipping
+
+## [0.1122.127] - 2026-03-28 08:13:34
+
+**Add AI Copilot plugin with chat interface and local config support**
+
+### Added
+- Add ai-copilot plugin member to workspace Cargo.toml and axicor-lab dependencies
+- Register DOMAIN_AI_COPILOT constant in layout-api/src/lib.rs
+- Include ai-copilot in axicor-lab/plugins/mod.rs plugin list
+- Create new plugin crate ai-copilot with dependencies bevy, bevy_egui, reqwest, serde, toml, crossbeam-channel
+- Define domain structures: CopilotConfig, ChatRole, ChatMessage, and AiCopilotState component with crossbeam-channel Sender/Receiver
+- Implement render systems: init_copilot_windows_system for state initialization and render_copilot_system for UI rendering
+- Add systems/mod.rs module with render submodule
+- Implement render_copilot_system with unified header, chat history panel, and input panel using bevy_egui
+- Add settings panel with API endpoint and key configuration, saving to copilot.local.toml
+- Create message rendering with role-based coloring (CLR_USER, CLR_COPILOT) and CHAT_BG background
+- Implement non-blocking response handling via try_recv on crossbeam-channel receiver
+- Add copilot.local.toml to .gitignore to exclude API credentials
+- Load CopilotConfig from copilot.local.toml in init_copilot_windows_system if file exists
+- Provide save functionality in settings panel to write endpoint and key to copilot.local.toml
+
+
 ## [0.1118.127] - 2026-03-28 06:31:29
 
 **[Architecture] Introduce Code Editor plugin and extend layout API**
