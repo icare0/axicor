@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_egui::egui;
 use bevy::render::render_resource::Extent3d;
 use crate::layout::domain::WindowDragState;
 use crate::layout::systems::window::{create_plugin_render_target, spawn_pane_entity};
@@ -24,6 +25,8 @@ pub fn sync_plugin_geometry_system(
 
         let Some(rect) = allocated.rects.get(&window.plugin_id) else { continue };
 
+        window.rect = *rect;
+        window.id = egui::Id::new(&window.plugin_id);
         geom.size = Vec2::new(rect.width(), rect.height());
         if geom.size.x < MIN_TEXTURE_SIZE || geom.size.y < MIN_TEXTURE_SIZE { continue; }
 

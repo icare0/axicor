@@ -6,6 +6,7 @@ use std::path::Path;
 pub const DOMAIN_VIEWPORT: &str = "axicor.viewport_3d";
 pub const DOMAIN_EXPLORER: &str = "axicor.explorer";
 pub const DOMAIN_NODE_ED:  &str = "axicor.node_editor";
+pub const DOMAIN_CODE_EDITOR: &str = "axicor.code_editor";
 
 // Отражает размер системного DND-якоря (6.5px offset + 25px width + 10px gap)
 pub const SYS_UI_SAFE_ZONE: f32 = 41.5;
@@ -43,6 +44,8 @@ pub struct PluginWindow {
     pub plugin_id: String,
     pub texture: Option<Handle<Image>>,
     pub is_visible: bool,
+    pub id: egui::Id,      // DOD FIX: Уникальный ID для egui Area
+    pub rect: egui::Rect,  // DOD FIX: Прямые координаты для дочернего UI
 }
 
 // --- Enums & Commands (API Contract) ---
@@ -100,6 +103,16 @@ pub struct UpdateGeometryEvent {
 #[derive(Event, Clone, Debug)]
 pub struct CreateNewModelEvent {
     pub model_name: String,
+}
+
+#[derive(bevy::prelude::Event, Clone, Debug)]
+pub struct TopologyChangedEvent {
+    pub project_name: String,
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct OpenFileEvent {
+    pub path: std::path::PathBuf,
 }
 
 pub struct PaneData {
@@ -171,4 +184,20 @@ pub fn draw_unified_header(ui: &mut egui::Ui, rect: egui::Rect, title: &str) -> 
     content_rect.min.y = header_rect.max.y; // Основная рабочая зона
 
     (content_rect, toolbar_rect)
+}
+
+/// Выделяет базовое имя плагина из составного ID (например, "axicor.explorer::123" -> "axicor.explorer")
+pub fn base_domain(plugin_id: &str) -> &str {
+    plugin_id.split("::").next().unwrap_or(plugin_id)
+}
+
+/// Возвращает человекочитаемое название для домена
+pub fn domain_title(base: &str) -> &'static str {
+    match base {
+        DOMAIN_VIEWPORT => "Connectome",
+        DOMAIN_EXPLORER => "Explorer",
+        DOMAIN_NODE_ED  => "Topology Editor",
+        DOMAIN_CODE_EDITOR => "Code Editor",
+        _               => "Plugin",
+    }
 }

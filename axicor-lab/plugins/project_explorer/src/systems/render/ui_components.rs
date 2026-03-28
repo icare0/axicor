@@ -10,12 +10,18 @@ pub fn draw_explorer_tree<FLoad, FZone>(
     ui: &mut egui::Ui,
     bundles: &[&ProjectModel],
     sources: &[&ProjectModel],
+    open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
     mut on_load: FLoad,
     mut on_zone: FZone,
 ) where
     FLoad: FnMut(String),
     FZone: FnMut(String, String),
 {
+    // Глобальная очистка DND
+    if ui.input(|i| i.pointer.any_released()) {
+        ui.memory_mut(|mem| mem.data.remove_temp::<std::path::PathBuf>(egui::Id::new("dnd_path")));
+    }
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.set_min_width(EXPLORER_MIN_WIDTH);
         ui.set_max_width(EXPLORER_MAX_WIDTH);
@@ -27,7 +33,7 @@ pub fn draw_explorer_tree<FLoad, FZone>(
             draw_separator(ui);
         }
 
-        draw_sources(ui, sources);
+        draw_sources(ui, sources, open_file_ev);
     });
 }
 
@@ -77,7 +83,11 @@ fn draw_bundle_zones<FZone>(
     }
 }
 
-fn draw_sources(ui: &mut egui::Ui, sources: &[&ProjectModel]) {
+fn draw_sources(
+    ui: &mut egui::Ui, 
+    sources: &[&ProjectModel],
+    open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
+) {
     for project in sources {
         egui::CollapsingHeader::new(format!("📁 {}", project.name))
             .id_source(&project.name)
@@ -89,8 +99,21 @@ fn draw_sources(ui: &mut egui::Ui, sources: &[&ProjectModel]) {
                     );
                 } else {
                     for file in &project.dna_files {
-                        // TODO: открытие в Code Editor / Node Editor
-                        ui.selectable_label(false, format!("📄 {}", file));
+                        let response = ui.selectable_label(false, format!("📄 {}", file));
+                        let file_path = std::path::PathBuf::from("Genesis-Models")
+                            .join(&project.name.replace(" (Source)", ""))
+                            .join(file);
+
+                        // Обычный клик
+                        if response.clicked() {
+                            open_file_ev.send(layout_api::OpenFileEvent { path: file_path.clone() });
+                        }
+
+                        // DOD FIX: DND Source (Закидываем путь во временную память egui)
+                        if response.dragged() {
+                            ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("dnd_path"), file_path.clone()));
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
                     }
                 }
             });

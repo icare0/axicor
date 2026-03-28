@@ -1,49 +1,49 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use layout_api::{AllocatedPanes, PluginWindow};
+use layout_api::{PluginWindow, base_domain, DOMAIN_VIEWPORT};
 
 pub fn render_connectome_viewer_system(
     mut contexts: EguiContexts,
-    allocated: Res<AllocatedPanes>,
     window_query: Query<&PluginWindow>,
 ) {
-    let Some(rect) = allocated.rects.get("axicor.viewport_3d") else { return; };
-
-    let mut texture_id = None;
+    // 1. Сначала собираем данные для отрисовки (и регистрируем текстуры), 
+    // чтобы не конфликтовать с заимствованием ctx_mut()
+    let mut render_items = Vec::new();
     for window in window_query.iter() {
-        if window.plugin_id == "axicor.viewport_3d" {
-            if let Some(handle) = &window.texture {
-                texture_id = Some(contexts.add_image(handle.clone()));
-            }
-            break;
-        }
+        if !window.is_visible { continue; }
+        if base_domain(&window.plugin_id) != DOMAIN_VIEWPORT { continue; }
+
+        let texture_id = window.texture.as_ref().map(|handle| contexts.add_image(handle.clone()));
+        render_items.push((window.id, window.rect, texture_id));
     }
 
+    if render_items.is_empty() { return; }
+
+    // 2. Только теперь берем контекст egui
     let Some(ctx) = contexts.try_ctx_mut() else { return; };
 
-    // DOD FIX: Полный отказ от egui::Window. 
-    // Area не имеет логики расширения, фона и захвата фокуса.
-    egui::Area::new("ConnectomePortal".into())
-        .fixed_pos(rect.min)
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
-            // Жестко отсекаем всё, что пытается вылезти за пределы выданного тайла
-            ui.set_clip_rect(*rect);
-            
-            let (content_rect, _) = layout_api::draw_unified_header(ui, *rect, "Connectome Viewer");
+    for (id, rect, texture_id) in render_items {
+        let area_id = format!("ConnectomePortal_{:?}", id);
+        egui::Area::new(area_id.into())
+            .fixed_pos(rect.min)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                ui.set_clip_rect(rect);
+                
+                let (content_rect, _) = layout_api::draw_unified_header(ui, rect, "Connectome Viewer");
 
-            ui.allocate_ui_at_rect(content_rect, |ui| {
-                if let Some(tid) = texture_id {
-                    // DOD FIX: Текстура рендерится строго в content_rect, скругляем только низ
-                    ui.add(
-                        egui::Image::new(egui::load::SizedTexture::new(tid, content_rect.size()))
-                            .rounding(egui::Rounding { nw: 0.0, ne: 0.0, sw: 10.0, se: 10.0 })
-                    );
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(egui::RichText::new("VRAM Allocating...").color(egui::Color32::DARK_GRAY));
-                    });
-                }
+                ui.allocate_ui_at_rect(content_rect, |ui| {
+                    if let Some(tid) = texture_id {
+                        ui.add(
+                            egui::Image::new(egui::load::SizedTexture::new(tid, content_rect.size()))
+                                .rounding(egui::Rounding { nw: 0.0, ne: 0.0, sw: 10.0, se: 10.0 })
+                        );
+                    } else {
+                        ui.centered_and_justified(|ui| {
+                            ui.label(egui::RichText::new("VRAM Allocating...").color(egui::Color32::DARK_GRAY));
+                        });
+                    }
+                });
             });
-        });
+    }
 }

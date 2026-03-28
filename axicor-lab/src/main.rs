@@ -2,13 +2,9 @@ use bevy::prelude::*;
 use bevy::log::LogPlugin;
 use bevy::winit::WinitSettings;
 
-pub mod layout;
-
-#[path = "../plugins/mod.rs"]
-pub mod plugins;
-
-use crate::layout::WindowManagerPlugin;
-use crate::plugins::AllPlugins;
+use axicor_lab::layout::WindowManagerPlugin;
+use axicor_lab::plugins::AllPlugins;
+use layout_api::OpenFileEvent;
 
 fn main() {
     App::new()
@@ -27,6 +23,7 @@ fn main() {
         }))
         .add_plugins(WindowManagerPlugin)
         .add_plugins(AllPlugins)
+        .add_event::<OpenFileEvent>()
         .insert_resource(WinitSettings::desktop_app())
         .run();
 }

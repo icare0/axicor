@@ -7,7 +7,7 @@ use bevy_egui::egui;
 use egui_tiles::{Tile, Container, Linear, SimplificationOptions};
 
 use crate::layout::domain::{Pane, WorkspaceState, TreeCommands};
-use layout_api::{PluginWindow, TreeCommand, TopologyCache, DOMAIN_VIEWPORT, DOMAIN_EXPLORER, DOMAIN_NODE_ED};
+use layout_api::{PluginWindow, TreeCommand, TopologyCache, base_domain, domain_title};
 
 // ---------------------------------------------------------------------------
 
@@ -121,23 +121,6 @@ fn handle_change_domain(workspace: &mut WorkspaceState, tile_id: egui_tiles::Til
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn base_domain(plugin_id: &str) -> &str {
-    plugin_id.split("::").next().unwrap_or(plugin_id)
-}
-
-fn domain_title(base: &str) -> &'static str {
-    match base {
-        DOMAIN_VIEWPORT => "Connectome",
-        DOMAIN_EXPLORER => "Explorer",
-        DOMAIN_NODE_ED  => "Topology Editor",
-        _               => "Plugin",
-    }
-}
-
 fn build_parent_map(tiles: &egui_tiles::Tiles<Pane>) -> bevy::utils::HashMap<egui_tiles::TileId, egui_tiles::TileId> {
     let mut map = bevy::utils::HashMap::new();
     for (id, tile) in tiles.iter() {
@@ -168,7 +151,13 @@ pub fn spawn_pane_entity(
     // Текстура создастся автоматически в sync_plugin_geometry_system.
     // Плагины сами найдут свои окна и навесят доменные компоненты (например, Camera3d).
     commands.spawn((
-        PluginWindow { plugin_id: plugin_id.to_string(), texture: None, is_visible: true },
+        PluginWindow { 
+            plugin_id: plugin_id.to_string(), 
+            texture: None, 
+            is_visible: true,
+            id: egui::Id::new(plugin_id),
+            rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height)),
+        },
         layout_api::PluginInput::default(),
         layout_api::PluginGeometry { size: Vec2::new(width, height) },
     )).id()

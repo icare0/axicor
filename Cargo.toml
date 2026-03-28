@@ -10,13 +10,14 @@ members = [
     "axicor-lab/plugins/project_explorer",
     "axicor-lab/plugins/connectome_viewer",
     "axicor-lab/plugins/node_editor",
+    "axicor-lab/plugins/code_editor",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
-authors = ["Oleksandr Arzamazov <olexandrarzamazov@gmail.com>"]
+authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/H4V1K-dev/Axicor"
 

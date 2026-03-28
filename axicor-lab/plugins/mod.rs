@@ -12,5 +12,6 @@ impl PluginGroup for AllPlugins {
             .add(project_explorer::ProjectExplorerPlugin)
             .add(node_editor::NodeEditorPlugin)
             .add(connectome_viewer::ConnectomeViewerPlugin)
+            .add(code_editor::CodeEditorPlugin)
     }
 }
