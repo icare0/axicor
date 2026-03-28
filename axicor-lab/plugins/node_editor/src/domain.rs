@@ -7,8 +7,8 @@ pub struct NodeGraphUiState {
     pub zoom: f32,
     pub level: EditorLevel,
     pub node_positions: HashMap<String, bevy_egui::egui::Pos2>,
-    // DOD FIX: Состояние протягивания связи (Откуда тянем, Экранная позиция старта)
-    pub dragging_pin: Option<(String, bevy_egui::egui::Pos2)>,
+    // DOD FIX: Состояние протягивания связи (Откуда тянем, Имя порта, Экранная позиция старта)
+    pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2)>,
     
     // DOD FIX: Буферы для поиска в интерактивных меню
     pub model_search: String,
@@ -16,6 +16,9 @@ pub struct NodeGraphUiState {
     pub zone_search: String,
     // DOD FIX: Буфер для создания новой ноды через контекстное меню
     pub new_node_buffer: String,
+    
+    // DOD FIX: Временное хранилище для создаваемой связи (SrcNode, SrcPort, DstNode, DstPort)
+    pub pending_connection: Option<(String, String, String, String)>,
 }
 
 impl Default for NodeGraphUiState {
@@ -30,6 +33,7 @@ impl Default for NodeGraphUiState {
             dept_search: String::new(),
             zone_search: String::new(),
             new_node_buffer: String::new(),
+            pending_connection: None,
         }
     }
 }
@@ -47,10 +51,16 @@ pub enum EditorLevel {
 pub struct BrainTopologyGraph {
     pub project_name: Option<String>,
     pub zones: Vec<String>,
-    pub connections: Vec<(String, String)>, // (From, To)
+    // DOD FIX: Теперь связи хранят (FromNode, FromPort, ToNode, ToPort)
+    pub connections: Vec<(String, String, String, String)>, 
+    
+    // DOD FIX: Кэш реальных портов для каждой ноды
+    pub node_inputs: HashMap<String, Vec<String>>,
+    pub node_outputs: HashMap<String, Vec<String>>,
     
     // Совместимость с текущим ui.rs и pipeline.rs
     pub active_project: Option<String>,
+    pub active_graph_type: Option<String>,
     pub config: Option<genesis_core::config::brain::BrainConfig>,
     pub io_configs: HashMap<String, genesis_core::config::io::IoConfig>,
     pub anatomy_configs: HashMap<String, genesis_core::config::anatomy::AnatomyConfig>,
@@ -64,7 +74,7 @@ pub struct LoadGraphEvent {
 #[derive(Event, Debug, Clone)]
 pub enum TopologyMutation {
     AddZone { name: String, pos: bevy_egui::egui::Pos2 },
-    AddConnection { from: String, to: String },
+    AddConnection { from: String, from_port: String, to: String, to_port: String },
 }
 
 #[derive(Event, Clone, Debug)]

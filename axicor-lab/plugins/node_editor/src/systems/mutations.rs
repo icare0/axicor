@@ -33,7 +33,7 @@ pub fn apply_topology_mutations_system(
                 info!("[NodeMutator] Zone added: {} at {:?}", name, pos);
             }
 
-            TopologyMutation::AddConnection { from, to, .. } => {
+            TopologyMutation::AddConnection { from, from_port, to, to_port } => {
                 let exists = config.connections.iter()
                     .any(|c| c.from == *from && c.to == *to);
                 if exists { continue; }
@@ -46,7 +46,7 @@ pub fn apply_topology_mutations_system(
                     height: Some(16),
                 });
 
-                info!("[NodeMutator] Connection added: {} -> {}", from, to);
+                info!("[NodeMutator] Connection added: {}[{}] -> {}[{}]", from, from_port, to, to_port);
             }
         }
     }

@@ -37,6 +37,8 @@ pub fn sync_topology_graph_system(
     graph.project_name = Some(project.clone());
     graph.zones.clear();
     graph.connections.clear();
+    graph.node_inputs.clear();
+    graph.node_outputs.clear();
 
     let content = match std::fs::read_to_string(&brain_path) {
         Ok(c)  => c,
@@ -72,18 +74,44 @@ fn parse_zones(val: &toml::Value, graph: &mut BrainTopologyGraph) {
     let Some(zones) = val.get("zone").and_then(|v| v.as_array()) else { return };
     for z in zones {
         if let Some(name) = z.get("name").and_then(|n| n.as_str()) {
-            graph.zones.push(name.to_string());
+            let name_str = name.to_string();
+            graph.zones.push(name_str.clone());
+
+            // DOD FIX: Парсим реальные порты
+            let mut ins = Vec::new();
+            let mut outs = Vec::new();
+            
+            if let Some(project) = &graph.project_name {
+                let io_path = PathBuf::from(MODELS_ROOT).join(project).join(&name_str).join("io.toml");
+                if let Ok(content) = std::fs::read_to_string(&io_path) {
+                    if let Ok(io_cfg) = genesis_core::config::io::IoConfig::parse(&content) {
+                        ins = io_cfg.inputs.into_iter().map(|i| i.name).collect();
+                        outs = io_cfg.outputs.into_iter().map(|o| o.name).collect();
+                    }
+                }
+            }
+
+            if ins.is_empty() { ins.push("in".to_string()); }
+            if outs.is_empty() { outs.push("out".to_string()); }
+            graph.node_inputs.insert(name_str.clone(), ins);
+            graph.node_outputs.insert(name_str, outs);
         }
     }
 }
 
 fn parse_connections(val: &toml::Value, graph: &mut BrainTopologyGraph) {
-    let Some(conns) = val.get("connection").and_then(|v| v.as_array()) else { return };
-    for c in conns {
-        let from = c.get("from").and_then(|n| n.as_str()).unwrap_or("");
-        let to   = c.get("to").and_then(|n| n.as_str()).unwrap_or("");
-        if !from.is_empty() && !to.is_empty() {
-            graph.connections.push((from.to_string(), to.to_string()));
+    if let Some(connections) = val.get("connection").and_then(|v| v.as_array()) {
+        for c in connections {
+            let from = c.get("from").and_then(|n| n.as_str()).unwrap_or("");
+            let to   = c.get("to").and_then(|n| n.as_str()).unwrap_or("");
+            
+            // DOD FIX: Читаем реальный выходной порт. Входной всегда "in", т.к. Ghost Axons просто входят в зону.
+            let out_port = c.get("output_matrix").and_then(|n| n.as_str()).unwrap_or("out");
+            let in_port = "in"; 
+            
+            if !from.is_empty() && !to.is_empty() {
+                graph.connections.push((from.to_string(), out_port.to_string(), to.to_string(), in_port.to_string()));
+            }
         }
     }
 }

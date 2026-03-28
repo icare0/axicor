@@ -44,7 +44,9 @@ pub fn render_node_editor_system(
             
             if *lvl == crate::domain::EditorLevel::Model {
                 graph.zones.clear();
-                graph.connections.clear(); // Связи пока очищаем, роутинг сделаем позже
+                graph.connections.clear(); 
+                graph.node_inputs.clear();
+                graph.node_outputs.clear();
                 
                 if let Some(path) = &opened_model_path {
                     if let Some(proj_dir) = path.parent() {
@@ -60,7 +62,23 @@ pub fn render_node_editor_system(
                                     if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
                                         if name.ends_with(".toml") && name != "simulation.toml" && name != "manifest.toml" {
                                             // Добавляем департамент (например, "vision")
-                                            graph.zones.push(name.replace(".toml", ""));
+                                            let name = name.replace(".toml", "");
+                                            graph.zones.push(name.clone());
+
+                                            // DOD FIX: Парсим реальные порты из io.toml
+                                            let mut ins = Vec::new();
+                                            let mut outs = Vec::new();
+                                            let io_path = proj_dir.join(&name).join("io.toml");
+                                            if let Ok(content) = std::fs::read_to_string(&io_path) {
+                                                if let Ok(io_cfg) = genesis_core::config::io::IoConfig::parse(&content) {
+                                                    ins = io_cfg.inputs.into_iter().map(|i| i.name).collect();
+                                                    outs = io_cfg.outputs.into_iter().map(|o| o.name).collect();
+                                                }
+                                            }
+                                            if ins.is_empty() { ins.push("in".to_string()); }
+                                            if outs.is_empty() { outs.push("out".to_string()); }
+                                            graph.node_inputs.insert(name.clone(), ins);
+                                            graph.node_outputs.insert(name, outs);
                                         }
                                     }
                                 }
