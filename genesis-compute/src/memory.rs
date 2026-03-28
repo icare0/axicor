@@ -100,14 +100,15 @@ pub struct VramState {
     pub padded_n:    u32,
     pub total_axons: u32,
     pub total_ghosts: u32,
+    pub use_gpu:     bool,
 }
 
 unsafe impl Send for VramState {}
 unsafe impl Sync for VramState {}
 
 impl VramState {
-    /// Аллоцирует VRAM для шарда. Паникует при ошибке CUDA — это Fail-Fast политика.
-    pub fn allocate(padded_n: u32, total_axons: u32, total_ghosts: u32) -> Self {
+    /// Аллоцирует память для шарда.
+    pub fn allocate(padded_n: u32, total_axons: u32, total_ghosts: u32, use_gpu: bool) -> Self {
         let mut ptrs = ShardVramPtrs {
             soma_voltage:     std::ptr::null_mut(),
             soma_flags:       std::ptr::null_mut(),
@@ -115,13 +116,20 @@ impl VramState {
             timers:           std::ptr::null_mut(),
             soma_to_axon:     std::ptr::null_mut(),
             dendrite_targets: std::ptr::null_mut(),
-            dendrite_weights: std::ptr::null_mut(),
-            dendrite_timers:  std::ptr::null_mut(),
+            dendrite_weights:  std::ptr::null_mut(),
+            dendrite_timers:   std::ptr::null_mut(),
             axon_heads:       std::ptr::null_mut(),
         };
-        let err = unsafe { ffi::cu_allocate_shard(padded_n, total_axons, &mut ptrs) };
-        assert_eq!(err, 0, "FATAL: cu_allocate_shard failed (cudaError={})", err);
-        Self { ptrs, padded_n, total_axons, total_ghosts }
+
+        if use_gpu {
+            let err = unsafe { ffi::cu_allocate_shard(padded_n, total_axons, &mut ptrs) };
+            assert_eq!(err, 0, "FATAL: cu_allocate_shard (GPU) failed (cudaError={})", err);
+        } else {
+            let err = unsafe { crate::bindings::cpu_allocate_shard(padded_n, total_axons, &mut ptrs) };
+            assert_eq!(err, 0, "FATAL: cpu_allocate_shard failed (res={})", err);
+        }
+
+        Self { ptrs, padded_n, total_axons, total_ghosts, use_gpu }
     }
 
     // [DOD FIX] Virtual axons start after local AND ghosts
@@ -130,22 +138,33 @@ impl VramState {
     }
 
     /// Zero-Copy DMA: заливает плоский .state блоб в VRAM.
-    /// Размер блоба верифицируется до начала DMA — никакого partial write.
     pub fn upload_state(&self, flat_blob: &[u8]) {
         let (_, expected) = calculate_state_blob_size(self.padded_n as usize);
         assert_eq!(
             flat_blob.len(), expected,
-            "FATAL: .state blob size mismatch: got {} expected {}. Baker/Runtime version skew!",
+            "FATAL: .state blob size mismatch: got {} expected {}",
             flat_blob.len(), expected
         );
-        let err = unsafe {
-            ffi::cu_upload_state_blob(
-                &self.ptrs,
-                flat_blob.as_ptr() as *const c_void,
-                flat_blob.len(),
-            )
-        };
-        assert_eq!(err, 0, "FATAL: cu_upload_state_blob DMA failed (cudaError={})", err);
+
+        if self.use_gpu {
+            let err = unsafe {
+                ffi::cu_upload_state_blob(
+                    &self.ptrs,
+                    flat_blob.as_ptr() as *const c_void,
+                    flat_blob.len(),
+                )
+            };
+            assert_eq!(err, 0, "FATAL: cu_upload_state_blob DMA failed (cudaError={})", err);
+        } else {
+            let err = unsafe {
+                crate::bindings::cpu_upload_state_blob(
+                    &self.ptrs,
+                    flat_blob.as_ptr() as *const c_void,
+                    flat_blob.len(),
+                )
+            };
+            assert_eq!(err, 0, "FATAL: cpu_upload_state_blob failed");
+        }
     }
 
     /// Только аксоны хранятся отдельно: загружает `axon_heads` напрямую.
@@ -153,32 +172,45 @@ impl VramState {
         let expected = (self.total_axons as usize) * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
         let actual = axon_heads_blob.len();
         
-        // [DOD FIX] Allow smaller blobs for pre-allocated Dynamic Capacity Routing.
-        // We only upload what we have on disk; the rest remains initialized (Sentinel).
         if actual > expected {
             panic!(
-                "FATAL: axon_heads blob too large: got {} expected max {} (Check your ghost_capacity in manifest.toml vs baked artifacts)",
+                "FATAL: axon_heads blob too large: got {} expected max {}",
                 actual, expected
             );
         }
         
         if actual == 0 { return; }
 
-        let err = unsafe {
-            ffi::cu_upload_axons_blob(
-                &self.ptrs,
-                axon_heads_blob.as_ptr() as *const c_void,
-                actual,
-            )
-        };
-        assert_eq!(err, 0, "FATAL: cu_upload_axons_blob failed (cudaError={})", err);
+        if self.use_gpu {
+            let err = unsafe {
+                ffi::cu_upload_axons_blob(
+                    &self.ptrs,
+                    axon_heads_blob.as_ptr() as *const c_void,
+                    actual,
+                )
+            };
+            assert_eq!(err, 0, "FATAL: cu_upload_axons_blob failed (cudaError={})", err);
+        } else {
+            let err = unsafe {
+                crate::bindings::cpu_upload_axons_blob(
+                    &self.ptrs,
+                    axon_heads_blob.as_ptr() as *const c_void,
+                    actual,
+                )
+            };
+            assert_eq!(err, 0, "FATAL: cpu_upload_axons_blob failed");
+        }
     }
 }
 
 impl Drop for VramState {
     fn drop(&mut self) {
         unsafe {
-            ffi::cu_free_shard(&mut self.ptrs);
+            if self.use_gpu {
+                ffi::cu_free_shard(&mut self.ptrs);
+            } else {
+                crate::bindings::cpu_free_shard(&mut self.ptrs);
+            }
         }
     }
 }

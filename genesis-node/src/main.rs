@@ -52,6 +52,9 @@ struct Cli {
     pub cpu_profile: CpuProfile,
 
     #[arg(long)]
+    pub cpu: bool,
+
+    #[arg(long)]
     pub log: bool,
 }
 
@@ -115,7 +118,8 @@ fn main() -> Result<()> {
         let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, telemetry.clone(), cli.cpu_profile).await
+        let use_gpu = !cli.cpu;
+        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, telemetry.clone(), cli.cpu_profile, use_gpu).await
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join

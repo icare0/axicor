@@ -7,6 +7,15 @@ pub struct NodeGraphUiState {
     pub zoom: f32,
     pub level: EditorLevel,
     pub node_positions: HashMap<String, bevy_egui::egui::Pos2>,
+    // DOD FIX: Состояние протягивания связи (Откуда тянем, Экранная позиция старта)
+    pub dragging_pin: Option<(String, bevy_egui::egui::Pos2)>,
+    
+    // DOD FIX: Буферы для поиска в интерактивных меню
+    pub model_search: String,
+    pub dept_search: String,
+    pub zone_search: String,
+    // DOD FIX: Буфер для создания новой ноды через контекстное меню
+    pub new_node_buffer: String,
 }
 
 impl Default for NodeGraphUiState {
@@ -16,6 +25,11 @@ impl Default for NodeGraphUiState {
             zoom: 1.0,
             level: EditorLevel::Model,
             node_positions: HashMap::new(),
+            dragging_pin: None,
+            model_search: String::new(),
+            dept_search: String::new(),
+            zone_search: String::new(),
+            new_node_buffer: String::new(),
         }
     }
 }
@@ -23,6 +37,7 @@ impl Default for NodeGraphUiState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditorLevel {
     Model,
+    Department,
     Zone(String),
     Shard { zone_name: String, shard_name: String },
 }

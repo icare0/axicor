@@ -4,6 +4,8 @@
 pub mod compute;
 pub mod ffi;
 pub mod memory;
+pub mod bindings;
+pub mod cpu;
 
 #[cfg(feature = "mock-gpu")]
 pub mod mock_ffi;

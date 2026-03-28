@@ -18,6 +18,11 @@ python3 examples/ant_exp/build_brain.py
 **Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
 Оркестратор загрузит бинарные дампы VRAM и перейдет в режим ожидания тиков от агента.
 
+# Для CPU
+```bash
+cargo run --release -p genesis-node -- Genesis-Models/ant_exp.axic --cpu --log
+```
+
 # Для NVIDIA (CUDA)
 ```bash
 cargo run --release -p genesis-node -- Genesis-Models/ant_exp.axic --log

@@ -18,6 +18,11 @@ python3 examples/FLY_exp/build_brain.py
 **Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
 Оркестратор мгновенно загрузит VRAM-дампы (Zero-Copy) и заблокируется на барьере ожидания данных от среды.
 
+# Для CPU
+```bash
+cargo run --release -p genesis-node -- Genesis-Models/FLY_exp.axic --cpu --log
+```
+
 # Для NVIDIA (CUDA)
 ```bash
 cargo run --release -p genesis-node -- Genesis-Models/FLY_exp.axic --cpu-profile balanced --log

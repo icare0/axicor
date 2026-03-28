@@ -178,7 +178,7 @@ fn execute_day_phase(
     global_dopamine: i16,
     bsp_barrier: &Arc<BspBarrier>,
     my_io_ctx: &Arc<InputSwapchain>,
-    io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
+    io_buffers: &mut genesis_compute::compute::shard::IoBuffers,
     virtual_offset: u32,
     num_virtual_axons: u32,
     mapped_soma_ids: *const u32,
@@ -241,20 +241,36 @@ fn execute_day_phase(
 fn download_outputs(
     num_outputs: u32,
     pinned_out: &mut genesis_compute::memory::PinnedBuffer<u8>,
-    io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
+    io_buffers: &genesis_compute::compute::shard::IoBuffers,
     output_bytes: usize,
-    stream: genesis_compute::ffi::CudaStream,
+    engine: &genesis_compute::ShardEngine,
 ) {
     if num_outputs > 0 {
-        unsafe {
-            genesis_compute::ffi::cu_dma_d2h_io(
-                pinned_out.as_mut_ptr(),
-                io_buffers.d_output_history,
-                output_bytes as u32,
-                stream,
-            );
-            // Synchronize ONLY our stream before CPU reads the PinnedBuffer
-            genesis_compute::ffi::gpu_stream_synchronize(stream);
+        match engine {
+            genesis_compute::ShardEngine::Gpu(gpu) => {
+                if let genesis_compute::compute::shard::IoBackend::Gpu(ref b) = io_buffers.backend {
+                    unsafe {
+                        genesis_compute::ffi::cu_dma_d2h_io(
+                            pinned_out.as_mut_ptr(),
+                            b.d_output_history,
+                            output_bytes as u32,
+                            gpu.stream,
+                        );
+                        genesis_compute::ffi::gpu_stream_synchronize(gpu.stream);
+                    }
+                }
+            }
+            genesis_compute::ShardEngine::Cpu(_) => {
+                if let genesis_compute::compute::shard::IoBackend::Cpu(ref b) = io_buffers.backend {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            b.h_output_history.as_ptr(),
+                            pinned_out.as_mut_ptr(),
+                            output_bytes,
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -268,20 +284,28 @@ fn save_hot_checkpoint(
     state_buf: &mut [u8], 
     axons_buf: &mut [u8]
 ) {
-    unsafe {
-        // 1. Асинхронный захват обоих массивов
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            state_buf.as_mut_ptr() as *mut _,
-            shard.vram.ptrs.soma_voltage as *const _,
-            state_buf.len(),
-        );
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            axons_buf.as_mut_ptr() as *mut _,
-            shard.vram.ptrs.axon_heads as *const _,
-            axons_buf.len(),
-        );
-        // Ждем завершения DMA перед записью на диск
-        genesis_compute::ffi::gpu_device_synchronize(); 
+    match shard {
+        ShardEngine::Gpu(gpu) => {
+            unsafe {
+                genesis_compute::ffi::gpu_memcpy_device_to_host(
+                    state_buf.as_mut_ptr() as *mut _,
+                    gpu.vram.ptrs.soma_voltage as *const _,
+                    state_buf.len(),
+                );
+                genesis_compute::ffi::gpu_memcpy_device_to_host(
+                    axons_buf.as_mut_ptr() as *mut _,
+                    gpu.vram.ptrs.axon_heads as *const _,
+                    axons_buf.len(),
+                );
+                genesis_compute::ffi::gpu_device_synchronize(); 
+            }
+        }
+        ShardEngine::Cpu(cpu) => {
+            unsafe {
+                std::ptr::copy_nonoverlapping(cpu.vram.ptrs.soma_voltage as *const u8, state_buf.as_mut_ptr(), state_buf.len());
+                std::ptr::copy_nonoverlapping(cpu.vram.ptrs.axon_heads as *const u8, axons_buf.as_mut_ptr(), axons_buf.len());
+            }
+        }
     }
 
     let chk_state = baked_dir.join("shard.state");
@@ -313,53 +337,41 @@ fn execute_night_phase(
     routing_table: &Arc<crate::network::router::RoutingTable>,
     telemetry: &Arc<crate::tui::state::LockFreeTelemetry>,
 ) {
-    let padded_n = shard.vram.padded_n as usize;
+    let vram = match shard {
+        ShardEngine::Gpu(gpu) => &gpu.vram,
+        ShardEngine::Cpu(cpu) => &cpu.vram,
+    };
+    let padded_n = vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
 
-    unsafe {
-        // 0. DMA: soma_flags to SHM [Capture spikes BEFORE they are cleared by pruning kernel]
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.soma_flags as *const _,
-            padded_n * std::mem::size_of::<u8>(),
-        );
+    match shard {
+        ShardEngine::Gpu(ref mut gpu) => {
+            unsafe {
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.soma_flags as *const _, padded_n);
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.soma_voltage as *const _, padded_n * 4);
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.threshold_offset as *const _, padded_n * 4);
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.timers_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.timers as *const _, padded_n);
+                
+                genesis_compute::ffi::launch_sort_and_prune(&gpu.vram.ptrs, gpu.vram.padded_n, prune_threshold);
+                genesis_compute::ffi::gpu_device_synchronize();
 
-        // [DOD FIX] DMA: Hot state to SHM (Capture voltage and homeostasis before night work)
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.soma_voltage as *const _,
-            padded_n * std::mem::size_of::<i32>(),
-        );
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.threshold_offset as *const _,
-            padded_n * std::mem::size_of::<i32>(),
-        );
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.timers_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.timers as *const _,
-            padded_n * std::mem::size_of::<u8>(),
-        );
-
-        // 1. GPU Defragmentation & Prune
-        genesis_compute::ffi::launch_sort_and_prune(
-            &shard.vram.ptrs,
-            shard.vram.padded_n,
-            prune_threshold,
-        );
-        genesis_compute::ffi::gpu_device_synchronize();
-
-        // 2. D2H: Dendrite matrices DIRECTLY to SHM
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.dendrite_weights as *const _,
-            dendrites_count * std::mem::size_of::<i16>(),
-        );
-        genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _,
-            shard.vram.ptrs.dendrite_targets as *const _,
-            dendrites_count * std::mem::size_of::<u32>(),
-        );
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.dendrite_weights as *const _, dendrites_count * 4);
+                genesis_compute::ffi::gpu_memcpy_device_to_host(workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.dendrite_targets as *const _, dendrites_count * 4);
+            }
+        }
+        ShardEngine::Cpu(ref mut _cpu) => {
+            unsafe {
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.soma_flags, workspace.flags_slice_mut(padded_n).as_mut_ptr(), padded_n);
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.soma_voltage as *const u8, workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.threshold_offset as *const u8, workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.timers, workspace.timers_slice_mut(padded_n).as_mut_ptr(), padded_n);
+                
+                // CPU Sort & Prune not yet implemented in night phase, but simulation state is consistent.
+                
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_weights as *const u8, workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
+                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_targets as *const u8, workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
+            }
+        }
     }
 
     // 3. Sprouting (Late Binding)
@@ -385,43 +397,52 @@ fn execute_night_phase(
             max_sprouts,
         ) {
             Ok(acks) => {
-                unsafe {
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.dendrite_targets as *mut _,
-                        workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
-                        dendrites_count * std::mem::size_of::<u32>(),
-                    );
-                    // [DOD FIX] Синхронизируем веса новых синапсов (Закон Дейла)
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.dendrite_weights as *mut _,
-                        workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
-                        dendrites_count * std::mem::size_of::<i16>(),
-                    );
-
-                    // [DOD FIX] Push state BACK to GPU. If Python modified it (Tabula Rasa), 
-                    // this is where the GPU learns about the reset.
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.soma_voltage as *mut _,
-                        workspace.voltage_slice_mut(padded_n).as_ptr() as *const _,
-                        padded_n * std::mem::size_of::<i32>(),
-                    );
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.soma_flags as *mut _,
-                        workspace.flags_slice_mut(padded_n).as_ptr() as *const _,
-                        padded_n * std::mem::size_of::<u8>(),
-                    );
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.threshold_offset as *mut _,
-                        workspace.threshold_offset_slice_mut(padded_n).as_ptr() as *const _,
-                        padded_n * std::mem::size_of::<i32>(),
-                    );
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        shard.vram.ptrs.timers as *mut _,
-                        workspace.timers_slice_mut(padded_n).as_ptr() as *const _,
-                        padded_n * std::mem::size_of::<u8>(),
-                    );
-
-                    genesis_compute::ffi::gpu_device_synchronize();
+                match shard {
+                    ShardEngine::Gpu(gpu) => {
+                        unsafe {
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.dendrite_targets as *mut _,
+                                workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
+                                dendrites_count * std::mem::size_of::<u32>(),
+                            );
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.dendrite_weights as *mut _,
+                                workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
+                                dendrites_count * std::mem::size_of::<i16>(),
+                            );
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.soma_voltage as *mut _,
+                                workspace.voltage_slice_mut(padded_n).as_ptr() as *const _,
+                                padded_n * std::mem::size_of::<i32>(),
+                            );
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.soma_flags as *mut _,
+                                workspace.flags_slice_mut(padded_n).as_ptr() as *const _,
+                                padded_n * std::mem::size_of::<u8>(),
+                            );
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.threshold_offset as *mut _,
+                                workspace.threshold_offset_slice_mut(padded_n).as_ptr() as *const _,
+                                padded_n * std::mem::size_of::<i32>(),
+                            );
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gpu.vram.ptrs.timers as *mut _,
+                                workspace.timers_slice_mut(padded_n).as_ptr() as *const _,
+                                padded_n * std::mem::size_of::<u8>(),
+                            );
+                            genesis_compute::ffi::gpu_device_synchronize();
+                        }
+                    }
+                    ShardEngine::Cpu(cpu) => {
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(workspace.targets_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.dendrite_targets, dendrites_count);
+                            std::ptr::copy_nonoverlapping(workspace.weights_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.dendrite_weights, dendrites_count);
+                            std::ptr::copy_nonoverlapping(workspace.voltage_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.soma_voltage, padded_n);
+                            std::ptr::copy_nonoverlapping(workspace.flags_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.soma_flags, padded_n);
+                            std::ptr::copy_nonoverlapping(workspace.threshold_offset_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.threshold_offset, padded_n);
+                            std::ptr::copy_nonoverlapping(workspace.timers_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.timers, padded_n);
+                        }
+                    }
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
@@ -582,12 +603,21 @@ fn dispatch_prunes(
         let idx = ghost_id.saturating_sub(padded_n);
 
         let empty_burst = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
-        unsafe {
-            genesis_compute::ffi::gpu_memcpy_host_to_device(
-                shard.vram.ptrs.axon_heads.add(ghost_id) as *mut _,
-                &empty_burst as *const _ as *const _,
-                32,
-            );
+        match shard {
+            ShardEngine::Gpu(gpu) => {
+                unsafe {
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        gpu.vram.ptrs.axon_heads.add(ghost_id) as *mut _,
+                        &empty_burst as *const _ as *const _,
+                        32,
+                    );
+                }
+            }
+            ShardEngine::Cpu(cpu) => {
+                unsafe {
+                    *cpu.vram.ptrs.axon_heads.add(ghost_id) = empty_burst;
+                }
+            }
         }
 
         if idx < ghost_origins.len() {
@@ -610,28 +640,44 @@ fn init_io_buffers(
     max_spikes_per_tick: u32,
     num_outputs: u32,
     sync_batch_ticks: u32,
-) -> genesis_compute::compute::shard::IoDeviceBuffers {
+    use_gpu: bool,
+) -> genesis_compute::compute::shard::IoBuffers {
     let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
-    let mut d_input = ptr::null_mut();
-    let mut d_spikes = ptr::null_mut();
-    let mut d_output = ptr::null_mut();
-    unsafe {
-        genesis_compute::ffi::cu_allocate_io_buffers(
-            input_words_per_tick * sync_batch_ticks,
-            max_spikes_per_tick * sync_batch_ticks,
-            num_outputs * sync_batch_ticks,
-            &mut d_input,
-            &mut d_spikes,
-            &mut d_output,
-        );
-    }
-    genesis_compute::compute::shard::IoDeviceBuffers {
-        d_input_bitmask: d_input,
-        d_incoming_spikes: d_spikes,
-        d_output_history: d_output,
-        max_spikes_per_tick,
-        input_words_per_tick,
-        num_outputs,
+    if use_gpu {
+        let mut d_input = ptr::null_mut();
+        let mut d_spikes = ptr::null_mut();
+        let mut d_output = ptr::null_mut();
+        unsafe {
+            genesis_compute::ffi::cu_allocate_io_buffers(
+                input_words_per_tick * sync_batch_ticks,
+                max_spikes_per_tick * sync_batch_ticks,
+                num_outputs * sync_batch_ticks,
+                &mut d_input,
+                &mut d_spikes,
+                &mut d_output,
+            );
+        }
+        genesis_compute::compute::shard::IoBuffers {
+            backend: genesis_compute::compute::shard::IoBackend::Gpu(genesis_compute::compute::shard::GpuIoBuffers {
+                d_input_bitmask: d_input,
+                d_incoming_spikes: d_spikes,
+                d_output_history: d_output,
+            }),
+            max_spikes_per_tick,
+            input_words_per_tick,
+            num_outputs,
+        }
+    } else {
+        genesis_compute::compute::shard::IoBuffers {
+            backend: genesis_compute::compute::shard::IoBackend::Cpu(genesis_compute::compute::shard::CpuIoBuffers {
+                h_input_bitmask: vec![0u32; (input_words_per_tick * sync_batch_ticks) as usize],
+                h_incoming_spikes: vec![0u32; (max_spikes_per_tick * sync_batch_ticks) as usize],
+                h_output_history: vec![0u8; (num_outputs * sync_batch_ticks) as usize],
+            }),
+            max_spikes_per_tick,
+            input_words_per_tick,
+            num_outputs,
+        }
     }
 }
 
@@ -662,35 +708,46 @@ pub fn spawn_shard_thread(
             }
 
             // 1. Инициализация аппаратного контекста
-            unsafe { genesis_compute::ffi::gpu_set_device(0); }
+            let use_gpu = matches!(desc.engine, ShardEngine::Gpu(_));
+            if use_gpu {
+                unsafe { genesis_compute::ffi::gpu_set_device(0); }
+            }
 
-            let mapped_soma_ids: *const u32 = if let Some(ref host_ids) = desc.mapped_soma_ids_host {
-                let bytes = host_ids.len() * 4;
-                let ptr = unsafe { genesis_compute::ffi::gpu_malloc(bytes) } as *mut u32;
-                unsafe {
-                    genesis_compute::ffi::gpu_memcpy_host_to_device(
-                        ptr as *mut _,
-                        host_ids.as_ptr() as *const _,
-                        bytes,
-                    );
+            let (mapped_soma_ids, _gpu_ptr) = if let Some(ref host_ids) = desc.mapped_soma_ids_host {
+                if use_gpu {
+                    let bytes = host_ids.len() * 4;
+                    let ptr = unsafe { genesis_compute::ffi::gpu_malloc(bytes) } as *mut u32;
+                    unsafe {
+                        genesis_compute::ffi::gpu_memcpy_host_to_device(
+                            ptr as *mut _,
+                            host_ids.as_ptr() as *const _,
+                            bytes,
+                        );
+                    }
+                    (ptr as *const u32, Some(ptr))
+                } else {
+                    (host_ids.as_ptr(), None)
                 }
-                ptr as *const u32
             } else {
-                std::ptr::null()
+                (std::ptr::null(), None)
             };
 
-            let io_buffers = init_io_buffers(desc.num_virtual_axons, max_spikes_per_tick, desc.num_outputs, sync_batch_ticks);
+            let mut io_buffers = init_io_buffers(desc.num_virtual_axons, max_spikes_per_tick, desc.num_outputs, sync_batch_ticks, use_gpu);
             let mut pinned_out = genesis_compute::memory::PinnedBuffer::<u8>::new(output_bytes).unwrap();
             let mut baker_client: Option<crate::ipc::BakerClient> = None;
             let socket_path = genesis_core::ipc::default_socket_path(hash);
             
-            let padded_n = desc.engine.vram.padded_n as usize;
+            let vram = match desc.engine {
+                ShardEngine::Gpu(ref gpu) => &gpu.vram,
+                ShardEngine::Cpu(ref cpu) => &cpu.vram,
+            };
+            let padded_n = vram.padded_n as usize;
             let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
             // [DOD FIX] Выравниваем размер payload'а с ожиданиями Baker Daemon
-            let mut workspace = ThreadWorkspace::new(hash, padded_n, desc.engine.vram.total_ghosts as usize);
-            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
+            let mut workspace = ThreadWorkspace::new(hash, padded_n, vram.total_ghosts as usize);
+            let axons_size = vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
 
@@ -710,12 +767,12 @@ pub fn spawn_shard_thread(
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
-                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
+                            &ctx.io_ctx, &mut io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
                         );
 
-                        // --- ФАЗА 2: Чтение выходов (Асинхронно в своем стриме) ---
+                        // --- ФАЗА 2: Чтение выходов ---
                         if desc.num_outputs > 0 {
-                            download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, desc.engine.stream);
+                            download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, &desc.engine);
                         }
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
@@ -754,19 +811,22 @@ pub fn spawn_shard_thread(
                         }
 
                         // Update spikes in UI
-                        {
-                            unsafe {
-                                genesis_compute::ffi::gpu_memcpy_device_to_host_async(
-                                    desc.engine.telemetry_count_pinned_h as *mut _,
-                                    desc.engine.telemetry_count_d as *const _,
-                                    4,
-                                    desc.engine.stream
-                                );
-                                
-                                genesis_compute::ffi::gpu_stream_synchronize(desc.engine.stream);
-
-                                let actual_spikes = std::ptr::read_volatile(desc.engine.telemetry_count_pinned_h);
-                                ctx.telemetry.update_zone_spikes(hash, actual_spikes);
+                        match desc.engine {
+                            ShardEngine::Gpu(ref gpu) => {
+                                unsafe {
+                                    genesis_compute::ffi::gpu_memcpy_device_to_host_async(
+                                        gpu.telemetry_count_pinned_h as *mut _,
+                                        gpu.telemetry_count_d as *const _,
+                                        4,
+                                        gpu.stream
+                                    );
+                                    genesis_compute::ffi::gpu_stream_synchronize(gpu.stream);
+                                    let actual_spikes = std::ptr::read_volatile(gpu.telemetry_count_pinned_h);
+                                    ctx.telemetry.update_zone_spikes(hash, actual_spikes);
+                                }
+                            }
+                            ShardEngine::Cpu(ref cpu) => {
+                                ctx.telemetry.update_zone_spikes(hash, cpu.telemetry_count);
                             }
                         }
 

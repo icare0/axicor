@@ -36,7 +36,7 @@ pub struct BootResult {
 /// Этот метод реализует O(1) деривацию размеров на основе файлового контракта:
 /// - .state: 910 байта на нейрон (SoA)
 /// - .axons: 32 байта на аксон (BurstHeads8)
-pub fn boot_shard_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: &str, manifest: &ZoneManifest, project_name: &str) -> Result<(ShardEngine, Vec<u32>, PathBuf)> {
+pub fn boot_shard_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: &str, manifest: &ZoneManifest, project_name: &str, use_gpu: bool) -> Result<(ShardEngine, Vec<u32>, PathBuf)> {
     // DOD FIX: Паттерн ROM / SRAM
     let mem_zone_dir = PathBuf::from("Genesis-Models")
         .join(format!("{}.axic.mem", project_name))
@@ -118,7 +118,7 @@ pub fn boot_shard_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: 
         .collect();
 
     // 3. Выделение VRAM и DMA-заливка
-    let vram = VramState::allocate(padded_n, total_axons, total_ghosts);
+    let vram = VramState::allocate(padded_n, total_axons, total_ghosts, use_gpu);
     vram.upload_state(&state_blob);
     vram.upload_axon_heads(&axons_blob);
 
@@ -128,10 +128,10 @@ pub fn boot_shard_from_vfs(archive: &genesis_core::vfs::AxicArchive, zone_name: 
 impl Bootloader {
     /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
     pub async fn boot_node(archive: Arc<genesis_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>) -> Result<BootResult> {
-        Self::boot_node_with_profile(archive, project_name, zone_names, telemetry, crate::CpuProfile::Aggressive).await
+        Self::boot_node_with_profile(archive, project_name, zone_names, telemetry, crate::CpuProfile::Aggressive, true).await
     }
 
-    pub async fn boot_node_with_profile(archive: Arc<genesis_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
+    pub async fn boot_node_with_profile(archive: Arc<genesis_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile, use_gpu: bool) -> Result<BootResult> {
         // 1. Data/Config Phase: Load brain and simulation configs
         let mut zone_manifests_with_names = Vec::new();
         let mut sim_config = None;
@@ -166,10 +166,10 @@ impl Bootloader {
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
-            Self::load_all_shards_into_vram_vfs(&archive, project_name, &zone_manifests_with_names, sync_batch_ticks)?;
+            Self::load_all_shards_into_vram_vfs(&archive, project_name, &zone_manifests_with_names, sync_batch_ticks, use_gpu)?;
 
         let first_manifest = zone_manifests_with_names[0].0.clone();
-        unsafe { Self::flash_hardware_physics(&first_manifest)? };
+        unsafe { Self::flash_hardware_physics(&first_manifest, use_gpu)? };
 
         // 3. Topology Interconnect: Build local and remote routing channels
         let (intra_gpu_channels, inter_node_channels, expected_peers) = 
@@ -261,28 +261,36 @@ impl Bootloader {
     }
 
 
-    unsafe fn flash_hardware_physics(first_manifest: &ZoneManifest) -> Result<()> {
+    unsafe fn flash_hardware_physics(first_manifest: &ZoneManifest, use_gpu: bool) -> Result<()> {
         let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];
         for v in &first_manifest.variants {
             if (v.id as usize) < 16 {
                 gpu_variants[v.id as usize] = v.clone().into_gpu();
             }
         }
-        let err = genesis_compute::ffi::cu_upload_constant_memory(
-            gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
-        );
-        if err != 0 {
-            anyhow::bail!("FATAL: cu_upload_constant_memory failed with {}", err);
+        if use_gpu {
+            let err = genesis_compute::ffi::cu_upload_constant_memory(
+                gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
+            );
+            if err != 0 {
+                anyhow::bail!("FATAL: cu_upload_constant_memory failed with {}", err);
+            }
+        } else {
+            genesis_compute::bindings::cpu_upload_constant_memory(
+                gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
+            );
         }
-        println!("[Boot] Hardware physics parameters flashed to Constant Memory.");
+        println!("[Boot] Hardware physics parameters flashed.");
         Ok(())
     }
 
-    fn load_all_shards_into_vram_vfs(archive: &genesis_core::vfs::AxicArchive, project_name: &str, zone_manifests_with_names: &[(ZoneManifest, String)], sync_batch_ticks: u32) 
+    fn load_all_shards_into_vram_vfs(archive: &genesis_core::vfs::AxicArchive, project_name: &str, zone_manifests_with_names: &[(ZoneManifest, String)], sync_batch_ticks: u32, use_gpu: bool) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32, usize, usize)>>)> 
     {
         // [DOD FIX] Явно биндим контекст устройства к главному потоку перед загрузкой!
-        unsafe { genesis_compute::ffi::gpu_set_device(0); }
+        if use_gpu {
+            unsafe { genesis_compute::ffi::gpu_set_device(0); }
+        }
 
         let mut engines = Vec::new();
         let mut io_contexts = Vec::new();
@@ -294,10 +302,14 @@ impl Bootloader {
         for (zone_manifest, zone_name) in zone_manifests_with_names {
             let zone_hash = zone_manifest.zone_hash;
 
-            println!("[Boot] Loading Local Zone {} from VFS", zone_name);
-            let (engine, s2a, mem_zone_dir) = boot_shard_from_vfs(archive, zone_name, zone_manifest, project_name)?;
+            println!("[Boot] Loading Local Zone {} from VFS (GPU={})", zone_name, use_gpu);
+            let (engine, s2a, mem_zone_dir) = boot_shard_from_vfs(archive, zone_name, zone_manifest, project_name, use_gpu)?;
 
-            axon_head_ptrs.insert(zone_hash, engine.vram.ptrs.axon_heads);
+            let ptrs = match engine {
+                ShardEngine::Gpu(ref gpu) => &gpu.vram.ptrs,
+                ShardEngine::Cpu(ref cpu) => &cpu.vram.ptrs,
+            };
+            axon_head_ptrs.insert(zone_hash, ptrs.axon_heads);
             s2a_maps.insert(zone_hash, s2a);
 
             let io_vfs_path = format!("baked/{}/BrainDNA/io.toml", zone_name);
@@ -339,7 +351,10 @@ impl Bootloader {
             }
 
             // [DOD FIX] virtual_offset must be valid even for zones without external I/O
-            let virtual_offset = engine.vram.virtual_offset();
+            let virtual_offset = match engine {
+                ShardEngine::Gpu(ref gpu) => gpu.vram.virtual_offset(),
+                ShardEngine::Cpu(ref cpu) => cpu.vram.virtual_offset(),
+            };
             
             let num_virtual_axons = if expected_inputs {
                 let gxi_vfs_path = format!("baked/{}/shard.gxi", zone_name);

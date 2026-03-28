@@ -28,7 +28,7 @@ pub fn draw_explorer_tree<FLoad, FZone>(
         ui.set_max_width(EXPLORER_MAX_WIDTH);
         ui.add_space(3.0);
 
-        draw_bundles(ui, bundles, &mut on_load, &mut on_zone);
+        draw_bundles(ui, bundles, open_file_ev, &mut on_load, &mut on_zone);
 
         if !bundles.is_empty() && !sources.is_empty() {
             draw_separator(ui);
@@ -41,6 +41,7 @@ pub fn draw_explorer_tree<FLoad, FZone>(
 fn draw_bundles<FLoad, FZone>(
     ui: &mut egui::Ui,
     bundles: &[&ProjectModel],
+    open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
     on_load: &mut FLoad,
     on_zone: &mut FZone,
 ) where
@@ -57,6 +58,11 @@ fn draw_bundles<FLoad, FZone>(
             });
 
         if header.header_response.clicked() {
+            // DOD FIX: Клик по бандлу теперь тоже пытается открыть simulation.toml
+            let sim_path = std::path::PathBuf::from("Genesis-Models")
+                .join(&project.name)
+                .join("simulation.toml");
+            open_file_ev.send(layout_api::OpenFileEvent { path: sim_path });
             on_load(project.name.clone());
         }
 
@@ -103,7 +109,7 @@ fn draw_sources(
             egui::RichText::new(format!("📁 {}", project.name))
         };
 
-        egui::CollapsingHeader::new(header_text)
+        let header = egui::CollapsingHeader::new(header_text)
             .id_source(&project.name)
             .show(ui, |ui| {
                 if project.dna_files.is_empty() {
@@ -144,6 +150,14 @@ fn draw_sources(
                     }
                 }
             });
+
+        // DOD FIX: Клик по самому заголовку папки исходников открывает simulation.toml
+        if header.header_response.clicked() {
+            let sim_path = std::path::PathBuf::from("Genesis-Models")
+                .join(project.name.replace(" (Source)", ""))
+                .join("simulation.toml");
+            open_file_ev.send(layout_api::OpenFileEvent { path: sim_path });
+        }
 
         ui.add_space(SECTION_SPACING);
     }
