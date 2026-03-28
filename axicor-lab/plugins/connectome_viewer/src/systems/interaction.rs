@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use layout_api::PluginInput;
-use crate::domain::{NeuronInstances, ViewportCamera};
+use crate::domain::{NeuronInstances, ViewportCamera, ShardGeometry};
 
 pub fn soma_picking_system(
     mouse_btn: Res<ButtonInput<MouseButton>>,
@@ -8,13 +8,9 @@ pub fn soma_picking_system(
     mut gizmos: Gizmos,
     viewports: Query<(&PluginInput, &Camera, &GlobalTransform), With<ViewportCamera>>,
 ) {
+    // DOD FIX: Абсолютный ранний выход. 
+    // Защищает CPU от O(N) математики лучей при простом движении мыши.
     if !mouse_btn.just_pressed(MouseButton::Left) {
-        // Still draw gizmos if someone is selected, even if not clicking
-        if let Some(idx) = instances.selected {
-            if let Some(neuron) = instances.data.get(idx) {
-                gizmos.sphere(Vec3::from(neuron.position), Quat::IDENTITY, neuron.scale * 1.5, Color::WHITE);
-            }
-        }
         return;
     }
 
@@ -245,9 +241,9 @@ pub fn trace_active_connections_system(
                 material: mat.clone(),
                 ..Default::default()
             },
-            crate::domain::ShardGeometry { viewport: vp_entity },
-            bevy::render::view::RenderLayers::layer(layer_id),
-            bevy::render::view::NoFrustumCulling,
+            ShardGeometry { viewport: vp_entity },
+            RenderLayers::layer(layer_id),
+            NoFrustumCulling,
         )).id();
         graph.traced_entity = Some(id);
         break; 

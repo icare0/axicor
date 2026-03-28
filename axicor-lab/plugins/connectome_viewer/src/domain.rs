@@ -40,6 +40,7 @@ pub struct ShardGeometry {
 
 #[derive(Component)]
 pub struct ViewportCamera {
+    pub viewport: Entity,
     pub target: Vec3,
     pub radius: f32,
     pub alpha: f32, // Rotation around Y
@@ -49,6 +50,7 @@ pub struct ViewportCamera {
 impl Default for ViewportCamera {
     fn default() -> Self {
         Self {
+            viewport: Entity::PLACEHOLDER,
             target: Vec3::ZERO,
             radius: 40.0,
             alpha: std::f32::consts::PI / 4.0,

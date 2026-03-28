@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::log::LogPlugin;
+use bevy::winit::WinitSettings;
 
 pub mod layout;
 
@@ -26,5 +27,6 @@ fn main() {
         }))
         .add_plugins(WindowManagerPlugin)
         .add_plugins(AllPlugins)
+        .insert_resource(WinitSettings::desktop_app())
         .run();
 }

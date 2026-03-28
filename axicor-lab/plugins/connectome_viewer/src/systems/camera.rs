@@ -15,6 +15,15 @@ pub fn viewport_camera_control_system(
             }
         }
 
+        // DOD FIX: Защита от Ghost Mutations. 
+        // Если нет ввода — не трогаем mut transform, чтобы не триггерить is_changed() в рендере.
+        let is_dragging = input.is_secondary_pressed || input.is_middle_pressed;
+        let is_scrolling = input.scroll_delta.abs() > 0.0;
+
+        if !is_dragging && !is_scrolling {
+            continue;
+        }
+
         if input.scroll_delta.abs() > 0.0 {
             let tick = input.scroll_delta.signum();
             cam.radius -= tick * 0.15 * cam.radius;
@@ -61,9 +70,32 @@ pub fn attach_camera_to_viewport_system(
                         transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
                         ..default()
                     },
-                    ViewportCamera::default(),
+                    ViewportCamera {
+                        viewport: entity,
+                        ..default()
+                    },
                 ));
             }
+        }
+    }
+}
+
+pub fn toggle_idle_cameras_system(
+    window_query: Query<&layout_api::PluginWindow>,
+    // Убрали Ref<Transform> и NeuronInstances, они больше не нужны
+    mut camera_query: Query<(Entity, &mut Camera, &crate::domain::ViewportCamera)>,
+    mut commands: Commands,
+) {
+    for (cam_entity, mut camera, vp_cam) in camera_query.iter_mut() {
+        // DOD FIX: Используем правильный ID окна (vp_cam.viewport), а не cam_entity!
+        if let Ok(_plugin_window) = window_query.get(vp_cam.viewport) {
+            // Откат: Камера всегда активна, если её окно существует. Никакой заморозки.
+            if !camera.is_active {
+                camera.is_active = true;
+            }
+        } else {
+            // Окно было уничтожено оконным менеджером. Убиваем зомби-камеру.
+            commands.entity(cam_entity).despawn_recursive();
         }
     }
 }

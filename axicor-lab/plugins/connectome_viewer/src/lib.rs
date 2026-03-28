@@ -13,6 +13,7 @@ impl Plugin for ConnectomeViewerPlugin {
            .add_event::<domain::ZoneSelectedEvent>()
            .add_systems(Update, (
                systems::camera::attach_camera_to_viewport_system,
+               systems::camera::toggle_idle_cameras_system,
                systems::viewport_camera_control_system,
                systems::geometry::load_zone_geometry_system,
                systems::render::render_connectome_viewer_system,

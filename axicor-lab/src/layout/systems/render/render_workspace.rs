@@ -118,3 +118,12 @@ fn render_top_bar(
             });
         });
 }
+
+pub fn sync_plugin_visibility_system(
+    allocated_panes: Res<AllocatedPanes>,
+    mut query: Query<&mut layout_api::PluginWindow>,
+) {
+    for mut window in query.iter_mut() {
+        window.is_visible = allocated_panes.rects.contains_key(&window.plugin_id);
+    }
+}

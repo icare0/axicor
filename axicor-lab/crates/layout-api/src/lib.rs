@@ -42,6 +42,7 @@ pub struct PluginGeometry {
 pub struct PluginWindow {
     pub plugin_id: String,
     pub texture: Option<Handle<Image>>,
+    pub is_visible: bool,
 }
 
 // --- Enums & Commands (API Contract) ---

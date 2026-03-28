@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1090.126] - 2026-03-28 02:19:31
+
+**[Connectome] Refactor viewer plugin and fix axon mapping**
+
+### Added
+- Add genesis-core, toml, serde dependencies to connectome_viewer/Cargo.toml
+- Implement NeuronInstanceData struct with Pod, Zeroable, ShaderType derives in domain.rs
+- Add TopologyGraph resource with padded_n, targets, soma_to_axon, axon_segments, soma_positions, traced_entity, last_selected, compact_to_dense, axon_to_soma, global_axon_mat, soma_mat fields
+- Add NeuronInstances resource with data Vec<NeuronInstanceData> and selected Option<usize>
+- Define ATTRIBUTE_SPHERE_ID MeshVertexAttribute as Vertex_Sphere_Id
+- Initialize NeuronInstances and TopologyGraph resources and add MaterialPlugin for NeuronInstanceMaterial in lib.rs
+- Register soma_picking_system and trace_active_connections_system in Update schedule
+- Delete entire geometry.rs file containing load_zone_geometry_system
+- Re-export load_zone_geometry_system from systems/mod.rs
+- Add new interaction and material modules to systems/mod.rs
+- Reduce L1_Input layer density from 0.1 to 0.05 in build_brain.py
+- Reduce L4_Hidden layer density from 0.3 to 0.1
+- Reduce L5_Output layer density from 0.1 to 0.05
+- Create isolated motor_type from L5_spiny_MTG_13 gnm_lib and rename to "Motor_Pyramidal"
+- Change L5_Output population to use motor_type instead of exc_type
+- Update motor_left and motor_right output ports to target "Motor_Pyramidal" type
+- Add vram_axon_ids: &[u32] parameter to connect_dendrites function in dendrite_connect.rs
+- Replace direct axon_id index with vram_axon_ids lookup for segment connection
+- Update topology.rs with changes to dendrite connection logic (86 lines modified)
+
+
 ## [0.1077.125] - 2026-03-27 21:04:04
 
 **Connectome Viewer Refactor: DOD Architecture & VRAM Facade Integration**

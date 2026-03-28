@@ -40,6 +40,7 @@ impl Plugin for WindowManagerPlugin {
                systems::window::window_drag_execution_system,
                systems::input::sync_plugin_geometry_system,
                systems::render::render_workspace_system,
+               systems::render::sync_plugin_visibility_system,
                systems::save::save_layout_system,
            ).chain().after(bevy_egui::EguiSet::InitContexts));
     }

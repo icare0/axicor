@@ -168,7 +168,7 @@ pub fn spawn_pane_entity(
     // Текстура создастся автоматически в sync_plugin_geometry_system.
     // Плагины сами найдут свои окна и навесят доменные компоненты (например, Camera3d).
     commands.spawn((
-        PluginWindow { plugin_id: plugin_id.to_string(), texture: None },
+        PluginWindow { plugin_id: plugin_id.to_string(), texture: None, is_visible: true },
         layout_api::PluginInput::default(),
         layout_api::PluginGeometry { size: Vec2::new(width, height) },
     )).id()
