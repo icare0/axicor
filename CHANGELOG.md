@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1077.125] - 2026-03-27 21:04:04
+
+**Connectome Viewer Refactor: DOD Architecture & VRAM Facade Integration**
+
+### Added
+- Replace heavy `ConnectomeData` resource with minimal `ConnectomeState` storing only `active_shard`, `center_offset`, `voxel_size_mm`
+- Rewrite `load_zone_geometry_system` in `geometry.rs` to spawn entities in batches using `spawn_batch` and `StandardMaterial`, removing manual buffer management
+- Integrate `ShardStateView` and `ShardPosView` facades for zero-copy access to simulation data in `soma_picking_system`
+- Remove custom `ConnectomeMaterial` and `connectome.wgsl` shader, switching to automatic Bevy instancing
+- Use `genesis_core::coords::unpack_position` for consistent coordinate extraction across viewer and simulation
+- Eliminate redundant pre-computed position caches, unpacking coordinates directly from VRAM dumps during entity spawning
+- Implement linear scan over raw memory slices in picking system for optimal CPU cache hits
+- Enable on-the-fly connectivity visualization for "micro-surgery" rendering with zero overhead
+- Add central architecture specification in `docs/plugins/plugin_structure.md`
+- Update `connectome_viewer.md`, `project_explorer.md`, and `node_editor.md` plugin specs
+- Revise core specification documents including `02_configuration.md`, `04_connectivity.md`, `06_distributed.md`, and `08_ide.md`
+- Replace heavy `ConnectomeData` resource with minimal `ConnectomeState` storing only `active_shard`, `center_offset`, `voxel_size_mm`
+- Rewrite `load_zone_geometry_system` in `geometry.rs` to spawn entities in batches using `spawn_batch` and `StandardMaterial`, removing manual buffer management
+- Integrate `ShardStateView` and `ShardPosView` facades for zero-copy access to simulation data in `soma_picking_system`
+- Remove custom `ConnectomeMaterial` and `connectome.wgsl` shader, switching to automatic Bevy instancing
+- Use `genesis_core::coords::unpack_position` for consistent coordinate extraction across viewer and simulation
+- Eliminate redundant pre-computed position caches, unpacking coordinates directly from VRAM dumps during entity spawning
+- Implement linear scan over raw memory slices in picking system for optimal CPU cache hits
+- Enable on-the-fly connectivity visualization for "micro-surgery" rendering with zero overhead
+- Add central architecture specification in `docs/plugins/plugin_structure.md`
+- Update `connectome_viewer.md`, `project_explorer.md`, and `node_editor.md` plugin specs
+- Revise core specification documents including `02_configuration.md`, `04_connectivity.md`, `06_distributed.md`, and `08_ide.md`
+
+
 ## [0.1067.125] - 2026-03-27 15:41:30
 
 **Implement unified pane behavior with domain switching and node editor**

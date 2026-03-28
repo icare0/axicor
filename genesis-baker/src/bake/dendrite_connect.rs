@@ -16,8 +16,9 @@ pub fn connect_dendrites(
     shard: &mut ShardSoA,
     positions: &[PackedPosition],
     axons: &[GrownAxon],
+    vram_axon_ids: &[u32], // ДОБАВЛЕНО
     types: &[NeuronType],
-    voxel_size_um: f32, // [DOD] Вместо хардкод cell_size берем размер вокселя
+    voxel_size_um: f32,
 ) -> usize {
     // 1. ИНВЕРСИЯ: Строим SpatialGrid из СЕГМЕНТОВ аксонов.
     // Оптимальный размер чанка для хэш-сетки = 2 вокселя (~50 мкм)
@@ -45,10 +46,12 @@ pub fn connect_dendrites(
             segment_grid.for_each_in_radius(&my_pos, radius_cells, |seg_ref: &SegmentRef| {
                 if *count >= genesis_core::constants::MAX_DENDRITE_SLOTS { return; }
                 
-                let axon_id = seg_ref.axon_id as usize;
-                
+                // DOD FIX: Используем истинный VRAM ID вместо индекса вектора
+                let original_axon_index = seg_ref.axon_id as usize;
+                let vram_axon_id = vram_axon_ids[original_axon_index];
+
                 // Самоисключение
-                if axons[axon_id].soma_idx == soma_id { return; } 
+                if axons[original_axon_index].soma_idx == soma_id { return; }
                 
                 let owner_type_idx = seg_ref.type_idx as usize;
                 let owner_name = &types[owner_type_idx].name;
@@ -58,9 +61,9 @@ pub fn connect_dendrites(
                     return; 
                 }
 
-                // Rule of Uniqueness: O(K) линейный поиск в горячем L1 кэше
+                // Rule of Uniqueness
                 let is_duplicate = slots[0..*count].iter().any(|s| {
-                    genesis_core::layout::unpack_axon_id(s.target) == axon_id as u32
+                    genesis_core::layout::unpack_axon_id(s.target) == vram_axon_id
                 });
                 
                 if !is_duplicate {
@@ -73,7 +76,7 @@ pub fn connect_dendrites(
                     };
 
                     slots[*count] = TempSlot {
-                        target: genesis_core::layout::pack_dendrite_target(axon_id as u32, seg_ref.seg_idx as u32),
+                        target: genesis_core::layout::pack_dendrite_target(vram_axon_id, seg_ref.seg_idx as u32),
                         weight,
                     };
                     *count += 1;
@@ -152,7 +155,8 @@ mod tests {
         let axons = vec![axon];
         
         let voxel_size_um = 25.0;
-        let connections = connect_dendrites(&mut shard, &positions, &axons, &types, voxel_size_um);
+        let vram_axon_ids: Vec<u32> = axons.iter().enumerate().map(|(i, _)| i as u32).collect();
+        let connections = connect_dendrites(&mut shard, &positions, &axons, &vram_axon_ids, &types, voxel_size_um);
 
         // Since both soma A and soma B scan through space, they both read the same axon.
         // Because data races are eliminated with TempSlot buffers per soma, both must connect safely.

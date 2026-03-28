@@ -46,6 +46,13 @@ pub fn build_local_topology_internal(
     );
     let local_axons_count = axons.len();
 
+    // DOD FIX: Строгий VRAM-маппинг
+    let padded_n = positions.len(); 
+    let mut vram_axon_ids = Vec::with_capacity(padded_n * 2);
+    for ax in &axons {
+        vram_axon_ids.push(ax.soma_idx as u32);
+    }
+
     let mut num_virtual = 0;
     let mut gxi_matrices = Vec::new();
     if !io.inputs.is_empty() {
@@ -56,18 +63,17 @@ pub fn build_local_topology_internal(
                 zone_name,
                 matrix.width,
                 matrix.height,
-                axons.len() as u32,
+                (padded_n + num_virtual) as u32, // DOD FIX: Истинный VRAM offset
                 matrix.stride as u8,
             );
-            num_virtual += gxi.axon_ids.len();
-
+            
             let zone_w = shard_cfg.dimensions.w;
             let zone_d = shard_cfg.dimensions.d;
             let zone_h = shard_cfg.dimensions.h;
 
             for py in 0..matrix.height {
                 for px in 0..matrix.width {
-                    // [DOD FIX] UV Projection Math (Canvas / Chunked / Pie)
+                    // ... (UV Projection logic same as before) ...
                     let u = px as f32 / matrix.width as f32;
                     let v = py as f32 / matrix.height as f32;
                     let mapped_u = matrix.uv_rect[0] + u * matrix.uv_rect[2];
@@ -76,7 +82,6 @@ pub fn build_local_topology_internal(
                     let start_x = ((mapped_u * zone_w as f32) as u32).min(zone_w.saturating_sub(1));
                     let start_y = ((mapped_v * zone_d as f32) as u32).min(zone_d.saturating_sub(1));
                     
-                    // [DOD FIX] Парсим entry_z для правильного роутинга кабелей
                     let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
                         "bottom" => (0, 1i32, glam::Vec3::Z),
                         "mid" => (zone_h / 2, 1i32, glam::Vec3::Z),
@@ -84,8 +89,6 @@ pub fn build_local_topology_internal(
                     };
 
                     let mut segments = Vec::new();
-                    // [DOD FIX] Виртуальные аксоны обязаны прошивать кору насквозь, 
-                    // чтобы достать до нижних слоев в масштабированных (40+ вокселей) зонах!
                     let length = zone_h;
                     let mut final_z = start_z;
 
@@ -97,7 +100,7 @@ pub fn build_local_topology_internal(
 
                     axons.push(GrownAxon {
                         soma_idx: usize::MAX,
-                        type_idx: 0, // Virtual Type mask
+                        type_idx: 0, 
                         tip_x: start_x,
                         tip_y: start_y,
                         tip_z: final_z,
@@ -105,6 +108,8 @@ pub fn build_local_topology_internal(
                         segments,
                         last_dir,
                     });
+                    vram_axon_ids.push((padded_n + num_virtual) as u32);
+                    num_virtual += 1;
                 }
             }
             gxi_matrices.push(gxi);
@@ -151,6 +156,11 @@ pub fn build_local_topology_internal(
             &shard_bounds,
             master_seed,
         );
+        let mut ghost_counter = 0;
+        for _ in &ghost_axons {
+            vram_axon_ids.push((padded_n + num_virtual + ghost_counter) as u32);
+            ghost_counter += 1;
+        }
         axons.append(&mut ghost_axons);
     }
 
@@ -171,7 +181,7 @@ pub fn build_local_topology_internal(
 
     for (axon_id, axon) in axons.iter().enumerate() {
         if axon.soma_idx != std::usize::MAX {
-            shard.soma_to_axon[axon.soma_idx] = axon_id as u32;
+            shard.soma_to_axon[axon.soma_idx] = vram_axon_ids[axon_id];
         }
     }
 
@@ -181,6 +191,7 @@ pub fn build_local_topology_internal(
         &mut shard,
         &positions,
         &axons,
+        &vram_axon_ids,
         neuron_types,
         sim.simulation.voxel_size_um as f32, // Передаем размер вокселя
     );
@@ -198,35 +209,34 @@ pub fn build_local_topology_internal(
     let v_seg = physics.v_seg;
 
     for (i, ax) in axons.iter().enumerate() {
-        if i < shard.axon_heads.len() {
-            let init_val = init_axon_head(ax.length_segments, v_seg);
-            let mut burst = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
-            burst.h0 = init_val;
-            shard.axon_heads[i] = burst;
+        let dst_offset = vram_axon_ids[i] as usize;
+        if dst_offset >= shard.axon_heads.len() { continue; }
 
-            // [DOD FIX] 4-bit Type Mask goes to bits [31..28]
-            shard.axon_tips_uvw[i] = ((ax.type_idx as u32 & 0x0F) << 28) 
-                                   | (ax.tip_z << 22) 
-                                   | (ax.tip_y << 11) 
-                                   | ax.tip_x;
-            let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-            shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
-            
-            // Копируем пути в плоскую матрицу
-            let len = ax.length_segments.min(256) as usize;
-            shard.axon_lengths[i] = len as u8;
-            
-            let dst_offset = i * genesis_core::layout::MAX_SEGMENTS_PER_AXON;
-            
-            // Только если длина > 0, переносим сегменты
-            if len > 0 {
-                // GrownAxon хранит все сегменты (или только до ограничения)
-                let copy_len = ax.segments.len().min(len);
-                shard.axon_paths[dst_offset..dst_offset + copy_len]
-                    .copy_from_slice(&ax.segments[..copy_len]);
-            }
+        let init_val = init_axon_head(ax.length_segments, v_seg);
+        let mut burst = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
+        burst.h0 = init_val;
+        shard.axon_heads[dst_offset] = burst;
+
+        // [DOD FIX] 4-bit Type Mask goes to bits [31..28]
+        shard.axon_tips_uvw[dst_offset] = ((ax.type_idx as u32 & 0x0F) << 28) 
+                                | (ax.tip_z << 22) 
+                                | (ax.tip_y << 11) 
+                                | ax.tip_x;
+        let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+        let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+        let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+        shard.axon_dirs_xyz[dst_offset] = (dz << 16) | (dy << 8) | dx;
+        
+        // DOD FIX: Берем точный VRAM адрес, никаких угадываний
+        let len = ax.length_segments.min(256) as usize;
+        shard.axon_lengths[dst_offset] = len as u8;
+        
+        if len > 0 {
+            // GrownAxon хранит все сегменты (или только до ограничения)
+            let copy_len = ax.segments.len().min(len);
+            let path_start = dst_offset * genesis_core::layout::MAX_SEGMENTS_PER_AXON;
+            shard.axon_paths[path_start..path_start + copy_len]
+                .copy_from_slice(&ax.segments[..copy_len]);
         }
     }
     println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);

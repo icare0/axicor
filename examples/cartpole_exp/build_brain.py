@@ -33,22 +33,27 @@ def build_cartpole_brain():
     exc_type = builder.gnm_lib("L5_spiny_MTG_13")
     inh_type = builder.gnm_lib("L5_aspiny_MTG_10")
 
+    # DOD FIX: Изолируем моторный тип, чтобы GXO-маппер не зацепил сенсорный слой L1
+    motor_type = builder.gnm_lib("L5_spiny_MTG_13")
+    motor_type.name = "Motor_Pyramidal"
+    for d in motor_type.data_list:
+        d["name"] = "Motor_Pyramidal"
+
     # =========================================================================
     # ГЕОМЕТРИЯ (Единый Sensorimotor Cortex)
     # =========================================================================
-    # Размер 32x32x20 с плотностью 10% даст ~2000 нейронов. Идеально для L2 кэша.
     cortex = builder.add_zone("MotorCortex", width_vox=32, depth_vox=32, height_vox=32)
 
-    cortex.add_layer("L1_Input", height_pct=0.2, density=0.1) \
+    cortex.add_layer("L1_Input", height_pct=0.2, density=0.05) \
           .add_population(exc_type, fraction=0.8) \
           .add_population(inh_type, fraction=0.2)
 
-    cortex.add_layer("L4_Hidden", height_pct=0.6, density=0.3) \
+    cortex.add_layer("L4_Hidden", height_pct=0.6, density=0.1) \
           .add_population(exc_type, fraction=0.7) \
           .add_population(inh_type, fraction=0.3)
 
-    cortex.add_layer("L5_Output", height_pct=0.2, density=0.1) \
-          .add_population(exc_type, fraction=0.8) \
+    cortex.add_layer("L5_Output", height_pct=0.2, density=0.05) \
+          .add_population(motor_type, fraction=0.8) \
           .add_population(inh_type, fraction=0.2)
 
     # =========================================================================
@@ -56,14 +61,14 @@ def build_cartpole_brain():
     # =========================================================================
     layout_sensors = ["cart_x", "cart_v", "pole_a", "pole_av"]
 
-    # Входной порт: 4 сенсора плотно ложатся в 4 слота (матрица 2x2)
+    # Входной порт
     cortex.add_input("sensors", width=16, height=16, entry_z="top", \
         layout=layout_sensors)
 
     # Выходные порты: Физически разрезаем моторную кору на два независимых полушария.
     # Левый порт читает только левую половину (U от 0.0 до 0.5)
-    cortex.add_output("motor_left", width=16, height=16, target_type="L5_spiny_MTG_13", uv_rect=[0.0, 0.0, 0.5, 1.0])
-    cortex.add_output("motor_right", width=16, height=16, target_type="L5_spiny_MTG_13", uv_rect=[0.5, 0.0, 0.5, 1.0])
+    cortex.add_output("motor_left", width=16, height=16, target_type="Motor_Pyramidal", uv_rect=[0.0, 0.0, 0.5, 1.0])
+    cortex.add_output("motor_right", width=16, height=16, target_type="Motor_Pyramidal", uv_rect=[0.5, 0.0, 0.5, 1.0])
 
     # Компиляция TOML конфигов и запекание бинарных дампов VRAM
     builder.build().bake(clean=True)

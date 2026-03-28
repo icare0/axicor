@@ -1,4 +1,37 @@
+#![allow(dead_code)]
 use bevy::prelude::*;
+use bevy::render::render_resource::ShaderType;
+use bytemuck::{Pod, Zeroable};
+
+#[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
+#[repr(C)]
+#[allow(unused)]
+pub struct NeuronInstanceData {
+    pub position: [f32; 3],
+    pub scale: f32,
+    pub color: [f32; 4],
+}
+
+#[derive(Resource, Default)]
+pub struct NeuronInstances {
+    pub data: Vec<NeuronInstanceData>,
+    pub selected: Option<usize>,
+}
+
+#[derive(Resource, Default)]
+pub struct TopologyGraph {
+    pub padded_n: usize,
+    pub targets: Vec<u32>,              // Сырой массив dendrite_targets (Columnar)
+    pub soma_to_axon: Vec<u32>,         // Маппинг soma_id -> axon_id
+    pub axon_segments: Vec<Vec<Vec3>>,  // Координаты всех изломов аксонов
+    pub soma_positions: Vec<Vec3>,      // Вычисленные 3D координаты сом
+    pub traced_entity: Option<Entity>,  // ID сущности текущего меша трассировки
+    pub last_selected: Option<usize>,   // Предыдущий выделенный нейрон
+    pub compact_to_dense: Vec<usize>,   // ДОБАВЛЕНО: Маппинг UI-индекса на RAM-индекс
+    pub axon_to_soma: Vec<usize>,      // ДОБАВЛЕНО: Реверсивный поиск владельца аксона
+    pub global_axon_mat: Handle<StandardMaterial>, // ДОБАВЛЕНО: Handle глобального материала аксонов для X-Ray мода
+    pub soma_mat: Handle<crate::systems::material::NeuronInstanceMaterial>, // ДОБАВЛЕНО: Handle материала сом
+}
 
 #[derive(Component)]
 pub struct ShardGeometry {
@@ -29,3 +62,9 @@ pub struct ZoneSelectedEvent {
     pub project_name: String,
     pub shard_name: String,
 }
+
+use bevy::render::mesh::MeshVertexAttribute;
+use bevy::render::render_resource::VertexFormat;
+
+pub const ATTRIBUTE_SPHERE_ID: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vertex_Sphere_Id", 1337, VertexFormat::Uint32);
