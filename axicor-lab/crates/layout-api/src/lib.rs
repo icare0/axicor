@@ -97,6 +97,11 @@ pub struct UpdateGeometryEvent {
     pub geometry: PluginGeometry,
 }
 
+#[derive(Event, Clone, Debug)]
+pub struct CreateNewModelEvent {
+    pub model_name: String,
+}
+
 pub struct PaneData {
     pub plugin_id: String,
     pub texture_id: Option<egui::TextureId>,

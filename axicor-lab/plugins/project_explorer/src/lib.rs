@@ -1,5 +1,4 @@
 pub mod domain;
-pub mod ui;
 pub mod systems;
 
 use bevy::prelude::*;
@@ -14,6 +13,7 @@ impl Plugin for ProjectExplorerPlugin {
            .add_systems(Update, (
                systems::scanner::fs_scanner_system,
                systems::render::render_project_explorer_system,
+               systems::interaction::create_new_model_system,
            ));
     }
 }

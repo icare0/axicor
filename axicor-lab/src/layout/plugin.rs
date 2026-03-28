@@ -8,7 +8,7 @@ use crate::layout::domain::{
 };
 
 // DOD FIX: Междоменная шина (Доступна плагинам)
-use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache};
+use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent};
 
 use crate::layout::systems;
 
@@ -30,6 +30,7 @@ impl Plugin for WindowManagerPlugin {
 
         app.add_event::<SaveDefaultLayoutEvent>()
            .add_event::<OsWindowCommand>()
+           .add_event::<CreateNewModelEvent>()
            .add_systems(Startup, systems::boot::boot_layout_system)
            .add_systems(Update, (
                systems::input::window_input_system,

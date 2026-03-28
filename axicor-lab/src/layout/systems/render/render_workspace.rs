@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use crate::layout::domain::{WorkspaceState, OsWindowCommand, WindowDragState, TreeCommands};
-use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache};
+use crate::layout::domain::{WorkspaceState, OsWindowCommand, WindowDragState, TreeCommands, SaveDefaultLayoutEvent};
+use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent};
 use crate::layout::behavior::PaneBehavior;
 use crate::layout::overlay::draw_drag_intent_overlay;
 
@@ -20,7 +20,9 @@ pub fn render_workspace_system(
     mut exit: EventWriter<bevy::app::AppExit>,
     drag_state: Res<WindowDragState>,
     mut drag_request: ResMut<WindowDragRequest>,
-    mut tree_commands: ResMut<TreeCommands>, // <-- ДОБАВИТЬ СЮДА
+    mut tree_commands: ResMut<TreeCommands>,
+    mut create_model_ev: EventWriter<CreateNewModelEvent>,
+    mut save_layout_ev: EventWriter<SaveDefaultLayoutEvent>,
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
@@ -29,7 +31,7 @@ pub fn render_workspace_system(
     allocated_panes.rects.clear();
     topology.tiles.clear();
 
-    render_top_bar(ctx, &mut os_cmd, &mut exit);
+    render_top_bar(ctx, &mut os_cmd, &mut exit, &mut create_model_ev, &mut save_layout_ev);
 
     let mut behavior = PaneBehavior {
         allocated_panes: &mut allocated_panes,
@@ -75,6 +77,8 @@ fn render_top_bar(
     ctx: &egui::Context,
     os_cmd: &mut EventWriter<OsWindowCommand>,
     exit: &mut EventWriter<bevy::app::AppExit>,
+    create_model_ev: &mut EventWriter<CreateNewModelEvent>,
+    save_layout_ev: &mut EventWriter<SaveDefaultLayoutEvent>,
 ) {
     egui::TopBottomPanel::top("axicor_top_bar")
         .frame(egui::Frame::none().fill(COLOR_TOPBAR).inner_margin(4.0))
@@ -99,7 +103,20 @@ fn render_top_bar(
                 // Тройной отступ вправо (базовый margin 4.0 * 3)
                 ui.add_space(12.0);
 
-                ui.menu_button("File", |_| {});
+                ui.menu_button("File", |ui| {
+                    if ui.button("Create Model").clicked() {
+                        create_model_ev.send(CreateNewModelEvent {
+                            model_name: "Untitled_Model".to_string(),
+                        });
+                        ui.close_menu();
+                    }
+
+                    // DOD FIX: Восстановленная кнопка сохранения лейаута
+                    if ui.button("Save Default Layout").clicked() {
+                        save_layout_ev.send(SaveDefaultLayoutEvent);
+                        ui.close_menu();
+                    }
+                });
                 ui.menu_button("View", |_| {});
                 ui.menu_button("Settings", |_| {});
 

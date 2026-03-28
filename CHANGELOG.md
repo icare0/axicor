@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1100.127] - 2026-03-28 03:36:47
+
+**[Connectome Viewer] Implement DOD fixes and camera lifecycle management**
+
+### Added
+- Add is_visible field to PluginWindow struct in layout-api for visibility tracking
+- Extend ViewportCamera component with viewport Entity field to reference parent window
+- Implement toggle_idle_cameras_system to despawn zombie cameras when windows are destroyed
+- Add sync_plugin_visibility_system to sync PluginWindow.is_visible with AllocatedPanes
+- Register toggle_idle_cameras_system and sync_plugin_visibility_system in respective plugins
+- Add DOD guard in viewport_camera_control_system to skip mut transform updates when no input (is_dragging/is_scrolling)
+- Implement absolute early return in soma_picking_system to avoid O(N) raycasting on mouse movement
+- Fix ShardGeometry, RenderLayers, and NoFrustumCulling imports in trace_active_connections_system
+- Insert WinitSettings::desktop_app() resource for proper desktop event handling
+- Modify attach_camera_to_viewport_system to pass viewport entity to ViewportCamera constructor
+- Initialize PluginWindow with is_visible: true in spawn_pane_entity
+
+
 ## [0.1090.126] - 2026-03-28 02:19:31
 
 **[Connectome] Refactor viewer plugin and fix axon mapping**

@@ -50,6 +50,37 @@ pub fn fs_scanner_system(
                     }
                 }
             }
+        } else if path.is_dir() {
+            // DOD FIX: Игнорируем временные папки SRAM распаковки ноды
+            if name.ends_with(".axic.mem") || name == "baked" {
+                continue;
+            }
+
+            if path.join("brain.toml").exists() {
+                // Динамически сканируем все TOML файлы в папке
+                let mut dna_files = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&path) {
+                    for entry in entries.flatten() {
+                        let file_path = entry.path();
+                        if file_path.is_file() && file_path.extension().map_or(false, |e| e == "toml") {
+                            if let Some(fname) = file_path.file_name() {
+                                dna_files.push(fname.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+                dna_files.sort();
+
+                projects.push(ProjectModel {
+                    // DOD FIX: Добавляем суффикс, чтобы избежать ID Collision в egui
+                    // с одноименными скомпилированными .axic архивами!
+                    name: format!("{} (Source)", name),
+                    status: ProjectStatus::Ready,
+                    dna_files,
+                    shards: Vec::new(), 
+                    is_bundle: false,
+                });
+            }
         }
     }
     
