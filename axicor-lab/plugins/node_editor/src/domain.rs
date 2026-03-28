@@ -19,6 +19,9 @@ pub struct NodeGraphUiState {
     
     // DOD FIX: Временное хранилище для создаваемой связи (SrcNode, SrcPort, DstNode, DstPort)
     pub pending_connection: Option<(String, String, String, String)>,
+    
+    // DOD FIX: Состояние выделения
+    pub selected_node: Option<String>,
 }
 
 impl Default for NodeGraphUiState {
@@ -34,6 +37,7 @@ impl Default for NodeGraphUiState {
             zone_search: String::new(),
             new_node_buffer: String::new(),
             pending_connection: None,
+            selected_node: None,
         }
     }
 }
@@ -62,8 +66,11 @@ pub struct BrainTopologyGraph {
     pub active_project: Option<String>,
     pub active_graph_type: Option<String>,
     pub config: Option<genesis_core::config::brain::BrainConfig>,
-    pub io_configs: HashMap<String, genesis_core::config::io::IoConfig>,
-    pub anatomy_configs: HashMap<String, genesis_core::config::anatomy::AnatomyConfig>,
+    pub io_configs: std::collections::HashMap<String, genesis_core::config::io::IoConfig>,
+    pub anatomy_configs: std::collections::HashMap<String, genesis_core::config::anatomy::AnatomyConfig>,
+
+    // DOD FIX: Флаг несохраненных изменений (RAM tmp слой)
+    pub is_dirty: bool,
 }
 
 #[derive(Event, Clone, Debug)]
@@ -79,6 +86,10 @@ pub enum TopologyMutation {
 
 #[derive(Event, Clone, Debug)]
 pub struct SaveProjectEvent;
+
+// ДОБАВЛЕНО: Отдельный ивент для сброса RAM графа на диск
+#[derive(Event, Clone, Debug)]
+pub struct CompileGraphEvent; 
 
 #[derive(Event, Clone, Debug)]
 pub struct BakeProjectEvent;

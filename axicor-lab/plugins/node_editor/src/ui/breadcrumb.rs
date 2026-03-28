@@ -15,7 +15,10 @@ pub fn draw_breadcrumbs(
     let c_dept  = if is_lvl_1 { Color32::WHITE } else { Color32::GRAY };
     let c_zone  = if !is_lvl_0 && !is_lvl_1 { Color32::WHITE } else { Color32::GRAY };
 
-    let model_name = graph.project_name.clone().unwrap_or_else(|| "Select Model".to_string());
+    let mut model_name = graph.project_name.clone().unwrap_or_else(|| "Select Model".to_string());
+    if graph.is_dirty {
+        model_name.push_str(" *"); // Звездочка несохраненных изменений
+    }
     
     // --- КРОШКА 1: MODELS ---
     if let Some(new_m) = draw_searchable_breadcrumb(ui, &model_name, &mut state.model_search, c_model, || {

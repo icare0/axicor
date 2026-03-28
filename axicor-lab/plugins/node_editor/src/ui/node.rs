@@ -121,8 +121,9 @@ fn draw_node(
     let zoom = state.zoom;
     let NodeLayout { screen_rect, header_rect, body_rect, .. } = *layout;
 
-    draw_node_shape(painter, screen_rect, header_rect, body_rect, zone, zoom);
-    handle_node_drag(ui, zone, screen_rect, state);
+    let is_selected = state.selected_node.as_deref() == Some(zone);
+    draw_node_shape(painter, screen_rect, header_rect, body_rect, zone, zoom, is_selected);
+    handle_node_drag(ui, graph, zone, screen_rect, state);
     
     let inputs = graph.node_inputs.get(zone).cloned().unwrap_or_default();
     let outputs = graph.node_outputs.get(zone).cloned().unwrap_or_default();
@@ -138,6 +139,7 @@ fn draw_node_shape(
     body_rect: Rect,
     label: &str,
     zoom: f32,
+    is_selected: bool, // ДОБАВЛЕНО
 ) {
     let r = CORNER_RADIUS * zoom;
 
@@ -154,29 +156,58 @@ fn draw_node_shape(
     // Тело
     painter.rect_filled(body_rect,
         egui::Rounding { nw: 0.0, ne: 0.0, sw: r, se: r }, CLR_BODY);
-    // Обводка
-    painter.rect_stroke(screen_rect, r, Stroke::new(zoom, CLR_BORDER));
+    // DOD FIX: Яркая обводка, если нода выделена
+    let border_color = if is_selected { Color32::GOLD } else { CLR_BORDER };
+    let border_width = if is_selected { 2.0 * zoom } else { 1.0 * zoom };
+    painter.rect_stroke(screen_rect, r, Stroke::new(border_width, border_color));
 }
 
 fn handle_node_drag(
     ui: &mut egui::Ui,
+    graph: &mut BrainTopologyGraph, // ДОБАВЛЕНО
     zone: &str,
     screen_rect: Rect,
     state: &mut NodeGraphUiState,
 ) {
-    let response = ui.interact(screen_rect, ui.id().with(zone), egui::Sense::drag());
+    // DOD FIX: Используем click_and_drag, чтобы ЛКМ регистрировал клики!
+    let response = ui.interact(screen_rect, ui.id().with(zone), egui::Sense::click_and_drag());
 
     if response.dragged_by(egui::PointerButton::Primary) {
         if let Some(pos) = state.node_positions.get_mut(zone) {
             *pos += response.drag_delta() / state.zoom;
         }
     }
+    // DOD FIX: Мгновенное выделение по клику ЛКМ
+    if response.clicked() {
+        state.selected_node = Some(zone.to_string());
+    }
 
     response.context_menu(|ui| {
         ui.label(format!("Node: {}", zone));
         ui.separator();
-        if ui.button("⚙ Properties").clicked() { ui.close_menu(); }
-        if ui.button("🗑 Delete Node").clicked() { ui.close_menu(); }
+        
+        if ui.button("⚙ Properties").clicked() { 
+            state.selected_node = Some(zone.to_string()); 
+            ui.close_menu(); 
+        }
+        
+        if ui.button("🗑 Delete Node").clicked() { 
+            // DOD FIX: Физическое удаление зоны и всех привязанных к ней аксонов
+            let z = zone.to_string();
+            graph.zones.retain(|x| x != &z);
+            graph.connections.retain(|(f, _, t, _)| f != &z && t != &z);
+            graph.node_inputs.remove(&z);
+            graph.node_outputs.remove(&z);
+            state.node_positions.remove(&z);
+            
+            graph.is_dirty = true; // ДОБАВЛЕНО
+            
+            // Сбрасываем выделение, если удалили выбранную ноду
+            if state.selected_node.as_deref() == Some(zone) {
+                state.selected_node = None;
+            }
+            ui.close_menu(); 
+        }
     });
 }
 
@@ -228,6 +259,7 @@ fn draw_input_pins(
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_in")), egui::Sense::click()).clicked() {
         let new_port = format!("in_{}", inputs.len() + 1);
         graph.node_inputs.get_mut(zone).unwrap().push(new_port);
+        graph.is_dirty = true; // ДОБАВЛЕНО
     }
 }
 
@@ -276,6 +308,7 @@ fn draw_output_pins(
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_out")), egui::Sense::click()).clicked() {
         let new_port = format!("out_{}", outputs.len() + 1);
         graph.node_outputs.get_mut(zone).unwrap().push(new_port);
+        graph.is_dirty = true; // ДОБАВЛЕНО
     }
 }
 

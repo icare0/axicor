@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use layout_api::{PluginWindow, base_domain, DOMAIN_NODE_ED};
-use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation, SaveProjectEvent, BakeProjectEvent};
+use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation, SaveProjectEvent, CompileGraphEvent, BakeProjectEvent};
 use crate::ui::render_editor_ui;
 
 pub fn render_node_editor_system(
@@ -11,84 +11,16 @@ pub fn render_node_editor_system(
     mut graph: ResMut<BrainTopologyGraph>,
     mut mut_events: EventWriter<TopologyMutation>,
     mut save_events: EventWriter<SaveProjectEvent>,
+    mut compile_events: EventWriter<CompileGraphEvent>,
     mut bake_events: EventWriter<BakeProjectEvent>,
-    mut open_file_events: ParamSet<(
-        EventReader<layout_api::OpenFileEvent>,
-        EventWriter<layout_api::OpenFileEvent>,
-    )>,
+    mut open_file_events: EventWriter<layout_api::OpenFileEvent>,
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
-
-    let mut new_level = None;
-    let mut opened_model_path = None;
-
-    for ev in open_file_events.p0().read() {
-        if let Some(file_name) = ev.path.file_name().and_then(|n| n.to_str()) {
-            if file_name == "simulation.toml" {
-                new_level = Some(crate::domain::EditorLevel::Model);
-                opened_model_path = Some(ev.path.clone());
-            } else if file_name.ends_with(".toml") && file_name != "simulation.toml" && file_name != "manifest.toml" {
-                // Если открыли любой другой TOML (например, visual_cortex.toml) - это уровень департамента
-                new_level = Some(crate::domain::EditorLevel::Department);
-            }
-        }
-    }
 
     for (window, entity) in window_query.iter() {
         if !window.is_visible { continue; }
         if base_domain(&window.plugin_id) != DOMAIN_NODE_ED { continue; }
         let Ok(mut ui_state) = ui_states.get_mut(entity) else { continue };
-
-        if let Some(lvl) = &new_level {
-            ui_state.level = lvl.clone();
-            
-            if *lvl == crate::domain::EditorLevel::Model {
-                graph.zones.clear();
-                graph.connections.clear(); 
-                graph.node_inputs.clear();
-                graph.node_outputs.clear();
-                
-                if let Some(path) = &opened_model_path {
-                    if let Some(proj_dir) = path.parent() {
-                        let proj_name = proj_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                        graph.project_name = Some(proj_name);
-
-                        // DOD FIX: O(1) Сканирование директории на лету. 
-                        // Все *.toml файлы (кроме системных) становятся нодами-департаментами!
-                        if let Ok(entries) = std::fs::read_dir(proj_dir) {
-                            for entry in entries.flatten() {
-                                let p = entry.path();
-                                if p.is_file() {
-                                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                                        if name.ends_with(".toml") && name != "simulation.toml" && name != "manifest.toml" {
-                                            // Добавляем департамент (например, "vision")
-                                            let name = name.replace(".toml", "");
-                                            graph.zones.push(name.clone());
-
-                                            // DOD FIX: Парсим реальные порты из io.toml
-                                            let mut ins = Vec::new();
-                                            let mut outs = Vec::new();
-                                            let io_path = proj_dir.join(&name).join("io.toml");
-                                            if let Ok(content) = std::fs::read_to_string(&io_path) {
-                                                if let Ok(io_cfg) = genesis_core::config::io::IoConfig::parse(&content) {
-                                                    ins = io_cfg.inputs.into_iter().map(|i| i.name).collect();
-                                                    outs = io_cfg.outputs.into_iter().map(|o| o.name).collect();
-                                                }
-                                            }
-                                            if ins.is_empty() { ins.push("in".to_string()); }
-                                            if outs.is_empty() { outs.push("out".to_string()); }
-                                            graph.node_inputs.insert(name.clone(), ins);
-                                            graph.node_outputs.insert(name, outs);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        graph.zones.sort(); // Стабильный рендер
-                    }
-                }
-            }
-        }
 
         egui::Area::new(egui::Id::new(&window.plugin_id))
             .fixed_pos(window.rect.min)
@@ -104,8 +36,9 @@ pub fn render_node_editor_system(
                     &mut ui_state,
                     |ev| { mut_events.send(ev); },
                     ||   { save_events.send(SaveProjectEvent); },
+                    ||   { compile_events.send(CompileGraphEvent); },
                     ||   { bake_events.send(BakeProjectEvent); },
-                    |path| { open_file_events.p1().send(layout_api::OpenFileEvent { path }); },
+                    |path| { open_file_events.send(layout_api::OpenFileEvent { path }); },
                 );
             });
     }

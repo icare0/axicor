@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1143.127] - 2026-03-28 21:23:20
+
+**[Architecture]**
+
+### Added
+- Decouple monolithic ui.rs into modular components: breadcrumb.rs, canvas.rs, connections.rs, node.rs, toolbar.rs
+- Extend BrainTopologyGraph to store connections with port metadata as (FromNode, FromPort, ToNode, ToPort)
+- Add node_inputs and node_outputs HashMaps to cache real port lists per node from io.toml files
+- Add pending_connection field to NodeGraphUiState to store temporary connection data during drag
+- Update sync_topology_graph_system and parse_connections to read and store port information from brain.toml
+- Modify parse_zones and render_node_editor_system to populate node_inputs and node_outputs from io.toml configs
+- Extend TopologyMutation::AddConnection to include from_port and to_port parameters
+- Update apply_topology_mutations_system to log port-aware connection additions
+- Implement draw_searchable_breadcrumb in breadcrumb.rs for hierarchical navigation
+- Implement render_canvas in canvas.rs for main editor area with zoom and pan
+- Implement render_connections in connections.rs for drawing connections between nodes
+- Implement render_node in node.rs for individual node rendering with input/output ports
+- Implement render_toolbar in toolbar.rs for editor controls
+
+## [0.1129.127] - 2026-03-28 13:10:28
+
+**Implement dynamic breadcrumb navigation with global search and smart foc**
+
+### Added
+- Implement dynamic color-coded breadcrumbs based on EditorLevel (Model, Department, Zone) in ui.rs
+- Extend draw_searchable_breadcrumb function to accept active_color parameter for visual state indication
+- Replace static placeholders with conditional current names (Select Model, Select Dept, Select Zone)
+- Implement global filesystem scanning for Departments across all models in Genesis-Models directory
+- Implement global filesystem scanning for Zones (Shards) across all models, detecting shard.toml or anatomy.toml
+- Parse selection strings with slash delimiter (model/dept, model/zone) for cross-model navigation
+- Add sync_smart_focus_system to interaction.rs, registered in lib.rs
+- System listens for OpenFileEvent and updates ProjectExplorerState.active_file to match opened path
+- Enables project explorer to track and focus files opened by other plugins like the node editor
+
+
 ## [0.1126.127] - 2026-03-28 12:18:18
 
 **Implement Node Editor DOD UI with interactive breadcrumbs and pin draggi**
