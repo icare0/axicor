@@ -13,5 +13,6 @@ impl PluginGroup for AllPlugins {
             .add(node_editor::NodeEditorPlugin)
             .add(connectome_viewer::ConnectomeViewerPlugin)
             .add(code_editor::CodeEditorPlugin)
+            .add(ai_copilot::AiCopilotPlugin)
     }
 }

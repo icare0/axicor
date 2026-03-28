@@ -13,13 +13,23 @@ pub fn render_project_explorer_system(
     mut load_events: EventWriter<LoadGraphEvent>,
     mut zone_events: EventWriter<ZoneSelectedEvent>,
     mut open_file_ev: EventWriter<OpenFileEvent>,
-    window_query: Query<&PluginWindow>,
+    window_query: Query<(&PluginWindow, Entity)>,
+    mut explorer_states: Query<&mut crate::domain::ProjectExplorerState>,
+    mut commands: Commands,
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
-    for window in window_query.iter() {
+    for (window, entity) in window_query.iter() {
         if !window.is_visible { continue; }
         if base_domain(&window.plugin_id) != DOMAIN_EXPLORER { continue; }
+
+        let mut state_view = explorer_states.get_mut(entity);
+        if state_view.is_err() {
+            commands.entity(entity).insert(crate::domain::ProjectExplorerState::default());
+        }
+        
+        // DOD FIX: В первом кадре (пока команда insert на выполнилась) используем None
+        let active_file = state_view.as_mut().ok().map(|s| &mut s.active_file);
 
         let rect = window.rect;
         let area_id = format!("ExplorerPortal_{:?}", window.id);
@@ -46,6 +56,7 @@ pub fn render_project_explorer_system(
                         &bundles, 
                         &sources,
                         &mut open_file_ev,
+                        active_file,
                         |proj| { load_events.send(LoadGraphEvent { project_name: proj }); },
                         |proj, shard| { zone_events.send(ZoneSelectedEvent { project_name: proj, shard_name: shard }); }
                     );

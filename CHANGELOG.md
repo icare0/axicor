@@ -8,6 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1118.127] - 2026-03-28 06:31:29
+
+**[Architecture] Introduce Code Editor plugin and extend layout API**
+
+### Added
+- Add new `code_editor` plugin with domain, interaction, and render systems
+- Implement `CodeEditorState` component and `OpenFileEvent` handling in `handle_open_file_system`
+- Extend layout-api with `DOMAIN_CODE_EDITOR`, `TopologyChangedEvent`, `OpenFileEvent`, `base_domain`, and `domain_title` functions
+- Add `id` and `rect` fields to `PluginWindow` struct for DOD fixes and direct child UI coordinates
+- Register `code_editor` plugin in main workspace `Cargo.toml` and `axicor-lab/Cargo.toml`
+- Update author email to `alex@axicor.dev` in root `Cargo.toml`
+- Add plugin module declaration in `axicor-lab/plugins/mod.rs`
+- Refactor `node_editor` domain structures and modify `systems/interaction.rs`, `systems/mutations.rs`, and `systems/render.rs`
+- Adjust `connectome_viewer/src/systems/render.rs` and `project_explorer/src/systems/render/mod.rs` rendering logic
+- Update `axicor-lab/src/layout/systems/window/execute_commands.rs` command execution
+- Add plugin geometry input system in `axicor-lab/src/layout/systems/input/plugin_geometry.rs`
+
+## [0.1108.127] - 2026-03-28 04:57:39
+
+**[UI/System] Refactor Project Explorer with modular UI and new model crea**
+
+### Added
+- Add CreateNewModelEvent to layout-api for new model generation
+- Implement create_new_model_system in systems/interaction.rs to create Genesis-Models directory with brain.toml and simulation.toml
+- Refactor render system into render/mod.rs, separating UI components into ui_components.rs
+- Implement draw_explorer_tree, draw_bundles, draw_bundle_zones, draw_sources, and draw_separator functions for structured UI rendering
+- Extend fs_scanner_system to ignore .axic.mem and baked directories, and dynamically scan TOML files
+- Remove monolithic ui.rs module and integrate UI rendering directly into systems
+- Register create_new_model_system in ProjectExplorerPlugin update schedule
+
+
 ## [0.1100.127] - 2026-03-28 03:36:47
 
 **[Connectome Viewer] Implement DOD fixes and camera lifecycle management**

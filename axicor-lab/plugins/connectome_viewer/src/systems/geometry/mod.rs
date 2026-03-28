@@ -17,19 +17,23 @@ pub fn load_zone_geometry_system(
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
     viewports: Query<(Entity, &PluginInput, &PluginWindow)>, 
     existing_geometries: Query<(Entity, &ShardGeometry)>,
-    bundle: Res<layout_api::ActiveBundle>,
     mut neuron_instances: ResMut<NeuronInstances>,
 ) {
     for ev in events.read() {
-        if bundle.project_name != ev.project_name {
-            eprintln!("Load project '{}' in Node Editor first!", ev.project_name);
+        // DOD FIX: Читаем архив напрямую из Genesis-Models (сырые бинарники удаляются после сборки)
+        let axic_path = std::path::PathBuf::from("Genesis-Models")
+            .join(format!("{}.axic", ev.project_name));
+
+        let Some(archive) = genesis_core::vfs::AxicArchive::open(&axic_path) else {
+            eprintln!("Failed to open VFS archive: {:?}", axic_path);
             continue;
-        }
+        };
 
         // 1. SOMAS
-        let blueprints_data = bundle.get_file(&format!("{}/blueprints.toml", ev.shard_name));
+        let blueprints_data = archive.get_file(&format!("{}/blueprints.toml", ev.shard_name));
         let pos_path = format!("baked/{}/shard.pos", ev.shard_name);
-        let Some(pos_data) = bundle.get_file(&pos_path) else {
+        
+        let Some(pos_data) = archive.get_file(&pos_path) else {
             eprintln!("FATAL: Missing shard geometry at {} in archive", pos_path);
             continue;
         };
@@ -47,7 +51,7 @@ pub fn load_zone_geometry_system(
 
         // Загружаем state_bytes заранее для маппинга корневых аксонов
         let state_path = format!("baked/{}/shard.state", ev.shard_name);
-        let state_bytes = bundle.get_file(&state_path);
+        let state_bytes = archive.get_file(&state_path);
 
         // 2. AXONS
         let paths_path = format!("baked/{}/shard.paths", ev.shard_name);
@@ -55,7 +59,7 @@ pub fn load_zone_geometry_system(
         let mut axon_mat_handle = None;
         let mut segment_lookup = Vec::new();
 
-        if let Some(paths_bytes) = bundle.get_file(&paths_path) {
+        if let Some(paths_bytes) = archive.get_file(&paths_path) {
             // DOD FIX: Передаем pos_data и center внутрь, убирая зависимость от instances
             if let Some(axon_result) = axons::build_axon_lines(paths_bytes, pos_data, soma_result.center, state_bytes.as_deref()) {
                 axon_mesh_handle = Some(meshes.add(axon_result.mesh));
@@ -74,7 +78,7 @@ pub fn load_zone_geometry_system(
         if let Some(state_data) = state_bytes {
             if !segment_lookup.is_empty() {
                 crate::systems::geometry::dendrites::build_topology_graph(
-                    state_data.as_ref(), pos_data, soma_result.center, &segment_lookup, &mut topology_graph
+                    state_data, pos_data, soma_result.center, &segment_lookup, &mut topology_graph
                 );
             }
         }

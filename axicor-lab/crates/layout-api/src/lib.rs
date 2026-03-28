@@ -6,7 +6,8 @@ use std::path::Path;
 pub const DOMAIN_VIEWPORT: &str = "axicor.viewport_3d";
 pub const DOMAIN_EXPLORER: &str = "axicor.explorer";
 pub const DOMAIN_NODE_ED:  &str = "axicor.node_editor";
-pub const DOMAIN_CODE_EDITOR: &str = "axicor.code_editor";
+pub const DOMAIN_CODE_EDITOR: &str = "domain.code_editor";
+pub const DOMAIN_AI_COPILOT: &str = "domain.ai_copilot";
 
 // Отражает размер системного DND-якоря (6.5px offset + 25px width + 10px gap)
 pub const SYS_UI_SAFE_ZONE: f32 = 41.5;

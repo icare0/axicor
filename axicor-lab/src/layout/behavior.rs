@@ -123,6 +123,7 @@ fn handle_system_dnd_anchor(
                     (layout_api::DOMAIN_VIEWPORT, "Connectome Viewer"),
                     (layout_api::DOMAIN_NODE_ED,  "Topology Editor"),
                     (layout_api::DOMAIN_CODE_EDITOR, "Code Editor"),
+                    (layout_api::DOMAIN_AI_COPILOT, "AI Copilot"),
                 ];
                 for (dom_id, label) in domains {
                     if ui.button(label).clicked() {

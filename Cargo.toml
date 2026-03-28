@@ -11,6 +11,7 @@ members = [
     "axicor-lab/plugins/connectome_viewer",
     "axicor-lab/plugins/node_editor",
     "axicor-lab/plugins/code_editor",
+    "axicor-lab/plugins/ai_copilot",
 ]
 resolver = "2"
 

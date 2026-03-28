@@ -8,12 +8,27 @@ const MODELS_ROOT: &str = "Genesis-Models";
 pub fn sync_topology_graph_system(
     mut load_ev: EventReader<LoadGraphEvent>,
     mut topo_ev: EventReader<TopologyChangedEvent>,
+    mut open_file_ev: EventReader<layout_api::OpenFileEvent>,
     mut graph: ResMut<BrainTopologyGraph>,
 ) {
     // Последнее событие побеждает — оба потока в одном fold
-    let target = load_ev.read().map(|e| e.project_name.clone())
+    let mut target = load_ev.read().map(|e| e.project_name.clone())
         .chain(topo_ev.read().map(|e| e.project_name.clone()))
         .last();
+
+    // DOD FIX: Если пользователь открыл brain.toml в редакторе кода, 
+    // автоматически подхватываем проект в Node Editor!
+    for ev in open_file_ev.read() {
+        if let Some(file_name) = ev.path.file_name().and_then(|n| n.to_str()) {
+            if file_name == "brain.toml" {
+                // Извлекаем имя проекта из пути: Genesis-Models/ProjectName/brain.toml
+                let mut iter = ev.path.components();
+                if let (Some(_), Some(proj_name)) = (iter.next(), iter.next()) {
+                    target = Some(proj_name.as_os_str().to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
 
     let Some(project) = target else { return };
 

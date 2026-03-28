@@ -11,6 +11,7 @@ pub fn draw_explorer_tree<FLoad, FZone>(
     bundles: &[&ProjectModel],
     sources: &[&ProjectModel],
     open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
+    active_file: Option<&mut Option<std::path::PathBuf>>,
     mut on_load: FLoad,
     mut on_zone: FZone,
 ) where
@@ -33,7 +34,7 @@ pub fn draw_explorer_tree<FLoad, FZone>(
             draw_separator(ui);
         }
 
-        draw_sources(ui, sources, open_file_ev);
+        draw_sources(ui, sources, open_file_ev, active_file);
     });
 }
 
@@ -87,9 +88,22 @@ fn draw_sources(
     ui: &mut egui::Ui, 
     sources: &[&ProjectModel],
     open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
+    mut active_file: Option<&mut Option<std::path::PathBuf>>,
 ) {
     for project in sources {
-        egui::CollapsingHeader::new(format!("📁 {}", project.name))
+        // Проверяем, содержит ли этот проект сейчас открытый файл
+        let is_project_active = active_file.as_ref().and_then(|af| af.as_ref()).map_or(false, |p| {
+            p.to_string_lossy().contains(&project.name.replace(" (Source)", ""))
+        });
+
+        // Если проект активен, подсвечиваем его заголовок голубым!
+        let header_text = if is_project_active {
+            egui::RichText::new(format!("📁 {}", project.name)).color(egui::Color32::LIGHT_BLUE).strong()
+        } else {
+            egui::RichText::new(format!("📁 {}", project.name))
+        };
+
+        egui::CollapsingHeader::new(header_text)
             .id_source(&project.name)
             .show(ui, |ui| {
                 if project.dna_files.is_empty() {
@@ -99,13 +113,26 @@ fn draw_sources(
                     );
                 } else {
                     for file in &project.dna_files {
-                        let response = ui.selectable_label(false, format!("📄 {}", file));
                         let file_path = std::path::PathBuf::from("Genesis-Models")
                             .join(&project.name.replace(" (Source)", ""))
                             .join(file);
 
+                        // Проверяем, является ли конкретно этот файл активным
+                        let is_file_active = active_file.as_ref().and_then(|af| af.as_ref()) == Some(&file_path);
+
+                        let label_text = if is_file_active {
+                            egui::RichText::new(format!("▶ 📄 {}", file)).color(egui::Color32::WHITE).strong()
+                        } else {
+                            egui::RichText::new(format!("📄 {}", file)).color(egui::Color32::GRAY)
+                        };
+
+                        let response = ui.selectable_label(is_file_active, label_text);
+
                         // Обычный клик
                         if response.clicked() {
+                            if let Some(ref mut af) = active_file {
+                                **af = Some(file_path.clone());
+                            }
                             open_file_ev.send(layout_api::OpenFileEvent { path: file_path.clone() });
                         }
 

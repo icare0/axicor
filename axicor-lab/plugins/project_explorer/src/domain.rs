@@ -16,3 +16,7 @@ pub struct ProjectModel {
 pub struct ProjectFsCache {
     pub projects: Vec<ProjectModel>,
 }
+#[derive(Component, Default, Debug)]
+pub struct ProjectExplorerState {
+    pub active_file: Option<std::path::PathBuf>,
+}
