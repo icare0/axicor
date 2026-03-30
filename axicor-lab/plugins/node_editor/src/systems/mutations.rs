@@ -10,35 +10,9 @@ pub fn apply_topology_mutations_system(
 ) {
     for ev in events.read() {
         match ev {
-            TopologyMutation::AddZone { .. } => {}
-            TopologyMutation::AddEnvRx { .. } => {}
-            TopologyMutation::AddEnvTx { .. } => {}
-
-            TopologyMutation::AddIoMatrix { zone, is_input, name } => {
-                let Some(active_path) = graph.active_path.clone() else { continue };
-                let Some(session) = graph.sessions.get_mut(&active_path) else { continue };
-                
-                if *is_input {
-                    let inputs = session.node_inputs.entry(zone.clone()).or_default();
-                    if !inputs.contains(name) { inputs.push(name.clone()); }
-                } else {
-                    let outputs = session.node_outputs.entry(zone.clone()).or_default();
-                    if !outputs.contains(name) { outputs.push(name.clone()); }
-                }
-                session.is_dirty = true;
-                info!("[RAM Sync] Added I/O Matrix '{}' to zone '{}'", name, zone);
-            }
-
-            TopologyMutation::AddConnection { from, from_port, to, to_port } => {
-                let Some(active_path) = graph.active_path.clone() else { continue };
-                let Some(session) = graph.sessions.get_mut(&active_path) else { continue };
-
-                let connection = (from.clone(), from_port.clone(), to.clone(), to_port.clone());
-                if session.connections.contains(&connection) { continue; }
-
-                session.connections.push(connection.clone());
-                session.is_dirty = true;
-                info!("[RAM Sync] Connection added: {}[{}] -> {}[{}]", from, from_port, to, to_port);
+            TopologyMutation::Create(_, _) => {
+                // [DOD FIX] RAM мутации для Create выполняются строго внутри `create_entity_system`,
+                // так как для них требуется генерация уникальных Lineage ID (UUID), недоступных здесь.
             }
 
             TopologyMutation::Delete(target, context_path) => {

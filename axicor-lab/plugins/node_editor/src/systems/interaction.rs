@@ -101,9 +101,9 @@ pub fn handle_node_editor_menu_triggers_system(
                     }
 
                     match action_type {
-                        "node_editor.add_env_rx" => topo_events.send(crate::domain::TopologyMutation::AddEnvRx { name: name.clone(), pos: spawn_pos }),
-                        "node_editor.add_env_tx" => topo_events.send(crate::domain::TopologyMutation::AddEnvTx { name: name.clone(), pos: spawn_pos }),
-                        _ => topo_events.send(crate::domain::TopologyMutation::AddZone { name: name.clone(), pos: spawn_pos }),
+                        "node_editor.add_env_rx" => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::EnvRx { name: name.clone(), pos: spawn_pos }, None)),
+                        "node_editor.add_env_tx" => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::EnvTx { name: name.clone(), pos: spawn_pos }, None)),
+                        _ => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::Zone { name: name.clone(), pos: spawn_pos }, None)),
                     };
 
                     info!("Node Editor: Intent '{}' -> Spawned {} at {:?}", action_type, name, spawn_pos);

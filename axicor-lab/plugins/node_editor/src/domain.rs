@@ -90,15 +90,20 @@ pub enum DeleteTarget {
     IoPin { zone: String, is_input: bool, name: String },
 }
 
+#[derive(Debug, Clone)]
+pub enum CreateTarget {
+    Zone { name: String, pos: bevy_egui::egui::Pos2 },
+    EnvRx { name: String, pos: bevy_egui::egui::Pos2 },
+    EnvTx { name: String, pos: bevy_egui::egui::Pos2 },
+    Connection { from: String, from_port: String, to: String, to_port: String },
+    IoMatrix { zone: String, is_input: bool, name: String },
+}
+
 #[derive(Event, Debug, Clone)]
 pub enum TopologyMutation {
-    AddZone { name: String, pos: bevy_egui::egui::Pos2 },
-    AddEnvRx { name: String, pos: bevy_egui::egui::Pos2 },
-    AddEnvTx { name: String, pos: bevy_egui::egui::Pos2 },
+    Create(CreateTarget, Option<std::path::PathBuf>),
     Delete(DeleteTarget, Option<std::path::PathBuf>),
     Rename(RenameTarget, Option<std::path::PathBuf>),
-    AddConnection { from: String, from_port: String, to: String, to_port: String },
-    AddIoMatrix { zone: String, is_input: bool, name: String },
 }
 
 #[derive(Event, Clone, Debug)]

@@ -73,18 +73,18 @@ pub fn render_editor_ui(
                     let new_zone_name = format!("{}{}", prefix, bevy_egui::egui::Id::new(local_pos.x.to_bits()).value() % 1000);
 
                     // 1. Спавн нового узла в месте курсора
-                    send_mutation(TopologyMutation::AddZone { 
+                    send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Zone { 
                         name: new_zone_name.clone(), 
                         pos: local_pos 
-                    });
+                    }, None));
 
                     // 2. Автоматическое подключение провода к дефолтному входу
-                    send_mutation(TopologyMutation::AddConnection {
+                    send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Connection {
                         from: src_zone,
                         from_port: src_port,
                         to: new_zone_name,
                         to_port: "in".to_string(),
-                    });
+                    }, None));
                 }
             }
         }
@@ -97,7 +97,7 @@ pub fn render_editor_ui(
                 let local_pos = transform.to_local(mouse_pos);
                 // DOD FIX: .to_bits() гарантирует безопасный хэш-индекс для ID
                 let new_zone_name = format!("Zone_{}", bevy_egui::egui::Id::new(local_pos.x.to_bits()).value() % 1000);
-                send_mutation(TopologyMutation::AddZone { name: new_zone_name, pos: local_pos });
+                send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Zone { name: new_zone_name, pos: local_pos }, None));
                 state.dragging_pin = None;
             }
         }
