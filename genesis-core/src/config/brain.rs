@@ -5,6 +5,9 @@ use std::fs;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BrainConfig {
     #[serde(default)]
+    pub depart_id_v1: Option<crate::config::sys::SystemMeta>,
+
+    #[serde(default)]
     pub simulation: SimulationConfigRef,
     
     #[serde(rename = "zone", default)]
@@ -23,6 +26,8 @@ pub struct SimulationConfigRef {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ZoneEntry {
+    #[serde(default)]
+    pub shard_id_v1: Option<crate::config::sys::SystemMeta>,
     pub name: String,
     pub blueprints: PathBuf,
     pub anatomy: PathBuf,
@@ -32,8 +37,14 @@ pub struct ZoneEntry {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConnectionEntry {
+    #[serde(default)]
+    pub conn_id_v1: Option<crate::config::sys::SystemMeta>,
     pub from: String,
     pub to: String,
+    pub output_matrix: Option<String>,
+    pub entry_z: Option<String>,
+    pub target_type: Option<String>,
+    pub growth_steps: Option<u32>,
     // TODO: В будущем здесь будет путь к файлу коннектома (например `baked/connections/v1_v2.ghosts`),
     // содержащему миллионы связей. Пока для MVP используем вложенный массив.
     #[serde(default)]

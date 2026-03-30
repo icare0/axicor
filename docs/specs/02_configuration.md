@@ -209,10 +209,22 @@ Slot_127: [Нейрон_0.Д127, Нейрон_1.Д127, ...]              // Ма
 ```toml
 [world]
 # Физические размеры пространства (в микрометрах)
-# Миниколонка во-первых V1: ~1mm × 1mm × 2.5mm (коры)
-width_um = 1000    # = 40 voxels × 25 um
-depth_um = 1000    # = 40 voxels × 25 um
-height_um = 2500   # = 100 voxels × 25 um (толщина коры)
+width_um = 1000
+depth_um = 1000
+height_um = 2500
+
+[model_id_v1]
+id = "1cf8a9c1-37ef-4f6d-8d7c-dd911257fb91"
+
+[[department]]
+name = "Zone_0"
+config = "Zone_0.toml"
+depart_id_v1 = { id = "c1cc_3c4c" }
+
+[[department]]
+name = "Zone_1"
+config = "Zone_1.toml"
+depart_id_v1 = { id = "c1cc_e91e" }
 
 [simulation]
 # --- Глобальные параметры (единые для всех зон) ---

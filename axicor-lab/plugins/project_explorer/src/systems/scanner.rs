@@ -1,89 +1,117 @@
 use bevy::prelude::*;
-use crate::domain::{ProjectFsCache, ProjectModel, ProjectStatus};
+use std::fs;
+use std::path::Path;
+use crate::domain::{ProjectModel, ProjectNode, ProjectNodeType, ProjectStatus};
 
 pub fn fs_scanner_system(
-    time: Res<Time>,
-    mut cache: ResMut<ProjectFsCache>,
-    mut timer: Local<f32>,
+    mut cache: ResMut<crate::domain::ProjectFsCache>,
 ) {
-    *timer += time.delta_seconds();
-    if *timer < 1.0 { return; }
-    *timer = 0.0;
+    let models_dir = Path::new("Genesis-Models");
+    if !models_dir.exists() { return; }
 
-    let Ok(entries) = std::fs::read_dir("Genesis-Models") else { return; };
-    let mut projects = Vec::new();
+    let mut new_projects = Vec::new();
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = path.file_stem().expect("Invalid project path").to_string_lossy().to_string();
+    if let Ok(entries) = fs::read_dir(models_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') { continue; }
 
-        if path.is_file() {
-            if path.extension().is_some_and(|ext| ext == "axic") {
-                let mut dna_files = Vec::new();
-                let mut shards = Vec::new();
-
-                if let Some(archive) = genesis_core::vfs::AxicArchive::open(&path) {
-                    for file_path in archive.toc.keys() {
-                        if file_path == "brain.toml" {
-                            dna_files.push(file_path.clone());
-                        }
-                        if file_path.starts_with("baked/") && file_path.ends_with("/shard.pos") {
-                            let parts: Vec<&str> = file_path.split('/').collect();
-                            // DOD FIX: parts="baked", parts[1]="ZoneName", parts[2]="shard.pos"
-                            if parts.len() >= 3 {
-                                shards.push(parts[1].to_string());
-                            }
-                        }
-                    }
-
-                    if !dna_files.is_empty() {
-                        shards.sort_unstable();
-                        shards.dedup();
-
-                        projects.push(ProjectModel {
-                            name,
-                            status: ProjectStatus::Ready,
-                            dna_files,
-                            shards,
-                            is_bundle: true,
-                        });
-                    }
-                }
-            }
-        } else if path.is_dir() {
-            // DOD FIX: Игнорируем временные папки SRAM распаковки ноды
-            if name.ends_with(".axic.mem") || name == "baked" {
-                continue;
-            }
-
-            if path.join("brain.toml").exists() {
-                // Динамически сканируем все TOML файлы в папке
-                let mut dna_files = Vec::new();
-                if let Ok(entries) = std::fs::read_dir(&path) {
-                    for entry in entries.flatten() {
-                        let file_path = entry.path();
-                        if file_path.is_file() && file_path.extension().map_or(false, |e| e == "toml") {
-                            if let Some(fname) = file_path.file_name() {
-                                dna_files.push(fname.to_string_lossy().into_owned());
-                            }
-                        }
-                    }
-                }
-                dna_files.sort();
-
-                projects.push(ProjectModel {
-                    // DOD FIX: Добавляем суффикс, чтобы избежать ID Collision в egui
-                    // с одноименными скомпилированными .axic архивами!
+                let mut project = ProjectModel {
                     name: format!("{} (Source)", name),
                     status: ProjectStatus::Ready,
-                    dna_files,
-                    shards: Vec::new(), 
+                    root_nodes: Vec::new(),
                     is_bundle: false,
-                });
+                };
+
+                let sim_path = entry.path().join("simulation.toml");
+                if sim_path.exists() {
+                    let mut sim_node = ProjectNode {
+                        id: extract_id(&sim_path, "model_id_v1").unwrap_or_else(|| name.clone()),
+                        name: "simulation.toml".to_string(),
+                        path: sim_path.clone(),
+                        node_type: ProjectNodeType::Simulation,
+                        children: Vec::new(),
+                    };
+
+                    // Сканируем департаменты внутри деда
+                    scan_departments(&entry.path(), &mut sim_node.children);
+                    project.root_nodes.push(sim_node);
+                }
+
+                new_projects.push(project);
             }
         }
     }
+
+    cache.projects = new_projects;
+}
+
+fn scan_departments(model_path: &Path, children: &mut Vec<ProjectNode>) {
+    let sim_path = model_path.join("simulation.toml");
+    let Ok(content) = fs::read_to_string(&sim_path) else { return };
     
-    projects.sort_by(|a, b| a.name.cmp(&b.name));
-    cache.projects = projects;
+    // Парсим деда, чтобы найти батю
+    if let Ok(toml_val) = content.parse::<toml::Value>() {
+        if let Some(depts) = toml_val.get("department").and_then(|v| v.as_array()) {
+            for d in depts {
+                let name = d.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let config = d.get("config").and_then(|v| v.as_str()).unwrap_or("");
+                let id = d.get("depart_id_v1").and_then(|v| v.get("id")).and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| name.to_string());
+
+                let brain_path = model_path.join(config);
+                let mut dept_node = ProjectNode {
+                    id: id.clone(),
+                    name: format!("{}.toml", name),
+                    path: brain_path.clone(),
+                    node_type: ProjectNodeType::Brain,
+                    children: Vec::new(),
+                };
+
+                // Сканируем шарды внутри бати
+                if brain_path.exists() {
+                    scan_shards(model_path, &brain_path, &mut dept_node.children);
+                }
+                children.push(dept_node);
+            }
+        }
+    }
+}
+
+fn scan_shards(model_path: &Path, brain_path: &Path, children: &mut Vec<ProjectNode>) {
+    let Ok(content) = fs::read_to_string(brain_path) else { return };
+    
+    if let Ok(toml_val) = content.parse::<toml::Value>() {
+        if let Some(zones) = toml_val.get("zone").and_then(|v| v.as_array()) {
+            for z in zones {
+                let name = z.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let id = z.get("shard_id_v1").and_then(|v| v.get("id")).and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| name.to_string());
+
+                // Шард - это папка, где лежит shard.toml
+                let shard_toml_path = model_path.join(brain_path.file_name().unwrap().to_string_lossy().replace(".toml", ""))
+                    .join(name).join("shard.toml");
+
+                children.push(ProjectNode {
+                    id,
+                    name: name.to_string(),
+                    path: shard_toml_path,
+                    node_type: ProjectNodeType::Shard,
+                    children: Vec::new(),
+                });
+            }
+        }
+    } else {
+        error!("❌ [Scanner] Failed to parse TOML at {:?}. Check for syntax errors (e.g. missing newlines between blocks).", brain_path);
+    }
+}
+
+fn extract_id(path: &Path, field: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    if let Ok(val) = content.parse::<toml::Value>() {
+        val.get(field).and_then(|v| v.get("id")).and_then(|v| v.as_str()).map(|s| s.to_string())
+    } else { None }
 }

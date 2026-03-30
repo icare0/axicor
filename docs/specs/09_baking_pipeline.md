@@ -407,28 +407,17 @@ fn day_phase_loop():
 
 ```mermaid
 graph TD
-    A["simulation.toml"] --> D["Baker"]
-    B["brain.toml"] --> D
-    B --> I["brain.connections"]
-    C["io.toml (per zone)"] --> D
-    E["blueprints.toml"] --> D
+    A["simulation.toml (model_id)"] --> D["Baker --model"]
+    B["Zone_N.toml (depart_id)"] --> D
+    C["shard.toml (shard_id)"] --> D
     
-    D --> F[".axons + .state"]
-    D --> G[".gxi"]
-    D --> H[".gxo"]
+    D --> F[".axons + .state (Per Shard)"]
+    D --> M["master_manifest.bin (SSOT Map)"]
     
-    H --> |"Phase C: After all outputs" | I
-    I --> K[".ghosts (per connection)"]
-    
-    G --> J["Runtime Init"]
-    H --> J
-    K --> J
+    M --> J["Runtime Init"]
     F --> J
     
     J --> L["genesis-runtime start()"]
-    
-    style I fill:#f9f,stroke:#333
-    style K fill:#f9f,stroke:#333
 ```
 
 **Critical dependency:** `.ghosts` generation is **Phase C** of Baking and depends on all `.gxo` files being complete. Only after all zones have their outputs, ghost connections can be computed with deterministic soma selection from source zone outputs.
@@ -480,6 +469,16 @@ graph TD
 Протокол передачи структурных изменений графа (Night Phase) между нодами. Работает поверх TCP (базовый порт 8010). Данные сериализуются через `bincode`.
 
 **GeometryRequest (Client → Server)**
+Enum, описывающий намерение:
+- `BulkHandover(Vec<AxonHandoverEvent>)`: Передача пачки проросших аксонов, пересекших границу шарда.
+- `BulkAck(Vec<AxonHandoverAck>)`: Подтверждение создания Ghost-аксонов на целевой стороне (передает выделенные `dst_ghost_id` обратно источнику).
+- `Prune(u32)`: Уведомление об удалении связи (передается `dst_ghost_id` для зачистки на целевом шарде).
+
+**GeometryResponse (Server → Client)**
+Enum, ответ сервера:
+- `Ack(AxonHandoverAck)`: Возвращает подтверждение с зарезервированным слотом (для одиночных пакетов).
+- `Ok`: Универсальное подтверждение успешной обработки (для BulkHandover и Prune).
+erver)**
 Enum, описывающий намерение:
 - `BulkHandover(Vec<AxonHandoverEvent>)`: Передача пачки проросших аксонов, пересекших границу шарда.
 - `BulkAck(Vec<AxonHandoverAck>)`: Подтверждение создания Ghost-аксонов на целевой стороне (передает выделенные `dst_ghost_id` обратно источнику).

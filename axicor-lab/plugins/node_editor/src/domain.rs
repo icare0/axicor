@@ -7,21 +7,18 @@ pub struct NodeGraphUiState {
     pub zoom: f32,
     pub level: EditorLevel,
     pub node_positions: HashMap<String, bevy_egui::egui::Pos2>,
-    // DOD FIX: Состояние протягивания связи (Откуда тянем, Имя порта, Экранная позиция старта)
-    pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2)>,
+    pub selected_node_id: Option<String>, // Паспорт выбранной ноды
+    pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2)>, 
+    pub pending_connection: Option<(String, String, String, String)>,
+    pub new_node_buffer: String,
     
-    // DOD FIX: Буферы для поиска в интерактивных меню
     pub model_search: String,
     pub dept_search: String,
     pub zone_search: String,
-    // DOD FIX: Буфер для создания новой ноды через контекстное меню
-    pub new_node_buffer: String,
-    
-    // DOD FIX: Временное хранилище для создаваемой связи (SrcNode, SrcPort, DstNode, DstPort)
-    pub pending_connection: Option<(String, String, String, String)>,
-    
-    // DOD FIX: Состояние выделения
-    pub selected_node: Option<String>,
+
+    pub renaming_zone: Option<String>,
+    pub rename_buffer: String,
+    pub show_clear_modal: bool,
 }
 
 impl Default for NodeGraphUiState {
@@ -31,13 +28,16 @@ impl Default for NodeGraphUiState {
             zoom: 1.0,
             level: EditorLevel::Model,
             node_positions: HashMap::new(),
+            selected_node_id: None,
             dragging_pin: None,
+            pending_connection: None,
+            new_node_buffer: String::new(),
             model_search: String::new(),
             dept_search: String::new(),
             zone_search: String::new(),
-            new_node_buffer: String::new(),
-            pending_connection: None,
-            selected_node: None,
+            renaming_zone: None,
+            rename_buffer: String::new(),
+            show_clear_modal: false,
         }
     }
 }
@@ -47,33 +47,30 @@ pub enum EditorLevel {
     Model,
     Department,
     Zone(String),
-    Shard { zone_name: String, shard_name: String },
 }
 
-// DOD: Кэш макро-топологии (только имена зон и связей для рендера)
 #[derive(Resource, Default, Debug)]
 pub struct BrainTopologyGraph {
-    pub project_name: Option<String>,
+    pub active_project: Option<String>,
+    pub active_path:    Option<std::path::PathBuf>,
+    pub sessions:       HashMap<std::path::PathBuf, ProjectSession>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ProjectSession {
+    pub father_id: String,
     pub zones: Vec<String>,
-    // DOD FIX: Теперь связи хранят (FromNode, FromPort, ToNode, ToPort)
+    pub zone_ids: HashMap<String, String>, 
+    pub env_rx_nodes: Vec<String>,
+    pub env_tx_nodes: Vec<String>,
     pub connections: Vec<(String, String, String, String)>, 
-    
-    // DOD FIX: Кэш реальных портов для каждой ноды
     pub node_inputs: HashMap<String, Vec<String>>,
     pub node_outputs: HashMap<String, Vec<String>>,
-    
-    // Совместимость с текущим ui.rs и pipeline.rs
-    pub active_project: Option<String>,
-    pub active_graph_type: Option<String>,
-    pub config: Option<genesis_core::config::brain::BrainConfig>,
-    pub io_configs: std::collections::HashMap<String, genesis_core::config::io::IoConfig>,
-    pub anatomy_configs: std::collections::HashMap<String, genesis_core::config::anatomy::AnatomyConfig>,
-
-    // DOD FIX: Флаг несохраненных изменений (RAM tmp слой)
+    pub layout_cache: HashMap<String, (f32, f32)>, 
     pub is_dirty: bool,
 }
 
-#[derive(Event, Clone, Debug)]
+#[derive(Event, Debug, Clone)]
 pub struct LoadGraphEvent {
     pub project_name: String,
 }
@@ -81,15 +78,30 @@ pub struct LoadGraphEvent {
 #[derive(Event, Debug, Clone)]
 pub enum TopologyMutation {
     AddZone { name: String, pos: bevy_egui::egui::Pos2 },
+    AddEnvRx { name: String, pos: bevy_egui::egui::Pos2 },
+    AddEnvTx { name: String, pos: bevy_egui::egui::Pos2 },
+    RemoveZone { name: String, id: String, context_path: Option<std::path::PathBuf> },
+    RenameZone { old_name: String, new_name: String, id: String, context_path: Option<std::path::PathBuf> },
     AddConnection { from: String, from_port: String, to: String, to_port: String },
+    RemoveConnection { from: String, from_port: String, to: String, to_port: String },
+    AddIoMatrix { zone: String, is_input: bool, name: String },
 }
 
 #[derive(Event, Clone, Debug)]
 pub struct SaveProjectEvent;
 
-// ДОБАВЛЕНО: Отдельный ивент для сброса RAM графа на диск
 #[derive(Event, Clone, Debug)]
 pub struct CompileGraphEvent; 
 
 #[derive(Event, Clone, Debug)]
 pub struct BakeProjectEvent;
+
+#[derive(Debug, Clone)]
+pub enum NodeSignal {
+    None,
+    Dragged(bevy::math::Vec2),
+    RightClicked, // Заменили DeleteClicked на вызов контекстного меню
+    PortClicked { port_name: String, is_input: bool },
+    PortDragStarted { port_name: String, is_input: bool },
+    PortDropped { port_name: String, is_input: bool },
+}

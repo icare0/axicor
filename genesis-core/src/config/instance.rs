@@ -6,6 +6,13 @@ use std::fs;
 /// and *where* its neighbors are located.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct InstanceConfig {
+    #[serde(default)]
+    pub model_id_v1: Option<crate::config::sys::SystemMeta>,
+    #[serde(default)]
+    pub depart_id_v1: Option<crate::config::sys::SystemMeta>,
+    #[serde(default)]
+    pub shard_id_v1: Option<crate::config::sys::SystemMeta>,
+
     /// Reference to the zone folder name (e.g. "V1")
     pub zone_id: String,
     

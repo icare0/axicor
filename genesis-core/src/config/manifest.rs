@@ -66,6 +66,8 @@ use crate::config::brain::SimulationConfigRef;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZoneManifest {
     pub magic: u32,
+    #[serde(default)]
+    pub depart_id_v1: Option<crate::config::sys::SystemMeta>,
     pub zone_hash: u32,
     pub blueprints_path: String,
     pub simulation: Option<SimulationConfigRef>,
@@ -106,10 +108,23 @@ impl Default for ManifestPlasticity {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ManifestConnection {
+    #[serde(default)]
+    pub conn_id_v1: Option<crate::config::sys::SystemMeta>,
     pub from: String,
     pub to: String,
     pub width: Option<u16>,
     pub height: Option<u16>,
+}
+
+/// DOD: Глобальный манифест всей модели (Дедушка).
+/// Содержит ссылки на манифесты департаментов (Отцов).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelManifest {
+    pub magic: u32, // 0x4D4F444C "MODL"
+    #[serde(default)]
+    pub model_id_v1: Option<crate::config::sys::SystemMeta>,
+    pub departments: std::collections::HashMap<String, String>, // Name -> Path to Department Folder
+    pub connections: Vec<ManifestConnection>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

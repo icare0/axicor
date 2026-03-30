@@ -27,3 +27,19 @@ pub fn init_editor_windows_system(
         }
     }
 }
+
+pub fn evict_deleted_files_system(
+    mut events: EventReader<layout_api::EntityDeletedEvent>,
+    mut editors: Query<&mut crate::domain::CodeEditorState>,
+) {
+    for ev in events.read() {
+        for mut state in editors.iter_mut() {
+            if let Some(curr) = &state.current_file {
+                if curr.starts_with(&ev.path) {
+                    state.current_file = None;
+                    state.content = "/* File has been deleted */\n".to_string();
+                }
+            }
+        }
+    }
+}

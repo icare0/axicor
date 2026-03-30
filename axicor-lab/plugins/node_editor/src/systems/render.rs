@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use layout_api::{PluginWindow, base_domain, DOMAIN_NODE_ED};
+use layout_api::{PluginWindow, base_domain, DOMAIN_NODE_ED, OpenContextMenuEvent};
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation, SaveProjectEvent, CompileGraphEvent, BakeProjectEvent};
 use crate::ui::render_editor_ui;
 
@@ -14,6 +14,7 @@ pub fn render_node_editor_system(
     mut compile_events: EventWriter<CompileGraphEvent>,
     mut bake_events: EventWriter<BakeProjectEvent>,
     mut open_file_events: EventWriter<layout_api::OpenFileEvent>,
+    mut ctx_menu_events: EventWriter<OpenContextMenuEvent>,
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
@@ -39,6 +40,8 @@ pub fn render_node_editor_system(
                     ||   { compile_events.send(CompileGraphEvent); },
                     ||   { bake_events.send(BakeProjectEvent); },
                     |path| { open_file_events.send(layout_api::OpenFileEvent { path }); },
+                    |ev| { ctx_menu_events.send(ev); },
+                    entity,
                 );
             });
     }

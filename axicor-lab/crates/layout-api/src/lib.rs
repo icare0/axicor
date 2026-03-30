@@ -89,6 +89,30 @@ pub enum TreeCommand {
     ChangeDomain { tile_id: TileId, new_domain: String },
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MenuAction {
+    pub action_id: String,
+    pub label: String,
+}
+
+#[derive(Event, Debug, Clone)]
+pub struct OpenContextMenuEvent {
+    pub target_window: Entity,
+    pub position: egui::Pos2,
+    pub actions: Vec<MenuAction>,
+}
+
+#[derive(Event, Debug, Clone)]
+pub struct ContextMenuActionTriggeredEvent {
+    pub target_window: Entity,
+    pub action_id: String,
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct EntityDeletedEvent {
+    pub path: std::path::PathBuf,
+}
+
 #[derive(Event, Debug, Clone)]
 pub struct UpdateInputEvent {
     pub entity: Entity,

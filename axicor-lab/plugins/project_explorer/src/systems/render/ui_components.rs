@@ -1,5 +1,5 @@
 use bevy_egui::egui;
-use crate::domain::ProjectModel;
+use crate::domain::{ProjectModel, ProjectNode, ProjectNodeType};
 
 const EXPLORER_MIN_WIDTH: f32 = 200.0;
 const EXPLORER_MAX_WIDTH: f32 = 300.0;
@@ -11,14 +11,15 @@ pub fn draw_explorer_tree<FLoad, FZone>(
     bundles: &[&ProjectModel],
     sources: &[&ProjectModel],
     open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
-    active_file: Option<&mut Option<std::path::PathBuf>>,
+    ctx_menu_events: &mut bevy::prelude::EventWriter<layout_api::OpenContextMenuEvent>,
+    target_window: bevy::prelude::Entity,
+    mut active_file: Option<&mut Option<std::path::PathBuf>>,
     mut on_load: FLoad,
     mut on_zone: FZone,
 ) where
     FLoad: FnMut(String),
     FZone: FnMut(String, String),
 {
-    // Глобальная очистка DND
     if ui.input(|i| i.pointer.any_released()) {
         ui.memory_mut(|mem| mem.data.remove_temp::<std::path::PathBuf>(egui::Id::new("dnd_path")));
     }
@@ -28,157 +29,202 @@ pub fn draw_explorer_tree<FLoad, FZone>(
         ui.set_max_width(EXPLORER_MAX_WIDTH);
         ui.add_space(3.0);
 
-        draw_bundles(ui, bundles, open_file_ev, &mut on_load, &mut on_zone);
+        for project in bundles {
+            draw_project_root(ui, project, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), &mut on_load, &mut on_zone);
+            ui.add_space(SECTION_SPACING);
+        }
 
         if !bundles.is_empty() && !sources.is_empty() {
             draw_separator(ui);
         }
 
-        draw_sources(ui, sources, open_file_ev, active_file);
+        for project in sources {
+            draw_project_root(ui, project, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), &mut on_load, &mut on_zone);
+            ui.add_space(SECTION_SPACING);
+        }
     });
 }
 
-fn draw_bundles<FLoad, FZone>(
+fn draw_project_root<FLoad, FZone>(
     ui: &mut egui::Ui,
-    bundles: &[&ProjectModel],
+    project: &ProjectModel,
     open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
+    ctx_menu_events: &mut bevy::prelude::EventWriter<layout_api::OpenContextMenuEvent>,
+    target_window: bevy::prelude::Entity,
+    mut active_file: Option<&mut Option<std::path::PathBuf>>,
     on_load: &mut FLoad,
     on_zone: &mut FZone,
 ) where
     FLoad: FnMut(String),
     FZone: FnMut(String, String),
 {
-    for project in bundles {
-        ui.add_space(10.0); // отступ от разделителя до первой папки
-        let header = egui::CollapsingHeader::new(format!("📦 {}", project.name))
-            .id_source(&project.name)
-            .show(ui, |ui| {
-                ui.add_space(SECTION_SPACING);
-                draw_bundle_zones(ui, project, on_zone);
-            });
+    let is_project_active = active_file.as_ref().and_then(|af| af.as_ref()).map_or(false, |p| {
+        p.to_string_lossy().contains(&project.name.replace(" (Source)", ""))
+    });
 
-        if header.header_response.clicked() {
-            // DOD FIX: Клик по бандлу теперь тоже пытается открыть simulation.toml
-            let sim_path = std::path::PathBuf::from("Genesis-Models")
-                .join(&project.name)
-                .join("simulation.toml");
-            open_file_ev.send(layout_api::OpenFileEvent { path: sim_path });
-            on_load(project.name.clone());
+    let label = if project.is_bundle {
+        format!("[Model] {}", project.name)
+    } else {
+        project.name.clone()
+    };
+
+    let header_text = if is_project_active {
+        egui::RichText::new(label).color(egui::Color32::LIGHT_BLUE).strong()
+    } else {
+        egui::RichText::new(label)
+    };
+
+    let header = egui::CollapsingHeader::new(header_text)
+        .id_source(&project.name)
+        .default_open(is_project_active)
+        .show(ui, |ui| {
+            // У корня проекта родителем для департаментов является путь к simulation.toml
+            let parent_path = find_simulation_node(&project.root_nodes).map(|n| n.path.clone()).unwrap_or_default();
+            for node in &project.root_nodes {
+                draw_node_recursive(ui, &project.name, node, &parent_path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
+            }
+        });
+
+    if header.header_response.clicked() {
+        if let Some(sim_node) = find_simulation_node(&project.root_nodes) {
+            if let Some(ref mut af) = active_file {
+                **af = Some(sim_node.path.clone());
+            }
+            open_file_ev.send(layout_api::OpenFileEvent { path: sim_node.path.clone() });
         }
+        on_load(project.name.clone());
+    }
 
-        ui.add_space(SECTION_SPACING);
+    if header.header_response.secondary_clicked() {
+        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            ctx_menu_events.send(layout_api::OpenContextMenuEvent {
+                target_window,
+                position: pos,
+                actions: vec![layout_api::MenuAction {
+                    action_id: format!("explorer.delete_model|{}", project.name),
+                    label: "🗑 Delete Model".into(),
+                }],
+            });
+        }
     }
 }
 
-fn draw_bundle_zones<FZone>(
+fn draw_node_recursive<FZone>(
     ui: &mut egui::Ui,
-    project: &ProjectModel,
+    project_name: &str,
+    node: &ProjectNode,
+    parent_path: &std::path::PathBuf,
+    open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
+    ctx_menu_events: &mut bevy::prelude::EventWriter<layout_api::OpenContextMenuEvent>,
+    target_window: bevy::prelude::Entity,
+    mut active_file: Option<&mut Option<std::path::PathBuf>>,
     on_zone: &mut FZone,
 ) where
     FZone: FnMut(String, String),
 {
-    for (i, zone) in project.shards.iter().enumerate() {
-        ui.push_id(i, |ui| {
-            egui::CollapsingHeader::new(format!("Zone: {}", zone))
-                .id_source(zone)
-                .show(ui, |ui| {
-                    if ui.selectable_label(false, format!("Shard: {}", zone)).clicked() {
-                        on_zone(project.name.clone(), zone.clone());
+    let is_active = active_file.as_ref().and_then(|af| af.as_ref()) == Some(&node.path);
+    
+    let label_text = if is_active {
+        egui::RichText::new(&node.name).color(egui::Color32::WHITE).strong()
+    } else {
+        egui::RichText::new(&node.name).color(egui::Color32::GRAY)
+    };
+
+    // ПРИОРИТЕТ: Используем node.id для идентификации в egui!
+    let id = ui.make_persistent_id(&node.id);
+    let mut collapsing = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+
+    let mut response = None;
+    ui.horizontal(|ui| {
+        if !node.children.is_empty() {
+            // DOD FIX: Явно обрабатываем клик по кнопке переключения
+            if collapsing.show_toggle_button(ui, egui::collapsing_header::paint_default_icon).clicked() {
+                // Ничего не делаем, show_toggle_button сам инвертирует состояние внутри collapsing
+            }
+        } else {
+            ui.add_space(14.0); 
+        }
+
+        let resp = ui.selectable_label(is_active, label_text);
+        if resp.clicked() {
+            if let Some(ref mut af) = active_file {
+                **af = Some(node.path.clone());
+            }
+            open_file_ev.send(layout_api::OpenFileEvent { path: node.path.clone() });
+            
+            if node.node_type == ProjectNodeType::Shard {
+                let zone_name = node.name.replace("Zone: ", "").replace("Shard: ", "");
+                on_zone(project_name.to_string(), zone_name);
+            }
+        }
+
+        if resp.dragged() {
+            ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("dnd_path"), node.path.clone()));
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+        response = Some(resp);
+    });
+
+    if let Some(resp) = response {
+        if resp.secondary_clicked() {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let mut actions = vec![];
+                match node.node_type {
+                    ProjectNodeType::Brain => {
+                        let name = node.name.replace(".toml", "");
+                        actions.push(layout_api::MenuAction {
+                            action_id: format!("explorer.delete_dept|{}|{}|{}", name, node.id, parent_path.display()),
+                            label: "🗑 Delete Department".into(),
+                        });
                     }
-                });
+                    ProjectNodeType::Shard => {
+                        let name = node.name.replace(".toml", "");
+                        actions.push(layout_api::MenuAction {
+                            action_id: format!("explorer.delete_shard|{}|{}|{}", name, node.id, parent_path.display()),
+                            label: "🗑 Delete Shard".into(),
+                        });
+                    }
+                    _ => {}
+                }
+                
+                if !actions.is_empty() {
+                    ctx_menu_events.send(layout_api::OpenContextMenuEvent {
+                        target_window,
+                        position: pos,
+                        actions,
+                    });
+                }
+            }
+        }
+    }
+
+    // DOD FIX: ОБЯЗАТЕЛЬНО сохраняем состояние, иначе стрелка не будет работать!
+    collapsing.store(ui.ctx());
+
+    if collapsing.is_open() {
+        ui.indent(id, |ui| {
+            for child in &node.children {
+                // В рекурсии передаем путь текущего узла как родительский для детей
+                draw_node_recursive(ui, project_name, child, &node.path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
+            }
         });
     }
 }
 
-fn draw_sources(
-    ui: &mut egui::Ui, 
-    sources: &[&ProjectModel],
-    open_file_ev: &mut bevy::prelude::EventWriter<layout_api::OpenFileEvent>,
-    mut active_file: Option<&mut Option<std::path::PathBuf>>,
-) {
-    for project in sources {
-        // Проверяем, содержит ли этот проект сейчас открытый файл
-        let is_project_active = active_file.as_ref().and_then(|af| af.as_ref()).map_or(false, |p| {
-            p.to_string_lossy().contains(&project.name.replace(" (Source)", ""))
-        });
-
-        // Если проект активен, подсвечиваем его заголовок голубым!
-        let header_text = if is_project_active {
-            egui::RichText::new(format!("📁 {}", project.name)).color(egui::Color32::LIGHT_BLUE).strong()
-        } else {
-            egui::RichText::new(format!("📁 {}", project.name))
-        };
-
-        let header = egui::CollapsingHeader::new(header_text)
-            .id_source(&project.name)
-            .show(ui, |ui| {
-                if project.dna_files.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Empty Directory")
-                            .color(egui::Color32::DARK_GRAY),
-                    );
-                } else {
-                    for file in &project.dna_files {
-                        let file_path = std::path::PathBuf::from("Genesis-Models")
-                            .join(&project.name.replace(" (Source)", ""))
-                            .join(file);
-
-                        // Проверяем, является ли конкретно этот файл активным
-                        let is_file_active = active_file.as_ref().and_then(|af| af.as_ref()) == Some(&file_path);
-
-                        let label_text = if is_file_active {
-                            egui::RichText::new(format!("▶ 📄 {}", file)).color(egui::Color32::WHITE).strong()
-                        } else {
-                            egui::RichText::new(format!("📄 {}", file)).color(egui::Color32::GRAY)
-                        };
-
-                        let response = ui.selectable_label(is_file_active, label_text);
-
-                        // Обычный клик
-                        if response.clicked() {
-                            if let Some(ref mut af) = active_file {
-                                **af = Some(file_path.clone());
-                            }
-                            open_file_ev.send(layout_api::OpenFileEvent { path: file_path.clone() });
-                        }
-
-                        // DOD FIX: DND Source (Закидываем путь во временную память egui)
-                        if response.dragged() {
-                            ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("dnd_path"), file_path.clone()));
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                        }
-                    }
-                }
-            });
-
-        // DOD FIX: Клик по самому заголовку папки исходников открывает simulation.toml
-        if header.header_response.clicked() {
-            let sim_path = std::path::PathBuf::from("Genesis-Models")
-                .join(project.name.replace(" (Source)", ""))
-                .join("simulation.toml");
-            open_file_ev.send(layout_api::OpenFileEvent { path: sim_path });
-        }
-
-        ui.add_space(SECTION_SPACING);
-    }
+fn find_simulation_node(nodes: &[ProjectNode]) -> Option<&ProjectNode> {
+    nodes.iter().find(|n| n.node_type == ProjectNodeType::Simulation)
+        .or_else(|| nodes.iter().find(|n| !n.children.is_empty()).and_then(|n| find_simulation_node(&n.children)))
 }
 
 fn draw_separator(ui: &mut egui::Ui) {
-    // Убираем верхний add_space — он уже пришёл от последнего bundle
     let total_w = ui.available_width();
     let line_w = total_w * SEPARATOR_FRACTION;
     let pad = (total_w - line_w) / 2.0;
 
     ui.horizontal(|ui| {
         ui.add_space(pad);
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(line_w, 1.0), egui::Sense::hover());
-        ui.painter().hline(
-            rect.x_range(),
-            rect.center().y,
-            egui::Stroke::new(1.0, egui::Color32::from_gray(60)),
-        );
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(line_w, 1.0), egui::Sense::hover());
+        ui.painter().hline(rect.x_range(), rect.center().y, egui::Stroke::new(1.0, egui::Color32::from_gray(60)));
     });
-
-    ui.add_space(2.0); // меньший отступ снизу разделителя
+    ui.add_space(2.0);
 }

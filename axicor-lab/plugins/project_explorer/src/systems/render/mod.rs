@@ -13,6 +13,7 @@ pub fn render_project_explorer_system(
     mut load_events: EventWriter<LoadGraphEvent>,
     mut zone_events: EventWriter<ZoneSelectedEvent>,
     mut open_file_ev: EventWriter<OpenFileEvent>,
+    mut ctx_menu_events: EventWriter<layout_api::OpenContextMenuEvent>,
     window_query: Query<(&PluginWindow, Entity)>,
     mut explorer_states: Query<&mut crate::domain::ProjectExplorerState>,
     mut commands: Commands,
@@ -23,13 +24,17 @@ pub fn render_project_explorer_system(
         if !window.is_visible { continue; }
         if base_domain(&window.plugin_id) != DOMAIN_EXPLORER { continue; }
 
-        let mut state_view = explorer_states.get_mut(entity);
-        if state_view.is_err() {
-            commands.entity(entity).insert(crate::domain::ProjectExplorerState::default());
-        }
+        let explorer_state = match explorer_states.get_mut(entity) {
+            Ok(s) => Some(s),
+            Err(_) => {
+                commands.entity(entity).insert(crate::domain::ProjectExplorerState::default());
+                None
+            }
+        };
         
-        // DOD FIX: В первом кадре (пока команда insert на выполнилась) используем None
-        let active_file = state_view.as_mut().ok().map(|s| &mut s.active_file);
+        // В первом кадре (пока команда insert на выполнилась) используем None
+        let mut explorer_state = explorer_state;
+        let active_file = explorer_state.as_mut().map(|s| &mut s.active_file);
 
         let rect = window.rect;
         let area_id = format!("ExplorerPortal_{:?}", window.id);
@@ -49,13 +54,15 @@ pub fn render_project_explorer_system(
                     if project.is_bundle { bundles.push(project); } 
                     else { sources.push(project); }
                 }
-                
+
                 ui.allocate_ui_at_rect(content_rect, |ui| {
                     ui_components::draw_explorer_tree(
                         ui, 
                         &bundles, 
                         &sources,
                         &mut open_file_ev,
+                        &mut ctx_menu_events,
+                        entity,
                         active_file,
                         |proj| { load_events.send(LoadGraphEvent { project_name: proj }); },
                         |proj, shard| { zone_events.send(ZoneSelectedEvent { project_name: proj, shard_name: shard }); }

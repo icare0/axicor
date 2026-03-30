@@ -15,6 +15,8 @@
 | `ZoneSelectedEvent` | Клик по .pos / .state | `zone_hash`, `target_window` | Connectome Viewer (3D) |
 | `LoadGraphEvent` | Клик по .axic архиву | `project_name` | Node Editor |
 | `OpenFileEvent` | Клик по .toml файлу | `path: PathBuf` | Code Editor (Чтение) & Node Editor (Синхронизация) |
+| `EntityDeletedEvent` | Удаление из WM | `path` (Listens) | Сбрасывает выделение `active_file`, если сущность исчезла. |
+| `OpenContextMenuEvent` | ПКМ по узлу/корню | `actions`, `target_window` | Делегирует команды удаления/переименования в WM. |
 
 > **[DOD Invariant]**: Событие `OpenFileEvent` использует паттерн **Multi-Cast**. Оно перехватывается Редактором Кода для визуализации текста и одновременно прослушивается Нодовым Редактором для автоматической (фоновой) подгрузки графа `brain.toml`.
 

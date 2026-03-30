@@ -71,3 +71,9 @@ venv/
 # Other
 *GEMINI.md
 copilot.local.toml
+
+# Node Editor
+.layout.tmp.toml
+.layout.toml
+.brain.tmp.toml
+.simulation.tmp.toml

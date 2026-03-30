@@ -8,7 +8,10 @@ use crate::layout::domain::{
 };
 
 // DOD FIX: Междоменная шина (Доступна плагинам)
-use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent};
+use layout_api::{
+    AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent,
+    OpenContextMenuEvent, ContextMenuActionTriggeredEvent
+};
 
 use crate::layout::systems;
 
@@ -26,11 +29,15 @@ impl Plugin for WindowManagerPlugin {
            .init_resource::<WindowDragRequest>()
            .init_resource::<TopologyCache>()
            .init_resource::<AllocatedPanes>()
+           .init_resource::<crate::layout::ui::context_menu::ContextMenuState>()
            .init_resource::<TreeCommands>();
 
         app.add_event::<SaveDefaultLayoutEvent>()
            .add_event::<OsWindowCommand>()
            .add_event::<CreateNewModelEvent>()
+           .add_event::<OpenContextMenuEvent>()
+           .add_event::<ContextMenuActionTriggeredEvent>()
+           .add_event::<layout_api::EntityDeletedEvent>()
            .add_systems(Startup, systems::boot::boot_layout_system)
            .add_systems(Update, (
                systems::input::window_input_system,
@@ -43,6 +50,23 @@ impl Plugin for WindowManagerPlugin {
                systems::render::render_workspace_system,
                systems::render::sync_plugin_visibility_system,
                systems::save::save_layout_system,
+           ).chain().after(bevy_egui::EguiSet::InitContexts))
+           .add_systems(Update, (
+               systems::create_model_system::create_model_system,
+               systems::create_department_system::create_department_system,
+               systems::delete_department_system::delete_department_system,
+               systems::create_shard_system::create_shard_system,
+               systems::delete_shard_system::delete_shard_system,
+               systems::create_env_rx_system::create_env_rx_system,
+               systems::create_env_tx_system::create_env_tx_system,
+               systems::create_connection_system::create_connection_system,
+               systems::delete_connection_system::delete_connection_system,
+               systems::rename_zone_system::rename_zone_system,
+               systems::create_io_matrix_system::create_io_matrix_system,
+
+               systems::wm_file_ops::wm_file_ops_context_menu_system,
+               crate::layout::ui::context_menu::context_menu_ui_system,
            ).chain().after(bevy_egui::EguiSet::InitContexts));
+
     }
 }

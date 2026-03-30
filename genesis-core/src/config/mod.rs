@@ -2,7 +2,7 @@
 ///
 /// `simulation.toml` — глобальные "Законы Вселенной". 
 /// Единственный парсер для движка (baker и runtime используют этот).
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -12,6 +12,7 @@ pub mod io;
 pub mod instance;
 pub mod brain;
 pub mod manifest;
+pub mod sys;
 
 pub use blueprints::{BlueprintsConfig, NeuronType};
 pub use anatomy::{AnatomyConfig, LayerConfig};
@@ -20,14 +21,39 @@ pub use instance::InstanceConfig;
 pub use manifest::*;
 
 /// Полный распарсенный конфиг `simulation.toml`.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SimulationConfig {
+    #[serde(default)]
+    pub model_id_v1: Option<crate::config::sys::SystemMeta>,
+
     pub world: WorldConfig,
+    
+    /// DOD FIX: Версионированный блок симуляции. 
+    /// В исходниках — [sim_v_1], в архиве — [manifest_sim_v_1].
+    #[serde(alias = "simulation")]
+    #[serde(alias = "manifest_sim_v_1")]
+    #[serde(rename = "sim_v_1")]
     pub simulation: SimulationParams,
+
+    /// DOD FIX: Список департаментов (Брайнов), привязанных к этой модели
+    #[serde(rename = "department", default)]
+    pub departments: Vec<DepartmentEntry>,
+
+    /// DOD FIX: Связи между департаментами (Отцами) на уровне модели (Дедушки).
+    #[serde(rename = "connection", default)]
+    pub connections: Vec<crate::config::brain::ConnectionEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DepartmentEntry {
+    #[serde(default)]
+    pub depart_id_v1: Option<crate::config::sys::SystemMeta>,
+    pub name: String,
+    pub config: std::path::PathBuf,
 }
 
 /// Физические размеры пространства (§1.1).
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WorldConfig {
     pub width_um: u32,
     pub depth_um: u32,
@@ -35,7 +61,7 @@ pub struct WorldConfig {
 }
 
 /// Глобальные параметры симуляции (§1.1).
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SimulationParams {
     pub tick_duration_us: u32,
     pub total_ticks: u64,

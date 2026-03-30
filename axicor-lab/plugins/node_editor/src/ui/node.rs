@@ -1,10 +1,10 @@
 // ui/node.rs
+use bevy::prelude::Entity;
 use bevy_egui::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
-use crate::domain::{NodeGraphUiState, BrainTopologyGraph};
+use crate::domain::{NodeGraphUiState, ProjectSession, TopologyMutation};
 use super::canvas::CanvasTransform;
 
-// --- Константы ноды ---
 const NODE_WIDTH:      f32 = 180.0;
 const HEADER_HEIGHT:   f32 = 24.0;
 const ROW_HEIGHT:      f32 = 20.0;
@@ -22,11 +22,6 @@ const CLR_PIN_OUT:     Color32 = Color32::from_rgb(255, 150, 50);
 const CLR_PIN_LABEL:   Color32 = Color32::LIGHT_GRAY;
 const CLR_PIN_HOVER:   Color32 = Color32::WHITE;
 
-// ---------------------------------------------------------------------------
-// Типы
-// ---------------------------------------------------------------------------
-
-/// Геометрия одной ноды — вычисляется в PASS 1, используется в PASS 2 и 3.
 pub struct NodeLayout {
     pub screen_rect: Rect,
     pub header_rect: Rect,
@@ -35,27 +30,30 @@ pub struct NodeLayout {
     pub output_pins: HashMap<String, Pos2>,
 }
 
-/// Геометрия всех нод за кадр.
 pub type NodeLayouts = HashMap<String, NodeLayout>;
 
-// ---------------------------------------------------------------------------
-// PASS 1 — вычисление геометрии
-// ---------------------------------------------------------------------------
-
 pub fn calc_all_layouts(
-    graph: &BrainTopologyGraph,
+    session: &ProjectSession,
     state: &mut NodeGraphUiState,
     transform: &CanvasTransform,
 ) -> NodeLayouts {
-    let mut layouts = NodeLayouts::with_capacity(graph.zones.len());
+    let mut layouts = NodeLayouts::with_capacity(session.zones.len());
 
-    for (i, zone) in graph.zones.iter().enumerate() {
+    for (i, zone) in session.zones.iter().enumerate() {
+        let node_id = session.zone_ids.get(zone).cloned().unwrap_or_else(|| zone.clone());
+        
         let local_pos = *state.node_positions
             .entry(zone.clone())
-            .or_insert_with(|| Pos2::new(100.0 + i as f32 * 250.0, 150.0));
+            .or_insert_with(|| {
+                if let Some(&(x, y)) = session.layout_cache.get(&node_id) {
+                    Pos2::new(x, y)
+                } else {
+                    Pos2::new(100.0 + i as f32 * 250.0, 150.0)
+                }
+            });
 
-        let inputs = graph.node_inputs.get(zone).cloned().unwrap_or_default();
-        let outputs = graph.node_outputs.get(zone).cloned().unwrap_or_default();
+        let inputs = session.node_inputs.get(zone).cloned().unwrap_or_default();
+        let outputs = session.node_outputs.get(zone).cloned().unwrap_or_default();
 
         layouts.insert(zone.clone(), calc_node_layout(local_pos, &inputs, &outputs, transform));
     }
@@ -66,7 +64,6 @@ pub fn calc_all_layouts(
 fn calc_node_layout(local_pos: Pos2, inputs: &[String], outputs: &[String], t: &CanvasTransform) -> NodeLayout {
     let header_h = HEADER_HEIGHT * t.zoom;
     let row_h    = ROW_HEIGHT    * t.zoom;
-    // +1 строка для кнопки "+ add"
     let rows     = (inputs.len() + 1).max(outputs.len() + 1) as f32; 
     let body_h   = rows * row_h + 16.0 * t.zoom;
 
@@ -92,44 +89,80 @@ fn calc_node_layout(local_pos: Pos2, inputs: &[String], outputs: &[String], t: &
     NodeLayout { screen_rect, header_rect, body_rect, input_pins, output_pins }
 }
 
-// ---------------------------------------------------------------------------
-// PASS 3 — отрисовка + интерактивность
-// ---------------------------------------------------------------------------
-
 pub fn draw_all_nodes(
     painter: &egui::Painter,
     ui: &mut egui::Ui,
-    graph: &mut BrainTopologyGraph,
+    session: &mut ProjectSession,
     layouts: &NodeLayouts,
     state: &mut NodeGraphUiState,
+    send_mutation: &mut impl FnMut(TopologyMutation),
+    send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    target_window: Entity,
 ) {
-    let zones = graph.zones.clone();
+    let zones = session.zones.clone();
     for zone in &zones {
         let Some(layout) = layouts.get(zone) else { continue };
-        draw_node(painter, ui, graph, zone, layout, state);
+        draw_node(painter, ui, session, zone, layout, state, send_mutation, send_context_menu, target_window);
     }
 }
 
 fn draw_node(
     painter: &egui::Painter,
     ui: &mut egui::Ui,
-    graph: &mut BrainTopologyGraph,
+    session: &mut ProjectSession,
     zone: &str,
     layout: &NodeLayout,
     state: &mut NodeGraphUiState,
+    send_mutation: &mut impl FnMut(TopologyMutation),
+    send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    target_window: Entity,
 ) {
     let zoom = state.zoom;
     let NodeLayout { screen_rect, header_rect, body_rect, .. } = *layout;
 
-    let is_selected = state.selected_node.as_deref() == Some(zone);
-    draw_node_shape(painter, screen_rect, header_rect, body_rect, zone, zoom, is_selected);
-    handle_node_drag(ui, graph, zone, screen_rect, state);
-    
-    let inputs = graph.node_inputs.get(zone).cloned().unwrap_or_default();
-    let outputs = graph.node_outputs.get(zone).cloned().unwrap_or_default();
+    let node_id = session.zone_ids.get(zone).cloned().unwrap_or_else(|| zone.to_string());
+    let is_selected = state.selected_node_id.as_ref() == Some(&node_id);
 
-    draw_input_pins(painter, ui, graph, zone, &inputs, layout, state);
-    draw_output_pins(painter, ui, graph, zone, &outputs, layout, state);
+    draw_node_shape(painter, screen_rect, header_rect, body_rect, zoom, is_selected);
+    
+    // --- Header / Rename Logic ---
+    if state.renaming_zone.as_deref() == Some(zone) {
+        ui.allocate_ui_at_rect(header_rect, |ui| {
+            let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer)
+                .frame(false)
+                .text_color(Color32::WHITE)
+                .horizontal_align(egui::Align::Center));
+            
+            edit.request_focus();
+
+            if edit.lost_focus() {
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    state.renaming_zone = None;
+                } else {
+                    let new_name = state.rename_buffer.trim().to_string();
+                    if !new_name.is_empty() && new_name != zone {
+                        send_mutation(TopologyMutation::RenameZone {
+                            old_name: zone.to_string(),
+                            new_name,
+                            id: node_id.clone(),
+                            context_path: None,
+                        });
+                    }
+                    state.renaming_zone = None;
+                }
+            }
+        });
+    } else {
+        painter.text(header_rect.center(), egui::Align2::CENTER_CENTER, zone, egui::FontId::proportional(14.0 * zoom), Color32::WHITE);
+    }
+
+    handle_node_drag(ui, session, zone, screen_rect, state, send_context_menu, target_window);
+    
+    let inputs = session.node_inputs.get(zone).cloned().unwrap_or_default();
+    let outputs = session.node_outputs.get(zone).cloned().unwrap_or_default();
+
+    draw_input_pins(painter, ui, session, zone, &inputs, layout, state, send_mutation);
+    draw_output_pins(painter, ui, session, zone, &outputs, layout, state, send_mutation);
 }
 
 fn draw_node_shape(
@@ -137,26 +170,13 @@ fn draw_node_shape(
     screen_rect: Rect,
     header_rect: Rect,
     body_rect: Rect,
-    label: &str,
     zoom: f32,
-    is_selected: bool, // ДОБАВЛЕНО
+    is_selected: bool,
 ) {
     let r = CORNER_RADIUS * zoom;
-
-    // Тень
-    painter.rect_filled(
-        screen_rect.translate(Vec2::splat(SHADOW_OFFSET * zoom)),
-        r, CLR_SHADOW,
-    );
-    // Хедер
-    painter.rect_filled(header_rect,
-        egui::Rounding { nw: r, ne: r, sw: 0.0, se: 0.0 }, CLR_HEADER);
-    painter.text(header_rect.center(), egui::Align2::CENTER_CENTER,
-        label, egui::FontId::proportional(14.0 * zoom), Color32::WHITE);
-    // Тело
-    painter.rect_filled(body_rect,
-        egui::Rounding { nw: 0.0, ne: 0.0, sw: r, se: r }, CLR_BODY);
-    // DOD FIX: Яркая обводка, если нода выделена
+    painter.rect_filled(screen_rect.translate(Vec2::splat(SHADOW_OFFSET * zoom)), r, CLR_SHADOW);
+    painter.rect_filled(header_rect, egui::Rounding { nw: r, ne: r, sw: 0.0, se: 0.0 }, CLR_HEADER);
+    painter.rect_filled(body_rect, egui::Rounding { nw: 0.0, ne: 0.0, sw: r, se: r }, CLR_BODY);
     let border_color = if is_selected { Color32::GOLD } else { CLR_BORDER };
     let border_width = if is_selected { 2.0 * zoom } else { 1.0 * zoom };
     painter.rect_stroke(screen_rect, r, Stroke::new(border_width, border_color));
@@ -164,151 +184,135 @@ fn draw_node_shape(
 
 fn handle_node_drag(
     ui: &mut egui::Ui,
-    graph: &mut BrainTopologyGraph, // ДОБАВЛЕНО
+    session: &mut ProjectSession,
     zone: &str,
     screen_rect: Rect,
     state: &mut NodeGraphUiState,
+    send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    target_window: Entity,
 ) {
-    // DOD FIX: Используем click_and_drag, чтобы ЛКМ регистрировал клики!
-    let response = ui.interact(screen_rect, ui.id().with(zone), egui::Sense::click_and_drag());
+    let node_id = session.zone_ids.get(zone).cloned().unwrap_or_else(|| zone.to_string());
+    let response = ui.interact(screen_rect, ui.id().with(&node_id), egui::Sense::click_and_drag());
 
     if response.dragged_by(egui::PointerButton::Primary) {
         if let Some(pos) = state.node_positions.get_mut(zone) {
             *pos += response.drag_delta() / state.zoom;
+            // [DOD FIX] Обновляем кэш в RAM для выживания при переключении вкладок.
+            // При этом НЕ ставим is_dirty = true, чтобы не дергать AST-компилятор!
+            if let Some(id) = session.zone_ids.get(zone) {
+                session.layout_cache.insert(id.clone(), (pos.x, pos.y));
+            }
         }
     }
-    // DOD FIX: Мгновенное выделение по клику ЛКМ
     if response.clicked() {
-        state.selected_node = Some(zone.to_string());
+        state.selected_node_id = Some(node_id);
     }
 
-    response.context_menu(|ui| {
-        ui.label(format!("Node: {}", zone));
-        ui.separator();
-        
-        if ui.button("⚙ Properties").clicked() { 
-            state.selected_node = Some(zone.to_string()); 
-            ui.close_menu(); 
-        }
-        
-        if ui.button("🗑 Delete Node").clicked() { 
-            // DOD FIX: Физическое удаление зоны и всех привязанных к ней аксонов
-            let z = zone.to_string();
-            graph.zones.retain(|x| x != &z);
-            graph.connections.retain(|(f, _, t, _)| f != &z && t != &z);
-            graph.node_inputs.remove(&z);
-            graph.node_outputs.remove(&z);
-            state.node_positions.remove(&z);
+    if response.secondary_clicked() {
+        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            let label_suffix = if state.level == crate::domain::EditorLevel::Model { "Department" } else { "Shard" };
             
-            graph.is_dirty = true; // ДОБАВЛЕНО
-            
-            // Сбрасываем выделение, если удалили выбранную ноду
-            if state.selected_node.as_deref() == Some(zone) {
-                state.selected_node = None;
-            }
-            ui.close_menu(); 
+            send_context_menu(layout_api::OpenContextMenuEvent {
+                target_window,
+                position: pos,
+                actions: vec![
+                    layout_api::MenuAction {
+                        action_id: format!("node_editor.delete_node|{}", zone),
+                        label: format!("🗑 Delete {}", label_suffix),
+                    },
+                    layout_api::MenuAction {
+                        action_id: format!("node_editor.start_rename|{}", zone),
+                        label: "📝 Rename".into(),
+                    },
+                ],
+            });
         }
-    });
+    }
 }
 
 fn draw_input_pins(
     painter: &egui::Painter,
     ui: &mut egui::Ui,
-    graph: &mut BrainTopologyGraph,
+    _session: &mut ProjectSession,
     zone: &str,
     inputs: &[String],
     layout: &NodeLayout,
     state: &mut NodeGraphUiState,
+    send_mutation: &mut impl FnMut(TopologyMutation),
 ) {
     let zoom = state.zoom;
     let r = PIN_RADIUS * zoom;
 
-    for (_idx, port) in inputs.iter().enumerate() {
+    for port in inputs {
         let Some(&pin_pos) = layout.input_pins.get(port) else { continue };
         draw_pin(painter, pin_pos, r, CLR_PIN_IN);
-        painter.text(
-            pin_pos + Vec2::new(10.0 * zoom, 0.0),
-            egui::Align2::LEFT_CENTER,
-            port, egui::FontId::proportional(12.0 * zoom), CLR_PIN_LABEL,
-        );
+        painter.text(pin_pos + Vec2::new(10.0 * zoom, 0.0), egui::Align2::LEFT_CENTER, port, egui::FontId::proportional(12.0 * zoom), CLR_PIN_LABEL);
 
         let hit = Rect::from_center_size(pin_pos, Vec2::splat(r * PIN_HIT_SCALE));
-        
-        // DOD FIX: rect_contains_pointer обходит блокировку hover() во время Drag!
-        let is_hovered = ui.rect_contains_pointer(hit);
-        if is_hovered {
-            painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER));
-        }
+        if ui.rect_contains_pointer(hit) { painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER)); }
 
-        if is_hovered && ui.input(|i| i.pointer.any_released()) {
+        if ui.rect_contains_pointer(hit) && ui.input(|i| i.pointer.any_released()) {
             if let Some((src_zone, src_port, _)) = state.dragging_pin.clone() {
                 if src_zone != zone {
-                    state.pending_connection = Some((src_zone, src_port, zone.to_string(), port.clone()));
+                    send_mutation(TopologyMutation::AddConnection {
+                        from: src_zone,
+                        from_port: src_port,
+                        to: zone.to_string(),
+                        to_port: port.clone(),
+                    });
                 }
             }
-            state.dragging_pin = None; // Успешный коннект сбрасывает Drag
+            state.dragging_pin = None;
         }
     }
 
-    // Отрисовка кнопки "+ add"
     let plus_y = layout.body_rect.top() + 12.0 * zoom + (inputs.len() as f32) * 20.0 * zoom;
     let plus_pos = Pos2::new(layout.body_rect.left(), plus_y);
     draw_pin(painter, plus_pos, r * 0.8, Color32::DARK_GRAY);
-    painter.text(plus_pos + Vec2::new(10.0 * zoom, 0.0), egui::Align2::LEFT_CENTER, "+ add", egui::FontId::proportional(11.0 * zoom), Color32::GRAY);
-    
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_in")), egui::Sense::click()).clicked() {
         let new_port = format!("in_{}", inputs.len() + 1);
-        graph.node_inputs.get_mut(zone).unwrap().push(new_port);
-        graph.is_dirty = true; // ДОБАВЛЕНО
+        send_mutation(TopologyMutation::AddIoMatrix {
+            zone: zone.to_string(),
+            is_input: true,
+            name: new_port,
+        });
     }
 }
 
 fn draw_output_pins(
     painter: &egui::Painter,
     ui: &mut egui::Ui,
-    graph: &mut BrainTopologyGraph,
+    _session: &mut ProjectSession,
     zone: &str,
     outputs: &[String],
     layout: &NodeLayout,
     state: &mut NodeGraphUiState,
+    send_mutation: &mut impl FnMut(TopologyMutation),
 ) {
     let zoom = state.zoom;
     let r = PIN_RADIUS * zoom;
 
-    for (_idx, port) in outputs.iter().enumerate() {
+    for port in outputs {
         let Some(&pin_pos) = layout.output_pins.get(port) else { continue };
         draw_pin(painter, pin_pos, r, CLR_PIN_OUT);
-        painter.text(
-            pin_pos - Vec2::new(10.0 * zoom, 0.0),
-            egui::Align2::RIGHT_CENTER,
-            port, egui::FontId::proportional(12.0 * zoom), CLR_PIN_LABEL,
-        );
+        painter.text(pin_pos - Vec2::new(10.0 * zoom, 0.0), egui::Align2::RIGHT_CENTER, port, egui::FontId::proportional(12.0 * zoom), CLR_PIN_LABEL);
 
         let hit = Rect::from_center_size(pin_pos, Vec2::splat(r * PIN_HIT_SCALE));
-        
-        // DOD FIX: click_and_drag поддерживает и "липкий" клик, и удержание
         let out_response = ui.interact(hit, ui.id().with((zone, "out", port)), egui::Sense::click_and_drag());
-        
-        if ui.rect_contains_pointer(hit) { 
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); 
-            painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER));
-        }
-        
-        if out_response.drag_started() || out_response.clicked() {
-            state.dragging_pin = Some((zone.to_string(), port.clone(), pin_pos));
-        }
+        if ui.rect_contains_pointer(hit) { ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing); painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER)); }
+        if out_response.drag_started() || out_response.clicked() { state.dragging_pin = Some((zone.to_string(), port.clone(), pin_pos)); }
     }
 
-    // Отрисовка кнопки "+ add"
     let plus_y = layout.body_rect.top() + 12.0 * zoom + (outputs.len() as f32) * 20.0 * zoom;
     let plus_pos = Pos2::new(layout.body_rect.right(), plus_y);
     draw_pin(painter, plus_pos, r * 0.8, Color32::DARK_GRAY);
-    painter.text(plus_pos - Vec2::new(10.0 * zoom, 0.0), egui::Align2::RIGHT_CENTER, "+ add", egui::FontId::proportional(11.0 * zoom), Color32::GRAY);
-    
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_out")), egui::Sense::click()).clicked() {
         let new_port = format!("out_{}", outputs.len() + 1);
-        graph.node_outputs.get_mut(zone).unwrap().push(new_port);
-        graph.is_dirty = true; // ДОБАВЛЕНО
+        send_mutation(TopologyMutation::AddIoMatrix {
+            zone: zone.to_string(),
+            is_input: false,
+            name: new_port,
+        });
     }
 }
 

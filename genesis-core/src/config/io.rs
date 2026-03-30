@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct IoConfig {
     #[serde(default)]
+    pub shard_id_v1: Option<crate::config::sys::SystemMeta>,
+
+    #[serde(default)]
     #[serde(rename = "input")]
     pub inputs: Vec<InputMap>,
 
@@ -22,6 +25,8 @@ fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct InputMap {
+    #[serde(default)]
+    pub io_id_v1: Option<crate::config::sys::SystemMeta>,
     pub name: String,
     #[serde(alias = "zone")] 
     pub target_zone: String,
@@ -40,6 +45,8 @@ pub struct InputMap {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct OutputMap {
+    #[serde(default)]
+    pub io_id_v1: Option<crate::config::sys::SystemMeta>,
     pub name: String,
     #[serde(alias = "zone")]
     pub source_zone: String,

@@ -1,62 +1,87 @@
 use bevy::prelude::*;
+use layout_api::ContextMenuActionTriggeredEvent;
+use node_editor::domain::TopologyMutation;
+use crate::domain::ProjectFsCache;
 use std::fs;
 use std::path::PathBuf;
-use layout_api::CreateNewModelEvent;
-
-pub fn create_new_model_system(
-    mut events: EventReader<CreateNewModelEvent>,
-) {
-    for ev in events.read() {
-        let base_dir = PathBuf::from("Genesis-Models").join(&ev.model_name);
-        
-        // 1. Создаем папку проекта
-        if let Err(e) = fs::create_dir_all(&base_dir) {
-            eprintln!("Failed to create model directory: {}", e);
-            continue;
-        }
-
-        // 2. Генерируем минимальный brain.toml (Пустой граф)
-        let brain_toml = r#"[simulation]
-config = "simulation.toml"
-
-# Zones and connections will be added via Node Editor
-"#;
-        if let Err(e) = fs::write(base_dir.join("brain.toml"), brain_toml) {
-            eprintln!("Failed to write brain.toml: {}", e);
-        }
-
-        // 3. Генерируем базовый simulation.toml (Законы физики)
-        let sim_toml = r#"[world]
-width_um = 1000
-depth_um = 1000
-height_um = 1000
-
-[simulation]
-tick_duration_us = 100
-total_ticks = 0
-master_seed = "GENESIS"
-voxel_size_um = 25.0
-signal_speed_m_s = 0.5
-sync_batch_ticks = 20
-segment_length_voxels = 2
-axon_growth_max_steps = 500
-"#;
-        if let Err(e) = fs::write(base_dir.join("simulation.toml"), sim_toml) {
-            eprintln!("Failed to write simulation.toml: {}", e);
-        }
-
-        info!("✅ New model created at {:?}", base_dir);
-    }
-}
 
 pub fn sync_smart_focus_system(
     mut events: EventReader<layout_api::OpenFileEvent>,
     mut query: Query<&mut crate::domain::ProjectExplorerState>,
 ) {
     for ev in events.read() {
-        // Когда любой плагин (включая Node Editor) открывает файл, Эксплорер берет его в фокус
         for mut state in query.iter_mut() {
             state.active_file = Some(ev.path.clone());
+        }
+    }
+}
+
+pub fn handle_explorer_menu_triggers_system(
+    mut events: EventReader<ContextMenuActionTriggeredEvent>,
+    mut topo_events: EventWriter<TopologyMutation>,
+    mut deleted_ev: EventWriter<layout_api::EntityDeletedEvent>,
+    cache: Res<ProjectFsCache>,
+) {
+    for ev in events.read() {
+        if !ev.action_id.starts_with("explorer.") {
+            continue;
+        }
+
+        let parts: Vec<&str> = ev.action_id.split('|').collect();
+        if parts.len() < 2 { continue; }
+
+        match parts[0] {
+            "explorer.delete_model" => {
+                let model_name = parts[1];
+                // Находим проект в кэше
+                if let Some(project) = cache.projects.iter().find(|p| p.name == model_name) {
+                    // Ищем путь к simulation.toml через root_nodes
+                    let sim_path = project.root_nodes.iter()
+                        .find(|n| n.node_type == crate::domain::ProjectNodeType::Simulation)
+                        .map(|n| n.path.clone());
+                    
+                    if let Some(path) = sim_path {
+                        if let Some(parent) = path.parent() {
+                            info!("Project Explorer: Deleting model directory {:?}", parent);
+                            if let Err(e) = fs::remove_dir_all(parent) {
+                                error!("Project Explorer: Failed to delete model: {}", e);
+                            } else {
+                                deleted_ev.send(layout_api::EntityDeletedEvent { path: parent.to_path_buf() });
+                            }
+
+                        }
+                    }
+                }
+            }
+            "explorer.delete_dept" | "explorer.delete_shard" => {
+                if parts.len() < 4 { continue; }
+                let name = parts[1].to_string();
+                let id = parts[2].to_string();
+                let context_path = PathBuf::from(parts[3]);
+
+                topo_events.send(TopologyMutation::RemoveZone {
+                    name,
+                    id: id.clone(),
+                    context_path: Some(context_path),
+                });
+                info!("Project Explorer: Triggered RemoveZone via TopologyMutation for {}", id);
+            }
+            _ => warn!("Unknown explorer action: {}", parts[0]),
+        }
+    }
+}
+
+pub fn evict_deleted_focus_system(
+    mut events: EventReader<layout_api::EntityDeletedEvent>,
+    mut query: Query<&mut crate::domain::ProjectExplorerState>,
+) {
+    for ev in events.read() {
+        for mut state in query.iter_mut() {
+            if let Some(active) = &state.active_file {
+                if active.starts_with(&ev.path) {
+                    state.active_file = None;
+                }
+            }
         }
     }
 }
