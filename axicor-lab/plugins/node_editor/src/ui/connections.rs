@@ -27,12 +27,15 @@ pub fn draw_all_connections(
                 resp.context_menu(|ui| {
                     ui.label(format!("Link: {}[{}] → {}[{}]", from, from_p, to, to_p));
                     if ui.button("✂ Delete Connection").clicked() {
-                        send_mutation(crate::domain::TopologyMutation::RemoveConnection {
-                            from: from.clone(),
-                            from_port: from_p.clone(),
-                            to: to.clone(),
-                            to_port: to_p.clone(),
-                        });
+                        send_mutation(crate::domain::TopologyMutation::Delete(
+                            crate::domain::DeleteTarget::Connection {
+                                from: from.clone(),
+                                from_port: from_p.clone(),
+                                to: to.clone(),
+                                to_port: to_p.clone(),
+                            },
+                            None
+                        ));
                         ui.close_menu();
                     }
                 });

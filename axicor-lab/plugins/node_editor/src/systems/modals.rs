@@ -26,11 +26,10 @@ pub fn clear_graph_modal_system(
                     let zones = session.zones.clone();
                     for zone in zones {
                         let id = session.zone_ids.get(&zone).cloned().unwrap_or_default();
-                        topo_events.send(TopologyMutation::RemoveZone {
-                            name: zone,
-                            id,
-                            context_path: Some(active_path.clone()),
-                        });
+                        topo_events.send(TopologyMutation::Delete(
+                            crate::domain::DeleteTarget::Zone { name: zone, id },
+                            Some(active_path.clone()),
+                        ));
                     }
                     info!("✅ Node Editor: Triggered Clear Graph cascade.");
                 }

@@ -59,12 +59,11 @@ pub fn handle_explorer_menu_triggers_system(
                 let id = parts[2].to_string();
                 let context_path = PathBuf::from(parts[3]);
 
-                topo_events.send(TopologyMutation::RemoveZone {
-                    name,
-                    id: id.clone(),
-                    context_path: Some(context_path),
-                });
-                info!("Project Explorer: Triggered RemoveZone via TopologyMutation for {}", id);
+                topo_events.send(TopologyMutation::Delete(
+                    node_editor::domain::DeleteTarget::Zone { name, id: id.clone() },
+                    Some(context_path),
+                ));
+                info!("Project Explorer: Triggered Delete cascade for {}", id);
             }
             _ => warn!("Unknown explorer action: {}", parts[0]),
         }

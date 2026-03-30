@@ -13,7 +13,6 @@ pub fn apply_topology_mutations_system(
             TopologyMutation::AddZone { .. } => {}
             TopologyMutation::AddEnvRx { .. } => {}
             TopologyMutation::AddEnvTx { .. } => {}
-            TopologyMutation::RemoveConnection { .. } => {}
 
             TopologyMutation::AddIoMatrix { zone, is_input, name } => {
                 let Some(active_path) = graph.active_path.clone() else { continue };
@@ -42,74 +41,84 @@ pub fn apply_topology_mutations_system(
                 info!("[RAM Sync] Connection added: {}[{}] -> {}[{}]", from, from_port, to, to_port);
             }
 
-            TopologyMutation::RemoveZone { name, id, context_path } => {
-                // 1. Определяем целевой путь (из ивента или активный)
+            TopologyMutation::Delete(target, context_path) => {
                 let active_path = context_path.clone().or_else(|| graph.active_path.clone());
                 let Some(active_path) = active_path else { continue };
                 let Some(session) = graph.sessions.get_mut(&active_path) else { continue };
 
-                // 2. Cache Eviction (RAM Cleanup)
-                session.zones.retain(|z| z != name);
-                session.connections.retain(|(f, _, t, _)| f != name && t != name);
-                session.node_inputs.remove(name);
-                session.node_outputs.remove(name);
-                session.zone_ids.remove(name);
-                session.layout_cache.remove(id);
-                session.is_dirty = true;
-
-                // 3. Синхронизация UI-состояний (удаление визуальной ноды)
-                for mut ui in ui_states.iter_mut() {
-                    ui.node_positions.remove(name);
-                    if ui.selected_node_id.as_ref() == Some(id) {
-                        ui.selected_node_id = None;
+                match target {
+                    crate::domain::DeleteTarget::Zone { name, id } => {
+                        session.zones.retain(|z| z != name);
+                        session.env_rx_nodes.retain(|z| z != name);
+                        session.env_tx_nodes.retain(|z| z != name);
+                        session.connections.retain(|(f, _, t, _)| f != name && t != name);
+                        session.node_inputs.remove(name.as_str());
+                        session.node_outputs.remove(name.as_str());
+                        session.zone_ids.remove(name.as_str());
+                        session.layout_cache.remove(id.as_str());
+                        for mut ui in ui_states.iter_mut() {
+                            ui.node_positions.remove(name.as_str());
+                            if ui.selected_node_id.as_ref() == Some(&id) { ui.selected_node_id = None; }
+                        }
+                        info!("[RAM Sync] Evicted node {} from session {:?}", name, active_path);
+                    }
+                    crate::domain::DeleteTarget::Connection { from, from_port, to, to_port } => {
+                        session.connections.retain(|(f, fp, t, tp)| !(f == from && fp == from_port && t == to && tp == to_port));
+                        info!("[RAM Sync] Severed connection {} -> {}", from, to);
+                    }
+                    crate::domain::DeleteTarget::IoPin { zone, is_input, name } => {
+                        if *is_input {
+                            if let Some(inputs) = session.node_inputs.get_mut(zone.as_str()) { inputs.retain(|p| p != name); }
+                        } else {
+                            if let Some(outputs) = session.node_outputs.get_mut(zone.as_str()) { outputs.retain(|p| p != name); }
+                        }
+                        session.connections.retain(|(f, fp, t, tp)| !((f == zone && fp == name && !*is_input) || (t == zone && tp == name && *is_input)));
+                        info!("[RAM Sync] Removed I/O Matrix '{}' from zone '{}'", name, zone);
                     }
                 }
-
-                info!("[RAM Sync] Evicted node {} (ID: {}) from session {:?}", name, id, active_path);
+                session.is_dirty = true;
             }
 
-            TopologyMutation::RenameZone { old_name, new_name, id, context_path } => {
+            TopologyMutation::Rename(target, context_path) => {
                 let active_path = context_path.clone().or_else(|| graph.active_path.clone());
                 let Some(active_path) = active_path else { continue };
                 let Some(session) = graph.sessions.get_mut(&active_path) else { continue };
 
-                if session.zones.contains(new_name) {
-                    warn!("[RAM Sync] Cannot rename {} to {}: name already exists", old_name, new_name);
-                    continue;
-                }
-
-                // 1. Обновляем основные структуры данных
-                if let Some(pos) = session.zones.iter().position(|z| z == old_name) {
-                    session.zones[pos] = new_name.clone();
-                }
-
-                if let Some(id_val) = session.zone_ids.remove(old_name) {
-                    session.zone_ids.insert(new_name.clone(), id_val);
-                }
-
-                if let Some(inputs) = session.node_inputs.remove(old_name) {
-                    session.node_inputs.insert(new_name.clone(), inputs);
-                }
-
-                if let Some(outputs) = session.node_outputs.remove(old_name) {
-                    session.node_outputs.insert(new_name.clone(), outputs);
-                }
-
-                // 2. Каскадное обновление связей
-                for conn in session.connections.iter_mut() {
-                    if &conn.0 == old_name { conn.0 = new_name.clone(); }
-                    if &conn.2 == old_name { conn.2 = new_name.clone(); }
-                }
-
-                // 3. Обновляем UI-позиции во всех окнах
-                for mut ui in ui_states.iter_mut() {
-                    if let Some(pos) = ui.node_positions.remove(old_name) {
-                        ui.node_positions.insert(new_name.clone(), pos);
+                match target {
+                    crate::domain::RenameTarget::Shard { old_name, new_name, id: _id } => {
+                        if session.zones.contains(new_name) { continue; }
+                        if let Some(pos) = session.zones.iter().position(|z| z == old_name) { session.zones[pos] = new_name.clone(); }
+                        if let Some(id_val) = session.zone_ids.remove(old_name) { session.zone_ids.insert(new_name.clone(), id_val); }
+                        if let Some(inputs) = session.node_inputs.remove(old_name) { session.node_inputs.insert(new_name.clone(), inputs); }
+                        if let Some(outputs) = session.node_outputs.remove(old_name) { session.node_outputs.insert(new_name.clone(), outputs); }
+                        for conn in session.connections.iter_mut() {
+                            if &conn.0 == old_name { conn.0 = new_name.clone(); }
+                            if &conn.2 == old_name { conn.2 = new_name.clone(); }
+                        }
+                        for mut ui in ui_states.iter_mut() {
+                            if let Some(pos) = ui.node_positions.remove(old_name) { ui.node_positions.insert(new_name.clone(), pos); }
+                        }
+                        session.is_dirty = true;
+                        info!("[RAM Sync] Renamed Shard {} to {}", old_name, new_name);
+                    }
+                    crate::domain::RenameTarget::IoPin { zone, is_input, old_name, new_name } => {
+                        if *is_input {
+                            if let Some(inputs) = session.node_inputs.get_mut(zone) {
+                                if let Some(pos) = inputs.iter().position(|p| p == old_name) { inputs[pos] = new_name.clone(); }
+                            }
+                        } else {
+                            if let Some(outputs) = session.node_outputs.get_mut(zone) {
+                                if let Some(pos) = outputs.iter().position(|p| p == old_name) { outputs[pos] = new_name.clone(); }
+                            }
+                        }
+                        for conn in session.connections.iter_mut() {
+                            if conn.0 == *zone && conn.1 == *old_name && !*is_input { conn.1 = new_name.clone(); }
+                            if conn.2 == *zone && conn.3 == *old_name && *is_input { conn.3 = new_name.clone(); }
+                        }
+                        session.is_dirty = true;
+                        info!("[RAM Sync] Renamed IO Pin {} to {} in {}", old_name, new_name, zone);
                     }
                 }
-
-                session.is_dirty = true;
-                info!("[RAM Sync] Renamed node {} to {} (ID: {})", old_name, new_name, id);
             }
         }
     }

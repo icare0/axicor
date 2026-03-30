@@ -31,32 +31,43 @@ pub fn handle_node_editor_menu_triggers_system(
 
         if ev.action_id.starts_with("node_editor.delete_node|") {
             let parts: Vec<&str> = ev.action_id.split('|').collect();
-            if parts.len() < 2 { continue; }
-            let node_name = parts[1].to_string();
-
-            // Ищем ID в активной сессии
-            if let Some(active_path) = &graph.active_path {
-                if let Some(session) = graph.sessions.get(active_path) {
-                    if let Some(node_id) = session.zone_ids.get(&node_name) {
-                        topo_events.send(crate::domain::TopologyMutation::RemoveZone {
-                            name: node_name,
-                            id: node_id.clone(),
-                            context_path: Some(active_path.clone()),
-                        });
-                        info!("Node Editor: Triggered RemoveZone for {}", node_id);
-                    }
-                }
+            if parts.len() == 2 {
+                let name = parts[1].to_string();
+                let Some(active_path) = graph.active_path.clone() else { continue };
+                let Some(session) = graph.sessions.get(&active_path) else { continue };
+                let id = session.zone_ids.get(&name).cloned().unwrap_or_default();
+                topo_events.send(crate::domain::TopologyMutation::Delete(
+                    crate::domain::DeleteTarget::Zone { name, id },
+                    Some(active_path),
+                ));
             }
         } else if ev.action_id.starts_with("node_editor.start_rename|") {
             let parts: Vec<&str> = ev.action_id.split('|').collect();
-            if parts.len() < 2 { continue; }
             let name = parts[1].to_string();
-
             state.renaming_zone = Some(name.clone());
             state.rename_buffer = name;
             info!("Node Editor: Started renaming node {}", parts[1]);
-        } else if ev.action_id.starts_with("node_editor.add_node") {
+        } else if ev.action_id.starts_with("node_editor.start_rename_port|") {
             let parts: Vec<&str> = ev.action_id.split('|').collect();
+            if parts.len() == 4 {
+                state.renaming_port = Some((parts[1].to_string(), parts[2] == "1", parts[3].to_string()));
+                state.rename_buffer = parts[3].to_string();
+            }
+        } else if ev.action_id.starts_with("node_editor.delete_port|") {
+            let parts: Vec<&str> = ev.action_id.split('|').collect();
+            if parts.len() == 4 {
+                topo_events.send(crate::domain::TopologyMutation::Delete(
+                    crate::domain::DeleteTarget::IoPin {
+                        zone: parts[1].to_string(),
+                        is_input: parts[2] == "1",
+                        name: parts[3].to_string(),
+                    },
+                    None,
+                ));
+            }
+        } else if ev.action_id.starts_with("node_editor.add_") {
+            let parts: Vec<&str> = ev.action_id.split('|').collect();
+            let action_type = parts[0];
             let mut spawn_pos = bevy_egui::egui::pos2(0.0, 0.0);
             let mut has_pos = false;
 
@@ -71,27 +82,31 @@ pub fn handle_node_editor_menu_triggers_system(
             if let Some(session) = graph.sessions.get(&active_path) {
                 let path_str = active_path.to_string_lossy();
                 if path_str.contains("simulation.toml") || path_str.ends_with(".toml") {
-                    let prefix = if path_str.contains("simulation.toml") { "Zone_" } else { "Shard_" };
+                    let (prefix, existing_names) = match action_type {
+                        "node_editor.add_env_rx" => ("Sensor_", &session.env_rx_nodes),
+                        "node_editor.add_env_tx" => ("Motor_", &session.env_tx_nodes),
+                        _ => if path_str.contains("simulation.toml") { ("Zone_", &session.zones) } else { ("Shard_", &session.zones) }
+                    };
 
-                    let mut next_idx = session.zones.len();
+                    let mut next_idx = existing_names.len();
                     let mut name = format!("{}{}", prefix, next_idx);
-                    while session.zones.contains(&name) {
+                    while existing_names.contains(&name) {
                         next_idx += 1;
                         name = format!("{}{}", prefix, next_idx);
                     }
 
-                    // Если координат в Intent нет (фоллбэк), используем каскадное смещение
                     if !has_pos {
-                        let offset = session.zones.len() as f32 * 25.0;
+                        let offset = existing_names.len() as f32 * 25.0;
                         spawn_pos = bevy_egui::egui::pos2(offset, offset);
                     }
 
-                    topo_events.send(crate::domain::TopologyMutation::AddZone {
-                        name: name.clone(),
-                        pos: spawn_pos,
-                    });
+                    match action_type {
+                        "node_editor.add_env_rx" => topo_events.send(crate::domain::TopologyMutation::AddEnvRx { name: name.clone(), pos: spawn_pos }),
+                        "node_editor.add_env_tx" => topo_events.send(crate::domain::TopologyMutation::AddEnvTx { name: name.clone(), pos: spawn_pos }),
+                        _ => topo_events.send(crate::domain::TopologyMutation::AddZone { name: name.clone(), pos: spawn_pos }),
+                    };
 
-                    info!("Node Editor: Intent 'Add Node' -> TopologyMutation::AddZone(name: {}, pos: {:?})", name, spawn_pos);
+                    info!("Node Editor: Intent '{}' -> Spawned {} at {:?}", action_type, name, spawn_pos);
                 }
             }
         } else if ev.action_id == "node_editor.clear_graph" {

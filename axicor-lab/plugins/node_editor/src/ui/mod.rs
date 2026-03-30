@@ -112,9 +112,16 @@ pub fn render_editor_ui(
                 position: pos,
                 actions: vec![
                     layout_api::MenuAction {
-                        // Зашиваем координаты в плоский строковый идентификатор
                         action_id: format!("node_editor.add_node|{}|{}", local_pos.x, local_pos.y),
-                        label: "➕ Add Node".into(),
+                        label: "🧠 Add Shard".into(),
+                    },
+                    layout_api::MenuAction {
+                        action_id: format!("node_editor.add_env_rx|{}|{}", local_pos.x, local_pos.y),
+                        label: "📡 Add Sensor (EnvRX)".into(),
+                    },
+                    layout_api::MenuAction {
+                        action_id: format!("node_editor.add_env_tx|{}|{}", local_pos.x, local_pos.y),
+                        label: "⚙ Add Motor (EnvTX)".into(),
                     },
                     layout_api::MenuAction {
                         action_id: "node_editor.clear_graph".into(),

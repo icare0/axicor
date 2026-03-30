@@ -54,13 +54,11 @@ impl Plugin for WindowManagerPlugin {
            .add_systems(Update, (
                systems::create_model_system::create_model_system,
                systems::create_department_system::create_department_system,
-               systems::delete_department_system::delete_department_system,
+               systems::delete_entity_system::delete_entity_system,
                systems::create_shard_system::create_shard_system,
-               systems::delete_shard_system::delete_shard_system,
                systems::create_env_rx_system::create_env_rx_system,
                systems::create_env_tx_system::create_env_tx_system,
                systems::create_connection_system::create_connection_system,
-               systems::delete_connection_system::delete_connection_system,
                systems::rename_zone_system::rename_zone_system,
                systems::create_io_matrix_system::create_io_matrix_system,
 

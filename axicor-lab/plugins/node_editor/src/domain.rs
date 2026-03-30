@@ -17,6 +17,7 @@ pub struct NodeGraphUiState {
     pub zone_search: String,
 
     pub renaming_zone: Option<String>,
+    pub renaming_port: Option<(String, bool, String)>, // (zone, is_input, old_port_name)
     pub rename_buffer: String,
     pub show_clear_modal: bool,
 }
@@ -36,6 +37,7 @@ impl Default for NodeGraphUiState {
             dept_search: String::new(),
             zone_search: String::new(),
             renaming_zone: None,
+            renaming_port: None,
             rename_buffer: String::new(),
             show_clear_modal: false,
         }
@@ -75,15 +77,27 @@ pub struct LoadGraphEvent {
     pub project_name: String,
 }
 
+#[derive(Debug, Clone)]
+pub enum RenameTarget {
+    Shard { old_name: String, new_name: String, id: String },
+    IoPin { zone: String, is_input: bool, old_name: String, new_name: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum DeleteTarget {
+    Zone { name: String, id: String },
+    Connection { from: String, from_port: String, to: String, to_port: String },
+    IoPin { zone: String, is_input: bool, name: String },
+}
+
 #[derive(Event, Debug, Clone)]
 pub enum TopologyMutation {
     AddZone { name: String, pos: bevy_egui::egui::Pos2 },
     AddEnvRx { name: String, pos: bevy_egui::egui::Pos2 },
     AddEnvTx { name: String, pos: bevy_egui::egui::Pos2 },
-    RemoveZone { name: String, id: String, context_path: Option<std::path::PathBuf> },
-    RenameZone { old_name: String, new_name: String, id: String, context_path: Option<std::path::PathBuf> },
+    Delete(DeleteTarget, Option<std::path::PathBuf>),
+    Rename(RenameTarget, Option<std::path::PathBuf>),
     AddConnection { from: String, from_port: String, to: String, to_port: String },
-    RemoveConnection { from: String, from_port: String, to: String, to_port: String },
     AddIoMatrix { zone: String, is_input: bool, name: String },
 }
 
