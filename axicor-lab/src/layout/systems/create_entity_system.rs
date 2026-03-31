@@ -131,7 +131,7 @@ z = 0
 night_interval_ticks = 10000
 prune_threshold = 15
 max_sprouts = 16
-ghost_capacity = 20000
+ghost_capacity = 0
 "#, model_id, dept_id, structured_shard_id, structured_shard_id);
     let _ = fs::write(shard_dir.join("shard.toml"), shard_toml);
 
@@ -207,6 +207,22 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             let _ = save_document(&io_path, &doc);
         }
     } else {
+        // [DCR] 1. Извлекаем реальные габариты матрицы-источника
+        let mut proj_w: i64 = 32;
+        let mut proj_h: i64 = 32;
+        let src_io_path = resolve_io_path(from);
+        if let Ok(src_doc) = load_document(&src_io_path) {
+            if let Some(outputs) = src_doc.get("output").and_then(|i| i.as_array_of_tables()) {
+                for t in outputs.iter() {
+                    if t.get("name").and_then(|v| v.as_str()) == Some(from_port) {
+                        proj_w = t.get("width").and_then(|v| v.as_integer()).unwrap_or(32);
+                        proj_h = t.get("height").and_then(|v| v.as_integer()).unwrap_or(32);
+                        break;
+                    }
+                }
+            }
+        }
+
         let mut doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
         let mut conn_table = Table::new();
         let mut inline_id = InlineTable::new();
@@ -215,10 +231,24 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         conn_table.insert("from", value(from));
         conn_table.insert("to", value(to));
         conn_table.insert("output_matrix", value(from_port));
+        conn_table.insert("width", value(proj_w));
+        conn_table.insert("height", value(proj_h));
 
         if !doc.contains_key("connection") { doc.insert("connection", Item::ArrayOfTables(ArrayOfTables::new())); }
         if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) { arr.push(conn_table); }
         let _ = save_document(active_path, &doc);
+
+        // [DCR] 2. Динамическое резервирование VRAM на целевом шарде
+        let dst_shard_path = if is_sim { project_dir.join(to).join("shard.toml") } else { project_dir.join(&dept_name).join(to).join("shard.toml") };
+        if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
+            let capacity_add = proj_w * proj_h * 2;
+            let current = dst_doc.get("settings").and_then(|s| s.get("ghost_capacity")).and_then(|v| v.as_integer()).unwrap_or(0);
+            if let Some(settings) = dst_doc.get_mut("settings").and_then(|s| s.as_table_mut()) {
+                settings.insert("ghost_capacity", value(current + capacity_add));
+            }
+            let _ = save_document(&dst_shard_path, &dst_doc);
+            info!("✅ [DCR] Reserved {} ghost_capacity for {}", capacity_add, to);
+        }
     }
 
     if let Some(session_mut) = graph.sessions.get_mut(active_path) {

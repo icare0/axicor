@@ -112,7 +112,42 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         }
     } else {
         if let Ok(mut doc) = load_document(active_path) {
-            if remove_connection_record(&mut doc, from, to, from_port) { let _ = save_document(active_path, &doc); }
+            // [DCR] 1. Извлекаем габариты удаляемой связи
+            let mut proj_w: i64 = 0;
+            let mut proj_h: i64 = 0;
+            if let Some(arr) = doc.get("connection").and_then(|i| i.as_array_of_tables()) {
+                for table in arr.iter() {
+                    let f = table.get("from").and_then(|v| v.as_str()).unwrap_or("");
+                    let t = table.get("to").and_then(|v| v.as_str()).unwrap_or("");
+                    let m = table.get("output_matrix").and_then(|v| v.as_str()).unwrap_or("");
+                    if f == from && t == to && m == from_port {
+                        proj_w = table.get("width").and_then(|v| v.as_integer()).unwrap_or(32);
+                        proj_h = table.get("height").and_then(|v| v.as_integer()).unwrap_or(32);
+                        break;
+                    }
+                }
+            }
+
+            // 2. Физическое удаление
+            if remove_connection_record(&mut doc, from, to, from_port) { 
+                let _ = save_document(active_path, &doc); 
+                
+                // [DCR] 3. Освобождение VRAM на целевом шарде
+                if proj_w > 0 && proj_h > 0 {
+                    let dst_shard_path = if is_sim { project_dir.join(to).join("shard.toml") } else { project_dir.join(&dept_name).join(to).join("shard.toml") };
+                    if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
+                        let capacity_sub = proj_w * proj_h * 2;
+                        let current = dst_doc.get("settings").and_then(|s| s.get("ghost_capacity")).and_then(|v| v.as_integer()).unwrap_or(0);
+                        let new_cap = (current - capacity_sub).max(0);
+                        if let Some(settings) = dst_doc.get_mut("settings").and_then(|s| s.as_table_mut()) {
+                            // Обязательный каст через toml_edit::value
+                            settings.insert("ghost_capacity", toml_edit::value(new_cap));
+                        }
+                        let _ = save_document(&dst_shard_path, &dst_doc);
+                        info!("✅ [DCR] Freed ghost_capacity for {}. New capacity: {}", to, new_cap);
+                    }
+                }
+            }
         }
     }
 }

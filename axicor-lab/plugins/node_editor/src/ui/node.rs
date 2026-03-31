@@ -152,11 +152,12 @@ fn draw_node(
                 .text_color(Color32::WHITE)
                 .horizontal_align(egui::Align::Center));
 
-            edit.request_focus();
-
+            // [DOD FIX] Каноничный Egui-паттерн. 
+            // TextEdit сам поглощает Enter/Esc и отдает lost_focus().
             if edit.lost_focus() {
-                // [DOD FIX] Подтверждение строго по Enter. Клик мимо = отмена.
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    state.renaming_zone = None;
+                } else {
                     let new_name = state.rename_buffer.clone();
                     if !new_name.is_empty() && new_name != zone {
                         send_mutation(TopologyMutation::Rename(crate::domain::RenameTarget::Shard {
@@ -165,8 +166,10 @@ fn draw_node(
                             id: node_id.clone(),
                         }, None));
                     }
+                    state.renaming_zone = None;
                 }
-                state.renaming_zone = None;
+            } else if !edit.has_focus() {
+                edit.request_focus();
             }
         });
     } else {
@@ -287,17 +290,20 @@ fn draw_input_pins(
                 state.rename_buffer.retain(|c| !c.is_whitespace());
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL));
-                edit.request_focus();
-
+                
+                // [DOD FIX] Каноничный паттерн фокуса
                 if edit.lost_focus() {
-                    // [DOD FIX] Подтверждение только по Enter. Клик мимо = отмена.
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        state.renaming_port = None;
+                    } else {
                         let new_name = state.rename_buffer.clone();
                         if !new_name.is_empty() && new_name != *port {
                             send_mutation(TopologyMutation::Rename(crate::domain::RenameTarget::IoPin { zone: zone.to_string(), is_input: true, old_name: port.clone(), new_name }, None));
                         }
+                        state.renaming_port = None;
                     }
-                    state.renaming_port = None;
+                } else if !edit.has_focus() {
+                    edit.request_focus();
                 }
             });
         } else {
@@ -365,17 +371,20 @@ fn draw_output_pins(
                 state.rename_buffer.retain(|c| !c.is_whitespace());
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL).horizontal_align(egui::Align::RIGHT));
-                edit.request_focus();
-
+                
+                // [DOD FIX] Каноничный паттерн фокуса
                 if edit.lost_focus() {
-                    // [DOD FIX] Подтверждение только по Enter. Клик мимо = отмена.
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        state.renaming_port = None;
+                    } else {
                         let new_name = state.rename_buffer.clone();
                         if !new_name.is_empty() && new_name != *port {
                             send_mutation(TopologyMutation::Rename(crate::domain::RenameTarget::IoPin { zone: zone.to_string(), is_input: false, old_name: port.clone(), new_name }, None));
                         }
+                        state.renaming_port = None;
                     }
-                    state.renaming_port = None;
+                } else if !edit.has_focus() {
+                    edit.request_focus();
                 }
             });
         } else {
