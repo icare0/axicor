@@ -25,17 +25,36 @@ pub fn wm_file_ops_context_menu_system(
     }
 }
 
-/// Загружает TOML документ с сохранением оригинального форматирования и комментариев
+pub fn resolve_sandbox_path(cold_path: &Path) -> std::path::PathBuf {
+    let mut components = cold_path.components();
+    let mut base = std::path::PathBuf::new();
+    // Структура пути всегда: Genesis-Models / {ModelName} / ...
+    if let Some(c1) = components.next() { base.push(c1); }
+    if let Some(c2) = components.next() { base.push(c2); }
+
+    let rel_path = cold_path.strip_prefix(&base).unwrap_or(cold_path);
+    base.join(".Sandbox").join(".tmp.autosave").join(rel_path)
+}
+
+/// Загружает TOML документ с сохранением оригинального форматирования.
+/// [Sandbox] Сначала ищет в песочнице, при отсутствии фолбэк на чистовик.
 pub fn load_document(path: &Path) -> Result<DocumentMut, String> {
-    let content = std::fs::read_to_string(path)
+    let sandbox_path = resolve_sandbox_path(path);
+    let target_path = if sandbox_path.exists() { &sandbox_path } else { path };
+
+    let content = std::fs::read_to_string(target_path)
         .map_err(|e| format!("FS Error: {}", e))?;
     content.parse::<DocumentMut>()
         .map_err(|e| format!("Parse Error: {}", e))
 }
 
-/// Сохраняет мутированный TOML документ обратно на диск
+/// Сохраняет мутированный TOML документ строго в песочницу.
 pub fn save_document(path: &Path, doc: &DocumentMut) -> Result<(), String> {
-    std::fs::write(path, doc.to_string())
+    let sandbox_path = resolve_sandbox_path(path);
+    if let Some(parent) = sandbox_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&sandbox_path, doc.to_string())
         .map_err(|e| format!("FS Error: {}", e))
 }
 

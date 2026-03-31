@@ -4,12 +4,14 @@ pub mod node;
 pub mod breadcrumb;
 pub mod connections;
 pub mod modals;
+pub mod panels;
 
 use bevy_egui::egui::{self, Rect};
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation};
 use self::breadcrumb::draw_breadcrumbs;
 use self::connections::draw_all_connections;
 use self::node::{calc_all_layouts, draw_all_nodes};
+use self::panels::draw_shard_panels;
 
 pub fn render_editor_ui(
     ui: &mut egui::Ui,
@@ -55,9 +57,21 @@ pub fn render_editor_ui(
     let active_path = graph.active_path.clone();
     if let Some(path) = &active_path {
         if let Some(session) = graph.sessions.get_mut(path) {
-            let layouts = calc_all_layouts(session, state, &transform);
-            draw_all_connections(&painter, ui, session, &layouts, state, &mut send_mutation);
-            draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, target_window);
+            let shard_mode = if let crate::domain::EditorLevel::Zone(shard_name) = &state.level {
+                Some(shard_name.clone())
+            } else {
+                None
+            };
+
+            if let Some(shard_name) = shard_mode {
+                // На микро-уровне Шарда скрываем обычные ноды и показываем шторки CAD-инспектора
+                draw_shard_panels(ui.ctx(), window_rect, state, session, &shard_name);
+            } else {
+                // Стандартный рендер графа на макро-уровнях (Модель / Департамент)
+                let layouts = calc_all_layouts(session, state, &transform);
+                draw_all_connections(&painter, ui, session, &layouts, state, &mut send_mutation);
+                draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, target_window);
+            }
         }
     }
 

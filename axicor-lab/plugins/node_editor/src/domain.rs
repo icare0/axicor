@@ -20,6 +20,9 @@ pub struct NodeGraphUiState {
     pub renaming_port: Option<(String, bool, String)>, // (zone, is_input, old_port_name)
     pub rename_buffer: String,
     pub show_clear_modal: bool,
+    pub show_inputs_panel: bool,
+    pub show_outputs_panel: bool,
+    pub show_uv_panel: bool,
 }
 
 impl Default for NodeGraphUiState {
@@ -40,6 +43,9 @@ impl Default for NodeGraphUiState {
             renaming_port: None,
             rename_buffer: String::new(),
             show_clear_modal: false,
+            show_inputs_panel: false,
+            show_outputs_panel: false,
+            show_uv_panel: false,
         }
     }
 }

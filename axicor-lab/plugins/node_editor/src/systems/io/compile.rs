@@ -1,54 +1,75 @@
 use bevy::prelude::*;
 use std::fs;
+use std::path::Path;
 use crate::domain::{BrainTopologyGraph, CompileGraphEvent, NodeGraphUiState};
-use crate::systems::io::utils::flush_session_to_disk;
 
-/// Система компиляции проекта (Tmp -> Cold).
-/// Переносит изменения из временных файлов в основные конфиги и сбрасывает dirty-флаг.
 pub fn compile_project_system(
     mut events: EventReader<CompileGraphEvent>,
     mut graph: ResMut<BrainTopologyGraph>,
-    ui_state_query: Query<&NodeGraphUiState>,
+    _ui_state_query: Query<&NodeGraphUiState>,
 ) {
     for _ev in events.read() {
-        info!("[IO] Compiling changes (Tmp -> Cold) for all dirty sessions");
+        let Some(active_proj) = graph.active_project.clone() else { continue };
 
-        // Клонируем пути, чтобы избежать проблем с заимствованием при мутации сессий
-        let dirty_paths: Vec<_> = graph.sessions.iter()
-            .filter(|(_, s)| s.is_dirty)
-            .map(|(p, _)| p.clone())
-            .collect();
+        let base_dir = Path::new("Genesis-Models").join(&active_proj);
+        let sandbox_dir = base_dir.join(".Sandbox");
+        let autosave_dir = sandbox_dir.join(".tmp.autosave");
+        let last_backup_dir = sandbox_dir.join(".tmp.last_backup");
+        let old_backup_dir = sandbox_dir.join(".tmp.old_backup");
 
-        if dirty_paths.is_empty() {
-            info!("[IO] No dirty sessions found, nothing to compile.");
+        if !autosave_dir.exists() {
+            info!("✅ [Compile] Sandbox is empty. Nothing to commit.");
+            for (_, session) in graph.sessions.iter_mut() { session.is_dirty = false; }
             continue;
         }
 
-        for path in dirty_paths {
-            let Some(session) = graph.sessions.get(&path) else { continue };
-            let ui_state = ui_state_query.iter().next(); // Аналогично save, берем первый доступный
+        info!("⚙️ [Compile] Starting transactional commit for '{}'...", active_proj);
 
-            // 1. Фиксация в основной TOML (is_tmp = false)
-            if let Err(e) = flush_session_to_disk(&path, session, ui_state, false) {
-                error!("❌ [IO] Failed to compile session {:?}: {}", path, e);
-                continue;
-            }
+        // 3.0 Удаляем старый бэкап (если есть - удалится, если нет - игнор)
+        let _ = fs::remove_dir_all(&old_backup_dir);
 
-            // 2. Очистка временных файлов
-            let toml_fname = path.file_name().unwrap_or_default().to_string_lossy();
-            let parent_dir = path.parent().unwrap_or(std::path::Path::new("."));
-            let tmp_path = parent_dir.join(format!("{}.tmp.toml", toml_fname.replace(".toml", "")));
-            
-            if tmp_path.exists() {
-                let _ = fs::remove_file(tmp_path);
-            }
+        // 3.1 Ротация прошлого бэкапа
+        if last_backup_dir.exists() {
+            let _ = fs::rename(&last_backup_dir, &old_backup_dir);
+        }
 
-            // 3. Сброс флага RAM-синхронизации
-            if let Some(mut_session) = graph.sessions.get_mut(&path) {
-                mut_session.is_dirty = false;
-            }
-            
-            info!("✅ [IO] Session {:?} compiled and synchronized.", path);
+        // 3.2-3.3 Копируем измененные файлы поверх оригиналов
+        if let Err(e) = copy_dir_recursive(&autosave_dir, &base_dir) {
+            error!("❌ [Compile] Failed to apply sandbox to pure files: {}", e);
+            continue;
+        }
+
+        // Переименование autosave в last_backup атомарно очищает песочницу
+        // Это эквивалентно перемещению всех tmp файлов в last_backup
+        if let Err(e) = fs::rename(&autosave_dir, &last_backup_dir) {
+            error!("❌ [Compile] Failed to rotate autosave to last_backup: {}", e);
+            continue;
+        }
+
+        // Сбрасываем флаги в RAM
+        for (_, session) in graph.sessions.iter_mut() {
+            session.is_dirty = false;
+        }
+
+        info!("✅ [Compile] Successfully committed changes to disk. Backups rotated.");
+    }
+}
+
+/// Рекурсивное копирование директории (Overlay Apply)
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        
+        if ft.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else {
+            fs::copy(&entry.path(), &dst_path)?;
         }
     }
+    Ok(())
 }
