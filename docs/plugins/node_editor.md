@@ -14,7 +14,7 @@
 Node Editor выступает приемником и генератором:
 * **Listens to LoadGraphEvent / OpenFileEvent**: Асинхронная подгрузка файлов графа в фоновом пуле (`AsyncComputeTaskPool`) с парсингом TOML.
 * **Listens to EntityDeletedEvent**: Вычищает открытые `ProjectSession` и сбрасывает фокус, если директория графа была физически удалена.
-* **Emits TopologyMutation**: Отправка намерений (AddZone, RemoveZone, RenameZone, AddConnection) в шину. Оркестраторы WM перехватывают их для изменения файлов на диске.
+* **Emits TopologyMutation**: Отправка намерений в шину. Мы перешли на строгую DTO-маршрутизацию. Используются только три глобальных интента: `Create(CreateTarget)`, `Delete(DeleteTarget)` и `Rename(RenameTarget)`. Оркестраторы WM перехватывают их для каскадного изменения файлов на диске.
 * **Emits OpenContextMenuEvent**: Делегирование отрисовки ПКМ-меню в унифицированную систему оконного менеджера.
 
 ## 3. Особенности Исполнения (Execution Paths)

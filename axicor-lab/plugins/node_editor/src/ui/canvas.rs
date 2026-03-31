@@ -41,9 +41,16 @@ pub fn handle_input(
 ) -> (CanvasTransform, egui::Response) {
     let response = ui.interact(rect, ui.id().with("canvas_bg"), egui::Sense::click_and_drag());
 
+    // [DOD FIX] На уровне Шарда (CAD-инспектор) блокируем перемещение холста.
+    if matches!(state.level, crate::domain::EditorLevel::Zone(_)) {
+        state.pan = Vec2::ZERO;
+        state.zoom = 1.0;
+        let transform = CanvasTransform { pan: state.pan, zoom: state.zoom, origin: rect.min };
+        return (transform, response);
+    }
+
     let is_pan = response.dragged_by(egui::PointerButton::Middle)
-        || (response.dragged_by(egui::PointerButton::Primary)
-            && ui.ctx().dragged_id().is_none());
+        || (response.dragged_by(egui::PointerButton::Primary) && ui.ctx().dragged_id().is_none());
 
     if is_pan { state.pan += response.drag_delta(); }
 
@@ -53,10 +60,7 @@ pub fn handle_input(
             let old_zoom = state.zoom;
             state.zoom = (state.zoom + scroll * ZOOM_SPEED).clamp(ZOOM_MIN, ZOOM_MAX);
             if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
-                // DOD FIX: Правильный Zoom-to-Cursor
-                // 1. Вычисляем локальную позицию под курсором ДО зума
                 let local = (mouse.to_vec2() - rect.min.to_vec2() - state.pan) / old_zoom;
-                // 2. Сдвигаем камеру так, чтобы эта же локальная позиция осталась под курсором ПОСЛЕ зума
                 state.pan = mouse.to_vec2() - rect.min.to_vec2() - local * state.zoom;
             }
         }

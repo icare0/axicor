@@ -19,12 +19,12 @@ pub fn save_project_system(
         // Для простоты берем первый доступный.
         let ui_state = ui_state_query.iter().next();
 
-        info!("[IO] Saving hot state (RAM -> Tmp) for {:?}", active_path);
-        
+        info!("[IO] Saving visual layout for {:?}", active_path);
+
         if let Err(e) = flush_session_to_disk(active_path, session, ui_state, true) {
-            error!("❌ [IO] Failed to save hot state: {}", e);
+            error!("❌ [IO] Failed to save layout: {}", e);
         } else {
-            info!("✅ [IO] Hot state saved to .tmp.toml and .layout.tmp.toml");
+            info!("✅ [IO] Visual layout saved to .layout.tmp.toml");
         }
     }
 }
