@@ -112,7 +112,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
     let mut layout_cache = HashMap::new();
     let mut father_id = String::new();
 
-    if let Ok(content) = std::fs::read_to_string(&path) {
+    if let Ok(content) = layout_api::overlay_read_to_string(&path) {
         if let Ok(toml) = content.parse::<toml_edit::DocumentMut>() {
              // Парсинг модели
              if let Some(id_table) = toml.get("model_id_v1") {
@@ -154,9 +154,9 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
                 }
              }
 
-             // Пытаемся загрузить лэйаут
-             let layout_path = path.parent().unwrap().join(format!(".{}.layout.tmp.toml", path.file_name().unwrap().to_string_lossy()));
-             if let Ok(l_content) = std::fs::read_to_string(layout_path) {
+             // Пытаемся загрузить лэйаут (через Overlay FS)
+             let layout_path = path.parent().unwrap().join(format!("{}.layout.toml", path.file_name().unwrap().to_string_lossy().replace(".toml", "")));
+             if let Ok(l_content) = layout_api::overlay_read_to_string(&layout_path) {
                 if let Ok(l_toml) = l_content.parse::<toml_edit::DocumentMut>() {
                     if let Some(nodes) = l_toml.get("nodes").and_then(|v| v.as_table()) {
                         for (id, val) in nodes.iter() {
@@ -171,7 +171,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
     }
 
     LoadedGraph {
-        project_name: path.parent().and_then(|p| p.file_name()).map_or("Unknown".to_string(), |n| n.to_string_lossy().into_owned()),
+        project_name: path.components().nth(1).map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_else(|| "Unknown".to_string()),
         file_path: path,
         father_id,
         zones,

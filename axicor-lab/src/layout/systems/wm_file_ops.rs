@@ -25,24 +25,10 @@ pub fn wm_file_ops_context_menu_system(
     }
 }
 
-pub fn resolve_sandbox_path(cold_path: &Path) -> std::path::PathBuf {
-    let mut components = cold_path.components();
-    let mut base = std::path::PathBuf::new();
-    // Структура пути всегда: Genesis-Models / {ModelName} / ...
-    if let Some(c1) = components.next() { base.push(c1); }
-    if let Some(c2) = components.next() { base.push(c2); }
-
-    let rel_path = cold_path.strip_prefix(&base).unwrap_or(cold_path);
-    base.join(".Sandbox").join(".tmp.autosave").join(rel_path)
-}
-
 /// Загружает TOML документ с сохранением оригинального форматирования.
-/// [Sandbox] Сначала ищет в песочнице, при отсутствии фолбэк на чистовик.
+/// [Sandbox] Использует Overlay FS из layout_api.
 pub fn load_document(path: &Path) -> Result<DocumentMut, String> {
-    let sandbox_path = resolve_sandbox_path(path);
-    let target_path = if sandbox_path.exists() { &sandbox_path } else { path };
-
-    let content = std::fs::read_to_string(target_path)
+    let content = layout_api::overlay_read_to_string(path)
         .map_err(|e| format!("FS Error: {}", e))?;
     content.parse::<DocumentMut>()
         .map_err(|e| format!("Parse Error: {}", e))
@@ -50,7 +36,7 @@ pub fn load_document(path: &Path) -> Result<DocumentMut, String> {
 
 /// Сохраняет мутированный TOML документ строго в песочницу.
 pub fn save_document(path: &Path, doc: &DocumentMut) -> Result<(), String> {
-    let sandbox_path = resolve_sandbox_path(path);
+    let sandbox_path = layout_api::resolve_sandbox_path(path);
     if let Some(parent) = sandbox_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -103,6 +89,15 @@ pub fn add_io_record(doc: &mut DocumentMut, section: &str, name: &str, io_id: &s
     table.insert("name", value(name));
     table.insert("width", value(width as i64));
     table.insert("height", value(height as i64));
+
+    // [DOD FIX] Автоматически добавляем обязательные биологические параметры для Genesis Baker
+    if section == "input" {
+        table.insert("entry_z", value("top"));
+        table.insert("target_type", value("All"));
+        table.insert("growth_steps", value(1000i64));
+    } else if section == "output" {
+        table.insert("target_type", value("All"));
+    }
 
     if !doc.contains_key(section) {
         doc.insert(section, Item::ArrayOfTables(ArrayOfTables::new()));

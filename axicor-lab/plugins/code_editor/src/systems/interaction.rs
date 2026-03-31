@@ -9,7 +9,7 @@ pub fn handle_open_file_system(
     for ev in events.read() {
         // Загружаем файл в первый найденный редактор кода
         if let Some(mut state) = editors.iter_mut().next() {
-            if let Ok(content) = std::fs::read_to_string(&ev.path) {
+            if let Ok(content) = layout_api::overlay_read_to_string(&ev.path) {
                 state.current_file = Some(ev.path.clone());
                 state.content = content;
             }

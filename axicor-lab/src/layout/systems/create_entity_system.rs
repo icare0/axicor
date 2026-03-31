@@ -60,7 +60,7 @@ fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2
     if save_document(active_path, &doc).is_err() { return; }
 
     let brain_path = project_dir.join(format!("{}.toml", name));
-    let sandbox_brain_path = crate::layout::systems::wm_file_ops::resolve_sandbox_path(&brain_path);
+    let sandbox_brain_path = layout_api::resolve_sandbox_path(&brain_path);
     if let Some(p) = sandbox_brain_path.parent() { let _ = fs::create_dir_all(p); }
     
     let brain_toml = format!("[depart_id_v1]\nid = \"{}\"\n\n[simulation]\nconfig = \"simulation.toml\"\n", structured_dept_id);
@@ -109,7 +109,7 @@ fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gra
     if save_document(active_path, &doc).is_err() { return; }
 
     let shard_dir = project_dir.join(&dept_name).join(name);
-    let sandbox_shard_dir = crate::layout::systems::wm_file_ops::resolve_sandbox_path(&shard_dir);
+    let sandbox_shard_dir = layout_api::resolve_sandbox_path(&shard_dir);
     let _ = fs::create_dir_all(&sandbox_shard_dir);
     
     let _ = fs::write(sandbox_shard_dir.join("anatomy.toml"), "[[layer]]\nname = \"Main\"\nheight_pct = 1.0\ndensity = 0.1\ncomposition = {}\n");

@@ -62,7 +62,7 @@ fn handle_dnd_drop(ui: &mut egui::Ui, rect: egui::Rect, state: &mut CodeEditorSt
 
     if !ui.input(|i| i.pointer.any_released()) { return; }
 
-    match std::fs::read_to_string(&path) {
+    match layout_api::overlay_read_to_string(&path) {
         Ok(content) => { state.content = content; }
         Err(e) => { error!("[CodeEditor] Failed to read dropped file: {}", e); return; }
     }
@@ -99,12 +99,16 @@ fn save_and_notify(
 ) {
     let Some(path) = &state.current_file else { return };
 
-    if let Err(e) = std::fs::write(path, &state.content) {
+    // [DOD FIX] Защита чистых данных: пишем строго в Sandbox
+    let sandbox_path = layout_api::resolve_sandbox_path(path);
+    if let Some(p) = sandbox_path.parent() { let _ = std::fs::create_dir_all(p); }
+
+    if let Err(e) = std::fs::write(&sandbox_path, &state.content) {
         error!("[CodeEditor] Save failed: {}", e);
         return;
     }
 
-    info!("[CodeEditor] Saved: {:?}", path);
+    info!("[CodeEditor] Saved to Sandbox: {:?}", sandbox_path);
 
     // Извлекаем имя проекта: ожидаем Genesis-Models/<project>/<file>
     let project_name = path.components().nth(1)

@@ -226,3 +226,22 @@ pub fn domain_title(base: &str) -> &'static str {
         _               => "Plugin",
     }
 }
+
+pub fn resolve_sandbox_path(cold_path: &std::path::Path) -> std::path::PathBuf {
+    let mut components = cold_path.components();
+    let mut base = std::path::PathBuf::new();
+    if let Some(c1) = components.next() { base.push(c1.as_os_str()); }
+    if let Some(c2) = components.next() { base.push(c2.as_os_str()); }
+
+    let rel_path = cold_path.strip_prefix(&base).unwrap_or(cold_path);
+    base.join(".Sandbox").join(".tmp.autosave").join(rel_path)
+}
+
+pub fn overlay_read_to_string(cold_path: &std::path::Path) -> Result<String, std::io::Error> {
+    let sandbox_path = resolve_sandbox_path(cold_path);
+    if sandbox_path.exists() {
+        std::fs::read_to_string(sandbox_path)
+    } else {
+        std::fs::read_to_string(cold_path)
+    }
+}

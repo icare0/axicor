@@ -57,6 +57,7 @@ CodeReview/
 tests/tmp/
 SUMARIZER/
 PERSONAL/
+.Sandbox/
 raw_data/
 _agents/
 .agents/

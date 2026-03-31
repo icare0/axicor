@@ -13,10 +13,11 @@ pub fn flush_session_to_disk(
     let parent_dir = base_path.parent().unwrap_or(Path::new("."));
 
     if let Some(state) = ui_state {
+        let cold_layout_path = parent_dir.join(format!("{}.layout.toml", toml_fname.replace(".toml", "")));
         // В плагине мы не можем достучаться до crate::layout (это приватный модуль axicor-lab).
-        // Поэтому для сохранения Layout-файлов мы просто используем старый путь .tmp, 
-        // так как они и так являются временными метаданными редактора.
-        let layout_path = parent_dir.join(format!(".{}.layout.tmp.toml", toml_fname.replace(".toml", "")));
+        // Поэтому для сохранения Layout-файлов мы теперь используем официальный резолвер из API.
+        let layout_path = layout_api::resolve_sandbox_path(&cold_layout_path);
+        if let Some(p) = layout_path.parent() { let _ = std::fs::create_dir_all(p); }
         
         let mut layout_toml = String::from("[nodes]\n");
         let mut has_layout = false;
@@ -37,10 +38,8 @@ pub fn flush_session_to_disk(
     Ok(())
 }
 
-use genesis_core::config::io::IoConfig;
-
-/// Синхронизирует RAM-кэш портов (пинов) с реальными файлами io.toml на диске при загрузке графа.
-/// Гарантирует актуальность пинов Node Editor после холодного старта.
+/// Синхронизирует RAM-кэш портов (пинов) с файлами io.toml.
+/// [DOD FIX] Использует абстрактный парсинг поверх Overlay FS, игнорируя строгие схемы бекенда.
 pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::ProjectSession) {
     let project_dir = base_path.parent().unwrap_or(Path::new("."));
     let path_str = base_path.to_string_lossy();
@@ -54,11 +53,34 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
             project_dir.join(&dept_name).join(zone_name).join("io.toml")
         };
 
-        if let Ok(io_config) = IoConfig::load(&io_path) {
-            let inputs: Vec<String> = io_config.inputs.into_iter().map(|i| i.name).collect();
-            let outputs: Vec<String> = io_config.outputs.into_iter().map(|o| o.name).collect();
-            session.node_inputs.insert(zone_name.clone(), inputs);
-            session.node_outputs.insert(zone_name.clone(), outputs);
+        if let Ok(content) = layout_api::overlay_read_to_string(&io_path) {
+            if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
+                let mut inputs = Vec::new();
+                let mut outputs = Vec::new();
+
+                if let Some(arr) = doc.get("input").and_then(|i| i.as_array_of_tables()) {
+                    for t in arr.iter() {
+                        if let Some(name) = t.get("name").and_then(|v| v.as_str()) {
+                            inputs.push(name.to_string());
+                        }
+                    }
+                }
+
+                if let Some(arr) = doc.get("output").and_then(|i| i.as_array_of_tables()) {
+                    for t in arr.iter() {
+                        if let Some(name) = t.get("name").and_then(|v| v.as_str()) {
+                            outputs.push(name.to_string());
+                        }
+                    }
+                }
+
+                if !inputs.is_empty() {
+                    session.node_inputs.insert(zone_name.clone(), inputs);
+                }
+                if !outputs.is_empty() {
+                    session.node_outputs.insert(zone_name.clone(), outputs);
+                }
+            }
         }
     }
 }
