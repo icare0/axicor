@@ -109,6 +109,30 @@ pub fn handle_node_editor_menu_triggers_system(
                     info!("Node Editor: Intent '{}' -> Spawned {} at {:?}", action_type, name, spawn_pos);
                 }
             }
+        } else if ev.action_id.starts_with("node_editor.connect_matrix|") {
+            let parts: Vec<&str> = ev.action_id.split('|').collect();
+            // Format: node_editor.connect_matrix | src_zone | src_port | target_zone | target_port | voxel_z
+            if parts.len() == 6 {
+                let from = parts[1].to_string();
+                let from_port = parts[2].to_string();
+                let to = parts[3].to_string();
+                let to_port = parts[4].to_string();
+                let voxel_z = parts[5].parse::<u32>().ok();
+
+                topo_events.send(crate::domain::TopologyMutation::Create(
+                    crate::domain::CreateTarget::Connection {
+                        from: from.clone(),
+                        from_port: from_port.clone(),
+                        to: to.clone(),
+                        to_port: to_port.clone(),
+                        voxel_z,
+                    },
+                    None,
+                ));
+                
+                info!("Node Editor: DND matrix connected: {}.{} -> {}.{} (Z-Voxel: {:?})", from, from_port, to, to_port, voxel_z);
+                // В будущем здесь будет вызов мутатора AST для io.toml
+            }
         } else if ev.action_id == "node_editor.clear_graph" {
             // Используем state, который уже был безопасно захвачен в начале цикла
             state.show_clear_modal = true;

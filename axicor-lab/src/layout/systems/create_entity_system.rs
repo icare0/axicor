@@ -29,8 +29,43 @@ pub fn create_entity_system(
                 }
                 CreateTarget::EnvRx { name, pos } => create_env_rx(target_path, name, pos, &mut graph, &mut ui_states),
                 CreateTarget::EnvTx { name, pos } => create_env_tx(target_path, name, pos, &mut graph, &mut ui_states),
-                CreateTarget::Connection { from, from_port, to, to_port } => create_connection(target_path, from, from_port, to, to_port, &mut graph),
-                CreateTarget::IoMatrix { zone, is_input, name } => create_io_matrix(target_path, zone, *is_input, name, &mut graph),
+                CreateTarget::Connection { from, from_port, to, to_port, voxel_z } => create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph),
+                CreateTarget::Layer { zone, name, height_pct } => create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph),
+                CreateTarget::IoPin { zone, is_input, name } => {
+                    let path_str = target_path.to_string_lossy();
+                    let is_sim = path_str.contains("simulation.toml");
+                    let dept_name = target_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+                    let project_dir = target_path.parent().unwrap_or(Path::new("."));
+
+                    let section = if *is_input { "input" } else { "output" };
+                    let io_path = if is_sim {
+                        project_dir.join(zone).join("io.toml")
+                    } else {
+                        project_dir.join(&dept_name).join(zone).join("io.toml")
+                    };
+
+                    let mut doc = match crate::layout::systems::wm_file_ops::load_document(&io_path) {
+                        Ok(d) => d,
+                        Err(_) => toml_edit::DocumentMut::new()
+                    };
+
+                    let io_id = format!("{}-{}", name, uuid::Uuid::new_v4().simple());
+                    crate::layout::systems::wm_file_ops::add_io_record(&mut doc, section, name, &io_id, zone, 32, 32, None);
+
+                    let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
+                    info!("✅ [IO] Created pin {} in {:?}", name, io_path);
+
+                    if let Some(session) = graph.sessions.get_mut(target_path) {
+                        if *is_input {
+                            let inputs = session.node_inputs.entry(zone.to_string()).or_default();
+                            if !inputs.contains(&name.to_string()) { inputs.push(name.to_string()); }
+                        } else {
+                            let outputs = session.node_outputs.entry(zone.to_string()).or_default();
+                            if !outputs.contains(&name.to_string()) { outputs.push(name.to_string()); }
+                        }
+                        session.is_dirty = true;
+                    }
+                }
             }
         }
     }
@@ -114,7 +149,11 @@ fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gra
     
     let _ = fs::write(sandbox_shard_dir.join("anatomy.toml"), "[[layer]]\nname = \"Main\"\nheight_pct = 1.0\ndensity = 0.1\ncomposition = {}\n");
     let _ = fs::write(sandbox_shard_dir.join("blueprints.toml"), "[[neuron_type]]\nname = \"Default\"\nthreshold = 20000\nrest_potential = 0\nleak_rate = 100\nhomeostasis_penalty = 1000\nhomeostasis_decay = 10\nrefractory_period = 10\nsynapse_refractory_period = 10\nsignal_propagation_length = 5\n");
-    let _ = fs::write(sandbox_shard_dir.join("io.toml"), format!("[shard_id_v1]\nid = \"{}-IO\"\n\n[[input]]\nname = \"in\"\nwidth = 32\nheight = 32\n\n[[output]]\nname = \"out\"\nwidth = 32\nheight = 32\n", structured_shard_id));
+    let io_toml = format!(
+        "[shard_id_v1]\nid = \"{}-IO\"\n\n[[input]]\nname = \"in\"\nzone = \"{}\"\ntarget_type = \"All\"\nwidth = 32\nheight = 32\nstride = 1\nentry_z = \"top\"\n\n[[output]]\nname = \"out\"\nzone = \"{}\"\ntarget_type = \"All\"\nwidth = 32\nheight = 32\nstride = 1\n",
+        structured_shard_id, name, name
+    );
+    let _ = std::fs::write(sandbox_shard_dir.join("io.toml"), io_toml);
 
     let shard_toml = format!(r#"model_id_v1 = {{ id = "{}" }}
 depart_id_v1 = {{ id = "{}" }}
@@ -169,7 +208,7 @@ fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gr
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &mut BrainTopologyGraph) {
+fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, voxel_z: Option<u32>, graph: &mut BrainTopologyGraph) {
     let is_from_rx;
     let is_to_tx;
     let from_id;
@@ -202,13 +241,13 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     if is_from_rx {
         let io_path = resolve_io_path(to);
         if let Ok(mut doc) = load_document(&io_path) {
-            add_io_record(&mut doc, "input", from_port, &io_id, 32, 32);
+            add_io_record(&mut doc, "input", from_port, &io_id, to, 32, 32, voxel_z);
             let _ = save_document(&io_path, &doc);
         }
     } else if is_to_tx {
         let io_path = resolve_io_path(from);
         if let Ok(mut doc) = load_document(&io_path) {
-            add_io_record(&mut doc, "output", from_port, &io_id, 32, 32);
+            add_io_record(&mut doc, "output", from_port, &io_id, from, 32, 32, None);
             let _ = save_document(&io_path, &doc);
         }
     } else {
@@ -238,6 +277,10 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         conn_table.insert("output_matrix", value(from_port));
         conn_table.insert("width", value(proj_w));
         conn_table.insert("height", value(proj_h));
+        
+        if let Some(z) = voxel_z {
+            conn_table.insert("entry_z", value(z as i64));
+        }
 
         if !doc.contains_key("connection") { doc.insert("connection", Item::ArrayOfTables(ArrayOfTables::new())); }
         if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) { arr.push(conn_table); }
@@ -256,7 +299,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         }
     }
 
-    if let Some(session_mut) = graph.sessions.get_mut(active_path) {
+        if let Some(session_mut) = graph.sessions.get_mut(active_path) {
         let connection = (from.to_string(), from_port.to_string(), to.to_string(), to_port.to_string());
         if !session_mut.connections.contains(&connection) {
             session_mut.connections.push(connection);
@@ -265,29 +308,36 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     }
 }
 
-fn create_io_matrix(active_path: &Path, zone: &str, is_input: bool, name: &str, graph: &mut BrainTopologyGraph) {
+fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: f32, graph: &mut BrainTopologyGraph) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
-    let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
+    let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
 
-    let io_path = if is_sim { project_dir.join(zone).join("io.toml") }
-    else { project_dir.join(&dept_name).join(zone).join("io.toml") };
+    let anatomy_path = if is_sim {
+        project_dir.join(zone).join("anatomy.toml")
+    } else {
+        project_dir.join(&dept_name).join(zone).join("anatomy.toml")
+    };
 
-    if let Ok(mut doc) = load_document(&io_path) {
-        let section = if is_input { "input" } else { "output" };
-        let io_id = format!("{}_{}", zone, name);
-        add_io_record(&mut doc, section, name, &io_id, 32, 32);
-        let _ = save_document(&io_path, &doc);
-    }
+    let mut doc = match crate::layout::systems::wm_file_ops::load_document(&anatomy_path) {
+        Ok(d) => d,
+        Err(_) => toml_edit::DocumentMut::new(),
+    };
+
+    crate::layout::systems::wm_file_ops::add_anatomy_layer_record(&mut doc, name, height_pct);
+    let _ = crate::layout::systems::wm_file_ops::save_document(&anatomy_path, &doc);
+    info!("✅ [Anatomy] Created layer {} in {:?}", name, anatomy_path);
 
     if let Some(session) = graph.sessions.get_mut(active_path) {
-        if is_input {
-            let inputs = session.node_inputs.entry(zone.to_string()).or_default();
-            if !inputs.contains(&name.to_string()) { inputs.push(name.to_string()); }
-        } else {
-            let outputs = session.node_outputs.entry(zone.to_string()).or_default();
-            if !outputs.contains(&name.to_string()) { outputs.push(name.to_string()); }
+        if let Some(anatomy) = session.shard_anatomies.get_mut(zone) {
+            for layer in anatomy.layers.iter_mut() {
+                layer.height_pct *= 1.0 - height_pct;
+            }
+            anatomy.layers.push(node_editor::domain::ShardLayer {
+                name: name.to_string(),
+                height_pct,
+            });
         }
         session.is_dirty = true;
     }

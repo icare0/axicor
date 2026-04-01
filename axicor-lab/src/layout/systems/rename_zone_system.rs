@@ -16,7 +16,32 @@ pub fn rename_zone_system(
 
             match target {
                 RenameTarget::Shard { old_name, new_name, id } => rename_shard(active_path, old_name, new_name, id),
-                RenameTarget::IoPin { zone, is_input, old_name, new_name } => rename_io_pin(active_path, zone, is_input, old_name, new_name),
+                RenameTarget::IoPin { zone, is_input, old_name, new_name } => {
+                    let path_str = active_path.to_string_lossy();
+                    let is_sim = path_str.contains("simulation.toml");
+                    let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+                    let project_dir = active_path.parent().unwrap_or(Path::new("."));
+
+                    let section = if *is_input { "input" } else { "output" };
+                    let io_path = if is_sim { project_dir.join(zone).join("io.toml") } else { project_dir.join(&dept_name).join(zone).join("io.toml") };
+
+                    if let Ok(mut doc) = load_document(&io_path) {
+                        let mut renamed = false;
+                        if let Some(arr) = doc.get_mut(section).and_then(|i| i.as_array_of_tables_mut()) {
+                            for table in arr.iter_mut() {
+                                if table.get("name").and_then(|v| v.as_str()) == Some(old_name.as_str()) {
+                                    table.insert("name", toml_edit::value(new_name.clone()));
+                                    renamed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if renamed {
+                            let _ = save_document(&io_path, &doc);
+                            info!("✅ [IO] Renamed pin {} -> {} in {:?}", old_name, new_name, io_path);
+                        }
+                    }
+                }
             }
         }
     }
@@ -49,38 +74,6 @@ fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
         if old_shard_dir.exists() && old_shard_dir.is_dir() {
             let _ = fs::rename(old_shard_dir, new_shard_dir);
             info!("✅ [Orchestrator] Shard directory renamed.");
-        }
-    }
-}
-
-fn rename_io_pin(active_path: &Path, zone: &str, is_input: &bool, old_name: &str, new_name: &str) {
-    let path_str = active_path.to_string_lossy();
-    let is_sim = path_str.contains("simulation.toml");
-    let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
-    let project_dir = active_path.parent().unwrap_or(Path::new("."));
-
-    let io_path = if is_sim {
-        project_dir.join(zone).join("io.toml")
-    } else {
-        project_dir.join(&dept_name).join(zone).join("io.toml")
-    };
-
-    if let Ok(mut doc) = load_document(&io_path) {
-        let section = if *is_input { "input" } else { "output" };
-        if let Some(arr) = doc.get_mut(section).and_then(|i| i.as_array_of_tables_mut()) {
-            for table in arr.iter_mut() {
-                if let Some(name_val) = table.get("name").and_then(|v| v.as_str()) {
-                    if name_val == old_name {
-                        table.insert("name", toml_edit::value(new_name));
-                        break;
-                    }
-                }
-            }
-        }
-        if let Err(e) = save_document(&io_path, &doc) {
-            error!("❌ [Orchestrator] Failed to rename IO pin in {:?}: {}", io_path, e);
-        } else {
-            info!("✅ [Orchestrator] Renamed IO pin {} -> {} in {:?}", old_name, new_name, io_path);
         }
     }
 }

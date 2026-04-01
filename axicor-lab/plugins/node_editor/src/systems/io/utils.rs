@@ -41,14 +41,18 @@ pub fn flush_session_to_disk(
 /// Синхронизирует RAM-кэш портов (пинов) с файлами io.toml.
 /// [DOD FIX] Использует абстрактный парсинг поверх Overlay FS, игнорируя строгие схемы бекенда.
 pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::ProjectSession) {
-    let project_dir = base_path.parent().unwrap_or(Path::new("."));
+    let project_dir = base_path.parent().unwrap_or(std::path::Path::new("."));
     let path_str = base_path.to_string_lossy();
-    let is_sim = path_str.contains("simulation.toml");
+    let is_sim = path_str.ends_with("simulation.toml");
+    let is_zone_level = path_str.ends_with("shard.toml") || path_str.ends_with("io.toml") || path_str.ends_with("blueprints.toml") || path_str.ends_with("anatomy.toml");
     let dept_name = base_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
 
     for zone_name in &session.zones {
         let io_path = if is_sim {
             project_dir.join(zone_name).join("io.toml")
+        } else if is_zone_level {
+            // [DOD FIX] На микро-уровне project_dir уже указывает на папку шарда
+            project_dir.join("io.toml")
         } else {
             project_dir.join(&dept_name).join(zone_name).join("io.toml")
         };
@@ -76,9 +80,14 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
 
                 if !inputs.is_empty() {
                     session.node_inputs.insert(zone_name.clone(), inputs);
+                } else {
+                    session.node_inputs.remove(zone_name);
                 }
+                
                 if !outputs.is_empty() {
                     session.node_outputs.insert(zone_name.clone(), outputs);
+                } else {
+                    session.node_outputs.remove(zone_name);
                 }
             }
         }

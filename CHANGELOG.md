@@ -8,6 +8,166 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1232.127] - 2026-03-31 06:48:57
+
+**Implement Sandbox Overlay FS and enforce DOD file protection across UI p**
+
+### Added
+- Implement resolve_sandbox_path() to map cold paths to .Sandbox/.tmp.autosave/
+- Implement overlay_read_to_string() that reads from Sandbox with fallback to cold path
+- Expose functions in layout-api/src/lib.rs for cross-plugin consumption
+- Replace std::fs::read_to_string with layout_api::overlay_read_to_string in code_editor interaction.rs and render.rs
+- Replace std::fs::read_to_string with layout_api::overlay_read_to_string in node_editor loader.rs
+- Update flush_session_to_disk in node_editor io/utils.rs to write layout files via resolve_sandbox_path
+- Modify sync_io_ports_from_disk to parse io.toml via overlay_read_to_string using toml_edit, removing dependency on IoConfig
+- Remove local resolve_sandbox_path from wm_file_ops.rs, delegate to layout_api::resolve_sandbox_path
+- Update load_document to use layout_api::overlay_read_to_string
+- Update save_document to resolve path via layout_api::resolve_sandbox_path
+- Extend add_io_record with mandatory biological parameters for Genesis Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
+- In code_editor render.rs save_and_notify, write strictly to Sandbox path via resolve_sandbox_path, create parent directories
+- In create_entity_system.rs, use layout_api::resolve_sandbox_path for brain and shard directories
+- Update project name extraction in loader.rs to use path components for consistency
+
+## [0.1228.127] - 2026-03-31 05:56:46
+
+**Implement transactional sandbox commit and UI panel toggles**
+
+### Added
+- Replace per-session TOML flushing with transactional directory overlay from .Sandbox/.tmp.autosave
+- Implement copy_dir_recursive for applying sandbox changes to pure Genesis-Models files
+- Add backup rotation: rename .tmp.last_backup to .tmp.old_backup, then autosave to last_backup
+- Reset session dirty flags only after successful atomic rename of autosave directory
+- Extend NodeGraphUiState with show_inputs_panel, show_outputs_panel, and show_uv_panel booleans
+- Block canvas pan/zoom at Zone editor level by resetting pan to Vec2::ZERO and zoom to 1.0
+- Add new ui/panels.rs module for panel rendering logic
+- Simplify flush_session_to_disk to only save visual layout to .layout.tmp.toml files
+- Remove TOML AST editing functions update_simulation_toml and update_department_toml
+- Update save system log messages to reflect layout-only saving
+- Remove unused imports and simplify utils.rs, delegating TOML mutations to DOD window manager routers
+- Adjust path generation for layout files to replace .toml extension in temporary filenames
+- Update delete_entity_system and wm_file_ops with minor logic adjustments
+
+## [0.1216.127] - 2026-03-31 05:05:11
+
+**ref**
+
+## [0.1215.127] - 2026-03-31 03:03:36
+
+**Implement canonical Egui focus patterns and dynamic VRAM reservation for**
+
+### Added
+- Implement canonical Egui focus pattern for zone renaming in node.rs, using lost_focus() and conditional request_focus()
+- Implement canonical Egui focus pattern for input and output port renaming, with explicit Escape key handling
+- Replace Enter-only confirmation with lost_focus() logic, allowing confirmation via click-away and cancellation via Escape
+- Extract actual matrix dimensions (width, height) from source IO file during connection creation in create_entity_system.rs
+- Dynamically reserve ghost_capacity on target shard based on projected matrix size (width * height * 2)
+- Extract matrix dimensions during connection deletion in delete_entity_system.rs and free corresponding ghost_capacity
+- Update shard.toml settings with new ghost_capacity value using toml_edit::value
+- Update node_editor.md to reflect strict DTO routing using only Create, Delete, and Rename intents
+- Add DOD UI patterns section to 08_ide.md detailing String DTO routing and Focus Trap Prevention for inline editing
+- Add EnvRX/EnvTX visual and hardware asymmetry rules to 08_io_matrix.md
+- Update plugin_structure.md with Monolithic CRUD Operation Routing (DTO-Routers) principle
+
+## [0.1207.127] - 2026-03-31 01:16:12
+
+**[Architecture] Consolidate topology mutations into unified CreateTarget **
+
+### Added
+- Replace separate AddZone, AddEnvRx, AddEnvTx, AddConnection, AddIoMutation variants with Create(CreateTarget) in TopologyMutation enum
+- Add CreateTarget enum with Zone, EnvRx, EnvTx, Connection, IoMatrix variants in domain.rs
+- Update all mutation senders in interaction.rs, ui/mod.rs, and ui/node.rs to use Create(CreateTarget, None)
+- Delete create_connection_system.rs, create_department_system.rs, create_env_rx_system.rs, create_env_tx_system.rs, create_io_matrix_system.rs, and create_shard_system.rs
+- Update plugin.rs to replace individual creation systems with create_entity_system
+- Remove RAM mutation logic from apply_topology_mutations_system for Create events, deferring to create_entity_system for Lineage ID generation
+- Update handle_node_editor_menu_triggers_system to dispatch Create(CreateTarget::EnvRx/EnvTx/Zone, None) events
+- Modify render_editor_ui to send Create(CreateTarget::Zone, None) and Create(CreateTarget::Connection, None) for node spawning and auto-wiring
+- Adjust draw_input_pins and draw_output_pins to send Create(CreateTarget::Connection, None) and Create(CreateTarget::IoMatrix, None) for pin interactions
+
+## [0.1204.127] - 2026-03-31 00:41:34
+
+**[Node Editor] Unify mutation events and extend I/O port management**
+
+### Added
+- Add renaming_port field to NodeGraphUiState for tracking port rename operations
+- Introduce RenameTarget and DeleteTarget enums to unify TopologyMutation variants
+- Replace RemoveZone, RenameZone, RemoveConnection with Delete and Rename events
+- Extend handle_node_editor_menu_triggers_system to support start_rename_port and delete_port actions
+- Refactor apply_topology_mutations_system to handle DeleteTarget::IoPin and RenameTarget::IoPin
+- Update clear_graph_modal_system to use DeleteTarget::Zone
+- Refactor node.rs UI rendering to support port rename and delete context menus
+- Update connections.rs to handle port rename state and UI feedback
+- Improve node addition logic to distinguish between Zone, EnvRx, and EnvTx types
+- Delete delete_connection_system.rs, delete_department_system.rs, delete_shard_system.rs
+- Update layout plugin and mod.rs to reflect system removal
+- Refactor rename_zone_system.rs to use new RenameTarget enum structure
+
+## [0.1193.127] - 2026-03-30 22:55:04
+
+**[Architecture] Refactor Node Editor systems and domain model**
+
+### Added
+- Implement new domain structs ProjectSession and NodeSignal to replace monolithic BrainTopologyGraph
+- Add context menu events OpenContextMenuEvent and ContextMenuActionTriggeredEvent to layout-api
+- Introduce evict_deleted_files_system in code_editor to clear state when files are deleted
+- Replace sync_topology_graph_system and project_io_system with modular IO systems (save, compile, bake, layout)
+- Add mutation systems apply_topology_mutations_system and evict_deleted_entities_system
+- Remove deprecated UI modules breadcrumb.rs, toolbar.rs, and inspector.rs
+- Refactor ui/mod.rs, ui/node.rs, and ui/connections.rs to use new domain model
+- Add modal support with clear_graph_modal_system and new UI state fields renaming_zone, rename_buffer, show_clear_modal
+- Update project_explorer UI systems render/mod.rs and ui_components.rs for new interaction patterns
+- Add new config fields to brain.rs, instance.rs, io.rs, and manifest.rs
+- Update specs documents 02_configuration.md, 08_ide.md, and 09_baking_pipeline.md
+- Refactor genesis-baker main.rs to integrate new baking pipeline logic
+- Add toml_edit dependency to axicor-lab, node_editor, and project_explorer
+- Extend .gitignore with temporary layout and brain files (.layout.tmp.toml, .brain.tmp.toml, .simulation.tmp.toml)
+- Add layout-api module and plugin systems to axicor-lab layout module
+
+## [0.1177.127] - 2026-03-28 23:06:30
+
+**Implement node editor project I/O, graph loading, and UI inspector**
+
+### Added
+- Implement project_io_system in systems/interaction.rs to handle SaveProjectEvent, CompileGraphEvent, and BakeProjectEvent
+- Add SaveProjectEvent for point saving of current graph level to brain.toml
+- Add CompileGraphEvent for full compilation of all files including default configs and brain.toml updates
+- Execute genesis-baker via cargo run for BakeProjectEvent in separate thread
+- Track dirty state with is_dirty flag in BrainTopologyGraph struct
+- Add new loader.rs with LoadGraphTask component and LoadedGraph struct
+- Implement spawn_load_task_system to spawn async tasks for loading graphs from disk
+- Implement apply_loaded_graph_system to apply loaded graph data to BrainTopologyGraph resource
+- Add load_graph_from_disk function with dynamic level detection (EditorLevel::Model, EditorLevel::Department)
+- Parse brain.toml, simulation.toml, and .axic files to extract zones, connections, node_inputs, and node_outputs
+- Add selected_node field to NodeGraphUiState struct for tracking node selection
+- Implement inspector.rs with node_inspector_ui function for property editing
+- Add UI components for displaying and editing node properties in inspector panel
+- Update ui/mod.rs to integrate inspector panel into node editor interface
+- Extend node.rs with enhanced node rendering and interaction handling
+- Add CompileGraphEvent to domain.rs and register in lib.rs plugin
+- Replace HashMap with std::collections::HashMap in BrainTopologyGraph struct
+- Reorganize render.rs system to remove redundant code
+- Update systems/mod.rs to include loader systems
+- Modify breadcrumb.rs to reflect level changesImplement node editor project I/O, graph loading, and UI inspector
+- Implement project_io_system in systems/interaction.rs to handle SaveProjectEvent, CompileGraphEvent, and BakeProjectEvent
+- Add SaveProjectEvent for point saving of current graph level to brain.toml
+- Add CompileGraphEvent for full compilation of all files including default configs and brain.toml updates
+- Execute genesis-baker via cargo run for BakeProjectEvent in separate thread
+- Track dirty state with is_dirty flag in BrainTopologyGraph struct
+- Add new loader.rs with LoadGraphTask component and LoadedGraph struct
+- Implement spawn_load_task_system to spawn async tasks for loading graphs from disk
+- Implement apply_loaded_graph_system to apply loaded graph data to BrainTopologyGraph resource
+- Add load_graph_from_disk function with dynamic level detection (EditorLevel::Model, EditorLevel::Department)
+- Parse brain.toml, simulation.toml, and .axic files to extract zones, connections, node_inputs, and node_outputs
+- Add selected_node field to NodeGraphUiState struct for tracking node selection
+- Implement inspector.rs with node_inspector_ui function for property editing
+- Add UI components for displaying and editing node properties in inspector panel
+- Update ui/mod.rs to integrate inspector panel into node editor interface
+- Extend node.rs with enhanced node rendering and interaction handling
+- Add CompileGraphEvent to domain.rs and register in lib.rs plugin
+- Replace HashMap with std::collections::HashMap in BrainTopologyGraph struct
+- Reorganize render.rs system to remove redundant code
+- Update systems/mod.rs to include loader systems
+- Modify breadcrumb.rs to reflect level changes
+
 ## [0.1143.127] - 2026-03-28 21:23:20
 
 **[Architecture]**

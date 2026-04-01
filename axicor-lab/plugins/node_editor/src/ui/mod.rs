@@ -25,6 +25,7 @@ pub fn render_editor_ui(
     mut send_open: impl FnMut(std::path::PathBuf),
     mut send_context_menu: impl FnMut(layout_api::OpenContextMenuEvent),
     target_window: bevy::prelude::Entity,
+    rtt_texture_id: Option<bevy_egui::egui::TextureId>,
 ) {
     // [DOD FIX] Используем унифицированный хедер для отрисовки фона и получения зон
     let (content_rect, _) = layout_api::draw_unified_header(ui, window_rect, "");
@@ -65,7 +66,7 @@ pub fn render_editor_ui(
 
             if let Some(shard_name) = shard_mode {
                 // На микро-уровне Шарда скрываем обычные ноды и показываем шторки CAD-инспектора
-                draw_shard_panels(ui.ctx(), window_rect, state, session, &shard_name);
+                draw_shard_panels(ui, window_rect, state, session, &shard_name, rtt_texture_id);
             } else {
                 // Стандартный рендер графа на макро-уровнях (Модель / Департамент)
                 let layouts = calc_all_layouts(session, state, &transform);
@@ -98,6 +99,7 @@ pub fn render_editor_ui(
                         from_port: src_port,
                         to: new_zone_name,
                         to_port: "in".to_string(),
+                        voxel_z: None,
                     }, None));
                 }
             }

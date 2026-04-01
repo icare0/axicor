@@ -49,6 +49,26 @@ pub fn apply_topology_mutations_system(
                         session.connections.retain(|(f, fp, t, tp)| !((f == zone && fp == name && !*is_input) || (t == zone && tp == name && *is_input)));
                         info!("[RAM Sync] Removed I/O Matrix '{}' from zone '{}'", name, zone);
                     }
+                    crate::domain::DeleteTarget::Layer { zone, name } => {
+                        if let Some(anatomy) = session.shard_anatomies.get_mut(zone) {
+                            let mut removed_pct = 0.0;
+                            let mut found = false;
+                            
+                            if let Some(pos) = anatomy.layers.iter().position(|l| &l.name == name) {
+                                removed_pct = anatomy.layers[pos].height_pct;
+                                anatomy.layers.remove(pos);
+                                found = true;
+                            }
+
+                            if found && removed_pct < 1.0 {
+                                let divisor = 1.0 - removed_pct;
+                                for layer in anatomy.layers.iter_mut() {
+                                    layer.height_pct /= divisor;
+                                }
+                            }
+                        }
+                        info!("[RAM Sync] Removed Layer '{}' from zone '{}'", name, zone);
+                    }
                 }
                 session.is_dirty = true;
             }

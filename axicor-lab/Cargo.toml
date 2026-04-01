@@ -19,3 +19,4 @@ ron = "0.8"
 serde = { workspace = true }
 toml = { workspace = true }
 toml_edit = "0.22"
+uuid = { version = "1.12", features = ["v4"] }

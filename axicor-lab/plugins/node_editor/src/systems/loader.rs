@@ -17,6 +17,8 @@ pub struct LoadedGraph {
     pub node_inputs:  HashMap<String, Vec<String>>,
     pub node_outputs: HashMap<String, Vec<String>>,
     pub layout_cache: HashMap<String, (f32, f32)>, 
+    pub shard_anatomies: HashMap<String, crate::domain::ShardAnatomy>,
+    pub voxel_size_um: f32,
     pub level:        EditorLevel, 
 }
 
@@ -88,6 +90,8 @@ pub fn apply_loaded_graph_system(
             session.node_inputs = result.node_inputs;
             session.node_outputs = result.node_outputs;
             session.layout_cache = result.layout_cache;
+            session.shard_anatomies = result.shard_anatomies;
+            session.voxel_size_um = result.voxel_size_um;
 
             // Синхронизируем I/O порты (пины) с реальными io.toml на диске (Cold Boot Fix)
             crate::systems::io::utils::sync_io_ports_from_disk(&result.file_path, session);
@@ -110,6 +114,8 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
     let mut node_inputs = HashMap::new();
     let mut node_outputs = HashMap::new();
     let mut layout_cache = HashMap::new();
+    let mut shard_anatomies = HashMap::new();
+    let mut voxel_size_um = 25.0; // Значение по умолчанию
     let mut father_id = String::new();
 
     if let Ok(content) = layout_api::overlay_read_to_string(&path) {
@@ -154,6 +160,79 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
                 }
              }
 
+             // [DOD FIX] Читаем геометрию шардов в RAM
+             let project_dir = path.parent().unwrap_or(std::path::Path::new("."));
+             if let Ok(content) = layout_api::overlay_read_to_string(&project_dir.join("simulation.toml")) {
+                 if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
+                     if let Some(sim) = doc.get("simulation").and_then(|i| i.as_table()) {
+                         voxel_size_um = sim.get("voxel_size_um").and_then(|v| v.as_float()).unwrap_or(25.0) as f32;
+                     }
+                 }
+             }
+             let path_str = path.to_string_lossy();
+             let is_sim = path_str.ends_with("simulation.toml");
+             let is_zone_level = path_str.ends_with("shard.toml") || path_str.ends_with("io.toml") || path_str.ends_with("blueprints.toml") || path_str.ends_with("anatomy.toml");
+             let dept_name = path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+
+             // Инжектим текущую зону в массив ДО цикла, чтобы парсер анатомии гарантированно отработал
+             if is_zone_level {
+                 if let EditorLevel::Zone(ref name) = level {
+                     if !zones.contains(name) {
+                         zones.push(name.clone());
+                     }
+                 }
+             }
+
+             for zone in &zones {
+                 let base_dir = if is_sim { 
+                     project_dir.join(zone) 
+                 } else if is_zone_level { 
+                     project_dir.to_path_buf() 
+                 } else { 
+                     project_dir.join(&dept_name).join(zone) 
+                 };
+
+                 let mut w = 32.0; let mut d = 32.0; let mut h = 32.0;
+                 if let Ok(content) = layout_api::overlay_read_to_string(&base_dir.join("shard.toml")) {
+                     if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
+                         if let Some(dim) = doc.get("dimensions").and_then(|i| i.as_table()) {
+                             w = dim.get("w").and_then(|v| v.as_integer()).unwrap_or(32) as f32;
+                             d = dim.get("d").and_then(|v| v.as_integer()).unwrap_or(32) as f32;
+                             h = dim.get("h").and_then(|v| v.as_integer()).unwrap_or(32) as f32;
+                         }
+                     }
+                 }
+
+                 let mut layers = Vec::new();
+                 if let Ok(content) = layout_api::overlay_read_to_string(&base_dir.join("anatomy.toml")) {
+                     match content.parse::<toml_edit::DocumentMut>() {
+                         Ok(doc) => {
+                             if let Some(arr) = doc.get("layer").and_then(|i| i.as_array_of_tables()) {
+                                 for table in arr.iter() {
+                                     let l_name = table.get("name").and_then(|v| v.as_str()).unwrap_or("Layer").to_string();
+                                     let pct = table.get("height_pct").and_then(|v| Some(v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(1) as f64) as f32)).unwrap_or(1.0);
+                                     layers.push(crate::domain::ShardLayer { name: l_name, height_pct: pct });
+                                 }
+                             } else if let Some(arr) = doc.get("layer").and_then(|i| i.as_array()) {
+                                 for val in arr.iter() {
+                                     if let Some(table) = val.as_inline_table() {
+                                         let l_name = table.get("name").and_then(|v| v.as_str()).unwrap_or("Layer").to_string();
+                                         let pct = table.get("height_pct").and_then(|v| Some(v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(1) as f64) as f32)).unwrap_or(1.0);
+                                         layers.push(crate::domain::ShardLayer { name: l_name, height_pct: pct });
+                                     }
+                                 }
+                             }
+                         }
+                         Err(e) => {
+                             error!("[Loader] anatomy.toml parse error in zone {}: {}", zone, e);
+                         }
+                     }
+                 }
+                 if layers.is_empty() { layers.push(crate::domain::ShardLayer { name: "Main".to_string(), height_pct: 1.0 }); }
+
+                 shard_anatomies.insert(zone.clone(), crate::domain::ShardAnatomy { w, d, h, layers });
+             }
+
              // Пытаемся загрузить лэйаут (через Overlay FS)
              let layout_path = path.parent().unwrap().join(format!("{}.layout.toml", path.file_name().unwrap().to_string_lossy().replace(".toml", "")));
              if let Ok(l_content) = layout_api::overlay_read_to_string(&layout_path) {
@@ -170,6 +249,14 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
         }
     }
 
+    // [DOD FIX] На микро-уровне (Шард) файл shard.toml не содержит массива [[zone]],
+    // поэтому мы принудительно добавляем имя текущего шарда, чтобы I/O синхронизатор его отработал.
+    if let EditorLevel::Zone(ref name) = level {
+        if !zones.contains(name) {
+            zones.push(name.clone());
+        }
+    }
+
     LoadedGraph {
         project_name: path.components().nth(1).map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_else(|| "Unknown".to_string()),
         file_path: path,
@@ -180,6 +267,8 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
         node_inputs,
         node_outputs,
         layout_cache,
+        shard_anatomies,
+        voxel_size_um,
         level,
     }
 }

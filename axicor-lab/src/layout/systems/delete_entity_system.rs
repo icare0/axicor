@@ -26,8 +26,24 @@ pub fn delete_entity_system(
                 DeleteTarget::Connection { from, from_port, to, to_port: _ } => {
                     delete_connection(active_path, &from, &from_port, &to, &graph);
                 }
+                DeleteTarget::Layer { zone, name } => {
+                    delete_anatomy_layer(active_path, &zone, &name, &graph);
+                }
                 DeleteTarget::IoPin { zone, is_input, name } => {
-                    delete_io_pin(active_path, &zone, *is_input, &name);
+                    let section = if *is_input { "input" } else { "output" };
+                    let path_str = active_path.to_string_lossy();
+                    let is_sim = path_str.contains("simulation.toml");
+                    let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+                    let project_dir = active_path.parent().unwrap_or(Path::new("."));
+
+                    let io_path = if is_sim { project_dir.join(zone).join("io.toml") } else { project_dir.join(&dept_name).join(zone).join("io.toml") };
+
+                    if let Ok(mut doc) = crate::layout::systems::wm_file_ops::load_document(&io_path) {
+                        if crate::layout::systems::wm_file_ops::remove_array_of_tables_item(&mut doc, section, "name", name) {
+                            let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
+                            info!("✅ [IO] Deleted pin {} from {:?}", name, io_path);
+                        }
+                    }
                 }
             }
         }
@@ -138,45 +154,22 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     }
 }
 
-fn delete_io_pin(active_path: &Path, zone: &str, is_input: bool, name: &str) {
+fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &Res<BrainTopologyGraph>) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
-    let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
+    let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
 
-    let io_path = if is_sim {
-        project_dir.join(zone).join("io.toml")
+    let anatomy_path = if is_sim {
+        project_dir.join(zone).join("anatomy.toml")
     } else {
-        project_dir.join(&dept_name).join(zone).join("io.toml")
+        project_dir.join(&dept_name).join(zone).join("anatomy.toml")
     };
 
-    // 1. Физическое удаление порта из io.toml
-    if let Ok(mut doc) = load_document(&io_path) {
-        let section = if is_input { "input" } else { "output" };
-        if remove_io_record_by_name(&mut doc, section, name) {
-            let _ = save_document(&io_path, &doc);
-            info!("✅ [Orchestrator] I/O Matrix {} removed from {:?}", name, io_path);
+    if let Ok(mut doc) = crate::layout::systems::wm_file_ops::load_document(&anatomy_path) {
+        if crate::layout::systems::wm_file_ops::remove_anatomy_layer_record(&mut doc, name) {
+            let _ = crate::layout::systems::wm_file_ops::save_document(&anatomy_path, &doc);
+            info!("✅ [Anatomy] Deleted layer {} from {:?}", name, anatomy_path);
         }
-    }
-
-    // 2. [DOD FIX] Каскадное удаление мертвых связей из AST родителя
-    if let Ok(mut doc) = load_document(active_path) {
-        if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
-            let mut to_remove = Vec::new();
-            for (i, table) in arr.iter().enumerate() {
-                let f = table.get("from").and_then(|v| v.as_str()).unwrap_or("");
-                let t = table.get("to").and_then(|v| v.as_str()).unwrap_or("");
-                let m = table.get("output_matrix").and_then(|v| v.as_str()).unwrap_or("");
-
-                // Проверяем, участвует ли этот порт в связи (Ghost Axon)
-                if (!is_input && f == zone && m == name) || (is_input && t == zone) {
-                    to_remove.push(i);
-                }
-            }
-            for i in to_remove.into_iter().rev() {
-                arr.remove(i);
-            }
-        }
-        let _ = save_document(active_path, &doc);
     }
 }

@@ -16,12 +16,17 @@ pub fn render_node_editor_system(
     mut open_file_events: EventWriter<layout_api::OpenFileEvent>,
     mut ctx_menu_events: EventWriter<OpenContextMenuEvent>,
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
-
     for (window, entity) in window_query.iter() {
         if !window.is_visible { continue; }
         if base_domain(&window.plugin_id) != DOMAIN_NODE_ED { continue; }
         let Ok(mut ui_state) = ui_states.get_mut(entity) else { continue };
+
+        let mut rtt_texture_id = None;
+        if let Some(handle) = &ui_state.shard_rtt {
+            rtt_texture_id = Some(contexts.add_image(handle.clone()));
+        }
+
+        let Some(ctx) = contexts.try_ctx_mut() else { continue };
 
         egui::Area::new(egui::Id::new(&window.plugin_id))
             .fixed_pos(window.rect.min)
@@ -42,6 +47,7 @@ pub fn render_node_editor_system(
                     |path| { open_file_events.send(layout_api::OpenFileEvent { path }); },
                     |ev| { ctx_menu_events.send(ev); },
                     entity,
+                    rtt_texture_id,
                 );
             });
     }

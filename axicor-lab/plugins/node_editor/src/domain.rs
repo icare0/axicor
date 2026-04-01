@@ -23,6 +23,12 @@ pub struct NodeGraphUiState {
     pub show_inputs_panel: bool,
     pub show_outputs_panel: bool,
     pub show_uv_panel: bool,
+    pub shard_rtt: Option<bevy::prelude::Handle<bevy::prelude::Image>>,
+    pub cad_viewport_size: bevy_egui::egui::Vec2,
+    pub cad_viewport_rect: Option<bevy_egui::egui::Rect>,
+    pub pending_3d_drop: Option<(String, String, bevy_egui::egui::Pos2, bevy_egui::egui::Pos2)>,
+    pub dragging_over_3d: Option<bevy_egui::egui::Pos2>, 
+    pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>, 
 }
 
 impl Default for NodeGraphUiState {
@@ -46,6 +52,12 @@ impl Default for NodeGraphUiState {
             show_inputs_panel: false,
             show_outputs_panel: false,
             show_uv_panel: false,
+            shard_rtt: None,
+            cad_viewport_size: bevy_egui::egui::Vec2::ZERO,
+            cad_viewport_rect: None,
+            pending_3d_drop: None,
+            dragging_over_3d: None,
+            active_3d_hover: None,
         }
     }
 }
@@ -75,6 +87,8 @@ pub struct ProjectSession {
     pub node_inputs: HashMap<String, Vec<String>>,
     pub node_outputs: HashMap<String, Vec<String>>,
     pub layout_cache: HashMap<String, (f32, f32)>, 
+    pub shard_anatomies: HashMap<String, ShardAnatomy>,
+    pub voxel_size_um: f32,
     pub is_dirty: bool,
 }
 
@@ -94,6 +108,7 @@ pub enum DeleteTarget {
     Zone { name: String, id: String },
     Connection { from: String, from_port: String, to: String, to_port: String },
     IoPin { zone: String, is_input: bool, name: String },
+    Layer { zone: String, name: String },
 }
 
 #[derive(Debug, Clone)]
@@ -101,8 +116,9 @@ pub enum CreateTarget {
     Zone { name: String, pos: bevy_egui::egui::Pos2 },
     EnvRx { name: String, pos: bevy_egui::egui::Pos2 },
     EnvTx { name: String, pos: bevy_egui::egui::Pos2 },
-    Connection { from: String, from_port: String, to: String, to_port: String },
-    IoMatrix { zone: String, is_input: bool, name: String },
+    Connection { from: String, from_port: String, to: String, to_port: String, voxel_z: Option<u32> },
+    IoPin { zone: String, is_input: bool, name: String },
+    Layer { zone: String, name: String, height_pct: f32 },
 }
 
 #[derive(Event, Debug, Clone)]
@@ -130,3 +146,40 @@ pub enum NodeSignal {
     PortDragStarted { port_name: String, is_input: bool },
     PortDropped { port_name: String, is_input: bool },
 }
+
+#[derive(Component)]
+pub struct ShardCadEntity;
+
+#[derive(Component)]
+pub struct CadCameraState {
+    pub target: Vec3,
+    pub radius: f32,
+    pub alpha: f32, // Вращение вокруг Y
+    pub beta: f32,  // Вращение вверх/вниз
+}
+
+impl Default for CadCameraState {
+    fn default() -> Self {
+        Self {
+            target: Vec3::ZERO,
+            radius: 60.0,
+            alpha: std::f32::consts::PI / 4.0,
+            beta: 0.5,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShardLayer {
+    pub name: String,
+    pub height_pct: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShardAnatomy {
+    pub w: f32,
+    pub d: f32,
+    pub h: f32,
+    pub layers: Vec<ShardLayer>,
+}
+

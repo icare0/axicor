@@ -79,24 +79,26 @@ pub fn remove_array_of_tables_item(
 }
 
 /// Семантическое добавление I/O записи в `io.toml` шарда с поддержкой Lineage ID.
-pub fn add_io_record(doc: &mut DocumentMut, section: &str, name: &str, io_id: &str, width: u32, height: u32) {
+pub fn add_io_record(doc: &mut DocumentMut, section: &str, name: &str, io_id: &str, zone_name: &str, width: u32, height: u32, voxel_z: Option<u32>) {
     let mut table = Table::new();
-    
+
     let mut inline_id = InlineTable::new();
     inline_id.insert("id", io_id.into());
     table.insert("io_id_v1", Item::Value(toml_edit::Value::InlineTable(inline_id)));
 
     table.insert("name", value(name));
+    table.insert("zone", value(zone_name)); // [DOD FIX] Обязательно для Serde
+    table.insert("target_type", value("All"));
+    table.insert("stride", value(1i64)); // [DOD FIX] Обязательно для Serde
     table.insert("width", value(width as i64));
     table.insert("height", value(height as i64));
 
-    // [DOD FIX] Автоматически добавляем обязательные биологические параметры для Genesis Baker
     if section == "input" {
-        table.insert("entry_z", value("top"));
-        table.insert("target_type", value("All"));
-        table.insert("growth_steps", value(1000i64));
-    } else if section == "output" {
-        table.insert("target_type", value("All"));
+        if let Some(z) = voxel_z {
+            table.insert("entry_z", value(z as i64));
+        } else {
+            table.insert("entry_z", value("top"));
+        }
     }
 
     if !doc.contains_key(section) {
@@ -143,6 +145,62 @@ pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out
         }
         if let Some(i) = index_to_remove {
             arr.remove(i);
+            return true;
+        }
+    }
+    false
+}
+
+/// Добавление слоя анатомии
+pub fn add_anatomy_layer_record(doc: &mut DocumentMut, name: &str, height_pct: f32) {
+    if !doc.contains_key("layer") {
+        doc.insert("layer", Item::ArrayOfTables(ArrayOfTables::new()));
+    }
+    
+    if let Some(arr) = doc.get_mut("layer").and_then(|i| i.as_array_of_tables_mut()) {
+        for table in arr.iter_mut() {
+            let current_val = table.get("height_pct").and_then(|v| Some(v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(1) as f64) as f32)).unwrap_or(1.0);
+            let new_val = current_val * (1.0 - height_pct);
+            table.insert("height_pct", value(new_val as f64));
+        }
+        
+        let mut new_table = Table::new();
+        new_table.insert("name", value(name));
+        new_table.insert("height_pct", value(height_pct as f64));
+        new_table.insert("density", value(0.1));
+        new_table.insert("composition", Item::Value(toml_edit::Value::InlineTable(InlineTable::new())));
+        
+        arr.push(new_table);
+    }
+}
+
+/// Удаление слоя анатомии
+pub fn remove_anatomy_layer_record(doc: &mut DocumentMut, target_name: &str) -> bool {
+    let mut index_to_remove = None;
+    let mut removed_pct = 0.0;
+    
+    if let Some(arr) = doc.get_mut("layer").and_then(|i| i.as_array_of_tables_mut()) {
+        for (i, table) in arr.iter().enumerate() {
+            if let Some(name_val) = table.get("name").and_then(|v| v.as_str()) {
+                if name_val == target_name {
+                    index_to_remove = Some(i);
+                    removed_pct = table.get("height_pct").and_then(|v| Some(v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(1) as f64) as f32)).unwrap_or(1.0);
+                    break;
+                }
+            }
+        }
+        
+        if let Some(i) = index_to_remove {
+            arr.remove(i);
+            
+            if removed_pct < 1.0 {
+                let divisor = 1.0 - removed_pct;
+                for table in arr.iter_mut() {
+                    let current_val = table.get("height_pct").and_then(|v| Some(v.as_float().unwrap_or_else(|| v.as_integer().unwrap_or(1) as f64) as f32)).unwrap_or(1.0);
+                    let new_val = current_val / divisor;
+                    table.insert("height_pct", value(new_val as f64));
+                }
+            }
             return true;
         }
     }

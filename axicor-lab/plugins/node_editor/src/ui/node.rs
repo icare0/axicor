@@ -317,7 +317,7 @@ fn draw_input_pins(
         if ui.rect_contains_pointer(hit) && ui.input(|i| i.pointer.any_released()) {
             if let Some((src_zone, src_port, _)) = state.dragging_pin.clone() {
                 if src_zone != zone {
-                    send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Connection { from: src_zone, from_port: src_port, to: zone.to_string(), to_port: port.clone() }, None));
+                    send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Connection { from: src_zone, from_port: src_port, to: zone.to_string(), to_port: port.clone(), voxel_z: None }, None));
                 }
             }
             state.dragging_pin = None;
@@ -340,7 +340,7 @@ fn draw_input_pins(
     draw_pin(painter, plus_pos, r * 0.8, Color32::DARK_GRAY);
     painter.text(plus_pos + Vec2::new(10.0 * zoom, 0.0), egui::Align2::LEFT_CENTER, "+", egui::FontId::proportional(12.0 * zoom), Color32::DARK_GRAY);
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_in")), egui::Sense::click()).clicked() {
-        send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::IoMatrix { zone: zone.to_string(), is_input: true, name: format!("in_{}", inputs.len() + 1) }, None));
+        send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::IoPin { zone: zone.to_string(), is_input: true, name: format!("in_{}", inputs.len() + 1) }, None));
     }
 }
 
@@ -413,7 +413,7 @@ fn draw_output_pins(
     draw_pin(painter, plus_pos, r * 0.8, Color32::DARK_GRAY);
     painter.text(plus_pos - Vec2::new(10.0 * zoom, 0.0), egui::Align2::RIGHT_CENTER, "+", egui::FontId::proportional(12.0 * zoom), Color32::DARK_GRAY);
     if ui.interact(Rect::from_center_size(plus_pos, Vec2::splat(r * 2.0)), ui.id().with((zone, "add_out")), egui::Sense::click()).clicked() {
-        send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::IoMatrix { zone: zone.to_string(), is_input: false, name: format!("out_{}", outputs.len() + 1) }, None));
+        send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::IoPin { zone: zone.to_string(), is_input: false, name: format!("out_{}", outputs.len() + 1) }, None));
     }
 }
 

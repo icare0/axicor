@@ -279,61 +279,61 @@ mod tests {
 
     #[test]
     fn test_gsop_potentiation_basic() {
-        // weight=100, causal, pot=80, dep=40, inertia=128 (rank 0 full), slot=128 (1.0x)
-        // raw_delta = (80 * 128) >> 7 = 80
-        // delta = (80 * 128) >> 7 = 80
+        // current_weight=100, dopamine=0, d1_aff=0, d2_aff=0
+        // pot=80, dep=40, inertia=128 (1.0x), dist_to_spike=Some(0) (LTP), burst=128 (1.0x)
+        // delta_pot = (80 * 128 * 128) >> 7 = 80 << 7 / 128 = 80
+        // cooling_shift = 0 >> 4 = 0
+        // delta = 80 >> 0 = 80
+        // decay = (80 * 128) >> 7 = 80
         // new_abs = 100 + 80 = 180
-        assert_eq!(compute_gsop_weight(100, true, 80, 40, 128, 128), 180);
+        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 128), 180);
     }
 
     #[test]
     fn test_gsop_depression_basic() {
-        // weight=100, not causal, pot=80, dep=40, inertia=128, slot=128
-        // raw_delta = -((40 * 128) >> 7) = -40
-        // delta = (-40 * 128) >> 7 = -40
+        // current_weight=100, dist_to_spike=None (LTD)
+        // delta_dep = (40 * 128 * 128) >> 7 = 40
+        // delta = -40
+        // final_delta = (-40 * 128) >> 7 = -40
         // new_abs = 100 - 40 = 60
-        assert_eq!(compute_gsop_weight(100, false, 80, 40, 128, 128), 60);
+        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 128), 60);
     }
 
     #[test]
-    fn test_gsop_i16_min() {
-        // current_weight = -32768 (i16::MIN).
-        // Must NOT panic. abs in i32 = 32768 -> clamp to 32767 after delta.
-        // potentiation: raw_delta = (80 * 128) >> 7 = 80, delta = (80 * 128) >> 7 = 80
-        // new_abs = 32768 + 80 = 32848 -> clamp to 32767
-        // sign = -1 -> -32767
-        let w = compute_gsop_weight(i16::MIN, true, 80, 40, 128, 128);
-        assert_eq!(w, -32767);
+    fn test_gsop_i32_limits() {
+        // current_weight = -1000000
+        // Must NOT panic.
+        // potentiation (LTP): delta = 80
+        // new_abs = 1000000 + 80 = 1000080 -> sign=-1 -> -1000080
+        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        assert_eq!(w, -1000080);
 
-        // depression: raw_delta = -40, delta = -40
-        // new_abs = 32768 - 40 = 32728
-        // sign = -1 -> -32728
-        let w2 = compute_gsop_weight(i16::MIN, false, 80, 40, 128, 128);
-        assert_eq!(w2, -32728);
+        // depression (LTD): delta = -40
+        // new_abs = 1000000 - 40 = 999960 -> sign=-1 -> -999960
+        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, None, 128);
+        assert_eq!(w2, -999960);
     }
 
     #[test]
     fn test_gsop_sign_preservation_negative() {
-        // Negative weight should NEVER become positive
-        let w = compute_gsop_weight(-500, false, 80, 40, 128, 128);
+        // Negative weight should NEVER become positive (Dale's Law)
+        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 128);
         assert!(w <= 0, "Dale's Law violated: negative weight became positive: {w}");
-        // -500 -> abs=500, delta=-40, new_abs=460 -> -460
         assert_eq!(w, -460);
     }
 
     #[test]
     fn test_gsop_sign_preservation_depression_to_zero() {
         // Small negative weight, heavy depression -> should clamp to 0, NOT become positive
-        let w = compute_gsop_weight(-5, false, 80, 40, 128, 128);
-        // abs=5, delta=-40, new_abs = 5-40 = -35 -> clamp 0 -> sign*0 = 0
+        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, None, 128);
         assert_eq!(w, 0);
     }
 
     #[test]
     fn test_gsop_clamp_max() {
-        // Large weight + potentiation -> clamp at 32767
-        let w = compute_gsop_weight(32767, true, 80, 40, 128, 128);
-        assert_eq!(w, 32767);
+        // Large weight + potentiation -> clamp at Headroom limit (2.14B)
+        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        assert_eq!(w, 2140000000);
     }
 
     #[test]
@@ -348,13 +348,17 @@ mod tests {
     }
 
     #[test]
-    fn test_gsop_slot_decay_effect() {
-        // slot_decay=64 (0.5x) should halve the delta compared to slot_decay=128 (1.0x)
-        let w_full = compute_gsop_weight(1000, true, 80, 40, 128, 128);
-        let w_half = compute_gsop_weight(1000, true, 80, 40, 128, 64);
-        // w_full: delta= (80*128)>>7=80, (80*128)>>7=80 -> 1080
-        // w_half: delta= (80*128)>>7=80, (80*64)>>7=40 -> 1040
-        assert_eq!(w_full, 1080);
-        assert_eq!(w_half, 1040);
+    fn test_gsop_cooling_effect() {
+        // dist_to_spike=64 (cooling_shift = 64>>4 = 4)
+        // delta_pot = 80
+        // delta = 80 >> 4 = 5
+        // decay = (5 * 128) >> (7 + 4) = 5 >> 4 = 0 (due to floor in cooling)
+        // NOTE: With dist=64, delta becomes very small in integer math
+        let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 128);
+        let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 128);
+        
+        assert!(w_close > w_far);
+        assert_eq!(w_close, 1128); // 1000 + 128
+        assert_eq!(w_far, 1000);   // 1000 + 0 (cooled down to zero)
     }
 }
