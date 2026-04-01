@@ -80,7 +80,7 @@ pub fn render_editor_ui(
     // [DOD FIX] Если провод брошен в пустоту - создаем ноду и соединяем.
     if ui.input(|i| i.pointer.any_released()) {
         if let Some((src_zone, src_port, pin_pos, _)) = state.dragging_pin.take() {
-            if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
+            if let Some(mouse_pos) = ui.ctx().pointer_hover_pos() {
                 // Защита от холостого клика по пину (без перетаскивания)
                 if (mouse_pos - pin_pos).length() > 20.0 {
                     let local_pos = transform.to_local(mouse_pos);
@@ -108,7 +108,7 @@ pub fn render_editor_ui(
     }
 
     if response.double_clicked() {
-        if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
+        if let Some(mouse_pos) = ui.ctx().pointer_hover_pos() {
             if mouse_pos.x > 20.0 && state.pending_connection.is_none() {
                 let local_pos = transform.to_local(mouse_pos);
                 // DOD FIX: .to_bits() гарантирует безопасный хэш-индекс для ID
@@ -120,7 +120,7 @@ pub fn render_editor_ui(
     }
 
     if response.secondary_clicked() {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
             // [DOD FIX] Конвертируем экранную координату клика ПКМ в локальную систему канваса
             let local_pos = transform.to_local(pos);
             send_context_menu(layout_api::OpenContextMenuEvent {

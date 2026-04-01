@@ -1,5 +1,5 @@
 // ui/node.rs
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, info};
 use bevy_egui::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 use crate::domain::{NodeGraphUiState, ProjectSession, TopologyMutation};
@@ -145,7 +145,7 @@ fn draw_node(
     if state.renaming_zone.as_deref() == Some(zone) {
         ui.allocate_ui_at_rect(header_rect, |ui| {
             // [DOD FIX] Запрещаем пробелы в именах зон (важно для путей в файловой системе)
-            state.rename_buffer.retain(|c| !c.is_whitespace());
+            state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
             let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer)
                 .frame(false)
@@ -241,8 +241,14 @@ fn handle_node_drag(
         state.selected_node_id = Some(node_id);
     }
 
+    if response.double_clicked() {
+        state.renaming_zone = Some(zone.to_string());
+        state.rename_buffer = zone.to_string();
+        info!("Node Editor: Double-click rename triggered for {}", zone);
+    }
+
     if response.secondary_clicked() {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
             let label_suffix = if state.level == crate::domain::EditorLevel::Model { "Department" } else { "Shard" };
             
             send_context_menu(layout_api::OpenContextMenuEvent {
@@ -287,7 +293,7 @@ fn draw_input_pins(
             let edit_rect = Rect::from_min_size(pin_pos + Vec2::new(10.0 * zoom, -8.0 * zoom), Vec2::new(60.0 * zoom, 16.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
                 // [DOD FIX] Жестко вырезаем пробелы, чтобы они не попали в AST и FNV хэши
-                state.rename_buffer.retain(|c| !c.is_whitespace());
+                state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL));
                 
@@ -326,7 +332,7 @@ fn draw_input_pins(
         if resp.secondary_clicked() {
             if port == "in" {
                 // Защита дефолтного порта
-            } else if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            } else if let Some(pos) = ui.ctx().pointer_hover_pos() {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
                         layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|1|{}", zone, port), label: "📝 Rename Port".into() },
@@ -370,7 +376,7 @@ fn draw_output_pins(
             let edit_rect = Rect::from_min_max(pin_pos - Vec2::new(70.0 * zoom, 8.0 * zoom), pin_pos - Vec2::new(10.0 * zoom, -8.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
                 // [DOD FIX] Жестко вырезаем пробелы
-                state.rename_buffer.retain(|c| !c.is_whitespace());
+                state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL).horizontal_align(egui::Align::RIGHT));
                 
@@ -401,7 +407,7 @@ fn draw_output_pins(
         if out_response.secondary_clicked() {
             if port == "out" {
                 // Защита дефолтного порта
-            } else if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            } else if let Some(pos) = ui.ctx().pointer_hover_pos() {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
                         layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|0|{}", zone, port), label: "📝 Rename Port".into() },

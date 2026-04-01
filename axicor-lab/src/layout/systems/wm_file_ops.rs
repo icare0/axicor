@@ -237,3 +237,17 @@ pub fn remove_anatomy_layer_record(doc: &mut DocumentMut, target_name: &str) -> 
     }
     false
 }
+
+pub fn find_path_by_id(cache: &project_explorer::domain::ProjectFsCache, target_id: &str) -> Option<std::path::PathBuf> {
+    fn search(nodes: &[project_explorer::domain::ProjectNode], target_id: &str) -> Option<std::path::PathBuf> {
+        for node in nodes {
+            if node.id == target_id { return Some(node.path.clone()); }
+            if let Some(p) = search(&node.children, target_id) { return Some(p); }
+        }
+        None
+    }
+    for proj in &cache.projects {
+        if let Some(p) = search(&proj.root_nodes, target_id) { return Some(p); }
+    }
+    None
+}

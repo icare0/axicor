@@ -80,20 +80,27 @@ pub fn apply_topology_mutations_system(
 
                 match target {
                     crate::domain::RenameTarget::Shard { old_name, new_name, id: _id } => {
-                        if session.zones.contains(new_name) { continue; }
-                        if let Some(pos) = session.zones.iter().position(|z| z == old_name) { session.zones[pos] = new_name.clone(); }
+                        let mut found = false;
+                        if let Some(pos) = session.zones.iter().position(|z| z == old_name) { session.zones[pos] = new_name.clone(); found = true; }
+                        if let Some(pos) = session.env_rx_nodes.iter().position(|z| z == old_name) { session.env_rx_nodes[pos] = new_name.clone(); found = true; }
+                        if let Some(pos) = session.env_tx_nodes.iter().position(|z| z == old_name) { session.env_tx_nodes[pos] = new_name.clone(); found = true; }
+
+                        if !found { continue; }
+
                         if let Some(id_val) = session.zone_ids.remove(old_name) { session.zone_ids.insert(new_name.clone(), id_val); }
                         if let Some(inputs) = session.node_inputs.remove(old_name) { session.node_inputs.insert(new_name.clone(), inputs); }
                         if let Some(outputs) = session.node_outputs.remove(old_name) { session.node_outputs.insert(new_name.clone(), outputs); }
+
                         for conn in session.connections.iter_mut() {
-                            if &conn.0 == old_name { conn.0 = new_name.clone(); }
-                            if &conn.2 == old_name { conn.2 = new_name.clone(); }
+                            if conn.0 == *old_name { conn.0 = new_name.clone(); }
+                            if conn.2 == *old_name { conn.2 = new_name.clone(); }
                         }
+
                         for mut ui in ui_states.iter_mut() {
                             if let Some(pos) = ui.node_positions.remove(old_name) { ui.node_positions.insert(new_name.clone(), pos); }
                         }
                         session.is_dirty = true;
-                        info!("[RAM Sync] Renamed Shard {} to {}", old_name, new_name);
+                        info!("[RAM Sync] Renamed Node {} to {}", old_name, new_name);
                     }
                     crate::domain::RenameTarget::IoPin { zone, is_input, old_name, new_name } => {
                         if *is_input {
@@ -140,6 +147,26 @@ pub fn evict_deleted_entities_system(
             for mut ui in ui_states.iter_mut() {
                 ui.node_positions.clear();
                 ui.selected_node_id = None;
+            }
+        }
+    }
+}
+
+pub fn hot_reload_io_system(
+    mut events: EventReader<layout_api::TopologyChangedEvent>,
+    mut graph: ResMut<crate::domain::BrainTopologyGraph>,
+) {
+    for ev in events.read() {
+        // Извлекаем ключи заранее, чтобы обойти ограничения borrow checker'а
+        let paths: Vec<std::path::PathBuf> = graph.sessions.keys().cloned().collect();
+        
+        for path in paths {
+            if path.to_string_lossy().contains(&ev.project_name) {
+                if let Some(session) = graph.sessions.get_mut(&path) {
+                    // [DOD FIX] Сквозное обновление портов из .Sandbox в RAM
+                    crate::systems::io::utils::sync_io_ports_from_disk(&path, session);
+                    info!("[NodeEditor] Hot-reloaded I/O ports for session {:?}", path);
+                }
             }
         }
     }

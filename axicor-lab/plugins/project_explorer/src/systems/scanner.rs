@@ -121,9 +121,22 @@ fn scan_shards(model_path: &Path, brain_path: &Path, is_hot: bool) -> Vec<Projec
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| name.to_string());
 
+                let mut shard_files = Vec::new();
+                let base_shard_dir = model_path.join(brain_path.file_name().unwrap().to_string_lossy().replace(".toml", "")).join(name);
+
+                for file_name in &["shard.toml", "anatomy.toml", "blueprints.toml", "io.toml"] {
+                    shard_files.push(ProjectNode {
+                        id: format!("{}_{}", id, file_name),
+                        name: file_name.to_string(),
+                        path: base_shard_dir.join(file_name),
+                        node_type: ProjectNodeType::File,
+                        git_status: GitStatus::Unmodified,
+                        children: Vec::new(),
+                    });
+                }
+
                 // Шард - это папка, где лежит shard.toml
-                let shard_toml_path = model_path.join(brain_path.file_name().unwrap().to_string_lossy().replace(".toml", ""))
-                    .join(name).join("shard.toml");
+                let shard_toml_path = base_shard_dir.join("shard.toml");
 
                 children.push(ProjectNode {
                     id,
@@ -131,7 +144,7 @@ fn scan_shards(model_path: &Path, brain_path: &Path, is_hot: bool) -> Vec<Projec
                     path: shard_toml_path,
                     node_type: ProjectNodeType::Shard,
                     git_status: GitStatus::Unmodified,
-                    children: Vec::new(),
+                    children: shard_files,
                 });
             }
         }

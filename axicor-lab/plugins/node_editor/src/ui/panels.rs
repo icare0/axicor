@@ -112,35 +112,35 @@ pub fn draw_shard_panels(
     let left_panel_y = window_rect.min.y + header_offset;
     let panel_height = window_rect.height() - header_offset;
 
-    // Математика: closed = торчит только COLLAPSED_WIDTH
-    let left_closed_x = window_rect.min.x - PANEL_WIDTH + COLLAPSED_WIDTH;
-    let left_open_x = window_rect.min.x;
-    let left_panel_x = left_closed_x * (1.0 - slide_left) + left_open_x * slide_left;
+    let current_width = COLLAPSED_WIDTH + (PANEL_WIDTH - COLLAPSED_WIDTH) * slide_left;
 
     egui::Area::new(left_area_id)
-        .fixed_pos(Pos2::new(left_panel_x, left_panel_y))
+        .fixed_pos(Pos2::new(window_rect.min.x, left_panel_y))
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
-            ui.set_clip_rect(window_rect);
-
             let frame_resp = egui::Frame::none()
                 .fill(COLOR_PANEL_BG)
                 .show(ui, |ui| {
-                    ui.set_width(PANEL_WIDTH);
+                    ui.set_width(current_width);
                     ui.set_height(panel_height);
-                    
-                    // Контентная зона с отступом справа под акцентную линию
-                    egui::Frame::none().inner_margin(egui::Margin { left: 8.0, right: 12.0, top: 12.0, bottom: 8.0 }).show(ui, |ui| {
-                        if slide_left > 0.01 {
-                            ui.label(egui::RichText::new("IN").color(COLOR_INPUT).strong());
-                            ui.add_space(8.0);
 
-                            if let Some(inputs) = session.node_inputs.get(shard_name) {
-                                for port in inputs {
-                                    draw_matrix_capsule(ui, port, true, state.active_3d_hover, shard_name, state);
-                                    ui.add_space(2.0); // Компактный gap
+                    // Ограничиваем контент физически внутри текущей ширины
+                    let content_rect = Rect::from_min_size(ui.min_rect().min, Vec2::new(current_width, panel_height));
+                    let mut content_ui = ui.child_ui(content_rect, egui::Layout::top_down(egui::Align::Min));
+                    content_ui.set_clip_rect(content_rect);
+
+                    egui::Frame::none().inner_margin(egui::Margin { left: 8.0, right: 12.0, top: 12.0, bottom: 8.0 }).show(&mut content_ui, |ui| {
+                        if slide_left > 0.01 {
+                            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                                ui.label(egui::RichText::new("IN").color(COLOR_INPUT).strong());
+                                ui.add_space(8.0);
+                                if let Some(inputs) = session.node_inputs.get(shard_name) {
+                                    for port in inputs {
+                                        draw_matrix_capsule(ui, port, true, state.active_3d_hover, shard_name, state);
+                                        ui.add_space(2.0);
+                                    }
                                 }
-                            }
+                            });
                         }
                     });
                 });
@@ -176,32 +176,37 @@ pub fn draw_shard_panels(
     
     let right_panel_y = window_rect.min.y + header_offset;
 
-    // Математика: closed = торчит только COLLAPSED_WIDTH
-    let right_closed_x = window_rect.max.x - COLLAPSED_WIDTH;
-    let right_open_x = window_rect.max.x - PANEL_WIDTH;
-    let right_panel_x = right_closed_x * (1.0 - slide_right) + right_open_x * slide_right;
+    let current_width = COLLAPSED_WIDTH + (PANEL_WIDTH - COLLAPSED_WIDTH) * slide_right;
+    let right_panel_x = window_rect.max.x - current_width;
 
     egui::Area::new(right_area_id)
         .fixed_pos(Pos2::new(right_panel_x, right_panel_y))
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
-            ui.set_clip_rect(window_rect);
-
             let frame_resp = egui::Frame::none()
                 .fill(COLOR_PANEL_BG)
                 .show(ui, |ui| {
-                    ui.set_width(PANEL_WIDTH);
+                    ui.set_width(current_width);
                     ui.set_height(panel_height);
 
-                    // Контентная зона с отступом слева под акцентную линию
-                    egui::Frame::none().inner_margin(egui::Margin { left: 12.0, right: 8.0, top: 12.0, bottom: 8.0 }).show(ui, |ui| {
+                    let content_rect = Rect::from_min_size(ui.min_rect().min, Vec2::new(current_width, panel_height));
+                    let mut content_ui = ui.child_ui(content_rect, egui::Layout::top_down(egui::Align::Min));
+                    content_ui.set_clip_rect(content_rect);
+
+                    // Смещаем контент вправо при закрытии, чтобы текст уезжал за край
+                    let x_offset = PANEL_WIDTH - current_width;
+                    let inner_rect = Rect::from_min_size(
+                        Pos2::new(content_ui.min_rect().min.x - x_offset, content_ui.min_rect().min.y),
+                        Vec2::new(PANEL_WIDTH, panel_height)
+                    );
+                    let mut inner_ui = content_ui.child_ui(inner_rect, egui::Layout::top_down(egui::Align::Min));
+
+                    egui::Frame::none().inner_margin(egui::Margin { left: 12.0, right: 8.0, top: 12.0, bottom: 8.0 }).show(&mut inner_ui, |ui| {
                         if slide_right > 0.01 {
-                            // Выравнивание текста вправо
                             ui.with_layout(egui::Layout::top_down_justified(egui::Align::RIGHT), |ui| {
                                 ui.label(egui::RichText::new("OUT").color(COLOR_OUTPUT).strong());
                             });
                             ui.add_space(8.0);
-
                             if let Some(outputs) = session.node_outputs.get(shard_name) {
                                 for port in outputs {
                                     draw_matrix_capsule(ui, port, false, state.active_3d_hover, shard_name, state);

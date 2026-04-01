@@ -33,6 +33,7 @@ impl Plugin for NodeEditorPlugin {
                 systems::io::layout::autosave_layout_system,
                 systems::mutations::apply_topology_mutations_system,
                 systems::mutations::evict_deleted_entities_system,
+                systems::mutations::hot_reload_io_system,
                 systems::loader::spawn_load_task_system,
                 systems::loader::apply_loaded_graph_system,
             ).chain())

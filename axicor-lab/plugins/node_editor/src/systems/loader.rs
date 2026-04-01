@@ -52,8 +52,12 @@ pub fn spawn_load_task_system(
 
     let level = if file_name == "simulation.toml" || file_name.ends_with(".axic") {
         EditorLevel::Model
-    } else if file_name == "blueprints.toml" || file_name == "io.toml" || file_name == "shard.toml" {
+    } else if file_name == "shard.toml" {
         EditorLevel::Zone(path.parent().and_then(|p| p.file_name()).map_or("Zone".to_string(), |n| n.to_string_lossy().into_owned()))
+    } else if file_name == "blueprints.toml" || file_name == "io.toml" || file_name == "anatomy.toml" {
+        // [DOD FIX] Игнорируем детальные конфиги для перестройки графа. 
+        // Они открываются только в Code Editor.
+        return;
     } else if file_name.ends_with(".toml") && !file_name.starts_with('.') && file_name != "manifest.toml" {
         EditorLevel::Department
     } else {

@@ -12,6 +12,7 @@ pub fn create_entity_system(
     mut ui_states: Query<&mut node_editor::domain::NodeGraphUiState>,
     mut commands: Commands,
     cad_entities: Query<Entity, With<node_editor::domain::ShardCadEntity>>,
+    fs_cache: Res<project_explorer::domain::ProjectFsCache>,
 ) {
     let active_path_res = graph.active_path.clone();
     let Some(active_path) = active_path_res else { return };
@@ -24,22 +25,22 @@ pub fn create_entity_system(
                 CreateTarget::Zone { name, pos } => {
                     let path_str = target_path.to_string_lossy();
                     if path_str.contains("simulation.toml") {
-                        create_department(target_path, name, pos, &mut graph, &mut ui_states);
+                        create_department(target_path, name, pos, &mut graph, &mut ui_states, &fs_cache);
                     } else if path_str.ends_with(".toml") && !path_str.contains("shard.toml") {
-                        create_shard(target_path, name, pos, &mut graph, &mut ui_states);
+                        create_shard(target_path, name, pos, &mut graph, &mut ui_states, &fs_cache);
                     }
                 }
-                CreateTarget::EnvRx { name, pos } => create_env_rx(target_path, name, pos, &mut graph, &mut ui_states),
-                CreateTarget::EnvTx { name, pos } => create_env_tx(target_path, name, pos, &mut graph, &mut ui_states),
+                CreateTarget::EnvRx { name, pos } => create_env_rx(target_path, name, pos, &mut graph, &mut ui_states, &fs_cache),
+                CreateTarget::EnvTx { name, pos } => create_env_tx(target_path, name, pos, &mut graph, &mut ui_states, &fs_cache),
                 CreateTarget::Connection { from, from_port, to, to_port, voxel_z } => {
-                    create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph);
+                    create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph, &fs_cache);
                     // [DOD FIX] Вызываем немедленную пересборку 3D сцены
                     for ent in cad_entities.iter() {
                         commands.entity(ent).despawn_recursive();
                     }
                 }
                 CreateTarget::Layer { zone, name, height_pct } => {
-                    create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph);
+                    create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph, &fs_cache);
                     // [DOD FIX] Вызываем немедленную пересборку 3D сцены
                     for ent in cad_entities.iter() {
                         commands.entity(ent).despawn_recursive();
@@ -85,7 +86,7 @@ pub fn create_entity_system(
     }
 }
 
-fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>) {
+fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
     info!("[Orchestrator] Starting clean birth of Department: {}", name);
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
     let mut doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
@@ -126,7 +127,7 @@ fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>) {
+fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
     let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
 
@@ -204,7 +205,7 @@ ghost_capacity = 0
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>) {
+fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
     if let Some(session) = graph.sessions.get_mut(active_path) {
         session.env_rx_nodes.push(name.to_string());
         session.node_outputs.insert(name.to_string(), vec!["out".to_string()]);
@@ -213,7 +214,7 @@ fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gr
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>) {
+fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
     if let Some(session) = graph.sessions.get_mut(active_path) {
         session.env_tx_nodes.push(name.to_string());
         session.node_inputs.insert(name.to_string(), vec!["in".to_string()]);
@@ -222,7 +223,7 @@ fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gr
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, voxel_z: Option<u32>, graph: &mut BrainTopologyGraph) {
+fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, voxel_z: Option<u32>, graph: &mut BrainTopologyGraph, fs_cache: &project_explorer::domain::ProjectFsCache) {
     let is_from_rx;
     let is_to_tx;
     let from_id;
@@ -232,8 +233,8 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         let session = if let Some(s) = graph.sessions.get(active_path) { s } else { return };
         is_from_rx = session.env_rx_nodes.contains(&from.to_string());
         is_to_tx = session.env_tx_nodes.contains(&to.to_string());
-        from_id = session.zone_ids.get(from).cloned().unwrap_or_else(|| from.to_string());
-        to_id = session.zone_ids.get(to).cloned().unwrap_or_else(|| to.to_string());
+        from_id = session.zone_ids.get(from).cloned().unwrap_or_default();
+        to_id = session.zone_ids.get(to).cloned().unwrap_or_default();
     }
 
     let from_pfx = if from_id.len() >= 4 { &from_id[from_id.len()-4..] } else { &from_id };
@@ -242,41 +243,33 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     let core_id = if uuid_full.len() >= 6 { &uuid_full[..6] } else { &uuid_full };
     let io_id = format!("{}_{}_{}", from_pfx, core_id, to_sfx);
 
-    let path_str = active_path.to_string_lossy();
-    let is_sim = path_str.contains("simulation.toml");
-    let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
-    let project_dir = active_path.parent().unwrap_or(Path::new("."));
-
-    let resolve_io_path = |node_name: &str| {
-        if is_sim { project_dir.join(node_name).join("io.toml") }
-        else { project_dir.join(&dept_name).join(node_name).join("io.toml") }
-    };
+    let src_shard_path = crate::layout::systems::wm_file_ops::find_path_by_id(fs_cache, &from_id).unwrap_or_default();
+    let dst_shard_path = crate::layout::systems::wm_file_ops::find_path_by_id(fs_cache, &to_id).unwrap_or_default();
+    let src_io_path = src_shard_path.parent().unwrap_or(Path::new(".")).join("io.toml");
+    let dst_io_path = dst_shard_path.parent().unwrap_or(Path::new(".")).join("io.toml");
 
     if is_from_rx {
-        let io_path = resolve_io_path(to);
-        if let Ok(mut doc) = load_document(&io_path) {
+        if let Ok(mut doc) = load_document(&dst_io_path) {
             add_io_record(&mut doc, "input", from_port, &io_id, to, 32, 32, voxel_z);
-            let _ = save_document(&io_path, &doc);
+            let _ = save_document(&dst_io_path, &doc);
         }
         // [DOD FIX] Роутинг Z для входов от окружения
         if let Some(z) = voxel_z {
-            if let Ok(mut io_doc) = load_document(&io_path) {
+            if let Ok(mut io_doc) = load_document(&dst_io_path) {
                 if crate::layout::systems::wm_file_ops::update_io_input_z(&mut io_doc, from_port, z) {
-                    let _ = save_document(&io_path, &io_doc);
+                    let _ = save_document(&dst_io_path, &io_doc);
                 }
             }
         }
     } else if is_to_tx {
-        let io_path = resolve_io_path(from);
-        if let Ok(mut doc) = load_document(&io_path) {
+        if let Ok(mut doc) = load_document(&src_io_path) {
             add_io_record(&mut doc, "output", from_port, &io_id, from, 32, 32, None);
-            let _ = save_document(&io_path, &doc);
+            let _ = save_document(&src_io_path, &doc);
         }
     } else {
         // [DCR] 1. Извлекаем реальные габариты матрицы-источника
         let mut proj_w: i64 = 32;
         let mut proj_h: i64 = 32;
-        let src_io_path = resolve_io_path(from);
         if let Ok(src_doc) = load_document(&src_io_path) {
             if let Some(outputs) = src_doc.get("output").and_then(|i| i.as_array_of_tables()) {
                 for t in outputs.iter() {
@@ -289,7 +282,15 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             }
         }
 
-        let mut doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
+        let local_doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
+        // Родитель всегда знает детей: берем ID родителя из локального файла
+        let macro_path = if let Some(parent_id) = local_doc.get("depart_id_v1").and_then(|i| i.get("id")).and_then(|v| v.as_str()) {
+            crate::layout::systems::wm_file_ops::find_path_by_id(fs_cache, parent_id).unwrap_or(active_path.to_path_buf())
+        } else {
+            active_path.to_path_buf()
+        };
+
+        let mut doc = match load_document(&macro_path) { Ok(d) => d, Err(_) => return };
         let mut conn_table = Table::new();
         let mut inline_id = InlineTable::new();
         inline_id.insert("id", io_id.clone().into());
@@ -303,23 +304,15 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         
         if let Some(z) = voxel_z {
             conn_table.insert("entry_z", value(z as i64));
+        } else {
+            conn_table.insert("entry_z", value("top"));
         }
 
         if !doc.contains_key("connection") { doc.insert("connection", Item::ArrayOfTables(ArrayOfTables::new())); }
         if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) { arr.push(conn_table); }
-        let _ = save_document(active_path, &doc);
-
-        // [DOD FIX] Роутинг Z для межзональных связей
-        if let Some(z) = voxel_z {
-            if let Ok(mut conn_doc) = load_document(active_path) {
-                if crate::layout::systems::wm_file_ops::update_connection_z(&mut conn_doc, from, from_port, to, z) {
-                    let _ = save_document(active_path, &conn_doc);
-                }
-            }
-        }
+        let _ = save_document(&macro_path, &doc);
 
         // [DCR] 2. Динамическое резервирование VRAM на целевом шарде
-        let dst_shard_path = if is_sim { project_dir.join(to).join("shard.toml") } else { project_dir.join(&dept_name).join(to).join("shard.toml") };
         if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
             let capacity_add = proj_w * proj_h * 2;
             let current = dst_doc.get("settings").and_then(|s| s.get("ghost_capacity")).and_then(|v| v.as_integer()).unwrap_or(0);
@@ -331,16 +324,13 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         }
     }
 
-        if let Some(session_mut) = graph.sessions.get_mut(active_path) {
-        let connection = (from.to_string(), from_port.to_string(), to.to_string(), to_port.to_string());
-        if !session_mut.connections.contains(&connection) {
-            session_mut.connections.push(connection);
-            session_mut.is_dirty = true;
-        }
+    if let Some(session) = graph.sessions.get_mut(active_path) {
+        session.connections.push((from.to_string(), from_port.to_string(), to.to_string(), to_port.to_string()));
+        session.is_dirty = true;
     }
 }
 
-fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: f32, graph: &mut BrainTopologyGraph) {
+fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: f32, graph: &mut BrainTopologyGraph, _fs_cache: &project_explorer::domain::ProjectFsCache) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
     let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");

@@ -49,17 +49,53 @@ pub fn rename_zone_system(
 
 fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
     info!("📝 [Orchestrator] Renaming entity: {} -> {} (ID: {})", old_name, new_name, id);
-    let Ok(content) = fs::read_to_string(active_path) else {
-        error!("❌ [Orchestrator] Could not read config for renaming");
-        return;
+    
+    let is_sim = active_path.to_string_lossy().contains("simulation.toml");
+    let table_name = if is_sim { "department" } else { "zone" };
+
+    let mut doc = match load_document(active_path) {
+        Ok(d) => d,
+        Err(_) => {
+            error!("❌ [Orchestrator] Could not read config for renaming");
+            return;
+        }
     };
-    let updated_content = content.replace(&format!("name = \"{}\"", old_name), &format!("name = \"{}\"", new_name));
-    if updated_content != content {
-        let _ = fs::write(active_path, updated_content);
-        info!("✅ [Orchestrator] Config updated with new name.");
+
+    let mut renamed = false;
+    
+    // 1. Переименовываем саму сущность
+    if let Some(arr) = doc.get_mut(table_name).and_then(|i| i.as_array_of_tables_mut()) {
+        for table in arr.iter_mut() {
+            if table.get("name").and_then(|v| v.as_str()) == Some(old_name) {
+                table.insert("name", toml_edit::value(new_name));
+                renamed = true;
+            }
+        }
     }
+
+    // 2. [DOD FIX] Каскадное переименование всех связей (Connections)
+    if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
+        for table in arr.iter_mut() {
+            if table.get("from").and_then(|v| v.as_str()) == Some(old_name) {
+                table.insert("from", toml_edit::value(new_name));
+                renamed = true;
+            }
+            if table.get("to").and_then(|v| v.as_str()) == Some(old_name) {
+                table.insert("to", toml_edit::value(new_name));
+                renamed = true;
+            }
+        }
+    }
+
+    // Сохраняем в песочницу
+    if renamed {
+        let _ = save_document(active_path, &doc);
+        info!("✅ [Orchestrator] Config updated with new name and connections.");
+    }
+
+    // 3. Переименовываем физические директории (Cold Files)
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
-    if active_path.to_string_lossy().contains("simulation.toml") {
+    if is_sim {
         let old_file = project_dir.join(format!("{}.toml", old_name));
         let new_file = project_dir.join(format!("{}.toml", new_name));
         let old_dir = project_dir.join(old_name);
