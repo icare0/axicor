@@ -11,7 +11,8 @@ pub fn handle_open_file_system(
         if let Some(mut state) = editors.iter_mut().next() {
             if let Ok(content) = layout_api::overlay_read_to_string(&ev.path) {
                 state.current_file = Some(ev.path.clone());
-                state.content = content;
+                state.content = content.clone();
+                state.saved_content = content;
             }
         }
     }
@@ -37,7 +38,9 @@ pub fn evict_deleted_files_system(
             if let Some(curr) = &state.current_file {
                 if curr.starts_with(&ev.path) {
                     state.current_file = None;
-                    state.content = "/* File has been deleted */\n".to_string();
+                    let deleted_msg = "/* File has been deleted */\n".to_string();
+                    state.content = deleted_msg.clone();
+                    state.saved_content = deleted_msg;
                 }
             }
         }

@@ -5,6 +5,13 @@ use std::path::PathBuf;
 pub enum ProjectStatus { Ready, Stale, Error }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum GitStatus {
+    Unmodified,
+    Added,
+    Deleted,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProjectNodeType {
     Simulation, // "Дедушка": Законы мира, глобальный конфиг
     Brain,      // "Отец": Макро-топология, связи зон
@@ -18,6 +25,7 @@ pub struct ProjectNode {
     pub name: String,
     pub path: PathBuf,
     pub node_type: ProjectNodeType,
+    pub git_status: GitStatus,
     pub children: Vec<ProjectNode>,
 }
 

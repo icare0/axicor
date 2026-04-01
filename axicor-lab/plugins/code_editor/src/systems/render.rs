@@ -6,7 +6,6 @@ use layout_api::{PluginWindow, base_domain, DOMAIN_CODE_EDITOR};
 // --- Цвета подсветки TOML (инициализируются один раз) ---
 const CLR_COMMENT: egui::Color32 = egui::Color32::from_gray(120);
 const CLR_SECTION: egui::Color32 = egui::Color32::LIGHT_BLUE;
-const CLR_KEY:     egui::Color32 = egui::Color32::KHAKI;
 const CLR_VALUE:   egui::Color32 = egui::Color32::WHITE;
 const CLR_DROP:    egui::Color32 = egui::Color32::YELLOW;
 const DND_ID:      &str          = "dnd_path";
@@ -15,6 +14,7 @@ pub fn render_code_editor_system(
     mut contexts: bevy_egui::EguiContexts,
     mut windows: Query<(&PluginWindow, &mut CodeEditorState)>,
     mut topo_ev: EventWriter<layout_api::TopologyChangedEvent>,
+    mut open_ev: EventWriter<layout_api::OpenFileEvent>,
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
@@ -40,7 +40,7 @@ pub fn render_code_editor_system(
                         .fill(egui::Color32::from_rgb(30, 30, 30))
                         .inner_margin(8.0)
                         .show(ui, |ui| {
-                            render_top_bar(ui, &mut state, &mut topo_ev);
+                            render_top_bar(ui, &mut state, &mut topo_ev, &mut open_ev);
                             render_editor(ui, &mut state);
                         });
                 });
@@ -74,18 +74,50 @@ fn render_top_bar(
     ui: &mut egui::Ui,
     state: &mut CodeEditorState,
     topo_ev: &mut EventWriter<layout_api::TopologyChangedEvent>,
+    open_ev: &mut EventWriter<layout_api::OpenFileEvent>,
 ) {
     egui::TopBottomPanel::top(ui.id().with("top")).show_inside(ui, |ui| {
         ui.horizontal(|ui| {
-            let file_name = state.current_file.as_ref()
-                .and_then(|p| p.file_name())
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "No File".to_string());
+            let is_modified = state.content != state.saved_content;
 
-            ui.label(egui::RichText::new(format!("📝 {}", file_name)).strong());
+            // Если файл является частью шарда (io, shard, anatomy, blueprints), показываем вкладки
+            let path = state.current_file.as_ref();
+            let is_shard_level = path.map_or(false, |p| {
+                let n = p.file_name().unwrap_or_default().to_string_lossy();
+                n == "shard.toml" || n == "io.toml" || n == "anatomy.toml" || n == "blueprints.toml"
+            });
+
+            if is_shard_level {
+                if let Some(p) = path {
+                    let parent = p.parent().unwrap();
+                    for name in &["shard.toml", "io.toml", "anatomy.toml", "blueprints.toml"] {
+                        let sibling = parent.join(name);
+                        // Проверяем существование файла либо в Cold, либо в Sandbox
+                        if sibling.exists() || layout_api::resolve_sandbox_path(&sibling).exists() {
+                            let is_active = Some(&sibling) == path;
+                            let modified_star = if is_active && is_modified { " *" } else { "" };
+                            
+                            let mut rich_text = egui::RichText::new(format!("📄 {}{}", name, modified_star));
+                            if is_active { rich_text = rich_text.color(egui::Color32::WHITE).strong(); }
+                            else { rich_text = rich_text.color(egui::Color32::GRAY); }
+
+                            if ui.selectable_label(is_active, rich_text).clicked() && !is_active {
+                                open_ev.send(layout_api::OpenFileEvent { path: sibling });
+                            }
+                        }
+                    }
+                }
+            } else {
+                let name = path.and_then(|p| p.file_name()).unwrap_or_default().to_string_lossy();
+                let modified_star = if is_modified { " *" } else { "" };
+                let _ = ui.selectable_label(true, egui::RichText::new(format!("📝 {}{}", name, modified_star)).strong());
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("💾 Apply").clicked() {
+                let apply_btn = egui::Button::new("💾 Apply");
+                let apply_btn = if is_modified { apply_btn.fill(egui::Color32::from_rgb(0, 100, 200)) } else { apply_btn };
+                
+                if ui.add_enabled(is_modified, apply_btn).clicked() {
                     save_and_notify(state, topo_ev);
                 }
             });
@@ -108,6 +140,7 @@ fn save_and_notify(
         return;
     }
 
+    state.saved_content = state.content.clone();
     info!("[CodeEditor] Saved to Sandbox: {:?}", sandbox_path);
 
     // Извлекаем имя проекта: ожидаем Genesis-Models/<project>/<file>
@@ -122,44 +155,120 @@ fn save_and_notify(
 }
 
 fn render_editor(ui: &mut egui::Ui, state: &mut CodeEditorState) {
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut layouter = |ui: &egui::Ui, string: &str, _wrap: f32| {
-                toml_layout_job(ui, string)
-            };
-            ui.add(
-                egui::TextEdit::multiline(&mut state.content)
+    let max_h = ui.available_height();
+    
+    egui::ScrollArea::both()
+        .auto_shrink([false, false])
+        .max_height(max_h)
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                // Выделяем фиксированное место слева под колонку номеров
+                let gutter_width = 36.0;
+                let (gutter_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(gutter_width, 0.0), 
+                    egui::Sense::hover()
+                );
+
+                let text_area_width = ui.available_width();
+                
+                let mut layouter = |ui: &egui::Ui, string: &str, _wrap: f32| {
+                    toml_layout_job(ui, string)
+                };
+
+                let output = egui::TextEdit::multiline(&mut state.content)
                     .font(egui::TextStyle::Monospace)
                     .code_editor()
-                    .desired_width(f32::INFINITY)
-                    .layouter(&mut layouter),
-            );
+                    .frame(false)
+                    .desired_width(text_area_width)
+                    .layouter(&mut layouter)
+                    .show(ui);
+
+                let galley = output.galley;
+                let text_rect = output.response.rect;
+
+                // Вспомогательная логика для номеров строк (Line by Line Diff)
+                let saved_lines: Vec<&str> = state.saved_content.split('\n').collect();
+                let current_lines: Vec<&str> = state.content.split('\n').collect();
+                
+                let painter = ui.painter();
+                let font_id = egui::TextStyle::Monospace.resolve(ui.style());
+
+                // Отрисовываем номера строк на точных пиксельных Y-координатах,
+                // извлеченных напрямую из движка рендеринга текста (Galley).
+                let mut logical_line = 0;
+                for row in &galley.rows {
+                    // Так как wrap отключён, 1 visual row = 1 logical line.
+                    if logical_line < current_lines.len() {
+                        let text_line = current_lines.get(logical_line).copied().unwrap_or("");
+                        let saved_line = saved_lines.get(logical_line).copied().unwrap_or("");
+                        
+                        let color = if text_line != saved_line {
+                            egui::Color32::from_rgb(100, 255, 100)
+                        } else {
+                            egui::Color32::from_gray(100)
+                        };
+
+                        // row.y_min / y_max это сдвиг относительно начала виджета (text_rect.min)
+                        let y_center = text_rect.min.y + row.rect.center().y;
+                        
+                        // Рисуем текст номера линии
+                        painter.text(
+                            egui::pos2(gutter_rect.max.x - 8.0, y_center),
+                            egui::Align2::RIGHT_CENTER,
+                            format!("{}", logical_line + 1),
+                            font_id.clone(),
+                            color,
+                        );
+                        
+                        logical_line += 1;
+                    }
+                }
+            });
         });
-    });
 }
 
-/// TOML-подсветка. Вызывается только при изменении текста (egui кэширует layout_job).
 fn toml_layout_job(ui: &egui::Ui, text: &str) -> std::sync::Arc<egui::Galley> {
     let mono = egui::TextStyle::Monospace.resolve(ui.style());
     let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = f32::INFINITY; // Disable text wrapping to keep line numbers synced
 
     for line in text.split('\n') {
         let trimmed = line.trim_start();
-        let color = if trimmed.starts_with('#') {
-            CLR_COMMENT
+        if trimmed.starts_with('#') {
+            job.append(line, 0.0, fmt(CLR_COMMENT, &mono));
+            job.append("\n", 0.0, egui::TextFormat::default());
         } else if trimmed.starts_with('[') {
-            CLR_SECTION
+            job.append(line, 0.0, fmt(CLR_SECTION, &mono));
+            job.append("\n", 0.0, egui::TextFormat::default());
         } else if let Some(eq) = line.find('=') {
-            // Ключ и значение — разные цвета
-            job.append(&line[..eq], 0.0, fmt(CLR_KEY,   &mono));
-            job.append(&line[eq..], 0.0, fmt(CLR_VALUE, &mono));
-            job.append("\n",        0.0, egui::TextFormat::default());
-            continue;
+            job.append(&line[..eq], 0.0, fmt(egui::Color32::from_gray(180), &mono)); // Ключ
+            job.append("=", 0.0, fmt(egui::Color32::from_gray(100), &mono)); // Равно
+            
+            let val = &line[eq+1..];
+            let val_trimmed = val.trim_start();
+            let indent_len = val.len() - val_trimmed.len();
+            
+            job.append(&val[..indent_len], 0.0, fmt(CLR_VALUE, &mono));
+            
+            // Продвинутая эвристика типов TOML
+            let val_color = if val_trimmed.starts_with('"') || val_trimmed.starts_with('\'') {
+                egui::Color32::from_rgb(152, 195, 121) // Green strings
+            } else if val_trimmed == "true" || val_trimmed == "false" {
+                egui::Color32::from_rgb(198, 120, 221) // Purple booleans
+            } else if val_trimmed.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-') {
+                egui::Color32::from_rgb(209, 154, 102) // Orange numbers
+            } else if val_trimmed.starts_with('[') {
+                egui::Color32::from_rgb(97, 175, 239) // Blue arrays
+            } else {
+                CLR_VALUE
+            };
+            
+            job.append(val_trimmed, 0.0, fmt(val_color, &mono));
+            job.append("\n", 0.0, egui::TextFormat::default());
         } else {
-            CLR_VALUE
-        };
-        job.append(line, 0.0, fmt(color, &mono));
-        job.append("\n", 0.0, egui::TextFormat::default());
+            job.append(line, 0.0, fmt(CLR_VALUE, &mono));
+            job.append("\n", 0.0, egui::TextFormat::default());
+        }
     }
 
     ui.fonts(|f| f.layout_job(job))

@@ -124,11 +124,17 @@ fn draw_node_recursive<FZone>(
 {
     let is_active = active_file.as_ref().and_then(|af| af.as_ref()) == Some(&node.path);
     
-    let label_text = if is_active {
-        egui::RichText::new(&node.name).color(egui::Color32::WHITE).strong()
-    } else {
-        egui::RichText::new(&node.name).color(egui::Color32::GRAY)
+    let (label_color, is_strikethrough) = match node.git_status {
+        crate::domain::GitStatus::Added => (egui::Color32::from_rgb(100, 255, 100), false),
+        crate::domain::GitStatus::Deleted => (egui::Color32::from_rgb(255, 100, 100), true),
+        crate::domain::GitStatus::Unmodified => {
+            if is_active { (egui::Color32::WHITE, false) } else { (egui::Color32::GRAY, false) }
+        }
     };
+
+    let mut label_text = egui::RichText::new(&node.name).color(label_color);
+    if is_active { label_text = label_text.strong(); }
+    if is_strikethrough { label_text = label_text.strikethrough(); }
 
     // ПРИОРИТЕТ: Используем node.id для идентификации в egui!
     let id = ui.make_persistent_id(&node.id);
@@ -145,8 +151,13 @@ fn draw_node_recursive<FZone>(
             ui.add_space(14.0); 
         }
 
+        if node.git_status != crate::domain::GitStatus::Unmodified {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 14.0), egui::Sense::hover());
+            ui.painter().vline(rect.center().x, rect.y_range(), egui::Stroke::new(2.0, label_color));
+        }
+
         let resp = ui.selectable_label(is_active, label_text);
-        if resp.clicked() {
+        if resp.clicked() && node.git_status != crate::domain::GitStatus::Deleted {
             if let Some(ref mut af) = active_file {
                 **af = Some(node.path.clone());
             }
@@ -158,7 +169,7 @@ fn draw_node_recursive<FZone>(
             }
         }
 
-        if resp.dragged() {
+        if resp.dragged() && node.git_status != crate::domain::GitStatus::Deleted {
             ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("dnd_path"), node.path.clone()));
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
@@ -172,17 +183,21 @@ fn draw_node_recursive<FZone>(
                 match node.node_type {
                     ProjectNodeType::Brain => {
                         let name = node.name.replace(".toml", "");
-                        actions.push(layout_api::MenuAction {
-                            action_id: format!("explorer.delete_dept|{}|{}|{}", name, node.id, parent_path.display()),
-                            label: "🗑 Delete Department".into(),
-                        });
+                        if node.git_status != crate::domain::GitStatus::Deleted {
+                            actions.push(layout_api::MenuAction {
+                                action_id: format!("explorer.delete_dept|{}|{}|{}", name, node.id, parent_path.display()),
+                                label: "🗑 Delete Department".into(),
+                            });
+                        }
                     }
                     ProjectNodeType::Shard => {
                         let name = node.name.replace(".toml", "");
-                        actions.push(layout_api::MenuAction {
-                            action_id: format!("explorer.delete_shard|{}|{}|{}", name, node.id, parent_path.display()),
-                            label: "🗑 Delete Shard".into(),
-                        });
+                        if node.git_status != crate::domain::GitStatus::Deleted {
+                            actions.push(layout_api::MenuAction {
+                                action_id: format!("explorer.delete_shard|{}|{}|{}", name, node.id, parent_path.display()),
+                                label: "🗑 Delete Shard".into(),
+                            });
+                        }
                     }
                     _ => {}
                 }
