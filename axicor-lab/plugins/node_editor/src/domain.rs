@@ -8,7 +8,7 @@ pub struct NodeGraphUiState {
     pub level: EditorLevel,
     pub node_positions: HashMap<String, bevy_egui::egui::Pos2>,
     pub selected_node_id: Option<String>, // Паспорт выбранной ноды
-    pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2)>, 
+    pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2, bool)>, 
     pub pending_connection: Option<(String, String, String, String)>,
     pub new_node_buffer: String,
     
@@ -26,7 +26,7 @@ pub struct NodeGraphUiState {
     pub shard_rtt: Option<bevy::prelude::Handle<bevy::prelude::Image>>,
     pub cad_viewport_size: bevy_egui::egui::Vec2,
     pub cad_viewport_rect: Option<bevy_egui::egui::Rect>,
-    pub pending_3d_drop: Option<(String, String, bevy_egui::egui::Pos2, bevy_egui::egui::Pos2)>,
+    pub pending_3d_drop: Option<(String, String, bevy_egui::egui::Pos2, bevy_egui::egui::Pos2, bool)>,
     pub dragging_over_3d: Option<bevy_egui::egui::Pos2>, 
     pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>, 
 }

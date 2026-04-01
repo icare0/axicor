@@ -1,25 +1,20 @@
 use bevy_egui::egui::{self, Color32, Pos2, Rect, Vec2};
 use crate::domain::{NodeGraphUiState, ProjectSession};
 
-// [ARCH] Шторка теперь вдвое уже, квадратная по умолчанию, растёт с контентом
-const PANEL_WIDTH: f32 = 120.0;
-const TAB_WIDTH: f32 = 26.0;
-const TAB_HEIGHT: f32 = 56.0;
-const INNER_ROUNDING: f32 = 10.0;
+// [ARCH] Индустриальные flush-панели
+const PANEL_WIDTH: f32 = 140.0;
+const COLLAPSED_WIDTH: f32 = 4.0;
 
 // Цвета панелей
-const COLOR_PANEL_BG: Color32 = Color32::from_rgb(20, 21, 24);
-const COLOR_PANEL_BORDER: Color32 = Color32::from_rgb(50, 53, 60);
-const COLOR_LABEL: Color32 = Color32::from_rgb(100, 110, 125);
+const COLOR_PANEL_BG: Color32 = Color32::from_rgba_premultiplied(15, 16, 19, 230); // 0.90 alpha
 
-// Цвета бирок
-const COLOR_TAB_INPUT: Color32 = Color32::from_rgb(32, 62, 42);
-const COLOR_TAB_INPUT_HOV: Color32 = Color32::from_rgb(44, 82, 56);
-const COLOR_TAB_INPUT_BORDER: Color32 = Color32::from_rgb(45, 150, 75);
+// Цвета направлений
+const COLOR_INPUT: Color32 = Color32::from_rgb(50, 140, 70);
+const COLOR_OUTPUT: Color32 = Color32::from_rgb(200, 110, 40);
 
-const COLOR_TAB_OUTPUT: Color32 = Color32::from_rgb(62, 28, 28);
-const COLOR_TAB_OUTPUT_HOV: Color32 = Color32::from_rgb(82, 40, 40);
-const COLOR_TAB_OUTPUT_BORDER: Color32 = Color32::from_rgb(170, 55, 55);
+const COLOR_CAPSULE_BG: Color32 = Color32::from_rgb(25, 28, 32);
+const COLOR_CAPSULE_HOV: Color32 = Color32::from_rgb(35, 38, 45);
+const COLOR_CAPSULE_ACT: Color32 = Color32::from_rgb(45, 48, 55);
 
 pub fn draw_shard_panels(
     ui: &mut egui::Ui,
@@ -57,13 +52,13 @@ pub fn draw_shard_panels(
 
         // [DOD FIX] Перехват DND-соединений над 3D-сценой
         state.dragging_over_3d = None; // Сброс каждый кадр
-        if let Some((src_zone, src_port, _)) = state.dragging_pin.clone() {
+        if let Some((src_zone, src_port, _, is_input)) = state.dragging_pin.clone() {
             if ui.rect_contains_pointer(rect) {
                 if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
                     let local_pos = mouse_pos - rect.min; // Для 3D Raycasting
                     
                     if ui.input(|i| i.pointer.any_released()) {
-                        state.pending_3d_drop = Some((src_zone, src_port, mouse_pos, local_pos.to_pos2()));
+                        state.pending_3d_drop = Some((src_zone, src_port, mouse_pos, local_pos.to_pos2(), is_input));
                         state.dragging_pin = None; // Блокируем глобальную обработку канваса
                         state.active_3d_hover = None;
                     } else {
@@ -113,14 +108,12 @@ pub fn draw_shard_panels(
     // =========================================================
     let left_area_id = egui::Id::new("inputs_panel_area").with(win_hash);
     
-    // Читаем реальную высоту панели с предыдущего кадра для идеального центрирования
-    let left_height = ctx.memory(|mem| mem.area_rect(left_area_id).map_or(PANEL_WIDTH, |r| r.height()));
-    let left_panel_y = window_rect.center().y - left_height / 2.0;
+    // Y-позиция: от хедера до самого низа (flush)
+    let left_panel_y = window_rect.min.y + header_offset;
+    let panel_height = window_rect.height() - header_offset;
 
-    // slide_left уже вычислен выше для математики центрального виджета
-
-    // Математика: в закрытом состоянии панель уходит за левый край ровно так, чтобы торчала только бирка
-    let left_closed_x = window_rect.min.x + (TAB_WIDTH / 2.0) - PANEL_WIDTH;
+    // Математика: closed = торчит только COLLAPSED_WIDTH
+    let left_closed_x = window_rect.min.x - PANEL_WIDTH + COLLAPSED_WIDTH;
     let left_open_x = window_rect.min.x;
     let left_panel_x = left_closed_x * (1.0 - slide_left) + left_open_x * slide_left;
 
@@ -132,47 +125,48 @@ pub fn draw_shard_panels(
 
             let frame_resp = egui::Frame::none()
                 .fill(COLOR_PANEL_BG)
-                .stroke(egui::Stroke::new(1.0, COLOR_PANEL_BORDER))
-                .rounding(egui::Rounding { nw: 0.0, sw: 0.0, ne: INNER_ROUNDING, se: INNER_ROUNDING })
-                .inner_margin(egui::Margin::same(10.0))
                 .show(ui, |ui| {
-                    // [DOD FIX] Жестко ограничиваем ширину, чтобы капсулы не растягивались
                     ui.set_width(PANEL_WIDTH);
-                    ui.set_min_height(PANEL_WIDTH);
+                    ui.set_height(panel_height);
+                    
+                    // Контентная зона с отступом справа под акцентную линию
+                    egui::Frame::none().inner_margin(egui::Margin { left: 8.0, right: 12.0, top: 12.0, bottom: 8.0 }).show(ui, |ui| {
+                        if slide_left > 0.01 {
+                            ui.label(egui::RichText::new("IN").color(COLOR_INPUT).strong());
+                            ui.add_space(8.0);
 
-                    if slide_left > 0.01 {
-                        ui.label(egui::RichText::new("INPUT MATRICES").size(9.0).color(COLOR_LABEL));
-                        ui.add_space(6.0);
-
-                        if let Some(inputs) = session.node_inputs.get(shard_name) {
-                            for port in inputs {
-                                draw_matrix_capsule(ui, port, true, state.active_3d_hover);
-                                ui.add_space(3.0);
+                            if let Some(inputs) = session.node_inputs.get(shard_name) {
+                                for port in inputs {
+                                    draw_matrix_capsule(ui, port, true, state.active_3d_hover, shard_name, state);
+                                    ui.add_space(2.0); // Компактный gap
+                                }
                             }
                         }
-                    }
+                    });
                 });
 
             let panel_rect = frame_resp.response.rect;
 
-            // Бирка INPUTS
-            let tab_center = Pos2::new(
-                panel_rect.max.x,
-                panel_rect.min.y + panel_rect.height() * 0.5,
+            // Акцентная линия на правом краю (всегда видна, служит триггером)
+            let trigger_rect = Rect::from_min_max(
+                Pos2::new(panel_rect.max.x - COLLAPSED_WIDTH, panel_rect.min.y),
+                panel_rect.max,
             );
-            let tab_rect = Rect::from_center_size(tab_center, Vec2::new(TAB_WIDTH, TAB_HEIGHT));
 
-            let tab_resp = ui.interact(tab_rect, ui.id().with("tab_inputs"), egui::Sense::click());
+            let tab_resp = ui.interact(trigger_rect, ui.id().with("tab_inputs"), egui::Sense::click());
             if tab_resp.clicked() {
                 state.show_inputs_panel = !state.show_inputs_panel;
             }
 
-            let tab_fill = if tab_resp.hovered() { COLOR_TAB_INPUT_HOV } else { COLOR_TAB_INPUT };
-            let tab_rounding = egui::Rounding::same(TAB_WIDTH / 2.0);
-
-            ui.painter().rect_filled(tab_rect, tab_rounding, tab_fill);
-            ui.painter().rect_stroke(tab_rect, tab_rounding, egui::Stroke::new(1.0, COLOR_TAB_INPUT_BORDER));
-            draw_rotated_label(ui, tab_rect.center(), "INPUTS", 10.5, Color32::WHITE);
+            let line_color = if tab_resp.hovered() { Color32::from_rgb(80, 180, 100) } else { COLOR_INPUT };
+            ui.painter().rect_filled(trigger_rect, 0.0, line_color);
+            
+            // Если закрыта и ховер — показываем хинт
+            if !state.show_inputs_panel && tab_resp.hovered() {
+                egui::show_tooltip_at_pointer(ui.ctx(), ui.id().with("tt_in"), |ui| {
+                    ui.label("Expand Inputs");
+                });
+            }
         });
 
     // =========================================================
@@ -180,13 +174,10 @@ pub fn draw_shard_panels(
     // =========================================================
     let right_area_id = egui::Id::new("outputs_panel_area").with(win_hash);
     
-    let right_height = ctx.memory(|mem| mem.area_rect(right_area_id).map_or(PANEL_WIDTH, |r| r.height()));
-    let right_panel_y = window_rect.center().y - right_height / 2.0;
+    let right_panel_y = window_rect.min.y + header_offset;
 
-    // slide_right уже вычислен выше
-
-    // Математика: в закрытом состоянии панель уходит вправо так, чтобы левая грань + центр бирки ровно касались края
-    let right_closed_x = window_rect.max.x - (TAB_WIDTH / 2.0);
+    // Математика: closed = торчит только COLLAPSED_WIDTH
+    let right_closed_x = window_rect.max.x - COLLAPSED_WIDTH;
     let right_open_x = window_rect.max.x - PANEL_WIDTH;
     let right_panel_x = right_closed_x * (1.0 - slide_right) + right_open_x * slide_right;
 
@@ -198,124 +189,100 @@ pub fn draw_shard_panels(
 
             let frame_resp = egui::Frame::none()
                 .fill(COLOR_PANEL_BG)
-                .stroke(egui::Stroke::new(1.0, COLOR_PANEL_BORDER))
-                .rounding(egui::Rounding { ne: 0.0, se: 0.0, nw: INNER_ROUNDING, sw: INNER_ROUNDING })
-                .inner_margin(egui::Margin::same(10.0))
                 .show(ui, |ui| {
-                    // [DOD FIX] Жестко ограничиваем ширину
                     ui.set_width(PANEL_WIDTH);
-                    ui.set_min_height(PANEL_WIDTH);
+                    ui.set_height(panel_height);
 
-                    if slide_right > 0.01 {
-                        ui.label(egui::RichText::new("OUTPUT MATRICES").size(9.0).color(COLOR_LABEL));
-                        ui.add_space(6.0);
+                    // Контентная зона с отступом слева под акцентную линию
+                    egui::Frame::none().inner_margin(egui::Margin { left: 12.0, right: 8.0, top: 12.0, bottom: 8.0 }).show(ui, |ui| {
+                        if slide_right > 0.01 {
+                            // Выравнивание текста вправо
+                            ui.with_layout(egui::Layout::top_down_justified(egui::Align::RIGHT), |ui| {
+                                ui.label(egui::RichText::new("OUT").color(COLOR_OUTPUT).strong());
+                            });
+                            ui.add_space(8.0);
 
-                        if let Some(outputs) = session.node_outputs.get(shard_name) {
-                            for port in outputs {
-                                draw_matrix_capsule(ui, port, false, state.active_3d_hover);
-                                ui.add_space(3.0);
+                            if let Some(outputs) = session.node_outputs.get(shard_name) {
+                                for port in outputs {
+                                    draw_matrix_capsule(ui, port, false, state.active_3d_hover, shard_name, state);
+                                    ui.add_space(2.0);
+                                }
                             }
                         }
-                    }
+                    });
                 });
 
             let panel_rect = frame_resp.response.rect;
 
-            // Бирка OUTPUTS
-            let tab_center = Pos2::new(
-                panel_rect.min.x,
-                panel_rect.min.y + panel_rect.height() * 0.5,
+            // Акцентная линия на левом краю
+            let trigger_rect = Rect::from_min_max(
+                panel_rect.min,
+                Pos2::new(panel_rect.min.x + COLLAPSED_WIDTH, panel_rect.max.y),
             );
-            let tab_rect = Rect::from_center_size(tab_center, Vec2::new(TAB_WIDTH, TAB_HEIGHT));
 
-            let tab_resp = ui.interact(tab_rect, ui.id().with("tab_outputs"), egui::Sense::click());
+            let tab_resp = ui.interact(trigger_rect, ui.id().with("tab_outputs"), egui::Sense::click());
             if tab_resp.clicked() {
                 state.show_outputs_panel = !state.show_outputs_panel;
             }
 
-            let tab_fill = if tab_resp.hovered() { COLOR_TAB_OUTPUT_HOV } else { COLOR_TAB_OUTPUT };
-            let tab_rounding = egui::Rounding::same(TAB_WIDTH / 2.0);
+            let line_color = if tab_resp.hovered() { Color32::from_rgb(255, 170, 70) } else { COLOR_OUTPUT };
+            ui.painter().rect_filled(trigger_rect, 0.0, line_color);
 
-            ui.painter().rect_filled(tab_rect, tab_rounding, tab_fill);
-            ui.painter().rect_stroke(tab_rect, tab_rounding, egui::Stroke::new(1.0, COLOR_TAB_OUTPUT_BORDER));
-            draw_rotated_label(ui, tab_rect.center(), "OUTPUTS", 10.5, Color32::WHITE);
+            if !state.show_outputs_panel && tab_resp.hovered() {
+                egui::show_tooltip_at_pointer(ui.ctx(), ui.id().with("tt_out"), |ui| {
+                    ui.label("Expand Outputs");
+                });
+            }
         });
-}
-
-// ─────────────────────────────────────────────────────────────
-// Хелпер: горизонтальный текст, повёрнутый на -90° (снизу вверх)
-// ─────────────────────────────────────────────────────────────
-fn draw_rotated_label(ui: &mut egui::Ui, center: Pos2, text: &str, size: f32, color: Color32) {
-    let galley = ui.ctx().fonts(|f| {
-        f.layout_no_wrap(
-            text.to_string(),
-            egui::FontId::proportional(size),
-            color,
-        )
-    });
-
-    let w = galley.size().x;
-    let h = galley.size().y;
-
-    let angle = -std::f32::consts::FRAC_PI_2;
-    let pos = Pos2::new(center.x - h / 2.0, center.y + w / 2.0);
-
-    ui.painter().add(egui::Shape::Text(egui::epaint::TextShape {
-        pos,
-        galley,
-        underline: egui::Stroke::NONE,
-        override_text_color: Some(color),
-        fallback_color: color,
-        angle,
-        opacity_factor: 1.0,
-    }));
 }
 
 // ─────────────────────────────────────────────────────────────
 // Капсула порта матрицы (вход / выход)
 // ─────────────────────────────────────────────────────────────
-fn draw_matrix_capsule(ui: &mut egui::Ui, name: &str, is_input: bool, active_hover: Option<(Pos2, u32)>) {
-    let height = 24.0;
-    // Берем ширину, которую нам жестко задал родительский контейнер
+fn draw_matrix_capsule(ui: &mut egui::Ui, name: &str, is_input: bool, active_hover: Option<(Pos2, u32)>, shard_name: &str, state: &mut crate::domain::NodeGraphUiState) {
+    let height = 18.0; // Компактная высота
     let width = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(width, height),
         egui::Sense::click_and_drag(),
     );
 
-    // [DOD FIX] Унифицированный дизайн: макро-нода + оранжевый акцент
-    let base = Color32::from_rgb(30, 30, 35);
-    let hov = Color32::from_rgb(45, 45, 50);
-    let active = Color32::from_rgb(60, 60, 65);
-    let border = Color32::from_rgb(255, 150, 50); // CLR_PIN_OUT (Оранжевый)
+    let accent_color = if is_input { COLOR_INPUT } else { COLOR_OUTPUT };
+    let bg = if resp.dragged() { COLOR_CAPSULE_ACT } else if resp.hovered() { COLOR_CAPSULE_HOV } else { COLOR_CAPSULE_BG };
 
-    let bg = if resp.dragged() { active } else if resp.hovered() { hov } else { base };
+    if resp.drag_started() {
+        let pin_center = if is_input { rect.right_center() } else { rect.left_center() };
+        state.dragging_pin = Some((shard_name.to_string(), name.to_string(), pin_center, is_input));
+    }
 
-    ui.painter().rect_filled(rect, 4.0, bg);
-    ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0, border));
+    // Минималистичный прямоугольник
+    ui.painter().rect_filled(rect, 2.0, bg);
 
-    // Отрисовка физического "порта" (кружка) внутри капсулы
-    let pin_radius = 3.5;
+    // Цветной индикатор порта (зеленый для IN, справа; оранжевый для OUT, слева)
+    let pin_radius = 2.5;
     let pin_center = if is_input { 
-        rect.right_center() - Vec2::new(8.0, 0.0) 
+        rect.right_center() - Vec2::new(6.0, 0.0) 
     } else { 
-        rect.left_center() + Vec2::new(8.0, 0.0) 
+        rect.left_center() + Vec2::new(6.0, 0.0) 
     };
-    ui.painter().circle_filled(pin_center, pin_radius, border);
+    ui.painter().circle_filled(pin_center, pin_radius, accent_color);
 
-    // Текст смещается так, чтобы не наезжать на пин
+    // Текст названия порта
     let text_pos = if is_input { 
-        rect.left_center() + Vec2::new(8.0, 0.0) 
+        rect.left_center() + Vec2::new(6.0, 0.0) 
     } else { 
-        rect.left_center() + Vec2::new(16.0, 0.0) 
+        // Если выход — выравниваем по правому краю
+        rect.right_center() - Vec2::new(6.0, 0.0) 
     };
+
+    let alignment = if is_input { egui::Align2::LEFT_CENTER } else { egui::Align2::RIGHT_CENTER };
 
     ui.painter().text(
         text_pos,
-        egui::Align2::LEFT_CENTER,
+        alignment,
         name,
-        egui::FontId::proportional(12.0),
-        Color32::from_rgb(210, 215, 220),
+        egui::FontId::monospace(10.0), // Моноширный = индустриальный вид
+        Color32::from_rgb(170, 180, 190),
     );
 
     if resp.dragged() {
@@ -341,13 +308,13 @@ fn draw_matrix_capsule(ui: &mut egui::Ui, name: &str, is_input: bool, active_hov
                 points: [p1, p2, p3, p4],
                 closed: false,
                 fill: Color32::TRANSPARENT,
-                stroke: egui::Stroke::new(2.0, border),
+                stroke: egui::Stroke::new(2.0, accent_color),
             });
             
             // Рисуем таргетный прицел
             if let Some(txt) = snap_text {
-                painter.circle_filled(target_pos, 4.0, border);
-                painter.circle_stroke(target_pos, 8.0, egui::Stroke::new(1.0, border));
+                painter.circle_filled(target_pos, 4.0, accent_color);
+                painter.circle_stroke(target_pos, 8.0, egui::Stroke::new(1.0, accent_color));
                 
                 let text_pos = target_pos + Vec2::new(12.0, -12.0);
                 painter.text(

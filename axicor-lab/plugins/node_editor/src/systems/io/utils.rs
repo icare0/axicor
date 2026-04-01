@@ -78,16 +78,22 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
                     }
                 }
 
+                // [DOD FIX] Merge: стандартные порты "in"/"out" всегда должны присутствовать.
+                // Если диск содержит порты, мержим с гарантией стандартных.
+                // Если диск пуст, оставляем то что было в RAM (хардкод из loader).
                 if !inputs.is_empty() {
+                    if !inputs.contains(&"in".to_string()) {
+                        inputs.insert(0, "in".to_string());
+                    }
                     session.node_inputs.insert(zone_name.clone(), inputs);
-                } else {
-                    session.node_inputs.remove(zone_name);
                 }
+                // Не удаляем из RAM если на диске пусто — loader уже вписал defaults
                 
                 if !outputs.is_empty() {
+                    if !outputs.contains(&"out".to_string()) {
+                        outputs.insert(0, "out".to_string());
+                    }
                     session.node_outputs.insert(zone_name.clone(), outputs);
-                } else {
-                    session.node_outputs.remove(zone_name);
                 }
             }
         }

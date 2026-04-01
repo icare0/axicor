@@ -43,7 +43,7 @@ pub fn draw_all_connections(
         }
     }
 
-    if let Some((_, _, start_pos)) = &state.dragging_pin {
+    if let Some((_, _, start_pos, _)) = &state.dragging_pin {
         if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
             draw_connection_line(painter, *start_pos, mouse, zoom, Color32::from_rgb(255, 200, 100));
         }

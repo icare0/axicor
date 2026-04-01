@@ -315,7 +315,7 @@ fn draw_input_pins(
         if ui.rect_contains_pointer(hit) { painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER)); }
 
         if ui.rect_contains_pointer(hit) && ui.input(|i| i.pointer.any_released()) {
-            if let Some((src_zone, src_port, _)) = state.dragging_pin.clone() {
+            if let Some((src_zone, src_port, _, _)) = state.dragging_pin.clone() {
                 if src_zone != zone {
                     send_mutation(TopologyMutation::Create(crate::domain::CreateTarget::Connection { from: src_zone, from_port: src_port, to: zone.to_string(), to_port: port.clone(), voxel_z: None }, None));
                 }
@@ -324,7 +324,9 @@ fn draw_input_pins(
         }
 
         if resp.secondary_clicked() {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            if port == "in" {
+                // Защита дефолтного порта
+            } else if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
                         layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|1|{}", zone, port), label: "📝 Rename Port".into() },
@@ -394,10 +396,12 @@ fn draw_output_pins(
         let hit = Rect::from_center_size(pin_pos, Vec2::splat(r * PIN_HIT_SCALE));
         let out_response = ui.interact(hit, ui.id().with((zone, "out", port)), egui::Sense::click_and_drag());
         if ui.rect_contains_pointer(hit) { ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing); painter.circle_stroke(pin_pos, r * 1.5, Stroke::new(2.0, CLR_PIN_HOVER)); }
-        if out_response.drag_started() || out_response.clicked() { state.dragging_pin = Some((zone.to_string(), port.clone(), pin_pos)); }
+        if out_response.drag_started() || out_response.clicked() { state.dragging_pin = Some((zone.to_string(), port.clone(), pin_pos, false)); }
 
         if out_response.secondary_clicked() {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+            if port == "out" {
+                // Защита дефолтного порта
+            } else if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
                         layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|0|{}", zone, port), label: "📝 Rename Port".into() },

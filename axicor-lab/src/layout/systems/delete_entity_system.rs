@@ -23,8 +23,8 @@ pub fn delete_entity_system(
                         delete_shard(active_path, &name, &id, &mut deleted_ev);
                     }
                 }
-                DeleteTarget::Connection { from, from_port, to, to_port: _ } => {
-                    delete_connection(active_path, &from, &from_port, &to, &graph);
+                DeleteTarget::Connection { from, from_port, to, to_port } => {
+                    delete_connection(active_path, &from, &from_port, &to, &to_port, &graph);
                 }
                 DeleteTarget::Layer { zone, name } => {
                     delete_anatomy_layer(active_path, &zone, &name, &graph);
@@ -88,7 +88,7 @@ fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut
     info!("🗑 [Sandbox] Department {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
-fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, graph: &Res<BrainTopologyGraph>) {
+fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &Res<BrainTopologyGraph>) {
     let is_from_rx = graph.sessions.get(active_path).map_or(false, |s| s.env_rx_nodes.contains(&from.to_string()));
     let is_to_tx = graph.sessions.get(active_path).map_or(false, |s| s.env_tx_nodes.contains(&to.to_string()));
 
@@ -131,7 +131,7 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             }
 
             // 2. Физическое удаление
-            if remove_connection_record(&mut doc, from, to, from_port) { 
+            if remove_connection_record(&mut doc, from, to, from_port, to_port) { 
                 let _ = save_document(active_path, &doc); 
                 
                 // [DCR] 3. Освобождение VRAM на целевом шарде

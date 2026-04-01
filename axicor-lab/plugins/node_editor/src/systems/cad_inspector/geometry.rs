@@ -5,6 +5,9 @@ use crate::domain::{NodeGraphUiState, EditorLevel, ShardCadEntity, BrainTopology
 #[derive(Component)]
 pub struct CadGeometryMarker;
 
+#[derive(Component)]
+pub struct CadHoverPlane;
+
 pub fn spawn_cad_geometry_system(
     mut commands: Commands,
     query: Query<&NodeGraphUiState>,
@@ -34,13 +37,31 @@ pub fn spawn_cad_geometry_system(
         }
     }
 
+    // Спавним невидимую в начале Hover-плоскость
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.1, 0.1, d * 1.1))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::rgba(1.0, 1.0, 1.0, 0.0), // Скрыта
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            visibility: Visibility::Hidden,
+            ..default()
+        },
+        RenderLayers::layer(2),
+        ShardCadEntity,
+        CadHoverPlane,
+    ));
+
     let mut current_y = -h / 2.0;
 
     for layer in layers.iter() {
         let layer_h = (h * layer.height_pct).max(0.1);
         let center_y = current_y + layer_h / 2.0;
 
-        // Строим 1 прямоугольный куб на 1 слой
         let mesh = meshes.add(Cuboid::from_size(Vec3::new(w, layer_h * 0.95, d)));
         
         let hash = genesis_core::hash::fnv1a_32(layer.name.as_bytes());
@@ -73,6 +94,119 @@ pub fn spawn_cad_geometry_system(
         
         current_y += layer_h;
     }
+
+    // [AESTHETICS] 3. Рендер статических якорей (EnvRx и Inter-zone)
+    if let EditorLevel::Zone(ref shard_name) = state.level {
+        if let Some(active_path) = graph.active_path.as_ref() {
+            let project_dir = active_path.parent().unwrap_or(std::path::Path::new("."));
+            let path_str = active_path.to_string_lossy();
+            let is_sim = path_str.contains("simulation.toml");
+            let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+
+            let base_dir = if is_sim { project_dir.join(shard_name) } 
+                           else { project_dir.join(&dept_name).join(shard_name) };
+
+            // 3.1. Локальный io.toml (EnvRx)
+            if let Ok(content) = layout_api::overlay_read_to_string(&base_dir.join("io.toml")) {
+                if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
+                    if let Some(inputs) = doc.get("input").and_then(|i| i.as_array_of_tables()) {
+                        for table in inputs.iter() {
+                            if let Some(z) = table.get("entry_z").and_then(|v| v.as_integer()) {
+                                let pos_y = -h / 2.0 + (z as f32) + 0.5;
+                                commands.spawn((
+                                    PbrBundle {
+                                        mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.05, 0.15, d * 1.05))),
+                                        material: materials.add(StandardMaterial {
+                                            base_color: Color::rgba(0.2, 0.8, 0.2, 0.3), // Зеленый
+                                            alpha_mode: AlphaMode::Blend,
+                                            unlit: true,
+                                            ..default()
+                                        }),
+                                        transform: Transform::from_xyz(0.0, pos_y, 0.0),
+                                        ..default()
+                                    },
+                                    RenderLayers::layer(2), ShardCadEntity, CadGeometryMarker,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3.2. Родительский brain.toml (Inter-zone)
+            if let Ok(content) = layout_api::overlay_read_to_string(active_path) {
+                if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
+                    if let Some(conns) = doc.get("connection").and_then(|i| i.as_array_of_tables()) {
+                        for table in conns.iter() {
+                            if table.get("to").and_then(|v| v.as_str()) == Some(shard_name) {
+                                if let Some(z) = table.get("entry_z").and_then(|v| v.as_integer()) {
+                                    let pos_y = -h / 2.0 + (z as f32) + 0.5;
+                                    commands.spawn((
+                                        PbrBundle {
+                                            mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.05, 0.15, d * 1.05))),
+                                            material: materials.add(StandardMaterial {
+                                                base_color: Color::rgba(1.0, 0.6, 0.0, 0.3), // Оранжевый
+                                                alpha_mode: AlphaMode::Blend,
+                                                unlit: true,
+                                                ..default()
+                                            }),
+                                            transform: Transform::from_xyz(0.0, pos_y, 0.0),
+                                            ..default()
+                                        },
+                                        RenderLayers::layer(2), ShardCadEntity, CadGeometryMarker,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    info!("[Geometry] Simple Layer Cubes spawned ({}x{}x{})", w, h, d);
+    info!("[Geometry] Simple Layer Cubes and Hover Plane spawned ({}x{}x{})", w, h, d);
+}
+
+pub fn sync_hover_plane_system(
+    query: Query<&NodeGraphUiState>,
+    mut plane_query: Query<(&mut Transform, &mut Visibility, &Handle<StandardMaterial>), With<CadHoverPlane>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    graph: Res<BrainTopologyGraph>,
+) {
+    let Some(state) = query.iter().find(|s| matches!(s.level, EditorLevel::Zone(_))) else { return };
+    let Ok((mut transform, mut vis, mat_handle)) = plane_query.get_single_mut() else { return };
+
+    if let Some((_pos, z_voxel)) = state.active_3d_hover {
+        let mut h = 32.0;
+        let mut is_env = false;
+
+        if let EditorLevel::Zone(ref shard_name) = state.level {
+            if let Some(active_path) = &graph.active_path {
+                if let Some(session) = graph.sessions.get(active_path) {
+                    if let Some(anatomy) = session.shard_anatomies.get(shard_name) {
+                        h = anatomy.h;
+                    }
+                    
+                    // Проверяем источник драга
+                    if let Some((src_zone, _, _, _)) = &state.dragging_pin {
+                        is_env = session.env_rx_nodes.contains(src_zone);
+                    }
+                }
+            }
+        }
+
+        let center_y = -h / 2.0 + z_voxel as f32 + 0.5;
+        transform.translation.y = center_y;
+        *vis = Visibility::Visible;
+        
+        if let Some(mat) = materials.get_mut(mat_handle) {
+            mat.base_color = if is_env { 
+                Color::rgba(0.2, 0.8, 0.2, 0.5) // Зеленый для EnvRx
+            } else { 
+                Color::rgba(1.0, 0.6, 0.0, 0.5) // Оранжевый для Inter-zone
+            };
+        }
+    } else {
+        *vis = Visibility::Hidden;
+    }
 }

@@ -79,7 +79,7 @@ pub fn render_editor_ui(
     // 4. Глобальные инпуты (Канвас) - Строго вне проверок сессии
     // [DOD FIX] Если провод брошен в пустоту - создаем ноду и соединяем.
     if ui.input(|i| i.pointer.any_released()) {
-        if let Some((src_zone, src_port, pin_pos)) = state.dragging_pin.take() {
+        if let Some((src_zone, src_port, pin_pos, _)) = state.dragging_pin.take() {
             if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
                 // Защита от холостого клика по пину (без перетаскивания)
                 if (mouse_pos - pin_pos).length() > 20.0 {

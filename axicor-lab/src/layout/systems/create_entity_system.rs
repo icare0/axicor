@@ -10,6 +10,8 @@ pub fn create_entity_system(
     mut events: EventReader<TopologyMutation>,
     mut graph: ResMut<BrainTopologyGraph>,
     mut ui_states: Query<&mut node_editor::domain::NodeGraphUiState>,
+    mut commands: Commands,
+    cad_entities: Query<Entity, With<node_editor::domain::ShardCadEntity>>,
 ) {
     let active_path_res = graph.active_path.clone();
     let Some(active_path) = active_path_res else { return };
@@ -29,8 +31,20 @@ pub fn create_entity_system(
                 }
                 CreateTarget::EnvRx { name, pos } => create_env_rx(target_path, name, pos, &mut graph, &mut ui_states),
                 CreateTarget::EnvTx { name, pos } => create_env_tx(target_path, name, pos, &mut graph, &mut ui_states),
-                CreateTarget::Connection { from, from_port, to, to_port, voxel_z } => create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph),
-                CreateTarget::Layer { zone, name, height_pct } => create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph),
+                CreateTarget::Connection { from, from_port, to, to_port, voxel_z } => {
+                    create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph);
+                    // [DOD FIX] Вызываем немедленную пересборку 3D сцены
+                    for ent in cad_entities.iter() {
+                        commands.entity(ent).despawn_recursive();
+                    }
+                }
+                CreateTarget::Layer { zone, name, height_pct } => {
+                    create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph);
+                    // [DOD FIX] Вызываем немедленную пересборку 3D сцены
+                    for ent in cad_entities.iter() {
+                        commands.entity(ent).despawn_recursive();
+                    }
+                }
                 CreateTarget::IoPin { zone, is_input, name } => {
                     let path_str = target_path.to_string_lossy();
                     let is_sim = path_str.contains("simulation.toml");
@@ -244,6 +258,14 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             add_io_record(&mut doc, "input", from_port, &io_id, to, 32, 32, voxel_z);
             let _ = save_document(&io_path, &doc);
         }
+        // [DOD FIX] Роутинг Z для входов от окружения
+        if let Some(z) = voxel_z {
+            if let Ok(mut io_doc) = load_document(&io_path) {
+                if crate::layout::systems::wm_file_ops::update_io_input_z(&mut io_doc, from_port, z) {
+                    let _ = save_document(&io_path, &io_doc);
+                }
+            }
+        }
     } else if is_to_tx {
         let io_path = resolve_io_path(from);
         if let Ok(mut doc) = load_document(&io_path) {
@@ -275,6 +297,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         conn_table.insert("from", value(from));
         conn_table.insert("to", value(to));
         conn_table.insert("output_matrix", value(from_port));
+        conn_table.insert("input_matrix", value(to_port));
         conn_table.insert("width", value(proj_w));
         conn_table.insert("height", value(proj_h));
         
@@ -285,6 +308,15 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         if !doc.contains_key("connection") { doc.insert("connection", Item::ArrayOfTables(ArrayOfTables::new())); }
         if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) { arr.push(conn_table); }
         let _ = save_document(active_path, &doc);
+
+        // [DOD FIX] Роутинг Z для межзональных связей
+        if let Some(z) = voxel_z {
+            if let Ok(mut conn_doc) = load_document(active_path) {
+                if crate::layout::systems::wm_file_ops::update_connection_z(&mut conn_doc, from, from_port, to, z) {
+                    let _ = save_document(active_path, &conn_doc);
+                }
+            }
+        }
 
         // [DCR] 2. Динамическое резервирование VRAM на целевом шарде
         let dst_shard_path = if is_sim { project_dir.join(to).join("shard.toml") } else { project_dir.join(&dept_name).join(to).join("shard.toml") };

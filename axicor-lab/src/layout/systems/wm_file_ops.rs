@@ -130,15 +130,16 @@ pub fn remove_io_record_by_name(doc: &mut DocumentMut, section: &str, target_nam
 }
 
 /// Семантическое удаление межшардовой связи из родительского конфига.
-pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out_matrix: &str) -> bool {
+pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out_matrix: &str, in_matrix: &str) -> bool {
     let mut index_to_remove = None;
     if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
         for (i, table) in arr.iter().enumerate() {
             let f = table.get("from").and_then(|v| v.as_str()).unwrap_or("");
             let t = table.get("to").and_then(|v| v.as_str()).unwrap_or("");
             let m = table.get("output_matrix").and_then(|v| v.as_str()).unwrap_or("");
+            let im = table.get("input_matrix").and_then(|v| v.as_str()).unwrap_or("in");
 
-            if f == from && t == to && m == out_matrix {
+            if f == from && t == to && m == out_matrix && im == in_matrix {
                 index_to_remove = Some(i);
                 break;
             }
@@ -146,6 +147,36 @@ pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out
         if let Some(i) = index_to_remove {
             arr.remove(i);
             return true;
+        }
+    }
+    false
+}
+
+/// Обновление Z-координаты входа в io.toml
+pub fn update_io_input_z(doc: &mut DocumentMut, target_name: &str, voxel_z: u32) -> bool {
+    if let Some(arr) = doc.get_mut("input").and_then(|i| i.as_array_of_tables_mut()) {
+        for table in arr.iter_mut() {
+            if table.get("name").and_then(|v| v.as_str()) == Some(target_name) {
+                table.insert("entry_z", value(voxel_z as i64));
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Обновление Z-координаты связи в brain.toml (или simulation.toml)
+pub fn update_connection_z(doc: &mut DocumentMut, from: &str, from_port: &str, to: &str, voxel_z: u32) -> bool {
+    if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
+        for table in arr.iter_mut() {
+            let f = table.get("from").and_then(|v| v.as_str()).unwrap_or("");
+            let t = table.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            let m = table.get("output_matrix").and_then(|v| v.as_str()).unwrap_or("");
+
+            if f == from && t == to && m == from_port {
+                table.insert("entry_z", value(voxel_z as i64));
+                return true;
+            }
         }
     }
     false

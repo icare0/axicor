@@ -156,7 +156,8 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel) -> LoadedGraph {
                     let from = table.get("from").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     let to = table.get("to").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     let m = table.get("output_matrix").and_then(|v| v.as_str()).unwrap_or("out").to_string();
-                    connections.push((from, m, to, "in".to_string()));
+                    let im = table.get("input_matrix").and_then(|v| v.as_str()).unwrap_or("in").to_string();
+                    connections.push((from, m, to, im));
                 }
              }
 
