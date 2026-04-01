@@ -10,7 +10,50 @@ pub const DOMAIN_CODE_EDITOR: &str = "domain.code_editor";
 pub const DOMAIN_AI_COPILOT: &str = "domain.ai_copilot";
 
 // Отражает размер системного DND-якоря (6.5px offset + 25px width + 10px gap)
-pub const SYS_UI_SAFE_ZONE: f32 = 41.5;
+use std::path::PathBuf;
+
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ProjectStatus { Ready, Stale, Error }
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum GitStatus {
+    Unmodified,
+    Added,
+    Deleted,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ProjectNodeType {
+    Simulation,
+    Brain,
+    Shard,
+    File,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectNode {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+    pub node_type: ProjectNodeType,
+    pub git_status: GitStatus,
+    pub children: Vec<ProjectNode>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProjectModel {
+    pub name: String,
+    pub status: ProjectStatus,
+    pub root_nodes: Vec<ProjectNode>, 
+    pub is_bundle: bool,
+}
+
+#[derive(bevy::prelude::Resource, Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectFsCache {
+    pub projects: Vec<ProjectModel>,
+}
+
+pub const SYS_UI_SAFE_ZONE: f32 = 42.0;
 
 #[derive(Resource, Default, Clone)]
 pub struct AllocatedPanes {

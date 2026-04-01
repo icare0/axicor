@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use crate::domain::{NodeGraphUiState, EditorLevel, ShardCadEntity, BrainTopologyGraph};
+use crate::ui::cad_glass_material::CadGlassMaterial;
 
 #[derive(Component)]
 pub struct CadGeometryMarker;
@@ -14,6 +15,7 @@ pub fn spawn_cad_geometry_system(
     geometries: Query<Entity, With<CadGeometryMarker>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut glass_materials: ResMut<Assets<CadGlassMaterial>>,
     graph: Res<BrainTopologyGraph>,
 ) {
     if !geometries.is_empty() { return; }
@@ -62,28 +64,26 @@ pub fn spawn_cad_geometry_system(
         let layer_h = (h * layer.height_pct).max(0.1);
         let center_y = current_y + layer_h / 2.0;
 
-        let mesh = meshes.add(Cuboid::from_size(Vec3::new(w, layer_h * 0.95, d)));
+        let mesh = meshes.add(Cuboid::from_size(Vec3::new(w, layer_h, d)));
         
         let hash = genesis_core::hash::fnv1a_32(layer.name.as_bytes());
-        let base_luma = 0.15 + (hash % 100) as f32 / 100.0 * 0.4;
-        let r_shift = ((hash >> 8) % 60) as f32 / 1000.0 - 0.03;
-        let g_shift = ((hash >> 16) % 60) as f32 / 1000.0 - 0.03;
-        let b_shift = ((hash >> 24) % 60) as f32 / 1000.0 - 0.03;
-        
-        let r = (base_luma + r_shift).clamp(0.0, 1.0);
-        let g = (base_luma + g_shift).clamp(0.0, 1.0);
-        let b = (base_luma + b_shift).clamp(0.0, 1.0);
+        // Повышаем базовую яркость, чтобы не сливаться с фоном (0.4 - 0.7)
+        let base_luma = 0.4 + (hash % 100) as f32 / 100.0 * 0.3;
+        let r_shift = (((hash >> 8) % 100) as f32 / 100.0) * 0.4 - 0.2;
+        let g_shift = (((hash >> 16) % 100) as f32 / 100.0) * 0.4 - 0.2;
+        let b_shift = (((hash >> 24) % 100) as f32 / 100.0) * 0.4 - 0.2;
 
-        let material = materials.add(StandardMaterial {
-            base_color: bevy::prelude::Color::rgba(r, g, b, 0.05),
-            alpha_mode: bevy::prelude::AlphaMode::Blend,
-            ..default()
-        });
+        let r = (base_luma + r_shift).clamp(0.2, 0.9);
+        let g = (base_luma + g_shift).clamp(0.2, 0.9);
+        let b = (base_luma + b_shift).clamp(0.2, 0.9);
 
+        // [DOD FIX] Переход на кастомный шейдер стекла с Fresnel-эффектом
         commands.spawn((
-            PbrBundle {
-                mesh, 
-                material,
+            MaterialMeshBundle {
+                mesh: mesh.clone(),
+                material: glass_materials.add(CadGlassMaterial {
+                    color: Color::rgba(r, g, b, 0.15), // [DOD FIX] Передаем прозрачность
+                }),
                 transform: Transform::from_xyz(0.0, center_y, 0.0),
                 ..default()
             },
@@ -208,5 +208,23 @@ pub fn sync_hover_plane_system(
         }
     } else {
         *vis = Visibility::Hidden;
+    }
+}
+
+pub fn refresh_cad_geometry_on_change_system(
+    mut topo_changed: EventReader<layout_api::TopologyChangedEvent>,
+    mut topo_mut: EventReader<crate::domain::TopologyMutation>,
+    mut commands: Commands,
+    geometries: Query<Entity, With<CadGeometryMarker>>,
+    planes: Query<Entity, With<CadHoverPlane>>,
+) {
+    let mut should_refresh = false;
+    for _ in topo_changed.read() { should_refresh = true; }
+    for _ in topo_mut.read() { should_refresh = true; }
+
+    if should_refresh {
+        for ent in geometries.iter() { commands.entity(ent).despawn_recursive(); }
+        for ent in planes.iter() { commands.entity(ent).despawn_recursive(); }
+        info!("[Geometry] Triggered CAD cubes refresh");
     }
 }

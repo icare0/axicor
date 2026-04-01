@@ -10,9 +10,7 @@ pub fn create_entity_system(
     mut events: EventReader<TopologyMutation>,
     mut graph: ResMut<BrainTopologyGraph>,
     mut ui_states: Query<&mut node_editor::domain::NodeGraphUiState>,
-    mut commands: Commands,
-    cad_entities: Query<Entity, With<node_editor::domain::ShardCadEntity>>,
-    fs_cache: Res<project_explorer::domain::ProjectFsCache>,
+    fs_cache: Res<layout_api::ProjectFsCache>,
 ) {
     let active_path_res = graph.active_path.clone();
     let Some(active_path) = active_path_res else { return };
@@ -34,17 +32,9 @@ pub fn create_entity_system(
                 CreateTarget::EnvTx { name, pos } => create_env_tx(target_path, name, pos, &mut graph, &mut ui_states, &fs_cache),
                 CreateTarget::Connection { from, from_port, to, to_port, voxel_z } => {
                     create_connection(target_path, from, from_port, to, to_port, voxel_z.clone(), &mut graph, &fs_cache);
-                    // [DOD FIX] Вызываем немедленную пересборку 3D сцены
-                    for ent in cad_entities.iter() {
-                        commands.entity(ent).despawn_recursive();
-                    }
                 }
                 CreateTarget::Layer { zone, name, height_pct } => {
                     create_anatomy_layer(target_path, zone, name, *height_pct, &mut graph, &fs_cache);
-                    // [DOD FIX] Вызываем немедленную пересборку 3D сцены
-                    for ent in cad_entities.iter() {
-                        commands.entity(ent).despawn_recursive();
-                    }
                 }
                 CreateTarget::IoPin { zone, is_input, name } => {
                     let path_str = target_path.to_string_lossy();
@@ -86,7 +76,7 @@ pub fn create_entity_system(
     }
 }
 
-fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &layout_api::ProjectFsCache) {
     info!("[Orchestrator] Starting clean birth of Department: {}", name);
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
     let mut doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
@@ -127,7 +117,7 @@ fn create_department(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &layout_api::ProjectFsCache) {
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
     let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
 
@@ -162,8 +152,12 @@ fn create_shard(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gra
     let sandbox_shard_dir = layout_api::resolve_sandbox_path(&shard_dir);
     let _ = fs::create_dir_all(&sandbox_shard_dir);
     
-    let _ = fs::write(sandbox_shard_dir.join("anatomy.toml"), "[[layer]]\nname = \"Main\"\nheight_pct = 1.0\ndensity = 0.1\ncomposition = {}\n");
-    let _ = fs::write(sandbox_shard_dir.join("blueprints.toml"), "[[neuron_type]]\nname = \"Default\"\nthreshold = 20000\nrest_potential = 0\nleak_rate = 100\nhomeostasis_penalty = 1000\nhomeostasis_decay = 10\nrefractory_period = 10\nsynapse_refractory_period = 10\nsignal_propagation_length = 5\n");
+    let anatomy_toml = format!("[shard_id_v1]\nid = \"{}-ANATOMY\"\n\n[[layer]]\nname = \"Main\"\nheight_pct = 1.0\ndensity = 0.1\ncomposition = {{}}\n", structured_shard_id);
+    let _ = fs::write(sandbox_shard_dir.join("anatomy.toml"), anatomy_toml);
+
+    let blueprints_toml = format!("[shard_id_v1]\nid = \"{}-BLUEPRINTS\"\n\n[[neuron_type]]\nname = \"Default\"\nthreshold = 20000\nrest_potential = 0\nleak_rate = 100\nhomeostasis_penalty = 1000\nhomeostasis_decay = 10\nrefractory_period = 10\nsynapse_refractory_period = 10\nsignal_propagation_length = 5\n", structured_shard_id);
+    let _ = fs::write(sandbox_shard_dir.join("blueprints.toml"), blueprints_toml);
+
     let io_toml = format!(
         "[shard_id_v1]\nid = \"{}-IO\"\n\n[[input]]\nname = \"in\"\nzone = \"{}\"\ntarget_type = \"All\"\nwidth = 32\nheight = 32\nstride = 1\nentry_z = \"top\"\n\n[[output]]\nname = \"out\"\nzone = \"{}\"\ntarget_type = \"All\"\nwidth = 32\nheight = 32\nstride = 1\n",
         structured_shard_id, name, name
@@ -205,7 +199,7 @@ ghost_capacity = 0
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &layout_api::ProjectFsCache) {
     if let Some(session) = graph.sessions.get_mut(active_path) {
         session.env_rx_nodes.push(name.to_string());
         session.node_outputs.insert(name.to_string(), vec!["out".to_string()]);
@@ -214,7 +208,7 @@ fn create_env_rx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gr
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, graph: &mut BrainTopologyGraph, ui_states: &mut Query<&mut node_editor::domain::NodeGraphUiState>, _fs_cache: &layout_api::ProjectFsCache) {
     if let Some(session) = graph.sessions.get_mut(active_path) {
         session.env_tx_nodes.push(name.to_string());
         session.node_inputs.insert(name.to_string(), vec!["in".to_string()]);
@@ -223,7 +217,7 @@ fn create_env_tx(active_path: &Path, name: &str, pos: &bevy_egui::egui::Pos2, gr
     for mut ui in ui_states.iter_mut() { ui.node_positions.insert(name.to_string(), *pos); }
 }
 
-fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, voxel_z: Option<u32>, graph: &mut BrainTopologyGraph, fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, voxel_z: Option<u32>, graph: &mut BrainTopologyGraph, fs_cache: &layout_api::ProjectFsCache) {
     let is_from_rx;
     let is_to_tx;
     let from_id;
@@ -330,17 +324,19 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     }
 }
 
-fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: f32, graph: &mut BrainTopologyGraph, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: f32, graph: &mut BrainTopologyGraph, fs_cache: &layout_api::ProjectFsCache) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
     let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
 
-    let anatomy_path = if is_sim {
-        project_dir.join(zone).join("anatomy.toml")
-    } else {
-        project_dir.join(&dept_name).join(zone).join("anatomy.toml")
-    };
+    let session = if let Some(s) = graph.sessions.get(active_path) { s } else { return };
+    let zone_id = session.zone_ids.get(zone).cloned().unwrap_or_default();
+    let anatomy_id = format!("{}-ANATOMY", zone_id);
+    let anatomy_path = crate::layout::systems::wm_file_ops::find_path_by_id(fs_cache, &anatomy_id)
+        .unwrap_or_else(|| {
+            if is_sim { project_dir.join(zone).join("anatomy.toml") } else { project_dir.join(&dept_name).join(zone).join("anatomy.toml") }
+        });
 
     let mut doc = match crate::layout::systems::wm_file_ops::load_document(&anatomy_path) {
         Ok(d) => d,

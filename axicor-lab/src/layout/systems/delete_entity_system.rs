@@ -8,7 +8,7 @@ pub fn delete_entity_system(
     mut events: EventReader<TopologyMutation>,
     graph: Res<BrainTopologyGraph>,
     mut deleted_ev: EventWriter<layout_api::EntityDeletedEvent>,
-    fs_cache: Res<project_explorer::domain::ProjectFsCache>,
+    fs_cache: Res<layout_api::ProjectFsCache>,
 ) {
     for ev in events.read() {
         if let TopologyMutation::Delete(target, context_path) = ev {
@@ -103,7 +103,7 @@ pub fn delete_entity_system(
     }
 }
 
-fn delete_shard(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn delete_shard(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &layout_api::ProjectFsCache) {
     info!("🗑 [Orchestrator] Starting physical deletion of Shard: {} (ID: {})", name, id);
     if let Ok(mut doc) = load_document(active_path) {
         if remove_array_of_tables_item(&mut doc, "zone", "shard_id_v1", id) {
@@ -122,7 +122,7 @@ fn delete_shard(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut Even
     info!("🗑 [Sandbox] Shard {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
-fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &layout_api::ProjectFsCache) {
     info!("🗑 [Orchestrator] Deleting Department: {} (ID: {})", name, id);
     if let Ok(mut doc) = load_document(active_path) {
         if remove_array_of_tables_item(&mut doc, "department", "depart_id_v1", id) {
@@ -141,7 +141,7 @@ fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut
     info!("🗑 [Sandbox] Department {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
-fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &Res<BrainTopologyGraph>, fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &Res<BrainTopologyGraph>, fs_cache: &layout_api::ProjectFsCache) {
     let (is_from_rx, is_to_tx, from_id, to_id) = if let Some(session) = graph.sessions.get(active_path) {
         (
             session.env_rx_nodes.contains(&from.to_string()),
@@ -213,7 +213,7 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     }
 }
 
-fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &Res<BrainTopologyGraph>, _fs_cache: &project_explorer::domain::ProjectFsCache) {
+fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &Res<BrainTopologyGraph>, _fs_cache: &layout_api::ProjectFsCache) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
     let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");

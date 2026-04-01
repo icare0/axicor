@@ -125,10 +125,17 @@ fn scan_shards(model_path: &Path, brain_path: &Path, is_hot: bool) -> Vec<Projec
                 let base_shard_dir = model_path.join(brain_path.file_name().unwrap().to_string_lossy().replace(".toml", "")).join(name);
 
                 for file_name in &["shard.toml", "anatomy.toml", "blueprints.toml", "io.toml"] {
+                    let file_path = base_shard_dir.join(file_name);
+                    let file_id = if is_hot {
+                        extract_id_overlay(&file_path, "shard_id_v1")
+                    } else {
+                        extract_id(&file_path, "shard_id_v1")
+                    }.unwrap_or_else(|| format!("{}_{}", id, file_name));
+
                     shard_files.push(ProjectNode {
-                        id: format!("{}_{}", id, file_name),
+                        id: file_id,
                         name: file_name.to_string(),
-                        path: base_shard_dir.join(file_name),
+                        path: file_path,
                         node_type: ProjectNodeType::File,
                         git_status: GitStatus::Unmodified,
                         children: Vec::new(),

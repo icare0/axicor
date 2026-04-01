@@ -110,6 +110,7 @@ pub fn draw_all_nodes(
     state: &mut NodeGraphUiState,
     send_mutation: &mut impl FnMut(TopologyMutation),
     send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    send_save: &mut impl FnMut(),
     target_window: Entity,
 ) {
     let mut all_nodes = session.zones.clone();
@@ -118,7 +119,7 @@ pub fn draw_all_nodes(
 
     for node in &all_nodes {
         let Some(layout) = layouts.get(node) else { continue };
-        draw_node(painter, ui, session, node, layout, state, send_mutation, send_context_menu, target_window);
+        draw_node(painter, ui, session, node, layout, state, send_mutation, send_context_menu, send_save, target_window);
     }
 }
 
@@ -131,6 +132,7 @@ fn draw_node(
     state: &mut NodeGraphUiState,
     send_mutation: &mut impl FnMut(TopologyMutation),
     send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    send_save: &mut impl FnMut(),
     target_window: Entity,
 ) {
     let zoom = state.zoom;
@@ -176,7 +178,7 @@ fn draw_node(
         painter.text(header_rect.center(), egui::Align2::CENTER_CENTER, zone, egui::FontId::proportional(14.0 * zoom), Color32::WHITE);
     }
 
-    handle_node_drag(ui, session, zone, screen_rect, state, send_context_menu, target_window);
+    handle_node_drag(ui, session, zone, screen_rect, state, send_context_menu, send_save, target_window);
     
     let inputs = session.node_inputs.get(zone).cloned().unwrap_or_default();
     let outputs = session.node_outputs.get(zone).cloned().unwrap_or_default();
@@ -222,6 +224,7 @@ fn handle_node_drag(
     screen_rect: Rect,
     state: &mut NodeGraphUiState,
     send_context_menu: &mut impl FnMut(layout_api::OpenContextMenuEvent),
+    send_save: &mut impl FnMut(),
     target_window: Entity,
 ) {
     let node_id = session.zone_ids.get(zone).cloned().unwrap_or_else(|| zone.to_string());
@@ -237,6 +240,12 @@ fn handle_node_drag(
             }
         }
     }
+
+    if response.drag_stopped() {
+        send_save();
+        info!("Node Editor: Auto-saved layout after drag for {}", zone);
+    }
+
     if response.clicked() {
         state.selected_node_id = Some(node_id);
     }

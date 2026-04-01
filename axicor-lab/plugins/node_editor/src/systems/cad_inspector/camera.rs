@@ -35,7 +35,7 @@ pub fn spawn_cad_camera_system(
 
     commands.spawn((
         Camera3dBundle {
-            camera: Camera { target: RenderTarget::Image(handle.clone()), clear_color: ClearColorConfig::Custom(Color::rgb(0.06, 0.06, 0.07)), ..default() },
+            camera: Camera { target: RenderTarget::Image(handle.clone()), clear_color: ClearColorConfig::Custom(Color::rgb(0.10, 0.11, 0.12)), ..default() },
             projection: Projection::Perspective(PerspectiveProjection { far: 50000.0, ..default() }),
             transform: Transform::from_translation(cam_offset).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()

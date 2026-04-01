@@ -5,6 +5,7 @@ pub mod breadcrumb;
 pub mod connections;
 pub mod modals;
 pub mod panels;
+pub mod cad_glass_material;
 
 use bevy_egui::egui::{self, Rect};
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation};
@@ -71,7 +72,7 @@ pub fn render_editor_ui(
                 // Стандартный рендер графа на макро-уровнях (Модель / Департамент)
                 let layouts = calc_all_layouts(session, state, &transform);
                 draw_all_connections(&painter, ui, session, &layouts, state, &mut send_mutation);
-                draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, target_window);
+                draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, &mut send_save, target_window);
             }
         }
     }

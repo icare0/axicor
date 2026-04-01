@@ -31,7 +31,14 @@ pub fn render_code_editor_system(
             .show(ctx, |ui| {
                 ui.set_clip_rect(window.rect);
 
-                let (content_rect, _) = layout_api::draw_unified_header(ui, window.rect, "Code Editor");
+                let (content_rect, _) = layout_api::draw_unified_header(ui, window.rect, "");
+
+                // [DOD FIX] Вычисляем зону для вкладок (отступ SYS_UI_SAFE_ZONE для DND якоря)
+                let mut header_rect = window.rect;
+                header_rect.set_height(28.0);
+                header_rect.min.x += layout_api::SYS_UI_SAFE_ZONE;
+                let mut header_ui = ui.child_ui(header_rect, egui::Layout::left_to_right(egui::Align::Center));
+                render_top_bar(&mut header_ui, &mut state, &mut topo_ev, &mut open_ev);
 
                 handle_dnd_drop(ui, content_rect, &mut state);
 
@@ -40,7 +47,6 @@ pub fn render_code_editor_system(
                         .fill(egui::Color32::from_rgb(30, 30, 30))
                         .inner_margin(8.0)
                         .show(ui, |ui| {
-                            render_top_bar(ui, &mut state, &mut topo_ev, &mut open_ev);
                             render_editor(ui, &mut state);
                         });
                 });
@@ -76,51 +82,49 @@ fn render_top_bar(
     topo_ev: &mut EventWriter<layout_api::TopologyChangedEvent>,
     open_ev: &mut EventWriter<layout_api::OpenFileEvent>,
 ) {
-    egui::TopBottomPanel::top(ui.id().with("top")).show_inside(ui, |ui| {
-        ui.horizontal(|ui| {
-            let is_modified = state.content != state.saved_content;
+    ui.horizontal(|ui| {
+        let is_modified = state.content != state.saved_content;
 
-            // Если файл является частью шарда (io, shard, anatomy, blueprints), показываем вкладки
-            let path = state.current_file.as_ref();
-            let is_shard_level = path.map_or(false, |p| {
-                let n = p.file_name().unwrap_or_default().to_string_lossy();
-                n == "shard.toml" || n == "io.toml" || n == "anatomy.toml" || n == "blueprints.toml"
-            });
+        // Если файл является частью шарда (io, shard, anatomy, blueprints), показываем вкладки
+        let path = state.current_file.as_ref();
+        let is_shard_level = path.map_or(false, |p| {
+            let n = p.file_name().unwrap_or_default().to_string_lossy();
+            n == "shard.toml" || n == "io.toml" || n == "anatomy.toml" || n == "blueprints.toml"
+        });
 
-            if is_shard_level {
-                if let Some(p) = path {
-                    let parent = p.parent().unwrap();
-                    for name in &["shard.toml", "io.toml", "anatomy.toml", "blueprints.toml"] {
-                        let sibling = parent.join(name);
-                        // Проверяем существование файла либо в Cold, либо в Sandbox
-                        if sibling.exists() || layout_api::resolve_sandbox_path(&sibling).exists() {
-                            let is_active = Some(&sibling) == path;
-                            let modified_star = if is_active && is_modified { " *" } else { "" };
-                            
-                            let mut rich_text = egui::RichText::new(format!("📄 {}{}", name, modified_star));
-                            if is_active { rich_text = rich_text.color(egui::Color32::WHITE).strong(); }
-                            else { rich_text = rich_text.color(egui::Color32::GRAY); }
+        if is_shard_level {
+            if let Some(p) = path {
+                let parent = p.parent().unwrap();
+                for name in &["shard.toml", "io.toml", "anatomy.toml", "blueprints.toml"] {
+                    let sibling = parent.join(name);
+                    // Проверяем существование файла либо в Cold, либо в Sandbox
+                    if sibling.exists() || layout_api::resolve_sandbox_path(&sibling).exists() {
+                        let is_active = Some(&sibling) == path;
+                        let modified_star = if is_active && is_modified { " *" } else { "" };
+                        
+                        let mut rich_text = egui::RichText::new(format!("📄 {}{}", name, modified_star));
+                        if is_active { rich_text = rich_text.color(egui::Color32::WHITE).strong(); }
+                        else { rich_text = rich_text.color(egui::Color32::GRAY); }
 
-                            if ui.selectable_label(is_active, rich_text).clicked() && !is_active {
-                                open_ev.send(layout_api::OpenFileEvent { path: sibling });
-                            }
+                        if ui.selectable_label(is_active, rich_text).clicked() && !is_active {
+                            open_ev.send(layout_api::OpenFileEvent { path: sibling });
                         }
                     }
                 }
-            } else {
-                let name = path.and_then(|p| p.file_name()).unwrap_or_default().to_string_lossy();
-                let modified_star = if is_modified { " *" } else { "" };
-                let _ = ui.selectable_label(true, egui::RichText::new(format!("📝 {}{}", name, modified_star)).strong());
             }
+        } else {
+            let name = path.and_then(|p| p.file_name()).unwrap_or_default().to_string_lossy();
+            let modified_star = if is_modified { " *" } else { "" };
+            let _ = ui.selectable_label(true, egui::RichText::new(format!("📝 {}{}", name, modified_star)).strong());
+        }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let apply_btn = egui::Button::new("💾 Apply");
-                let apply_btn = if is_modified { apply_btn.fill(egui::Color32::from_rgb(0, 100, 200)) } else { apply_btn };
-                
-                if ui.add_enabled(is_modified, apply_btn).clicked() {
-                    save_and_notify(state, topo_ev);
-                }
-            });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let apply_btn = egui::Button::new("💾 Apply");
+            let apply_btn = if is_modified { apply_btn.fill(egui::Color32::from_rgb(0, 100, 200)) } else { apply_btn };
+            
+            if ui.add_enabled(is_modified, apply_btn).clicked() {
+                save_and_notify(state, topo_ev);
+            }
         });
     });
 }
