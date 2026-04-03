@@ -9,14 +9,11 @@ pub mod domain;
 pub mod ui;
 pub mod systems;
 
-use crate::ui::cad_glass_material::CadGlassMaterial;
-
 pub struct NodeEditorPlugin;
 
 impl Plugin for NodeEditorPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_plugins(MaterialPlugin::<CadGlassMaterial>::default())
             .init_resource::<BrainTopologyGraph>()
             .init_resource::<layout_api::ActiveBundle>()
             .add_event::<TopologyMutation>()
@@ -41,18 +38,8 @@ impl Plugin for NodeEditorPlugin {
                 systems::loader::apply_loaded_graph_system,
             ).chain())
             .add_systems(Update, (
-                systems::cad_inspector::vram::allocate_vram_system,
-                systems::cad_inspector::vram::sync_vram_system,
-                systems::cad_inspector::camera::spawn_cad_camera_system,
-                systems::cad_inspector::camera::sync_camera_aspect_system,
-                systems::cad_inspector::camera::cad_camera_control_system,
-                systems::cad_inspector::geometry::refresh_cad_geometry_on_change_system,
-                systems::cad_inspector::geometry::spawn_cad_geometry_system,
-                systems::render::render_node_editor_system,                  // UI ПИШЕТ pending_3d_drop + dragging_over_3d
-                systems::cad_inspector::geometry::sync_hover_plane_system,   // Читает active_3d_hover (из raycast прошлого кадра)
-                systems::cad_inspector::raycast::dnd_raycast_system,         // ЧИТАЕТ pending_3d_drop → шлёт OpenContextMenuEvent
-                systems::cad_inspector::cleanup::cleanup_cad_scene_system,
+                systems::render::render_node_editor_system,
                 systems::modals::clear_graph_modal_system,
             ).chain());
-                }
-                }
+    }
+}

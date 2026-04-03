@@ -4,15 +4,12 @@ pub mod node;
 pub mod breadcrumb;
 pub mod connections;
 pub mod modals;
-pub mod panels;
-pub mod cad_glass_material;
 
 use bevy_egui::egui::{self, Rect};
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation};
 use self::breadcrumb::draw_breadcrumbs;
 use self::connections::draw_all_connections;
 use self::node::{calc_all_layouts, draw_all_nodes};
-use self::panels::draw_shard_panels;
 
 pub fn render_editor_ui(
     ui: &mut egui::Ui,
@@ -26,7 +23,7 @@ pub fn render_editor_ui(
     mut send_open: impl FnMut(std::path::PathBuf),
     mut send_context_menu: impl FnMut(layout_api::OpenContextMenuEvent),
     target_window: bevy::prelude::Entity,
-    rtt_texture_id: Option<bevy_egui::egui::TextureId>,
+    _rtt_texture_id: Option<bevy_egui::egui::TextureId>,
 ) {
     // [DOD FIX] Используем унифицированный хедер для отрисовки фона и получения зон
     let (content_rect, _) = layout_api::draw_unified_header(ui, window_rect, "");
@@ -59,21 +56,10 @@ pub fn render_editor_ui(
     let active_path = graph.active_path.clone();
     if let Some(path) = &active_path {
         if let Some(session) = graph.sessions.get_mut(path) {
-            let shard_mode = if let crate::domain::EditorLevel::Zone(shard_name) = &state.level {
-                Some(shard_name.clone())
-            } else {
-                None
-            };
-
-            if let Some(shard_name) = shard_mode {
-                // На микро-уровне Шарда скрываем обычные ноды и показываем шторки CAD-инспектора
-                draw_shard_panels(ui, window_rect, state, session, &shard_name, rtt_texture_id);
-            } else {
-                // Стандартный рендер графа на макро-уровнях (Модель / Департамент)
-                let layouts = calc_all_layouts(session, state, &transform);
-                draw_all_connections(&painter, ui, session, &layouts, state, &mut send_mutation);
-                draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, &mut send_save, target_window);
-            }
+            // Стандартный рендер графа на макро-уровнях (Модель / Департамент / Шард)
+            let layouts = calc_all_layouts(session, state, &transform);
+            draw_all_connections(&painter, ui, session, &layouts, state, &mut send_mutation);
+            draw_all_nodes(&painter, ui, session, &layouts, state, &mut send_mutation, &mut send_context_menu, &mut send_save, target_window);
         }
     }
 

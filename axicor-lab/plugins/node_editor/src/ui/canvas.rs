@@ -41,14 +41,6 @@ pub fn handle_input(
 ) -> (CanvasTransform, egui::Response) {
     let response = ui.interact(rect, ui.id().with("canvas_bg"), egui::Sense::click_and_drag());
 
-    // [DOD FIX] На уровне Шарда (CAD-инспектор) блокируем перемещение холста.
-    if matches!(state.level, crate::domain::EditorLevel::Zone(_)) {
-        state.pan = Vec2::ZERO;
-        state.zoom = 1.0;
-        let transform = CanvasTransform { pan: state.pan, zoom: state.zoom, origin: rect.min };
-        return (transform, response);
-    }
-
     let is_pan = response.dragged_by(egui::PointerButton::Middle)
         || (response.dragged_by(egui::PointerButton::Primary) && ui.ctx().dragged_id().is_none());
 

@@ -8,7 +8,6 @@ pub const DOMAIN_EXPLORER: &str = "axicor.explorer";
 pub const DOMAIN_NODE_ED:  &str = "axicor.node_editor";
 pub const DOMAIN_CODE_EDITOR: &str = "domain.code_editor";
 pub const DOMAIN_AI_COPILOT: &str = "domain.ai_copilot";
-pub const DOMAIN_SHARD_CAD: &str = "axicor.shard_cad";
 pub const DOMAIN_IO_INSPECTOR: &str = "axicor.io_inspector";
 pub const DOMAIN_BLUEPRINT_EDITOR: &str = "axicor.blueprint_editor";
 pub const DOMAIN_ANATOMY_SLICER: &str = "axicor.anatomy_slicer";
@@ -21,7 +20,6 @@ pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_NODE_ED,  "Node Editor"),
     (DOMAIN_CODE_EDITOR, "Code Editor"),
     (DOMAIN_AI_COPILOT, "AI Copilot"),
-    (DOMAIN_SHARD_CAD, "Shard CAD"),
     (DOMAIN_IO_INSPECTOR, "I/O Router"),
     (DOMAIN_BLUEPRINT_EDITOR, "Neuron Settings"),
     (DOMAIN_ANATOMY_SLICER, "Shard Slicer"),
@@ -285,7 +283,6 @@ pub fn domain_title(base: &str) -> &'static str {
         DOMAIN_EXPLORER => "Explorer",
         DOMAIN_NODE_ED  => "Node Editor",
         DOMAIN_CODE_EDITOR => "Code Editor",
-        DOMAIN_SHARD_CAD => "Shard CAD",
         DOMAIN_IO_INSPECTOR => "I/O Router",
         DOMAIN_BLUEPRINT_EDITOR => "Neuron Settings",
         DOMAIN_ANATOMY_SLICER => "Shard Slicer",
@@ -319,4 +316,15 @@ pub struct IoWirePayload {
     pub port: String,
     pub is_input: bool,
     pub start_pos: bevy_egui::egui::Pos2,
+}
+
+impl Default for IoWirePayload {
+    fn default() -> Self {
+        Self {
+            zone: String::new(),
+            port: String::new(),
+            is_input: false,
+            start_pos: bevy_egui::egui::Pos2::ZERO,
+        }
+    }
 }

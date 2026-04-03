@@ -2,21 +2,22 @@ use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::render::view::RenderLayers;
 use layout_api::PluginInput;
-use crate::domain::{CadCameraState, ShardCadEntity, NodeGraphUiState, EditorLevel, BrainTopologyGraph};
+use crate::domain::{CadCameraState, ShardCadEntity, AnatomySlicerState};
+use node_editor::domain::BrainTopologyGraph;
 
 pub fn spawn_cad_camera_system(
     mut commands: Commands,
-    query: Query<&NodeGraphUiState>,
+    query: Query<&AnatomySlicerState>,
     cameras: Query<Entity, With<CadCameraState>>,
     graph: Res<BrainTopologyGraph>,
 ) {
     if !cameras.is_empty() { return; }
 
-    let Some(state) = query.iter().find(|s| matches!(s.level, EditorLevel::Zone(_))) else { return };
+    let Some(state) = query.iter().find(|s| s.active_zone.is_some()) else { return };
     let Some(handle) = &state.shard_rtt else { return };
 
     let mut w = 32.0; let mut d = 32.0; let mut h = 32.0;
-    if let EditorLevel::Zone(ref shard_name) = state.level {
+    if let Some(ref shard_name) = state.active_zone {
         if let Some(active_path) = &graph.active_path {
             if let Some(session) = graph.sessions.get(active_path) {
                 if let Some(anatomy) = session.shard_anatomies.get(shard_name) {
@@ -58,10 +59,10 @@ pub fn spawn_cad_camera_system(
 }
 
 pub fn sync_camera_aspect_system(
-    query: Query<&NodeGraphUiState>,
+    query: Query<&AnatomySlicerState>,
     mut cameras: Query<&mut Projection, With<CadCameraState>>,
 ) {
-    let Some(state) = query.iter().find(|s| matches!(s.level, EditorLevel::Zone(_))) else { return };
+    let Some(state) = query.iter().find(|s| s.active_zone.is_some()) else { return };
     if state.shard_rtt.is_none() || state.cad_viewport_size.x <= 10.0 || state.cad_viewport_size.y <= 10.0 { return; }
 
     let target_aspect = state.cad_viewport_size.x / state.cad_viewport_size.y;
@@ -75,13 +76,15 @@ pub fn sync_camera_aspect_system(
 }
 
 pub fn cad_camera_control_system(
-    ui_states: Query<(&NodeGraphUiState, &PluginInput)>,
+    ui_states: Query<(&AnatomySlicerState, &PluginInput)>,
     mut cameras: Query<(&mut Transform, &mut CadCameraState), With<ShardCadEntity>>,
 ) {
-    let Some((state, input)) = ui_states.iter().find(|(s, _)| matches!(s.level, EditorLevel::Zone(_))) else { return };
-    if state.show_inputs_panel && input.local_cursor.x < 120.0 { return; }
-    let right_panel_x = state.cad_viewport_size.x - 120.0;
-    if state.show_outputs_panel && input.local_cursor.x > right_panel_x { return; }
+    let Some((state, input)) = ui_states.iter().find(|(s, _)| s.active_zone.is_some()) else { return };
+    
+    // DOD FIX: В Slicer нет панелей входов/выходов, но мы сохраняем безопасную зону
+    if input.local_cursor.x < 20.0 { return; }
+    let right_limit = state.cad_viewport_size.x - 20.0;
+    if input.local_cursor.x > right_limit { return; }
 
     for (mut transform, mut cam) in cameras.iter_mut() {
         let is_dragging = input.is_secondary_pressed;

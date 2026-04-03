@@ -1,14 +1,13 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use crate::domain::{NodeGraphUiState, EditorLevel};
+use crate::domain::AnatomySlicerState;
 
 pub fn allocate_vram_system(
-    mut query: Query<&mut NodeGraphUiState>,
+    mut query: Query<&mut AnatomySlicerState>,
     mut images: ResMut<Assets<Image>>,
 ) {
     for mut state in query.iter_mut() {
-        let is_zone = matches!(state.level, EditorLevel::Zone(_));
-        if !is_zone || state.shard_rtt.is_some() || state.cad_viewport_size.x <= 10.0 {
+        if state.active_zone.is_none() || state.shard_rtt.is_some() || state.cad_viewport_size.x <= 10.0 {
             continue;
         }
 
@@ -28,7 +27,7 @@ pub fn allocate_vram_system(
 }
 
 pub fn sync_vram_system(
-    query: Query<&NodeGraphUiState>,
+    query: Query<&AnatomySlicerState>,
     mut images: ResMut<Assets<Image>>,
 ) {
     for state in query.iter() {

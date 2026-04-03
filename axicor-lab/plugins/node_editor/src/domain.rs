@@ -5,7 +5,6 @@ use std::collections::HashMap;
 pub enum ShardPopout {
     Io,
     Blueprints,
-    Anatomy,
 }
 
 #[derive(Component)]
@@ -30,13 +29,6 @@ pub struct NodeGraphUiState {
     pub show_inputs_panel: bool,
     pub show_outputs_panel: bool,
     pub show_uv_panel: bool,
-    pub shard_rtt: Option<bevy::prelude::Handle<bevy::prelude::Image>>,
-    pub cad_viewport_size: bevy_egui::egui::Vec2,
-    pub cad_viewport_rect: Option<bevy_egui::egui::Rect>,
-    pub pending_3d_drop: Option<(String, String, bevy_egui::egui::Pos2, bevy_egui::egui::Pos2, bool)>,
-    pub dragging_over_3d: Option<bevy_egui::egui::Pos2>, 
-    pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>, 
-    pub active_popout: Option<ShardPopout>,
 }
 
 impl Default for NodeGraphUiState {
@@ -60,13 +52,6 @@ impl Default for NodeGraphUiState {
             show_inputs_panel: false,
             show_outputs_panel: false,
             show_uv_panel: false,
-            shard_rtt: None,
-            cad_viewport_size: bevy_egui::egui::Vec2::ZERO,
-            cad_viewport_rect: None,
-            pending_3d_drop: None,
-            dragging_over_3d: None,
-            active_3d_hover: None,
-            active_popout: None,
         }
     }
 }
@@ -75,7 +60,6 @@ impl Default for NodeGraphUiState {
 pub enum EditorLevel {
     Model,
     Department,
-    Zone(String),
 }
 
 #[derive(Resource, Default, Debug)]
@@ -154,28 +138,6 @@ pub enum NodeSignal {
     PortClicked { port_name: String, is_input: bool },
     PortDragStarted { port_name: String, is_input: bool },
     PortDropped { port_name: String, is_input: bool },
-}
-
-#[derive(Component)]
-pub struct ShardCadEntity;
-
-#[derive(Component)]
-pub struct CadCameraState {
-    pub target: Vec3,
-    pub radius: f32,
-    pub alpha: f32, // Вращение вокруг Y
-    pub beta: f32,  // Вращение вверх/вниз
-}
-
-impl Default for CadCameraState {
-    fn default() -> Self {
-        Self {
-            target: Vec3::ZERO,
-            radius: 60.0,
-            alpha: std::f32::consts::PI / 4.0,
-            beta: 0.5,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

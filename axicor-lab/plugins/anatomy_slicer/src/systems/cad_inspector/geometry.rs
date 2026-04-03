@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
-use crate::domain::{NodeGraphUiState, EditorLevel, ShardCadEntity, BrainTopologyGraph};
-use crate::ui::cad_glass_material::CadGlassMaterial;
+use crate::domain::{AnatomySlicerState, ShardCadEntity};
+use node_editor::domain::BrainTopologyGraph;
+use crate::cad_glass_material::CadGlassMaterial;
 
 #[derive(Component)]
 pub struct CadGeometryMarker;
@@ -11,7 +12,7 @@ pub struct CadHoverPlane;
 
 pub fn spawn_cad_geometry_system(
     mut commands: Commands,
-    query: Query<&NodeGraphUiState>,
+    query: Query<&AnatomySlicerState>,
     geometries: Query<Entity, With<CadGeometryMarker>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -20,13 +21,13 @@ pub fn spawn_cad_geometry_system(
 ) {
     if !geometries.is_empty() { return; }
 
-    let Some(state) = query.iter().find(|s| matches!(s.level, EditorLevel::Zone(_))) else { return };
+    let Some(state) = query.iter().find(|s| s.active_zone.is_some()) else { return };
     if state.shard_rtt.is_none() { return; }
 
     let mut w = 32.0; let mut d = 32.0; let mut h = 32.0;
-    let mut layers = vec![crate::domain::ShardLayer { name: "Main".to_string(), height_pct: 1.0 }];
+    let mut layers = vec![node_editor::domain::ShardLayer { name: "Main".to_string(), height_pct: 1.0 }];
 
-    if let EditorLevel::Zone(ref shard_name) = state.level {
+    if let Some(ref shard_name) = state.active_zone {
         if let Some(active_path) = &graph.active_path {
             if let Some(session) = graph.sessions.get(active_path) {
                 if let Some(anatomy) = session.shard_anatomies.get(shard_name) {
@@ -73,9 +74,9 @@ pub fn spawn_cad_geometry_system(
         let g_shift = (((hash >> 16) % 100) as f32 / 100.0) * 0.4 - 0.2;
         let b_shift = (((hash >> 24) % 100) as f32 / 100.0) * 0.4 - 0.2;
 
-        let r = (base_luma + r_shift).clamp(0.2, 0.9);
-        let g = (base_luma + g_shift).clamp(0.2, 0.9);
-        let b = (base_luma + b_shift).clamp(0.2, 0.9);
+        let r = (base_luma + r_shift).clamp(0.2f32, 0.9f32);
+        let g = (base_luma + g_shift).clamp(0.2f32, 0.9f32);
+        let b = (base_luma + b_shift).clamp(0.2f32, 0.9f32);
 
         // [DOD FIX] Переход на кастомный шейдер стекла с Fresnel-эффектом
         commands.spawn((
@@ -96,7 +97,7 @@ pub fn spawn_cad_geometry_system(
     }
 
     // [AESTHETICS] 3. Рендер статических якорей (EnvRx и Inter-zone)
-    if let EditorLevel::Zone(ref shard_name) = state.level {
+    if let Some(ref shard_name) = state.active_zone {
         if let Some(active_path) = graph.active_path.as_ref() {
             let project_dir = active_path.parent().unwrap_or(std::path::Path::new("."));
             let path_str = active_path.to_string_lossy();
@@ -168,28 +169,23 @@ pub fn spawn_cad_geometry_system(
 }
 
 pub fn sync_hover_plane_system(
-    query: Query<&NodeGraphUiState>,
+    query: Query<&AnatomySlicerState>,
     mut plane_query: Query<(&mut Transform, &mut Visibility, &Handle<StandardMaterial>), With<CadHoverPlane>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     graph: Res<BrainTopologyGraph>,
 ) {
-    let Some(state) = query.iter().find(|s| matches!(s.level, EditorLevel::Zone(_))) else { return };
+    let Some(state) = query.iter().find(|s| s.active_zone.is_some()) else { return };
     let Ok((mut transform, mut vis, mat_handle)) = plane_query.get_single_mut() else { return };
 
     if let Some((_pos, z_voxel)) = state.active_3d_hover {
         let mut h = 32.0;
-        let mut is_env = false;
+        let mut _is_env = false; // DOD: Временная заглушка, так как dragging_pin уехал в node_editor
 
-        if let EditorLevel::Zone(ref shard_name) = state.level {
+        if let Some(ref shard_name) = state.active_zone {
             if let Some(active_path) = &graph.active_path {
                 if let Some(session) = graph.sessions.get(active_path) {
                     if let Some(anatomy) = session.shard_anatomies.get(shard_name) {
                         h = anatomy.h;
-                    }
-                    
-                    // Проверяем источник драга
-                    if let Some((src_zone, _, _, _)) = &state.dragging_pin {
-                        is_env = session.env_rx_nodes.contains(src_zone);
                     }
                 }
             }
@@ -200,11 +196,7 @@ pub fn sync_hover_plane_system(
         *vis = Visibility::Visible;
         
         if let Some(mat) = materials.get_mut(mat_handle) {
-            mat.base_color = if is_env { 
-                Color::rgba(0.2, 0.8, 0.2, 0.5) // Зеленый для EnvRx
-            } else { 
-                Color::rgba(1.0, 0.6, 0.0, 0.5) // Оранжевый для Inter-zone
-            };
+            mat.base_color = Color::rgba(1.0, 0.6, 0.0, 0.5); // Дефолтный оранжевый
         }
     } else {
         *vis = Visibility::Hidden;
@@ -213,7 +205,7 @@ pub fn sync_hover_plane_system(
 
 pub fn refresh_cad_geometry_on_change_system(
     mut topo_changed: EventReader<layout_api::TopologyChangedEvent>,
-    mut topo_mut: EventReader<crate::domain::TopologyMutation>,
+    mut topo_mut: EventReader<node_editor::domain::TopologyMutation>,
     mut commands: Commands,
     geometries: Query<Entity, With<CadGeometryMarker>>,
     planes: Query<Entity, With<CadHoverPlane>>,

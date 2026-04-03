@@ -1,33 +1,29 @@
+pub mod domain;
+pub mod systems;
+pub mod cad_glass_material;
+
 use bevy::prelude::*;
-use layout_api::{DOMAIN_ANATOMY_SLICER, PluginWindow, draw_unified_header};
 
 pub struct AnatomySlicerPlugin;
 
 impl Plugin for AnatomySlicerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, render_anatomy_slicer_system);
-    }
-}
-
-fn render_anatomy_slicer_system(
-    mut contexts: bevy_egui::EguiContexts,
-    query: Query<&PluginWindow>,
-) {
-    let ctx = contexts.ctx_mut();
-    for window in query.iter() {
-        if window.plugin_id.starts_with(DOMAIN_ANATOMY_SLICER) && window.is_visible {
-            bevy_egui::egui::Area::new(window.id)
-                .fixed_pos(window.rect.min)
-                .show(ctx, |ui| {
-                    let rect = window.rect;
-                    let (content_rect, _toolbar_rect) = draw_unified_header(ui, rect, "Shard Slicer");
-                    
-                    ui.allocate_ui_at_rect(content_rect, |ui| {
-                        ui.centered_and_justified(|ui| {
-                            ui.label(bevy_egui::egui::RichText::new("Shard Slicer Placeholder").color(bevy_egui::egui::Color32::GRAY));
-                        });
-                    });
-                });
-        }
+        app
+            .add_plugins(MaterialPlugin::<cad_glass_material::CadGlassMaterial>::default())
+            .add_systems(Update, (
+                systems::interaction::init_slicer_windows_system,
+                systems::interaction::sync_active_zone_system,
+                systems::cad_inspector::vram::allocate_vram_system,
+                systems::cad_inspector::vram::sync_vram_system,
+                systems::cad_inspector::camera::spawn_cad_camera_system,
+                systems::cad_inspector::camera::sync_camera_aspect_system,
+                systems::cad_inspector::camera::cad_camera_control_system,
+                systems::cad_inspector::geometry::refresh_cad_geometry_on_change_system,
+                systems::cad_inspector::geometry::spawn_cad_geometry_system,
+                systems::render::render_anatomy_slicer_system,
+                systems::cad_inspector::geometry::sync_hover_plane_system,
+                systems::cad_inspector::raycast::dnd_raycast_system,
+                systems::cad_inspector::cleanup::cleanup_cad_scene_system,
+            ).chain());
     }
 }

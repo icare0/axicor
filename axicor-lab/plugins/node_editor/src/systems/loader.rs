@@ -68,11 +68,9 @@ pub fn spawn_load_task_system(
 
     let level = if file_name == "simulation.toml" || file_name.ends_with(".axic") {
         EditorLevel::Model
-    } else if file_name == "shard.toml" {
-        EditorLevel::Zone(path.parent().and_then(|p| p.file_name()).map_or("Zone".to_string(), |n| n.to_string_lossy().into_owned()))
-    } else if file_name == "blueprints.toml" || file_name == "io.toml" || file_name == "anatomy.toml" {
-        // [DOD FIX] Игнорируем детальные конфиги для перестройки графа. 
-        // Они открываются только в Code Editor.
+    } else if file_name == "shard.toml" || file_name == "blueprints.toml" || file_name == "io.toml" || file_name == "anatomy.toml" {
+        // [DOD FIX] Микро-уровень полностью делегирован выделенным плагинам.
+        // Node Editor игнорирует эти файлы, оставаясь на макро-уровне.
         return;
     } else if file_name.ends_with(".toml") && !file_name.starts_with('.') && file_name != "manifest.toml" {
         EditorLevel::Department
@@ -195,20 +193,6 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
              let is_sim = path_str.ends_with("simulation.toml");
              let is_zone_level = path_str.ends_with("shard.toml") || path_str.ends_with("io.toml") || path_str.ends_with("blueprints.toml") || path_str.ends_with("anatomy.toml");
              let dept_name = path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
-
-             // Инжектим текущую зону в массив ДО цикла, чтобы парсер анатомии гарантированно отработал
-             if is_zone_level {
-                 if let EditorLevel::Zone(ref name) = level {
-                     if !zones.contains(name) {
-                         zones.push(name.clone());
-                     }
-                     // [DOD FIX] На микро-уровне извлекаем собственный паспорт шарда
-                     if let Some(id_table) = doc.get("shard_id_v1") {
-                         let id = id_table.get("id").and_then(|v| v.as_str()).unwrap_or("0000").to_string();
-                         zone_ids.insert(name.clone(), id);
-                     }
-                 }
-             }
 
              for zone in &zones {
                  let mut shard_path = None;

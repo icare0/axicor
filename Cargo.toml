@@ -12,7 +12,6 @@ members = [
     "axicor-lab/plugins/node_editor",
     "axicor-lab/plugins/code_editor",
     "axicor-lab/plugins/ai_copilot",
-    "axicor-lab/plugins/shard_cad",
     "axicor-lab/plugins/io_inspector",
     "axicor-lab/plugins/blueprint_editor",
     "axicor-lab/plugins/anatomy_slicer",
