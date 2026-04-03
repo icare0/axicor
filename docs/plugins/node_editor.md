@@ -16,9 +16,9 @@
 |:---|:---|:---|:---|
 | **Model** | `simulation.toml` | Департаменты (`Zone_N`) | Inter-Department Ghost Axons |
 | **Department** | `{dept}.toml` | Шарды (`Shard_N`) | Inter-Shard Ghost Axons |
-| **Zone (Shard)** | Тот же `{dept}.toml` | —  (CAD Inspector) | — (DND → IO Matrix → entry_z) |
+| **Zone (Shard)** | Тот же `{dept}.toml` | — | — (Микро-уровень вырезан в независимые плагины: `shard_cad`, `io_inspector`, `blueprint_editor`, `anatomy_slicer`) |
 
-Переход на уровень Zone скрывает граф нод и активирует **CAD Inspector** — 3D вьюпорт шарда с ShardAnatomy (слои).
+Переход на уровень Zone скрывает граф нод и активирует специализированные микро-плагины.
 
 ---
 
@@ -199,28 +199,20 @@ Snap-проекция: **input** → левая грань (`-w/2`), **output** 
 
 ---
 
-## 8. CAD Inspector (уровень Zone)
+## 8. Декомпозиция Микро-Уровня (The Great Vivisection)
 
-Активируется при `EditorLevel::Zone(shard_name)`. Заменяет граф нод 3D-вьюпортом.
+Исторически `node_editor` включал в себя рендер 3D-стекла (`cad_inspector`) и боковые шторки свойств. Это нарушало инвариант *Separation of Concerns* и превращало плагин в God Object. 
 
-### Компоненты
+Теперь микро-уровень распилен на независимые плагины, общающиеся через Event Bus и RAM-блэкборды:
+* **`shard_cad`**: Чистый 3D-рендерер анатомии шарда и обработчик DND-лучей (Raycasting).
+* **`io_inspector`**: Роутер I/O матриц. Рендерит капсулы In/Out и инициирует `IoWirePayload` в `egui::Memory` при драге.
+* **`blueprint_editor`**: Инспектор параметров нейронов (GLIF/STDP).
+* **`anatomy_slicer`**: Управление плотностью и процентом высоты слоев.
 
-| Система | Файл | Роль |
-|:---|:---|:---|
-| `allocate_vram` / `sync_vram` | `vram.rs` | RTT текстура для оффскрин рендера |
-| `spawn_cad_camera` / `sync_camera_aspect` / `cad_camera_control` | `camera.rs` | Orbital camera на `RenderLayers::layer(2)` |
-| `spawn_cad_geometry` | `geometry.rs` | Меши слоёв + hover plane + якоря существующих связей |
-| `sync_hover_plane` | `geometry.rs` | Показ/скрытие + перемещение по Y на основе `active_3d_hover` |
-| `dnd_raycast` | `raycast.rs` | AABB raycast → drop handling → context menu |
-| `cleanup_cad_scene` | `cleanup.rs` | Despawn при выходе из Zone-уровня |
-
-### Шторки (panels.rs)
-
-Анимированные боковые панели через `egui::Area` + `Order::Foreground`:
-- **Левая** (INPUT MATRICES): капсулы входных портов с drag-source
-- **Правая** (OUTPUT MATRICES): капсулы выходных портов с drag-source
-
-Капсулы являются drag-source для DND. Визуальный провод рисуется в `Order::Tooltip` (поверх всего) с кубическим Безье и snap-прицелом при hover.
+**Связывание (Cross-Plugin DND Protocol):**
+1. Пользователь тянет капсулу порта из `io_inspector`. Плагин пишет `IoWirePayload` в глобальную память `egui` и рисует кривую Безье на слое `Order::Tooltip`.
+2. Курсор наводится на тайл `shard_cad`. Плагин читает блэкборд. Если видит летящий провод — делает рейкаст в стекло и подсвечивает Z-слой пересечения (Hover Plane).
+3. При отпускании (Drop) `shard_cad` шлет `OpenContextMenuEvent` для завершения подключения. Плагины не имеют прямых ссылок друг на друга.
 
 ---
 
@@ -252,5 +244,5 @@ node_editor.{action}|{param1}|{param2}|...
 | `connect_matrix\|{from}\|{port}\|{to}\|{to_port}\|{z}` | zones, ports, voxel_z | DND 3D проекция |
 | `clear_graph` | — | Модалка очистки |
 
-> [!WARNING]  
-> Символ `|` запрещён в именах зон и портов, иначе парсинг через `.split('|')` сломается. Текущая санитация: `retain(|c| !c.is_whitespace())` — покрывает пробелы, но не pipe.
+> [!WARNING]
+> Символ `|` категорически запрещён в именах зон и портов, иначе парсинг через `.split('|')` сломается при DTO-роутинге интентов. Текстовые поля (TextEdit) обязаны фильтровать ввод: `rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');`.
