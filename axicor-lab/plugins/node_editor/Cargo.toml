@@ -8,5 +8,6 @@ bevy = "0.13"
 bevy_egui = "0.27"
 layout-api = { path = "../../crates/layout-api" }
 genesis-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 toml_edit = "0.22"

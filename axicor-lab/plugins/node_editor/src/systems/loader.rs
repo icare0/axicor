@@ -33,6 +33,7 @@ pub struct LoadedGraph {
     pub node_outputs: HashMap<String, Vec<String>>,
     pub layout_cache: HashMap<String, (f32, f32)>, 
     pub shard_anatomies: HashMap<String, crate::domain::ShardAnatomy>,
+    pub shard_blueprints: HashMap<String, crate::domain::ShardBlueprint>, // [DOD FIX]
     pub voxel_size_um: f32,
     pub level:        EditorLevel, 
 }
@@ -110,6 +111,7 @@ pub fn apply_loaded_graph_system(
             session.node_outputs = result.node_outputs;
             session.layout_cache = result.layout_cache;
             session.shard_anatomies = result.shard_anatomies;
+            session.shard_blueprints = result.shard_blueprints; // [DOD FIX]
             session.voxel_size_um = result.voxel_size_um;
 
             // Синхронизируем I/O порты (пины) с реальными io.toml на диске (Cold Boot Fix)
@@ -134,6 +136,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
     let mut node_outputs = HashMap::new();
     let mut layout_cache = HashMap::new();
     let mut shard_anatomies = HashMap::new();
+    let mut shard_blueprints = HashMap::new(); // [DOD FIX]
     let mut voxel_size_um = 25.0; // Значение по умолчанию
     let mut father_id = String::new();
 
@@ -258,7 +261,19 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
                  if layers.is_empty() { layers.push(crate::domain::ShardLayer { name: "Main".to_string(), height_pct: 1.0 }); }
 
                  shard_anatomies.insert(zone.clone(), crate::domain::ShardAnatomy { w, d, h, layers });
-             }
+
+                 let blueprints_path = shard_path.parent().unwrap_or(Path::new(".")).join("blueprints.toml");
+                 if let Ok(content) = layout_api::overlay_read_to_string(&blueprints_path) {
+                     match content.parse::<toml::Value>() {
+                         Ok(doc_bp) => {
+                             if let Ok(bp) = doc_bp.try_into::<crate::domain::ShardBlueprint>() {
+                                 shard_blueprints.insert(zone.clone(), bp);
+                             }
+                         }
+                         Err(e) => error!("[Loader] blueprints.toml parse error in zone {}: {}", zone, e),
+                     }
+                 }
+                 }
 
              // Пытаемся загрузить лэйаут (через Overlay FS)
              let layout_path = path.parent().unwrap().join(format!("{}.layout.toml", path.file_name().unwrap().to_string_lossy().replace(".toml", "")));
@@ -287,6 +302,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
         node_outputs,
         layout_cache,
         shard_anatomies,
+        shard_blueprints, // [DOD FIX]
         voxel_size_um,
         level,
     }

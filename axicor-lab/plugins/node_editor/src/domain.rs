@@ -81,8 +81,52 @@ pub struct ProjectSession {
     pub node_outputs: HashMap<String, Vec<String>>,
     pub layout_cache: HashMap<String, (f32, f32)>, 
     pub shard_anatomies: HashMap<String, ShardAnatomy>,
+    pub shard_blueprints: HashMap<String, ShardBlueprint>, // [DOD FIX] RAM-кэш для Neuron Settings
     pub voxel_size_um: f32,
     pub is_dirty: bool,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct NeuronType {
+    pub name: String,
+    #[serde(default)] pub is_inhibitory: bool,
+    #[serde(default)] pub threshold: i32,
+    #[serde(default)] pub rest_potential: i32,
+    #[serde(default)] pub leak_rate: i32,
+    #[serde(default)] pub refractory_period: u8,
+    #[serde(default)] pub synapse_refractory_period: u8,
+    #[serde(default)] pub signal_propagation_length: u8,
+    #[serde(default)] pub spontaneous_firing_period_ticks: u32,
+    #[serde(default)] pub homeostasis_penalty: i32,
+    #[serde(default)] pub homeostasis_decay: u16,
+    #[serde(default)] pub adaptive_leak_max: i32,
+    #[serde(default)] pub adaptive_leak_gain: u16,
+    #[serde(default)] pub adaptive_mode: u8,
+    #[serde(default)] pub gsop_potentiation: u16,
+    #[serde(default)] pub gsop_depression: u16,
+    #[serde(default)] pub initial_synapse_weight: u16,
+    #[serde(default)] pub d1_affinity: u8,
+    #[serde(default)] pub d2_affinity: u8,
+    #[serde(default)] pub slot_decay_ltm: u8,
+    #[serde(default)] pub slot_decay_wm: u8,
+    #[serde(default)] pub ltm_slot_count: u8,
+    #[serde(default)] pub steering_fov_deg: f32,
+    #[serde(default)] pub steering_radius_um: f32,
+    #[serde(default)] pub steering_weight_inertia: f32,
+    #[serde(default)] pub steering_weight_sensor: f32,
+    #[serde(default)] pub steering_weight_jitter: f32,
+    #[serde(default)] pub growth_vertical_bias: f32,
+    #[serde(default)] pub type_affinity: f32,
+    #[serde(default)] pub sprouting_weight_distance: f32,
+    #[serde(default)] pub sprouting_weight_power: f32,
+    #[serde(default)] pub sprouting_weight_explore: f32,
+    #[serde(default)] pub inertia_curve: [u8; 16],
+    #[serde(default)] pub dendrite_whitelist: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ShardBlueprint {
+    pub neuron_type: Vec<NeuronType>,
 }
 
 #[derive(Event, Debug, Clone)]
@@ -119,6 +163,10 @@ pub enum TopologyMutation {
     Create(CreateTarget, Option<std::path::PathBuf>),
     Delete(DeleteTarget, Option<std::path::PathBuf>),
     Rename(RenameTarget, Option<std::path::PathBuf>),
+    UpdateBlueprint {
+        zone: String,
+        context_path: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Event, Clone, Debug)]
