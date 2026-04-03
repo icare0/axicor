@@ -14,5 +14,10 @@ impl PluginGroup for AllPlugins {
             .add(connectome_viewer::ConnectomeViewerPlugin)
             .add(code_editor::CodeEditorPlugin)
             .add(ai_copilot::AiCopilotPlugin)
+            .add(shard_cad::ShardCadPlugin)
+            .add(io_inspector::IoInspectorPlugin)
+            .add(blueprint_editor::BlueprintEditorPlugin)
+            .add(anatomy_slicer::AnatomySlicerPlugin)
+            .add(matrix_editor::MatrixEditorPlugin)
     }
 }

@@ -12,6 +12,11 @@ connectome-viewer = { path = "plugins/connectome_viewer" }
 node-editor = { path = "plugins/node_editor" }
 code_editor = { path = "plugins/code_editor" }
 ai-copilot = { path = "plugins/ai_copilot" }
+shard_cad = { package = "axicor-shard-cad", path = "plugins/shard_cad" }
+io_inspector = { package = "axicor-io-inspector", path = "plugins/io_inspector" }
+blueprint_editor = { package = "axicor-blueprint-editor", path = "plugins/blueprint_editor" }
+anatomy_slicer = { package = "axicor-anatomy-slicer", path = "plugins/anatomy_slicer" }
+matrix_editor = { package = "axicor-matrix-editor", path = "plugins/matrix_editor" }
 layout-api = { path = "crates/layout-api" }
 bytemuck = { version = "1.15", features = ["derive"] }
 genesis-core = { workspace = true }

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use egui_tiles::{LinearDir, Tile};
 
-use crate::layout::domain::{WorkspaceState, WindowDragState, TreeCommands};
+use crate::layout::domain::{WorkspaceState, WindowDragState, TreeCommands, Pane};
 use layout_api::{DragIntent, TreeCommand, WindowDragRequest, DragSource, TopologyCache};
 
 // --- Пороги ---
@@ -55,24 +55,31 @@ pub fn evaluate_drag_intents_system(
     let current_pos = drag_request.current_pos;
     let delta = current_pos - start_pos;
 
-    // Фиксация оси после преодоления мёртвой зоны
-    if drag_state.drag_axis.is_none() && delta.length_sq() > AXIS_LOCK_DIST_SQ {
+    // [DOD FIX] Фиксация оси ТОЛЬКО для угловых триггеров (Split/Merge)
+    if drag_request.source == DragSource::EdgeTrigger && drag_state.drag_axis.is_none() && delta.length_sq() > AXIS_LOCK_DIST_SQ {
         let horizontal = delta.x.abs() > delta.y.abs();
         drag_state.drag_axis   = Some(if horizontal { LinearDir::Horizontal } else { LinearDir::Vertical });
         drag_state.drag_normal = Some(if horizontal { delta.x.signum() } else { delta.y.signum() });
     }
 
-    let (Some(axis), Some(normal)) = (drag_state.drag_axis, drag_state.drag_normal) else { return };
+    let active_ws = workspace.active_workspace.clone();
+    let Some(tree) = workspace.trees.get(&active_ws) else { return };
 
     drag_state.intent = match drag_request.source {
         DragSource::Header => {
+            // Swap не требует фиксации оси!
             compute_swap_intent(current_pos, src_tile, &topology)
         }
         DragSource::EdgeTrigger => {
-            if src_rect.contains(current_pos) {
-                compute_split_intent(delta, axis, normal, current_pos, src_rect, src_tile, &workspace)
+            // Split/Merge требуют прохождения мертвой зоны в 10px для вычисления оси
+            if let (Some(axis), Some(normal)) = (drag_state.drag_axis, drag_state.drag_normal) {
+                if src_rect.contains(current_pos) {
+                    compute_split_intent(delta, axis, normal, current_pos, src_rect, src_tile, tree)
+                } else {
+                    compute_merge_intent(delta, axis, current_pos, src_rect, src_tile, &topology)
+                }
             } else {
-                compute_merge_intent(delta, axis, current_pos, src_rect, src_tile, &topology)
+                DragIntent::None
             }
         }
     };
@@ -114,7 +121,7 @@ fn compute_split_intent(
     current_pos: egui::Pos2,
     src_rect: egui::Rect,
     src_tile: egui_tiles::TileId,
-    workspace: &WorkspaceState,
+    tree: &egui_tiles::Tree<Pane>,
 ) -> DragIntent {
     let size = axis_size(src_rect, axis);
     if axis_component(delta, axis).abs() < SPLIT_THRESHOLD || size <= SPLIT_MIN_SIZE {
@@ -129,7 +136,7 @@ fn compute_split_intent(
     let min_f = SPLIT_THRESHOLD / size;
     let fraction = raw_fraction.clamp(min_f, 1.0 - min_f);
 
-    let plugin_id = workspace.tree.tiles.get(src_tile)
+    let plugin_id = tree.tiles.get(src_tile)
         .and_then(|t| if let Tile::Pane(p) = t { Some(p.plugin_id.clone()) } else { None })
         .unwrap_or_else(|| FALLBACK_PLUGIN.to_string());
 

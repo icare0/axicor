@@ -19,20 +19,23 @@ pub fn execute_window_commands_system(
     mut images: ResMut<Assets<Image>>,
     time: Res<Time>,
 ) {
-    for cmd in commands_queue.queue.drain(..) {
-        match cmd {
-            TreeCommand::Split { target, axis, fraction, insert_before, plugin_id } =>
-                handle_split(&mut commands, &mut workspace, &topology, &mut images, &time,
-                             target, axis, fraction, insert_before, &plugin_id),
+    let active_ws = workspace.active_workspace.clone();
+    if let Some(tree) = workspace.trees.get_mut(&active_ws) {
+        for cmd in commands_queue.queue.drain(..) {
+            match cmd {
+                TreeCommand::Split { target, axis, fraction, insert_before, plugin_id } =>
+                    handle_split(&mut commands, tree, &topology, &mut images, &time,
+                                target, axis, fraction, insert_before, &plugin_id),
 
-            TreeCommand::Merge { survivor, victim } =>
-                handle_merge(&mut workspace, survivor, victim),
+                TreeCommand::Merge { survivor, victim } =>
+                    handle_merge(tree, survivor, victim),
 
-            TreeCommand::SwapPanes { src, dst } =>
-                handle_swap(&mut workspace, src, dst),
+                TreeCommand::SwapPanes { src, dst } =>
+                    handle_swap(tree, src, dst),
 
-            TreeCommand::ChangeDomain { tile_id, new_domain } =>
-                handle_change_domain(&mut workspace, tile_id, &new_domain),
+                TreeCommand::ChangeDomain { tile_id, new_domain } =>
+                    handle_change_domain(tree, tile_id, &new_domain),
+            }
         }
     }
 }
@@ -43,7 +46,7 @@ pub fn execute_window_commands_system(
 
 fn handle_split(
     commands: &mut Commands,
-    workspace: &mut WorkspaceState,
+    tree: &mut egui_tiles::Tree<Pane>,
     topology: &TopologyCache,
     images: &mut Assets<Image>,
     time: &Time,
@@ -61,10 +64,10 @@ fn handle_split(
 
     spawn_pane_entity(commands, images, &new_plugin_id, rect.width(), rect.height());
 
-    let Some(Tile::Pane(old_pane)) = workspace.tree.tiles.get(target).cloned() else { return };
+    let Some(Tile::Pane(old_pane)) = tree.tiles.get(target).cloned() else { return };
 
-    let old_id = workspace.tree.tiles.insert_pane(old_pane);
-    let new_id = workspace.tree.tiles.insert_pane(pane);
+    let old_id = tree.tiles.insert_pane(old_pane);
+    let new_id = tree.tiles.insert_pane(pane);
 
     let (children, old_share, new_share) = if insert_before {
         (vec![new_id, old_id], 1.0 - fraction, fraction)
@@ -75,12 +78,12 @@ fn handle_split(
     let mut linear = Linear { dir: axis, children, ..default() };
     linear.shares.set_share(old_id, old_share);
     linear.shares.set_share(new_id, new_share);
-    workspace.tree.tiles.insert(target, Tile::Container(Container::Linear(linear)));
+    tree.tiles.insert(target, Tile::Container(Container::Linear(linear)));
 }
 
-fn handle_merge(workspace: &mut WorkspaceState, survivor: egui_tiles::TileId, victim: egui_tiles::TileId) {
+fn handle_merge(tree: &mut egui_tiles::Tree<Pane>, survivor: egui_tiles::TileId, victim: egui_tiles::TileId) {
     // O(N) карта родителей
-    let parent_map = build_parent_map(&workspace.tree.tiles);
+    let parent_map = build_parent_map(&tree.tiles);
 
     let Some(&victim_parent) = parent_map.get(&victim) else { return };
 
@@ -92,31 +95,31 @@ fn handle_merge(workspace: &mut WorkspaceState, survivor: egui_tiles::TileId, vi
     }
 
     // Переливаем share жертвы в survivor и отцепляем
-    if let Some(Tile::Container(Container::Linear(lin))) = workspace.tree.tiles.get_mut(victim_parent) {
+    if let Some(Tile::Container(Container::Linear(lin))) = tree.tiles.get_mut(victim_parent) {
         let v_share = lin.shares[victim];
         let s_share = lin.shares[survivor_branch];
         lin.shares.set_share(survivor_branch, s_share + v_share);
         lin.children.retain(|&c| c != victim);
     }
 
-    workspace.tree.tiles.remove(victim);
-    workspace.tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
+    tree.tiles.remove(victim);
+    tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
 }
 
-fn handle_swap(workspace: &mut WorkspaceState, src: egui_tiles::TileId, dst: egui_tiles::TileId) {
+fn handle_swap(tree: &mut egui_tiles::Tree<Pane>, src: egui_tiles::TileId, dst: egui_tiles::TileId) {
     let (Some(Tile::Pane(src_pane)), Some(Tile::Pane(dst_pane))) = (
-        workspace.tree.tiles.get(src).cloned(),
-        workspace.tree.tiles.get(dst).cloned(),
+        tree.tiles.get(src).cloned(),
+        tree.tiles.get(dst).cloned(),
     ) else { return };
 
-    if let Some(Tile::Pane(p)) = workspace.tree.tiles.get_mut(src) { *p = dst_pane; }
-    if let Some(Tile::Pane(p)) = workspace.tree.tiles.get_mut(dst) { *p = src_pane; }
+    if let Some(Tile::Pane(p)) = tree.tiles.get_mut(src) { *p = dst_pane; }
+    if let Some(Tile::Pane(p)) = tree.tiles.get_mut(dst) { *p = src_pane; }
 }
 
-fn handle_change_domain(workspace: &mut WorkspaceState, tile_id: egui_tiles::TileId, new_domain: &str) {
+fn handle_change_domain(tree: &mut egui_tiles::Tree<Pane>, tile_id: egui_tiles::TileId, new_domain: &str) {
     let base = base_domain(new_domain);
     let pane = Pane { plugin_id: new_domain.to_string(), title: domain_title(base).to_string() };
-    if let Some(Tile::Pane(p)) = workspace.tree.tiles.get_mut(tile_id) {
+    if let Some(Tile::Pane(p)) = tree.tiles.get_mut(tile_id) {
         *p = pane;
     }
 }

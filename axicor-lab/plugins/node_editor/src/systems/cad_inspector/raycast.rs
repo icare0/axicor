@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_egui::EguiContexts;
 use crate::domain::{NodeGraphUiState, BrainTopologyGraph, ShardCadEntity, EditorLevel};
 
 fn intersect_shard(
@@ -28,6 +29,7 @@ fn intersect_shard(
 }
 
 pub fn dnd_raycast_system(
+    mut contexts: EguiContexts,
     mut ui_states: Query<(Entity, &mut NodeGraphUiState)>,
     cameras: Query<(&Camera, &GlobalTransform), With<ShardCadEntity>>,
     mut ctx_menu_events: EventWriter<layout_api::OpenContextMenuEvent>,
@@ -50,33 +52,38 @@ pub fn dnd_raycast_system(
         }
     }
 
-    // 1. Обработка финального броска (Drop)
-    if let Some((src_zone, src_port, screen_pos, local_pos, is_input)) = state.pending_3d_drop.take() {
-        if let Some(ray) = camera.viewport_to_world(cam_transform, bevy::math::Vec2::new(local_pos.x, local_pos.y)) {
-            if let Some((_, voxel_z)) = intersect_shard(ray, w, h, d) {
-                let (from_zone, from_port, to_zone, to_port) = if is_input {
-                    // Тянули от входа, значит бросили на ИСТОЧНИК
-                    (target_zone.clone(), "out".to_string(), src_zone.clone(), src_port.clone())
-                } else {
-                    // Тянули от выхода, значит бросили на ПРИЕМНИК
-                    (src_zone.clone(), src_port.clone(), target_zone.clone(), "in".to_string())
-                };
+    // 1. Обработка финального броска (Drop) через глобальный блэкборд
+    let payload_id = bevy_egui::egui::Id::new("io_wire_drag");
+    let ctx = contexts.ctx_mut();
+    
+    if ctx.input(|i| i.pointer.any_released()) {
+        if let Some(payload) = ctx.memory(|m| m.data.get_temp::<layout_api::IoWirePayload>(payload_id)) {
+            if let Some(mouse_pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                if let Some(ray) = camera.viewport_to_world(cam_transform, bevy::math::Vec2::new(mouse_pos.x, mouse_pos.y)) {
+                    if let Some((_, voxel_z)) = intersect_shard(ray, w, h, d) {
+                        let (from_zone, from_port, to_zone, to_port) = if payload.is_input {
+                            (target_zone.clone(), "out".to_string(), payload.zone.clone(), payload.port.clone())
+                        } else {
+                            (payload.zone.clone(), payload.port.clone(), target_zone.clone(), "in".to_string())
+                        };
 
-                ctx_menu_events.send(layout_api::OpenContextMenuEvent {
-                    target_window: window_entity,
-                    position: screen_pos,
-                    actions: vec![
-                        layout_api::MenuAction {
-                            action_id: format!("node_editor.connect_matrix|{}|{}|{}|{}|{}", from_zone, from_port, to_zone, to_port, voxel_z),
-                            label: format!("🔗 Connect to Z-Voxel {}", voxel_z),
-                        },
-                        layout_api::MenuAction {
-                            action_id: format!("node_editor.connect_global|{}|{}|{}", from_zone, from_port, to_zone),
-                            label: "🌐 Map to Global UV Atlas".into(),
-                        }
-                    ],
-                });
-                info!("[DND] Raycast Hit Drop: Voxel Z={}", voxel_z);
+                        ctx_menu_events.send(layout_api::OpenContextMenuEvent {
+                            target_window: window_entity,
+                            position: mouse_pos,
+                            actions: vec![
+                                layout_api::MenuAction {
+                                    action_id: format!("node_editor.connect_matrix|{}|{}|{}|{}|{}", from_zone, from_port, to_zone, to_port, voxel_z),
+                                    label: format!("🔗 Connect to Z-Voxel {}", voxel_z),
+                                },
+                                layout_api::MenuAction {
+                                    action_id: format!("node_editor.connect_global|{}|{}|{}", from_zone, from_port, to_zone),
+                                    label: "🌐 Map to Global UV Atlas".into(),
+                                }
+                            ],
+                        });
+                        info!("[DND] Cross-Plugin Raycast Hit Drop: Voxel Z={}", voxel_z);
+                    }
+                }
             }
         }
     }

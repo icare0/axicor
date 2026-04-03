@@ -8,8 +8,10 @@ pub fn draw_drag_intent_overlay(
     drag_request: &WindowDragRequest,
     tiles: &bevy::utils::HashMap<egui_tiles::TileId, egui::Rect>,
 ) {
-    let fg_painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, ui.id().with("drag_preview")));
     let overlay_color = egui::Color32::from_white_alpha(15);
+    
+    // [DOD FIX] Tooltip LayerPainter гарантированно рисует поверх всех окон без сжатия маской
+    let fg_painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, ui.id().with("drag_preview")));
 
     match &drag_state.intent {
         DragIntent::Split { axis, insert_before, .. } => {
@@ -21,14 +23,12 @@ pub fn draw_drag_intent_overlay(
         }
         DragIntent::Merge { victim } => {
             if let Some(&victim_rect) = tiles.get(victim) {
-                // Заливка окна-жертвы (показывает, что оно будет поглощено)
                 fg_painter.rect_filled(victim_rect.shrink(5.0), 10.0, overlay_color);
             }
         }
         DragIntent::Swap { victim } => {
             if let Some(&victim_rect) = tiles.get(victim) {
-                // Рамка вокруг окна-жертвы (показывает, что они поменяются местами)
-                fg_painter.rect_stroke(victim_rect.shrink(5.0), 8.0, 
+                fg_painter.rect_stroke(victim_rect.shrink(5.0), 8.0,
                     egui::Stroke::new(2.0, egui::Color32::from_white_alpha(80)));
             }
         }
@@ -46,23 +46,15 @@ fn draw_split_preview(
 ) {
     if axis == egui_tiles::LinearDir::Horizontal {
         let x = pos.x.clamp(rect.min.x + 100.0, rect.max.x - 100.0);
-        
-        // Слой Z-1: Заливка выделяемой зоны (shrink 5.0 сохраняет зазоры)
         let split_rect = if insert_before { egui::Rect::from_min_max(rect.left_top(), egui::pos2(x, rect.max.y)) }
                          else { egui::Rect::from_min_max(egui::pos2(x, rect.min.y), rect.right_bottom()) };
         painter.rect_filled(split_rect.shrink(5.0), 5.0, color);
-        
-        // Слой Z: Белый разделитель поверх заливки
         painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], egui::Stroke::new(3.0, egui::Color32::WHITE));
     } else {
         let y = pos.y.clamp(rect.min.y + 100.0, rect.max.y - 100.0);
-        
-        // Слой Z-1: Заливка выделяемой зоны
         let split_rect = if insert_before { egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.max.x, y)) }
                          else { egui::Rect::from_min_max(egui::pos2(rect.min.x, y), rect.right_bottom()) };
         painter.rect_filled(split_rect.shrink(5.0), 5.0, color);
-        
-        // Слой Z: Белый разделитель поверх заливки
         painter.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], egui::Stroke::new(3.0, egui::Color32::WHITE));
     }
 }

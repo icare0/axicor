@@ -1,6 +1,13 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShardPopout {
+    Io,
+    Blueprints,
+    Anatomy,
+}
+
 #[derive(Component)]
 pub struct NodeGraphUiState {
     pub pan: bevy_egui::egui::Vec2,
@@ -29,6 +36,7 @@ pub struct NodeGraphUiState {
     pub pending_3d_drop: Option<(String, String, bevy_egui::egui::Pos2, bevy_egui::egui::Pos2, bool)>,
     pub dragging_over_3d: Option<bevy_egui::egui::Pos2>, 
     pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>, 
+    pub active_popout: Option<ShardPopout>,
 }
 
 impl Default for NodeGraphUiState {
@@ -58,6 +66,7 @@ impl Default for NodeGraphUiState {
             pending_3d_drop: None,
             dragging_over_3d: None,
             active_3d_hover: None,
+            active_popout: None,
         }
     }
 }

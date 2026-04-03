@@ -8,6 +8,25 @@ pub const DOMAIN_EXPLORER: &str = "axicor.explorer";
 pub const DOMAIN_NODE_ED:  &str = "axicor.node_editor";
 pub const DOMAIN_CODE_EDITOR: &str = "domain.code_editor";
 pub const DOMAIN_AI_COPILOT: &str = "domain.ai_copilot";
+pub const DOMAIN_SHARD_CAD: &str = "axicor.shard_cad";
+pub const DOMAIN_IO_INSPECTOR: &str = "axicor.io_inspector";
+pub const DOMAIN_BLUEPRINT_EDITOR: &str = "axicor.blueprint_editor";
+pub const DOMAIN_ANATOMY_SLICER: &str = "axicor.anatomy_slicer";
+pub const DOMAIN_MATRIX_EDITOR: &str = "axicor.matrix_editor";
+
+// [DOD FIX] Единый DTO-реестр доступных плагинов. Single Source of Truth.
+pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
+    (DOMAIN_EXPLORER, "Project Explorer"),
+    (DOMAIN_VIEWPORT, "Connectome Viewer"),
+    (DOMAIN_NODE_ED,  "Node Editor"),
+    (DOMAIN_CODE_EDITOR, "Code Editor"),
+    (DOMAIN_AI_COPILOT, "AI Copilot"),
+    (DOMAIN_SHARD_CAD, "Shard CAD"),
+    (DOMAIN_IO_INSPECTOR, "I/O Router"),
+    (DOMAIN_BLUEPRINT_EDITOR, "Neuron Settings"),
+    (DOMAIN_ANATOMY_SLICER, "Shard Slicer"),
+    (DOMAIN_MATRIX_EDITOR, "Matrix Editor"),
+];
 
 // Отражает размер системного DND-якоря (6.5px offset + 25px width + 10px gap)
 use std::path::PathBuf;
@@ -264,8 +283,13 @@ pub fn domain_title(base: &str) -> &'static str {
     match base {
         DOMAIN_VIEWPORT => "Connectome",
         DOMAIN_EXPLORER => "Explorer",
-        DOMAIN_NODE_ED  => "Topology Editor",
+        DOMAIN_NODE_ED  => "Node Editor",
         DOMAIN_CODE_EDITOR => "Code Editor",
+        DOMAIN_SHARD_CAD => "Shard CAD",
+        DOMAIN_IO_INSPECTOR => "I/O Router",
+        DOMAIN_BLUEPRINT_EDITOR => "Neuron Settings",
+        DOMAIN_ANATOMY_SLICER => "Shard Slicer",
+        DOMAIN_MATRIX_EDITOR => "Matrix Editor",
         _               => "Plugin",
     }
 }
@@ -287,4 +311,12 @@ pub fn overlay_read_to_string(cold_path: &std::path::Path) -> Result<String, std
     } else {
         std::fs::read_to_string(cold_path)
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct IoWirePayload {
+    pub zone: String,
+    pub port: String,
+    pub is_input: bool,
+    pub start_pos: bevy_egui::egui::Pos2,
 }

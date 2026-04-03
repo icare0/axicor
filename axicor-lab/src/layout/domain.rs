@@ -32,7 +32,18 @@ pub struct Pane {
 
 #[derive(Resource)]
 pub struct WorkspaceState {
-    pub tree: egui_tiles::Tree<Pane>,
+    pub active_workspace: String,
+    pub workspace_order: Vec<String>,
+    pub trees: bevy::utils::HashMap<String, egui_tiles::Tree<Pane>>,
+    pub renaming_workspace: Option<String>,
+    pub rename_buffer: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SavedLayout {
+    pub active_workspace: String,
+    pub workspace_order: Vec<String>,
+    pub trees: bevy::utils::HashMap<String, egui_tiles::Tree<Pane>>,
 }
 
 

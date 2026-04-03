@@ -1,7 +1,6 @@
 use egui_tiles::{Behavior, TileId, UiResponse};
 use bevy_egui::egui;
 use crate::layout::domain::{Pane, TreeCommands};
-use crate::layout::systems::input::window_input::edge_triggers;
 use layout_api::{AllocatedPanes, TopologyCache, WindowDragRequest};
 
 const MIN_TILE_SIZE:    f32 = 95.0;
@@ -33,7 +32,7 @@ impl<'a> Behavior<Pane> for PaneBehavior<'a> {
         ui.painter().rect_filled(payload_rect, PANE_ROUNDING, PANE_BG);
 
         // DOD FIX: Изолируем логику якоря и пробиваем Z-Index плагинов
-        handle_system_dnd_anchor(ui, tile_id, payload_rect, self.drag_request, self.tree_commands);
+        handle_system_dnd_anchor(ui, tile_id, payload_rect, self.drag_request, self.tree_commands, &pane.plugin_id);
 
         draw_trigger_highlights(ui, payload_rect);
         UiResponse::None
@@ -45,32 +44,32 @@ impl<'a> Behavior<Pane> for PaneBehavior<'a> {
 }
 
 fn draw_trigger_highlights(ui: &mut egui::Ui, rect: egui::Rect) {
-    let triggers = edge_triggers(rect);
-    let pointer_pos = ui.ctx().pointer_hover_pos();
+    let triggers = crate::layout::systems::input::window_input::edge_triggers(rect);
     
-    // DOD FIX: O(1) поиск без аллокаций. Определяем, наведен ли курсор на один из триггеров
+    // [DOD FIX] Читаем абсолютную позицию курсора, игнорируя перехват кликов плагинами
+    let pointer_pos = ui.ctx().input(|i| i.pointer.latest_pos());
     let hovered_idx = pointer_pos.and_then(|p| triggers.iter().position(|t| t.contains(p)));
 
+    // [DOD FIX] Прямой рендер поверх масок отсечения
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("trig_fg")));
 
     for (idx, &trigger) in triggers.iter().enumerate() {
         let is_hovered = hovered_idx == Some(idx);
-        
-        // 10% видимости (alpha 25) по умолчанию, 50% (alpha 127) при наведении
-        let alpha = if is_hovered { 127 } else { 25 }; 
+        let alpha = if is_hovered { 127 } else { 25 };
         let trigger_color = egui::Color32::from_white_alpha(alpha);
 
         let points = match idx {
-            0 => vec![trigger.left_top(), trigger.right_top(), trigger.left_bottom()],       // NW
-            1 => vec![trigger.left_top(), trigger.right_top(), trigger.right_bottom()],      // NE
-            2 => vec![trigger.left_top(), trigger.right_bottom(), trigger.left_bottom()],    // SW
-            3 => vec![trigger.right_top(), trigger.right_bottom(), trigger.left_bottom()],   // SE
+            0 => vec![trigger.left_top(), trigger.right_top(), trigger.left_bottom()],
+            1 => vec![trigger.left_top(), trigger.right_top(), trigger.right_bottom()],
+            2 => vec![trigger.left_top(), trigger.right_bottom(), trigger.left_bottom()],
+            3 => vec![trigger.right_top(), trigger.right_bottom(), trigger.left_bottom()],
             _ => unreachable!(),
         };
 
         painter.add(egui::Shape::convex_polygon(points, trigger_color, egui::Stroke::NONE));
     }
 }
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -81,63 +80,64 @@ fn handle_system_dnd_anchor(
     payload_rect: egui::Rect,
     drag_request: &mut WindowDragRequest,
     tree_commands: &mut TreeCommands,
+    current_plugin_id: &str,
 ) {
     let btn_size = egui::vec2(25.0, 15.0);
     let offset = 6.5;
     let btn_rect = egui::Rect::from_min_size(payload_rect.min + egui::vec2(offset, offset), btn_size);
 
-    let mut is_hovered = false;
+    // [DOD FIX] Абсолютный ручной Hit-Test (обход кражи фокуса плагинами)
+    let pointer = ui.ctx().input(|i| i.pointer.clone());
+    let is_hovered = pointer.latest_pos().is_some_and(|p| btn_rect.contains(p));
 
-    // DOD FIX: Area пробивает z-index плагинов.
-    egui::Area::new(ui.id().with(tile_id).with("sys_anchor_area"))
-        .fixed_pos(btn_rect.min)
-        .order(egui::Order::Foreground)
-        .interactable(true)
-        .show(ui.ctx(), |ui| {
-            // DOD FIX: egui ВСЕГДА использует абсолютные координаты экрана. 
-            // Передаём btn_rect напрямую, чтобы хитбокс совпал с визуалом.
-            let response = ui.interact(btn_rect, ui.id().with("sys_btn"), egui::Sense::click_and_drag());
+    // 2. Логика DND (Swap Intent) - мгновенный старт при зажатии ЛКМ
+    if is_hovered && pointer.primary_pressed() {
+        if let Some(pos) = pointer.interact_pos() {
+            drag_request.active      = true;
+            drag_request.source      = layout_api::DragSource::Header;
+            drag_request.target_tile = Some(tile_id);
+            drag_request.start_pos   = pos;
+        }
+    }
 
-            is_hovered = response.hovered();
+    // 3. Выпадающее меню
+    let popup_id = ui.id().with(tile_id).with("domain_switcher");
+    // Открываем меню только если клик произошел над якорем
+    if is_hovered && pointer.primary_clicked() { 
+        ui.memory_mut(|m| m.toggle_popup(popup_id)); 
+    }
 
-            // 1. Интент на Swap (Drag)
-            if response.drag_started() {
-                if let Some(pos) = ui.ctx().pointer_interact_pos() {
-                    drag_request.active      = true;
-                    drag_request.source      = layout_api::DragSource::Header;
-                    drag_request.target_tile = Some(tile_id);
-                    drag_request.start_pos   = pos;
-                }
-            }
+    // Фиктивный response чисто для позиционирования выпадающего меню egui
+    let response = ui.interact(btn_rect, ui.id().with("sys_btn_fake"), egui::Sense::hover());
 
-            // 2. Интент на смену домена (Click -> Popup)
-            let popup_id = ui.id().with(tile_id).with("domain_switcher");
-            if response.clicked() {
-                ui.memory_mut(|m| m.toggle_popup(popup_id));
-            }
+    egui::popup_below_widget(ui, popup_id, &response, |ui| {
+        ui.set_min_width(160.0);
+        let mut domains = layout_api::AVAILABLE_PLUGINS.to_vec();
+        let base_current = layout_api::base_domain(current_plugin_id);
 
-            egui::popup_below_widget(ui, popup_id, &response, |ui| {
-                ui.set_min_width(140.0);
-                let domains = [
-                    (layout_api::DOMAIN_EXPLORER, "Project Explorer"),
-                    (layout_api::DOMAIN_VIEWPORT, "Connectome Viewer"),
-                    (layout_api::DOMAIN_NODE_ED,  "Topology Editor"),
-                    (layout_api::DOMAIN_CODE_EDITOR, "Code Editor"),
-                    (layout_api::DOMAIN_AI_COPILOT, "AI Copilot"),
-                ];
-                for (dom_id, label) in domains {
-                    if ui.button(label).clicked() {
-                        tree_commands.queue.push(layout_api::TreeCommand::ChangeDomain {
-                            tile_id,
-                            new_domain: dom_id.to_string(),
-                        });
-                        ui.memory_mut(|m| m.close_popup());
+        if let Some(pos) = domains.iter().position(|(id, _)| *id == base_current) {
+            let current = domains.remove(pos);
+            domains.insert(0, current);
+        }
+
+        egui::ScrollArea::vertical().max_height(250.0).show(ui, |ui| {
+            for (dom_id, label) in domains {
+                let is_active = dom_id == base_current;
+                let mut text = egui::RichText::new(label);
+                if is_active { text = text.strong().color(egui::Color32::WHITE); } 
+                else { text = text.color(egui::Color32::LIGHT_GRAY); }
+
+                if ui.selectable_label(is_active, text).clicked() {
+                    if !is_active {
+                        tree_commands.queue.push(layout_api::TreeCommand::ChangeDomain { tile_id, new_domain: dom_id.to_string() });
                     }
+                    ui.memory_mut(|m| m.close_popup());
                 }
-            });
+            }
         });
+    });
 
-    // Отрисовка якоря на слое Foreground
+    // 4. Отрисовка якоря прямым доступом к VRAM экрану (отсечение нас больше не волнует)
     let fg_painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("wm_fg_anchor")));
     let bg_color = if is_hovered { egui::Color32::from_rgb(70, 70, 75) } else { egui::Color32::from_rgb(50, 50, 55) };
     let stroke_color = egui::Color32::from_rgb(80, 80, 85);

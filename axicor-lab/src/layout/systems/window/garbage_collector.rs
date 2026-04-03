@@ -14,7 +14,10 @@ pub fn window_garbage_collector_system(
     let Some(ctx) = contexts.try_ctx_mut() else { return };
     if !ctx.input(|i| i.pointer.any_released()) { return; }
 
-    let pane_count = workspace.tree.tiles.iter()
+    let active_ws = workspace.active_workspace.clone();
+    let Some(tree) = workspace.trees.get_mut(&active_ws) else { return };
+
+    let pane_count = tree.tiles.iter()
         .filter(|(_, t)| matches!(t, Tile::Pane(_)))
         .count();
 
@@ -30,7 +33,7 @@ pub fn window_garbage_collector_system(
     if to_remove.is_empty() { return; }
 
     for id in to_remove {
-        workspace.tree.tiles.remove(id);
+        tree.tiles.remove(id);
     }
-    workspace.tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
+    tree.simplify(&SimplificationOptions { all_panes_must_have_tabs: false, ..default() });
 }

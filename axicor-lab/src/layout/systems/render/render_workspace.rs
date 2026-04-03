@@ -3,7 +3,6 @@ use bevy_egui::{EguiContexts, egui};
 use crate::layout::domain::{WorkspaceState, OsWindowCommand, WindowDragState, TreeCommands, SaveDefaultLayoutEvent};
 use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent};
 use crate::layout::behavior::PaneBehavior;
-use crate::layout::overlay::draw_drag_intent_overlay;
 
 // --- Палитра ---
 const COLOR_BG:       egui::Color32 = egui::Color32::from_rgb(20, 20, 22);
@@ -31,25 +30,30 @@ pub fn render_workspace_system(
     allocated_panes.rects.clear();
     topology.tiles.clear();
 
-    render_top_bar(ctx, &mut os_cmd, &mut exit, &mut create_model_ev, &mut save_layout_ev);
-
-    let mut behavior = PaneBehavior {
-        allocated_panes: &mut allocated_panes,
-        topology: &mut topology,
-        drag_request: &mut drag_request,
-        tree_commands: &mut tree_commands, // <-- ДОБАВИТЬ СЮДА
-    };
+    render_top_bar(ctx, &mut workspace, &mut os_cmd, &mut exit, &mut create_model_ev, &mut save_layout_ev);
 
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(COLOR_BG).inner_margin(3.0))
+        .frame(egui::Frame::none().fill(COLOR_BG))
         .show(ctx, |ui| {
-            ui.scope(|ui| {
-                apply_splitter_visuals(ui);
-                workspace.tree.ui(&mut behavior, ui);
-            });
+            let active_ws = workspace.active_workspace.clone();
+            if let Some(tree) = workspace.trees.get_mut(&active_ws) {
+                let mut behavior = PaneBehavior {
+                    allocated_panes: &mut allocated_panes,
+                    topology: &mut topology,
+                    drag_request: &mut drag_request,
+                    tree_commands: &mut tree_commands,
+                };
+                tree.ui(&mut behavior, ui);
+            }
 
-            if drag_state.is_dragging {
-                draw_drag_intent_overlay(ui, &drag_state, behavior.drag_request, &behavior.topology.tiles);
+            // [DOD FIX] Этот блок ЖИЗНЕННО НЕОБХОДИМ для рендера анимаций DND.
+            if drag_request.active || drag_state.is_dragging {
+                crate::layout::overlay::draw_drag_intent_overlay(
+                    ui, 
+                    &drag_state, 
+                    &drag_request, 
+                    &topology.tiles
+                );
             }
         });
 }
@@ -66,15 +70,9 @@ fn apply_visuals(ctx: &egui::Context) {
     ctx.set_visuals(v);
 }
 
-fn apply_splitter_visuals(ui: &mut egui::Ui) {
-    let hover_stroke = egui::Stroke::new(1.0, egui::Color32::from_white_alpha(38));
-    ui.visuals_mut().widgets.noninteractive.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-    ui.visuals_mut().widgets.hovered.bg_stroke         = hover_stroke;
-    ui.visuals_mut().widgets.active.bg_stroke          = hover_stroke;
-}
-
 fn render_top_bar(
     ctx: &egui::Context,
+    workspace: &mut WorkspaceState,
     os_cmd: &mut EventWriter<OsWindowCommand>,
     exit: &mut EventWriter<bevy::app::AppExit>,
     create_model_ev: &mut EventWriter<CreateNewModelEvent>,
@@ -90,19 +88,19 @@ fn render_top_bar(
             ui.visuals_mut().widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 45, 50);
 
             ui.horizontal(|ui| {
-                // DOD FIX: Кликабельный квадрат логотипа (16x16, отступы берутся из inner_margin(4.0))
+                // Логотип
                 let logo_size = 16.0;
                 let (logo_rect, logo_resp) = ui.allocate_exact_size(egui::vec2(logo_size, logo_size), egui::Sense::click());
                 let logo_color = if logo_resp.hovered() { egui::Color32::from_rgb(100, 100, 105) } else { egui::Color32::from_rgb(60, 60, 65) };
                 ui.painter().rect_filled(logo_rect, 2.0, logo_color);
-                
+
                 if logo_resp.clicked() {
                     info!("[WM] Logo clicked");
                 }
 
-                // Тройной отступ вправо (базовый margin 4.0 * 3)
                 ui.add_space(12.0);
 
+                // 1. СИСТЕМНОЕ МЕНЮ (Слева, перед вкладками)
                 ui.menu_button("File", |ui| {
                     if ui.button("Create Model").clicked() {
                         create_model_ev.send(CreateNewModelEvent {
@@ -110,8 +108,6 @@ fn render_top_bar(
                         });
                         ui.close_menu();
                     }
-
-                    // DOD FIX: Восстановленная кнопка сохранения лейаута
                     if ui.button("Save Default Layout").clicked() {
                         save_layout_ev.send(SaveDefaultLayoutEvent);
                         ui.close_menu();
@@ -120,6 +116,100 @@ fn render_top_bar(
                 ui.menu_button("View", |_| {});
                 ui.menu_button("Settings", |_| {});
 
+                ui.add_space(8.0);
+                ui.painter().vline(ui.cursor().min.x, ui.max_rect().y_range(), egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45)));
+                ui.add_space(8.0);
+
+                // 2. ВКЛАДКИ РАБОЧИХ ПРОСТРАНСТВ
+                let mut tab_to_remove = None;
+                let mut new_active = None;
+                
+                let order = workspace.workspace_order.clone();
+                for ws in order {
+                    let is_active = workspace.active_workspace == ws;
+
+                    // Логика переименования вкладки
+                    if workspace.renaming_workspace.as_ref() == Some(&ws) {
+                        let res = ui.add(egui::TextEdit::singleline(&mut workspace.rename_buffer).desired_width(80.0));
+                        if res.lost_focus() {
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                workspace.renaming_workspace = None;
+                            } else {
+                                let new_name = workspace.rename_buffer.trim().to_string();
+                                if !new_name.is_empty() && new_name != ws && !workspace.trees.contains_key(&new_name) {
+                                    if let Some(tree) = workspace.trees.remove(&ws) {
+                                        workspace.trees.insert(new_name.clone(), tree);
+                                    }
+                                    if let Some(pos) = workspace.workspace_order.iter().position(|x| x == &ws) {
+                                        workspace.workspace_order[pos] = new_name.clone();
+                                    }
+                                    if is_active {
+                                        workspace.active_workspace = new_name.clone();
+                                    }
+                                }
+                                workspace.renaming_workspace = None;
+                            }
+                        } else if !res.has_focus() {
+                            res.request_focus();
+                        }
+                    } else {
+                        // Обычный рендер вкладки
+                        let color = if is_active { egui::Color32::WHITE } else { egui::Color32::GRAY };
+                        let resp = ui.selectable_label(is_active, egui::RichText::new(&ws).strong().color(color));
+
+                        if resp.clicked() {
+                            new_active = Some(ws.clone());
+                        }
+                        if resp.double_clicked() {
+                            workspace.renaming_workspace = Some(ws.clone());
+                            workspace.rename_buffer = ws.clone();
+                        }
+                        // Удаление по ПКМ (если вкладок больше одной)
+                        if resp.secondary_clicked() && workspace.workspace_order.len() > 1 {
+                            tab_to_remove = Some(ws.clone());
+                        }
+                    }
+                }
+
+                // Применение мутаций воркспейсов
+                if let Some(ws) = new_active {
+                    workspace.active_workspace = ws.clone();
+                }
+                if let Some(ws) = tab_to_remove {
+                    workspace.trees.remove(&ws);
+                    workspace.workspace_order.retain(|x| x != &ws);
+                    if workspace.active_workspace == ws {
+                        workspace.active_workspace = workspace.workspace_order.first().cloned().unwrap_or_default();
+                    }
+                }
+
+                // 3. КНОПКА ДОБАВЛЕНИЯ НОВОЙ ВКЛАДКИ [+]
+                if ui.button(egui::RichText::new("+").color(egui::Color32::GRAY)).clicked() {
+                    let mut i = 1;
+                    let mut new_name = format!("New Tab {}", i);
+                    while workspace.trees.contains_key(&new_name) {
+                        i += 1;
+                        new_name = format!("New Tab {}", i);
+                    }
+                    
+                    // Создаем базовое дерево с Project Explorer для новой вкладки
+                    let mut tiles = egui_tiles::Tiles::default();
+                    let root = tiles.insert_pane(crate::layout::domain::Pane { 
+                        plugin_id: "axicor.explorer".to_string(), 
+                        title: "Explorer".to_string() 
+                    });
+                    let tree = egui_tiles::Tree::new("custom_ws", root, tiles);
+                    
+                    workspace.trees.insert(new_name.clone(), tree);
+                    workspace.workspace_order.push(new_name.clone());
+                    workspace.active_workspace = new_name.clone();
+                    
+                    // Сразу переводим в режим переименования
+                    workspace.renaming_workspace = Some(new_name.clone());
+                    workspace.rename_buffer = new_name;
+                }
+
+                // 4. ОКОННЫЕ КОНТРОЛЫ (Справа)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add(egui::Button::new(" ✕ ").frame(false)).clicked() { exit.send(bevy::app::AppExit); }
                     if ui.add(egui::Button::new(" 🗖 ").frame(false)).clicked() { os_cmd.send(OsWindowCommand::Maximize); }
@@ -129,8 +219,7 @@ fn render_top_bar(
                     if ui.interact(rect, ui.id().with("drag_area"), egui::Sense::drag()).drag_started() {
                         os_cmd.send(OsWindowCommand::Drag);
                     }
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER,
-                        APP_TITLE, egui::FontId::proportional(14.0), COLOR_TITLE);
+                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, APP_TITLE, egui::FontId::proportional(14.0), COLOR_TITLE);
                 });
             });
         });
