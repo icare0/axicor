@@ -32,4 +32,5 @@ memmap2 = "0.9"
 genesis-compute = { path = "../genesis-compute" }
 
 [features]
+mock-gpu = ["genesis-compute/mock-gpu"]
 amd = ["genesis-core/amd", "genesis-compute/amd"]

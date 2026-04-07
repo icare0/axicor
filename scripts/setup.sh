@@ -77,12 +77,12 @@ if command -v nvcc >/dev/null 2>&1; then
     fi
     
     echo -e "  ${GREEN}✓${NC} NVIDIA CUDA found (nvcc ${NVCC_VER})"
-    GPU_FEATURES="--features cuda"
+    GPU_FEATURES=""
     GPU_FOUND=1
 elif command -v hipcc >/dev/null 2>&1; then
     HIPCC_VER=$(hipcc --version 2>&1 | head -1)
     echo -e "  ${GREEN}✓${NC} AMD ROCm found (${HIPCC_VER})"
-    GPU_FEATURES="--features rocm"
+    GPU_FEATURES="--features amd"
     GPU_FOUND=1
 else
     echo -e "  ${YELLOW}⚠${NC}  No GPU toolkit detected (nvcc / hipcc not found)"
@@ -126,8 +126,7 @@ source .venv/bin/activate
 
 echo -e "  Installing Python dependencies..."
 pip install -q --upgrade pip
-# [DOD FIX] Strict version pinning to prevent C-ABI breakage
-pip install -q numpy==1.26.4 gymnasium==0.29.1 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
+pip install -q numpy toml 'gymnasium[classic-control]'
 
 echo -e "  ${GREEN}✓${NC} Python dependencies installed"
 
@@ -169,13 +168,13 @@ echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
 echo ""
 echo -e "  ${CYAN}1.${NC} Bake the brain:"
-echo -e "     ${BOLD}python3 examples/cartpole/build_brain.py${NC}"
+echo -e "     ${BOLD}python3 examples/cartpole_exp/build_brain.py${NC}"
 echo ""
 echo -e "  ${CYAN}2.${NC} Start the node:"
-echo -e "     ${BOLD}cargo run --release -p genesis-node -- --brain CartPoleAgent${NC}"
+echo -e "     ${BOLD}cargo run --release -p genesis-node -- Genesis-Models/cartpole_exp.axic --cpu --log${NC}"
 echo ""
 echo -e "  ${CYAN}3.${NC} Run the agent:"
-echo -e "     ${BOLD}python3 examples/cartpole/agent.py${NC}"
+echo -e "     ${BOLD}python3 examples/cartpole_exp/agent.py${NC}"
 echo ""
 echo -e "  Docs: ${CYAN}https://github.com/H4V1K-dev/axicor${NC}"
 echo ""
