@@ -145,22 +145,32 @@ impl ShardEngine {
                         // 0. Inject Virtual Axons (Sensors)
                         if let Some(mask) = h_input_bitmask {
                             let start = tick_idx * io_buffers.input_words_per_tick as usize;
-                            let tick_mask = &mask[start .. start + io_buffers.input_words_per_tick as usize];
-                            unsafe {
-                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
+                            let end = start.saturating_add(io_buffers.input_words_per_tick as usize);
+                            if end <= mask.len() {
+                                let tick_mask = &mask[start..end];
+                                unsafe {
+                                    let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
+                                    crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
+                                }
                             }
                         }
                         
                         // 1. Inject Network Spikes
                         if let Some(spikes) = h_incoming_spikes {
                             let start = tick_idx * io_buffers.max_spikes_per_tick as usize;
-                            let count = h_spike_counts[tick_idx] as usize;
-                            let tick_spikes = &spikes[start..start+count];
-                            
-                            unsafe {
-                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                cpu::physics::cpu_apply_spike_batch(axon_heads, tick_spikes, v_seg);
+                            let count = h_spike_counts
+                                .get(tick_idx)
+                                .copied()
+                                .unwrap_or(0)
+                                .min(io_buffers.max_spikes_per_tick) as usize;
+                            let end = start.saturating_add(count);
+                            if end <= spikes.len() {
+                                let tick_spikes = &spikes[start..end];
+
+                                unsafe {
+                                    let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
+                                    cpu::physics::cpu_apply_spike_batch(axon_heads, tick_spikes, v_seg);
+                                }
                             }
                         }
                         
@@ -196,13 +206,13 @@ impl ShardEngine {
 impl Drop for ShardEngine {
     fn drop(&mut self) {
         match self {
-            Self::Gpu(gpu) => {
+            Self::Gpu(_gpu) => {
                 #[cfg(not(feature = "mock-gpu"))]
                 unsafe {
-                    crate::ffi::gpu_stream_destroy(gpu.stream);
-                    crate::ffi::gpu_free(gpu.telemetry_ids_d as *mut _);
-                    crate::ffi::gpu_free(gpu.telemetry_count_d as *mut _);
-                    crate::ffi::gpu_host_free(gpu.telemetry_count_pinned_h as *mut _);
+                    crate::ffi::gpu_stream_destroy(_gpu.stream);
+                    crate::ffi::gpu_free(_gpu.telemetry_ids_d as *mut _);
+                    crate::ffi::gpu_free(_gpu.telemetry_count_d as *mut _);
+                    crate::ffi::gpu_host_free(_gpu.telemetry_count_pinned_h as *mut _);
                 }
             }
             _ => {}

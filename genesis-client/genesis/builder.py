@@ -1,6 +1,7 @@
 import os
 import glob
 import math
+import shutil
 import warnings
 import toml
 import subprocess
@@ -482,11 +483,21 @@ class BrainBuilder:
         """
         print("\n🔥 Запускаем Genesis Baker (CPU Compiler)...")
         brain_toml_path = self.output_dir / "brain.toml"
-        
-        cmd = [
-            "cargo", "run", "--release", "-p", "genesis-baker", "--bin", "baker", "--",
+
+        cmd = ["cargo", "run", "--release", "-p", "genesis-baker"]
+
+        has_cuda = shutil.which("nvcc") is not None
+        has_rocm = shutil.which("hipcc") is not None
+
+        if has_rocm:
+            cmd.extend(["--features", "amd"])
+        elif not has_cuda:
+            cmd.extend(["--features", "mock-gpu"])
+
+        cmd.extend([
+            "--bin", "baker", "--",
             "--brain", str(brain_toml_path.absolute())
-        ]
+        ])
         
         if clean:
             cmd.append("--clean")

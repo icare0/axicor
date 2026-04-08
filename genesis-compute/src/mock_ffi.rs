@@ -1,10 +1,11 @@
 
-use genesis_core::layout::VramState;
+use genesis_core::layout::{VariantParameters, VramState};
 use crate::ffi::ShardVramPtrs;
 use genesis_core::ipc::SpikeEvent;
 use std::sync::Mutex;
 use std::ffi::c_void;
 use std::ptr;
+use crate::{bindings, cpu};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TDD Call Logger
@@ -128,6 +129,98 @@ pub extern "C" fn update_constant_memory_hot_reload(
     _stream: *mut c_void,
 ) {}
 
+#[no_mangle]
+pub unsafe extern "C" fn cu_allocate_shard(
+    padded_n: u32,
+    total_axons: u32,
+    out_vram: *mut ShardVramPtrs,
+) -> i32 {
+    bindings::cpu_allocate_shard(padded_n, total_axons, out_vram)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_reset_burst_counters(
+    _ptrs: *const ShardVramPtrs,
+    _padded_n: u32,
+    _stream: *mut c_void,
+) {
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_upload_state_blob(
+    vram: *const ShardVramPtrs,
+    state_blob: *const c_void,
+    state_size: usize,
+) -> i32 {
+    bindings::cpu_upload_state_blob(vram, state_blob, state_size)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_upload_axons_blob(
+    vram: *const ShardVramPtrs,
+    axons_blob: *const c_void,
+    axons_size: usize,
+) -> i32 {
+    bindings::cpu_upload_axons_blob(vram, axons_blob, axons_size)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_free_shard(vram: *mut ShardVramPtrs) {
+    bindings::cpu_free_shard(vram);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_step_day_phase(
+    vram: *const ShardVramPtrs,
+    padded_n: u32,
+    total_axons: u32,
+    v_seg: u32,
+    _current_tick: u32,
+    input_bitmask: *const u32,
+    virtual_offset: u32,
+    num_virtual_axons: u32,
+    incoming_spikes: *const u32,
+    num_incoming_spikes: u32,
+    mapped_soma_ids: *const u32,
+    output_history: *mut u8,
+    num_outputs: u32,
+    dopamine: i16,
+    _stream: *mut c_void,
+) -> i32 {
+    let ptrs = &*vram;
+
+    let axon_heads = std::slice::from_raw_parts_mut(ptrs.axon_heads, total_axons as usize);
+    if !input_bitmask.is_null() && num_virtual_axons != 0 {
+        let input_words = (num_virtual_axons as usize).div_ceil(32);
+        let mask = std::slice::from_raw_parts(input_bitmask, input_words);
+        cpu::physics::cpu_inject_inputs(axon_heads, mask, virtual_offset, num_virtual_axons, v_seg);
+    }
+
+    if !incoming_spikes.is_null() && num_incoming_spikes != 0 {
+        let spikes = std::slice::from_raw_parts(incoming_spikes, num_incoming_spikes as usize);
+        cpu::physics::cpu_apply_spike_batch(axon_heads, spikes, v_seg);
+    }
+
+    cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
+    cpu::physics::cpu_update_neurons(ptrs, padded_n, 0, v_seg);
+    cpu::physics::cpu_apply_gsop(ptrs, padded_n, dopamine);
+
+    if !output_history.is_null() && !mapped_soma_ids.is_null() && num_outputs != 0 {
+        let soma_flags = std::slice::from_raw_parts(ptrs.soma_flags, padded_n as usize);
+        let mapped_ids = std::slice::from_raw_parts(mapped_soma_ids, num_outputs as usize);
+        let history = std::slice::from_raw_parts_mut(output_history, num_outputs as usize);
+        cpu::physics::cpu_record_outputs(soma_flags, mapped_ids, history, 0, num_outputs);
+    }
+
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32 {
+    bindings::cpu_upload_constant_memory(lut);
+    0
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Day Phase Kernel Launches (6 kernels — Шаг 10)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,9 +333,74 @@ pub extern "C" fn gpu_reset_telemetry_count(_count_d: *mut u32, _stream: *mut st
 
 #[no_mangle]
 pub extern "C" fn launch_extract_telemetry(
-    _flags_d: *const u8,
-    _out_ids_d: *mut u32,
-    _out_count_d: *mut u32,
-    _padded_n: u32,
+    flags_d: *const u8,
+    out_ids_d: *mut u32,
+    out_count_d: *mut u32,
+    padded_n: u32,
     _stream: *mut std::ffi::c_void
-) {}
+) {
+    unsafe {
+        let flags = std::slice::from_raw_parts(flags_d, padded_n as usize);
+        let out_ids = std::slice::from_raw_parts_mut(out_ids_d, padded_n as usize);
+        *out_count_d = cpu::physics::cpu_extract_telemetry(flags, out_ids);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_allocate_io_buffers(
+    input_words: u32,
+    schedule_capacity: u32,
+    output_capacity: u32,
+    d_input_bitmask: *mut *mut u32,
+    d_incoming_spikes: *mut *mut u32,
+    d_output_history: *mut *mut u8,
+) -> i32 {
+    *d_input_bitmask = if input_words == 0 {
+        ptr::null_mut()
+    } else {
+        libc::calloc(input_words as usize, std::mem::size_of::<u32>()) as *mut u32
+    };
+    *d_incoming_spikes = if schedule_capacity == 0 {
+        ptr::null_mut()
+    } else {
+        libc::calloc(schedule_capacity as usize, std::mem::size_of::<u32>()) as *mut u32
+    };
+    *d_output_history = if output_capacity == 0 {
+        ptr::null_mut()
+    } else {
+        libc::calloc(output_capacity as usize, std::mem::size_of::<u8>()) as *mut u8
+    };
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_dma_h2d_io(
+    d_input_bitmask: *mut u32,
+    h_input_bitmask: *const u32,
+    input_words: u32,
+    d_incoming_spikes: *mut u32,
+    h_incoming_spikes: *const u32,
+    schedule_capacity: u32,
+    _stream: *mut c_void,
+) -> i32 {
+    if !d_input_bitmask.is_null() && !h_input_bitmask.is_null() && input_words != 0 {
+        ptr::copy_nonoverlapping(h_input_bitmask, d_input_bitmask, input_words as usize);
+    }
+    if !d_incoming_spikes.is_null() && !h_incoming_spikes.is_null() && schedule_capacity != 0 {
+        ptr::copy_nonoverlapping(h_incoming_spikes, d_incoming_spikes, schedule_capacity as usize);
+    }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_dma_d2h_io(
+    h_output_history: *mut u8,
+    d_output_history: *const u8,
+    output_capacity: u32,
+    _stream: *mut c_void,
+) -> i32 {
+    if !h_output_history.is_null() && !d_output_history.is_null() && output_capacity != 0 {
+        ptr::copy_nonoverlapping(d_output_history, h_output_history, output_capacity as usize);
+    }
+    0
+}
