@@ -6,13 +6,14 @@ use crate::layout::systems::wm_file_ops::{load_document, save_document, remove_a
 /// Система-роутер: делегирует физическое удаление сущностей изолированным функциям.
 pub fn delete_entity_system(
     mut events: EventReader<TopologyMutation>,
-    graph: Res<BrainTopologyGraph>,
+    mut graph: ResMut<BrainTopologyGraph>,
     mut deleted_ev: EventWriter<layout_api::EntityDeletedEvent>,
     fs_cache: Res<layout_api::ProjectFsCache>,
 ) {
     for ev in events.read() {
         if let TopologyMutation::Delete(target, context_path) = ev {
-            let target_path = context_path.as_ref().or(graph.active_path.as_ref());
+            let active_path_owned = graph.active_path.clone();
+            let target_path = context_path.as_ref().or(active_path_owned.as_ref());
             let Some(active_path) = target_path else { continue };
 
             match target {
@@ -40,9 +41,30 @@ pub fn delete_entity_system(
                     let io_path = if is_sim { project_dir.join(zone).join("io.toml") } else { project_dir.join(&dept_name).join(zone).join("io.toml") };
 
                     if let Ok(mut doc) = crate::layout::systems::wm_file_ops::load_document(&io_path) {
-                        if crate::layout::systems::wm_file_ops::remove_array_of_tables_item(&mut doc, section, "name", name) {
+                        if crate::layout::systems::wm_file_ops::remove_io_record_by_name(&mut doc, section, name) {
                             let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
                             info!("✅ [IO] Deleted pin {} from {:?}", name, io_path);
+
+                            if let Some(session) = graph.sessions.get_mut(active_path) {
+                                // 1. Чистим Node Editor RAM
+                                if *is_input {
+                                    if let Some(inputs) = session.node_inputs.get_mut(zone) {
+                                        inputs.retain(|n| n != name);
+                                    }
+                                } else {
+                                    if let Some(outputs) = session.node_outputs.get_mut(zone) {
+                                        outputs.retain(|n| n != name);
+                                    }
+                                }
+
+                                // 2. Обновляем ShardIoData для Matrix Editor
+                                if let Some(io_data) = session.shard_io.get_mut(zone) {
+                                    if let Ok(new_io) = toml::from_str::<node_editor::domain::ShardIoData>(&doc.to_string()) {
+                                        *io_data = new_io;
+                                    }
+                                }
+                                session.is_dirty = true;
+                            }
 
                             // [DCR] Cascade deletion of connections using this pin
                             if let Ok(mut macro_doc) = load_document(active_path) {
@@ -141,7 +163,7 @@ fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut
     info!("🗑 [Sandbox] Department {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
-fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &Res<BrainTopologyGraph>, fs_cache: &layout_api::ProjectFsCache) {
+fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &BrainTopologyGraph, fs_cache: &layout_api::ProjectFsCache) {
     let (is_from_rx, is_to_tx, from_id, to_id) = if let Some(session) = graph.sessions.get(active_path) {
         (
             session.env_rx_nodes.contains(&from.to_string()),
@@ -213,7 +235,7 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
     }
 }
 
-fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &Res<BrainTopologyGraph>, _fs_cache: &layout_api::ProjectFsCache) {
+fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &BrainTopologyGraph, _fs_cache: &layout_api::ProjectFsCache) {
     let path_str = active_path.to_string_lossy();
     let is_sim = path_str.contains("simulation.toml");
     let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");

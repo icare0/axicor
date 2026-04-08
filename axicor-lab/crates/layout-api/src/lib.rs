@@ -328,3 +328,22 @@ impl Default for IoWirePayload {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct IoPortAnchor {
+    pub zone: String,
+    pub port: String,
+    pub is_input: bool,
+    pub screen_pos: bevy_egui::egui::Pos2,
+}
+
+pub const IO_ANCHORS_ID: &str = "io_port_anchors_vec";
+
+#[derive(Clone, Debug, Default)]
+pub struct IoRouterFocus {
+    pub zone: String,
+    pub port: String,
+    pub is_input: bool,
+}
+
+pub const IO_ROUTER_FOCUS_ID: &str = "io_router_focus";

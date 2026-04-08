@@ -54,19 +54,27 @@ pub fn create_entity_system(
                         Err(_) => toml_edit::DocumentMut::new()
                     };
 
-                    let io_id = format!("{}-{}", name, uuid::Uuid::new_v4().simple());
+                    let io_id = format!("{}-{}", name, SystemMeta::generate().id.replace("-", ""));
                     crate::layout::systems::wm_file_ops::add_io_record(&mut doc, section, name, &io_id, zone, 32, 32, None);
 
                     let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
                     info!("✅ [IO] Created pin {} in {:?}", name, io_path);
 
                     if let Some(session) = graph.sessions.get_mut(target_path) {
+                        // 1. Обновляем список имен для Node Editor
                         if *is_input {
                             let inputs = session.node_inputs.entry(zone.to_string()).or_default();
                             if !inputs.contains(&name.to_string()) { inputs.push(name.to_string()); }
                         } else {
                             let outputs = session.node_outputs.entry(zone.to_string()).or_default();
                             if !outputs.contains(&name.to_string()) { outputs.push(name.to_string()); }
+                        }
+
+                        // 2. Обновляем ShardIoData для Matrix Editor
+                        if let Some(io_data) = session.shard_io.get_mut(zone) {
+                            if let Ok(new_io) = toml::from_str::<node_editor::domain::ShardIoData>(&doc.to_string()) {
+                                *io_data = new_io;
+                            }
                         }
                         session.is_dirty = true;
                     }
@@ -261,16 +269,20 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             let _ = save_document(&src_io_path, &doc);
         }
     } else {
-        // [DCR] 1. Извлекаем реальные габариты матрицы-источника
+        // [DCR] 1. Извлекаем реальные габариты матрицы-источника (иерархия Matrix -> Pin)
         let mut proj_w: i64 = 32;
         let mut proj_h: i64 = 32;
         if let Ok(src_doc) = load_document(&src_io_path) {
-            if let Some(outputs) = src_doc.get("output").and_then(|i| i.as_array_of_tables()) {
-                for t in outputs.iter() {
-                    if t.get("name").and_then(|v| v.as_str()) == Some(from_port) {
-                        proj_w = t.get("width").and_then(|v| v.as_integer()).unwrap_or(32);
-                        proj_h = t.get("height").and_then(|v| v.as_integer()).unwrap_or(32);
-                        break;
+            if let Some(matrices) = src_doc.get("output").and_then(|i| i.as_array_of_tables()) {
+                'outer: for matrix in matrices.iter() {
+                    if let Some(pins) = matrix.get("pin").and_then(|p| p.as_array_of_tables()) {
+                        for pin in pins.iter() {
+                            if pin.get("name").and_then(|v| v.as_str()) == Some(from_port) {
+                                proj_w = pin.get("width").and_then(|v| v.as_integer()).unwrap_or(32);
+                                proj_h = pin.get("height").and_then(|v| v.as_integer()).unwrap_or(32);
+                                break 'outer;
+                            }
+                        }
                     }
                 }
             }

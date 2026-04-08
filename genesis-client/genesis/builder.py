@@ -119,6 +119,7 @@ class ZoneDesigner:
         self.outputs: List[Dict[str, Any]] = []
         
     def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1, growth_steps: int = 1000, layout: list[str] = None, uv_rect: list[float] = None):
+        import uuid
         # 1. Валидация entry_z
         if entry_z not in ["top", "mid", "bottom"]:
             try:
@@ -131,42 +132,82 @@ class ZoneDesigner:
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
 
-        # 3. Регистрация чанков
+        # 3. ID Generation Convention
+        shard_suffix = self.name[-4:] if len(self.name) >= 4 else self.name
+        matrix_uuid = uuid.uuid4().hex[:8]
+        matrix_id = f"{shard_suffix}_{matrix_uuid}"
+        
+        matrix = {
+            "matrix_id_v1": {"id": matrix_id},
+            "name": f"{name}_matrix",
+            "entry_z": entry_z,
+            "pin": [] # В TOML сериализуется как [[input.pin]]
+        }
+
+        matrix_suffix = matrix_id[-4:]
         for i, chunk in enumerate(chunks):
-            chunk_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
-            self.inputs.append({
-                "name": chunk_name,
-                "target_zone": self.name,
+            pin_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
+            pin_uuid = uuid.uuid4().hex[:4]
+            
+            uv = uv_rect if uv_rect else chunk["uv_rect"]
+            
+            matrix["pin"].append({
+                "pin_id_v1": {"id": f"{matrix_suffix}_{pin_uuid}"},
+                "name": pin_name,
                 "target_type": target_type,
                 "width": chunk["width"],
                 "height": chunk["height"],
+                "local_u": uv[0],
+                "local_v": uv[1],
+                "u_width": uv[2],
+                "v_height": uv[3],
                 "stride": stride,
-                "entry_z": entry_z,
-                "uv_rect": uv_rect if uv_rect else chunk["uv_rect"],
-                "growth_steps": growth_steps,
-                "layout": layout or []
+                "growth_steps": growth_steps
             })
+            
+        self.inputs.append(matrix)
         return self
 
     def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, layout: list[str] = None, uv_rect: list[float] = None):
+        import uuid
         # 1. Фрагментация
         designer = IoMatrixDesigner(width, height, is_input=False)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
 
-        # 2. Регистрация чанков
+        # 2. ID Generation Convention
+        shard_suffix = self.name[-4:] if len(self.name) >= 4 else self.name
+        matrix_uuid = uuid.uuid4().hex[:8]
+        matrix_id = f"{shard_suffix}_{matrix_uuid}"
+        
+        matrix = {
+            "matrix_id_v1": {"id": matrix_id},
+            "name": f"{name}_matrix",
+            "entry_z": "bottom", # Outputs обычно на дне
+            "pin": []
+        }
+
+        matrix_suffix = matrix_id[-4:]
         for i, chunk in enumerate(chunks):
-            chunk_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
-            self.outputs.append({
-                "name": chunk_name,
-                "source_zone": self.name,
+            pin_name = name if len(chunks) == 1 else f"{name}_chunk_{i}"
+            pin_uuid = uuid.uuid4().hex[:4]
+            
+            uv = uv_rect if uv_rect else chunk["uv_rect"]
+            
+            matrix["pin"].append({
+                "pin_id_v1": {"id": f"{matrix_suffix}_{pin_uuid}"},
+                "name": pin_name,
                 "target_type": target_type,
                 "width": chunk["width"],
                 "height": chunk["height"],
-                "stride": stride,
-                "uv_rect": uv_rect if uv_rect else chunk["uv_rect"],
-                "layout": layout or []
+                "local_u": uv[0],
+                "local_v": uv[1],
+                "u_width": uv[2],
+                "v_height": uv[3],
+                "stride": stride
             })
+            
+        self.outputs.append(matrix)
         return self
         
     def add_layer(self, name: str, height_pct: float, density: float) -> LayerDesigner:
@@ -309,7 +350,7 @@ class BrainBuilder:
             # Warp Alignment (32 threads)
             padded_n = math.ceil(raw_neurons / 32) * 32
 
-            virtual_axons = sum(inp["width"] * inp["height"] for inp in zone.inputs)
+            virtual_axons = sum(pin["width"] * pin["height"] for matrix in zone.inputs for pin in matrix["pin"])
             incoming_pixels = sum(c.get("width", 0) * c.get("height", 0) for c in self.connections if c["to"] == zone.name)
             ghost_capacity = int(incoming_pixels * 2.0)
 

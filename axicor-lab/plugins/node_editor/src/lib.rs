@@ -29,6 +29,7 @@ impl Plugin for NodeEditorPlugin {
                 systems::interaction::handle_node_editor_menu_triggers_system,
                 systems::io::save::save_project_system,
                 systems::io::save::persist_blueprints_system,
+                systems::io::save::persist_io_system,
                 systems::io::compile::compile_project_system,
                 systems::io::bake::bake_project_system,
                 systems::io::layout::autosave_layout_system,

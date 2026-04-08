@@ -81,7 +81,8 @@ pub struct ProjectSession {
     pub node_outputs: HashMap<String, Vec<String>>,
     pub layout_cache: HashMap<String, (f32, f32)>, 
     pub shard_anatomies: HashMap<String, ShardAnatomy>,
-    pub shard_blueprints: HashMap<String, ShardBlueprint>, // [DOD FIX] RAM-кэш для Neuron Settings
+    pub shard_blueprints: HashMap<String, ShardBlueprint>,
+    pub shard_io: HashMap<String, ShardIoData>, // [DOD FIX] Кэш данных I/O матриц
     pub voxel_size_um: f32,
     pub is_dirty: bool,
 }
@@ -167,6 +168,7 @@ pub enum TopologyMutation {
         zone: String,
         context_path: Option<std::path::PathBuf>,
     },
+    UpdateIo { zone: String, context_path: Option<std::path::PathBuf> }, // [DOD FIX] Интент сохранения матриц
 }
 
 #[derive(Event, Clone, Debug)]
@@ -182,7 +184,7 @@ pub struct BakeProjectEvent;
 pub enum NodeSignal {
     None,
     Dragged(bevy::math::Vec2),
-    RightClicked, // Заменили DeleteClicked на вызов контекстного меню
+    RightClicked, 
     PortClicked { port_name: String, is_input: bool },
     PortDragStarted { port_name: String, is_input: bool },
     PortDropped { port_name: String, is_input: bool },
@@ -202,3 +204,10 @@ pub struct ShardAnatomy {
     pub layers: Vec<ShardLayer>,
 }
 
+pub fn default_entry_z() -> String { "top".to_string() }
+pub fn default_target_type() -> String { "All".to_string() }
+pub fn default_stride() -> u32 { 1 }
+pub fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
+pub fn default_width() -> u32 { 32 }
+
+pub use genesis_core::config::io::{IoConfig as ShardIoData, IoMatrix, IoPin, SysId};

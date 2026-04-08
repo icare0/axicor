@@ -78,55 +78,98 @@ pub fn remove_array_of_tables_item(
     false
 }
 
-/// Семантическое добавление I/O записи в `io.toml` шарда с поддержкой Lineage ID.
-pub fn add_io_record(doc: &mut DocumentMut, section: &str, name: &str, io_id: &str, zone_name: &str, width: u32, height: u32, voxel_z: Option<u32>) {
-    let mut table = Table::new();
+/// Семантическое добавление I/O записи в `io.toml` шарда с поддержкой Lineage ID (Matrix -> Pin).
+pub fn add_io_record(doc: &mut DocumentMut, section: &str, port_name: &str, _io_id: &str, zone_name: &str, width: u32, height: u32, voxel_z: Option<u32>) {
+    // 1. Generate Matrix ID: {zone_suffix}_{uuid8}
+    let z_suffix = if zone_name.len() >= 4 { &zone_name[zone_name.len()-4..] } else { zone_name };
+    let m_uuid_full = genesis_core::config::sys::SystemMeta::generate().id.replace("-", "");
+    let m_uuid = &m_uuid_full[..8];
+    let matrix_id = format!("{}_{}", z_suffix, m_uuid);
 
-    let mut inline_id = InlineTable::new();
-    inline_id.insert("id", io_id.into());
-    table.insert("io_id_v1", Item::Value(toml_edit::Value::InlineTable(inline_id)));
-
-    table.insert("name", value(name));
-    table.insert("zone", value(zone_name)); // [DOD FIX] Обязательно для Serde
-    table.insert("target_type", value("All"));
-    table.insert("stride", value(1i64)); // [DOD FIX] Обязательно для Serde
-    table.insert("width", value(width as i64));
-    table.insert("height", value(height as i64));
+    let mut matrix = Table::new();
+    let mut m_inline_id = InlineTable::new();
+    m_inline_id.insert("id", matrix_id.clone().into());
+    matrix.insert("matrix_id_v1", Item::Value(toml_edit::Value::InlineTable(m_inline_id)));
+    matrix.insert("name", value(format!("{}_matrix", port_name)));
 
     if section == "input" {
         if let Some(z) = voxel_z {
-            table.insert("entry_z", value(z as i64));
+            matrix.insert("entry_z", value(z as i64));
         } else {
-            table.insert("entry_z", value("top"));
+            matrix.insert("entry_z", value("top"));
         }
+    } else {
+        matrix.insert("entry_z", value("bottom"));
     }
+
+    // 2. Generate Pin ID: {matrix_uuid_suffix}_{uuid4}
+    let m_suffix = &m_uuid[m_uuid.len()-4..];
+    let p_uuid_full = genesis_core::config::sys::SystemMeta::generate().id.replace("-", "");
+    let p_uuid = &p_uuid_full[..4];
+    let pin_id = format!("{}_{}", m_suffix, p_uuid);
+
+    let mut pin = Table::new();
+    let mut p_inline_id = InlineTable::new();
+    p_inline_id.insert("id", pin_id.into());
+    pin.insert("pin_id_v1", Item::Value(toml_edit::Value::InlineTable(p_inline_id)));
+
+    pin.insert("name", value(port_name));
+    pin.insert("width", value(width as i64));
+    pin.insert("height", value(height as i64));
+    pin.insert("local_u", value(0.0));
+    pin.insert("local_v", value(0.0));
+    pin.insert("u_width", value(1.0));
+    pin.insert("v_height", value(1.0));
+    pin.insert("target_type", value("All"));
+    pin.insert("stride", value(1i64));
+
+    let mut pins_array = ArrayOfTables::new();
+    pins_array.push(pin);
+    matrix.insert("pin", Item::ArrayOfTables(pins_array));
 
     if !doc.contains_key(section) {
         doc.insert(section, Item::ArrayOfTables(ArrayOfTables::new()));
     }
     if let Some(arr) = doc.get_mut(section).and_then(|i| i.as_array_of_tables_mut()) {
-        arr.push(table);
+        arr.push(matrix);
     }
 }
 
 /// Семантическое удаление I/O записи из io.toml по имени порта.
+/// [DOD FIX] Удаляет ПИН, и если матрица стала пустой — удаляет МАТРИЦУ.
 pub fn remove_io_record_by_name(doc: &mut DocumentMut, section: &str, target_name: &str) -> bool {
-    let mut index_to_remove = None;
-    if let Some(arr) = doc.get_mut(section).and_then(|i| i.as_array_of_tables_mut()) {
-        for (i, table) in arr.iter().enumerate() {
-            if let Some(name_val) = table.get("name").and_then(|v| v.as_str()) {
-                if name_val == target_name {
-                    index_to_remove = Some(i);
-                    break;
+    let mut matrix_to_remove = None;
+    let mut pin_removed = false;
+
+    if let Some(matrices) = doc.get_mut(section).and_then(|i| i.as_array_of_tables_mut()) {
+        for (m_idx, matrix) in matrices.iter_mut().enumerate() {
+            let mut pin_to_remove = None;
+            if let Some(pins) = matrix.get_mut("pin").and_then(|p| p.as_array_of_tables_mut()) {
+                for (p_idx, pin) in pins.iter().enumerate() {
+                    if let Some(name_val) = pin.get("name").and_then(|v| v.as_str()) {
+                        if name_val == target_name {
+                            pin_to_remove = Some(p_idx);
+                            break;
+                        }
+                    }
+                }
+                if let Some(idx) = pin_to_remove {
+                    pins.remove(idx);
+                    pin_removed = true;
+                    // Если пинов больше нет — планируем удаление всей матрицы
+                    if pins.is_empty() {
+                        matrix_to_remove = Some(m_idx);
+                    }
                 }
             }
+            if pin_removed { break; }
         }
-        if let Some(i) = index_to_remove {
-            arr.remove(i);
-            return true;
+
+        if let Some(idx) = matrix_to_remove {
+            matrices.remove(idx);
         }
     }
-    false
+    pin_removed
 }
 
 /// Семантическое удаление межшардовой связи из родительского конфига.

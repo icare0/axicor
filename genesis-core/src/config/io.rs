@@ -1,79 +1,47 @@
 use serde::{Deserialize, Serialize};
 
-/// Represents external projection connections coming into this shard (White Matter/Atlas).
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SysId {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IoConfig {
     #[serde(default)]
-    pub shard_id_v1: Option<crate::config::sys::SystemMeta>,
-
+    pub input: Vec<IoMatrix>,
     #[serde(default)]
-    #[serde(rename = "input")]
-    pub inputs: Vec<InputMap>,
-
-    #[serde(default)]
-    #[serde(rename = "output")]
-    pub outputs: Vec<OutputMap>,
-
-    /// Количество тиков в одном батче вывода (по умолчанию равно размеру sync_batch_ticks)
-    #[serde(default)]
-    pub readout_batch_ticks: Option<u32>,
+    pub output: Vec<IoMatrix>,
 }
 
-fn default_entry_z() -> String { "top".to_string() }
-// [DOD FIX] Default UV Rect for Pie mode (100% overlap)
-fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct InputMap {
-    #[serde(default)]
-    pub io_id_v1: Option<crate::config::sys::SystemMeta>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoMatrix {
+    pub matrix_id_v1: SysId,
     pub name: String,
-    #[serde(alias = "zone")] 
-    pub target_zone: String,
-    #[serde(default)] 
-    pub target_type: String,
+    pub entry_z: String, // "top", "mid", "bottom" или точное значение
+    #[serde(default)]
+    pub pin: Vec<IoPin>, // В TOML это будет [[input.pin]]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoPin {
+    pub pin_id_v1: SysId,
+    pub name: String,
+    // VRAM Payload / C-ABI Size
     pub width: u32,
     pub height: u32,
-    pub stride: u32,
-    // [DOD FIX] Поддержка высоты спавна виртуальных аксонов
-    #[serde(default = "default_entry_z")]
-    pub entry_z: String,
-    // [DOD FIX] Spatial Mapping
-    #[serde(default = "default_uv_rect")]
-    pub uv_rect: [f32; 4],
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct OutputMap {
-    #[serde(default)]
-    pub io_id_v1: Option<crate::config::sys::SystemMeta>,
-    pub name: String,
-    #[serde(alias = "zone")]
-    pub source_zone: String,
-    #[serde(default)]
+    // Normalized UV Projection (0.0 .. 1.0)
+    pub local_u: f32,
+    pub local_v: f32,
+    pub u_width: f32,
+    pub v_height: f32,
+    // Routing & Biology
     pub target_type: String,
-    pub width: u32,
-    pub height: u32,
     pub stride: u32,
-    // [DOD FIX] Spatial Mapping
-    #[serde(default = "default_uv_rect")]
-    pub uv_rect: [f32; 4],
+    #[serde(default = "default_growth_steps")]
+    pub growth_steps: u32,
+    #[serde(default = "default_empty_pixel")]
+    pub empty_pixel: String,
 }
 
-impl IoConfig {
-    /// Парсит конфиг из TOML строки.
-    pub fn parse(src: &str) -> Result<Self, String> {
-        toml::from_str(src).map_err(|e| format!("TOML parse error: {}", e))
-    }
-
-    /// Загружает конфиг с диска.
-    pub fn load(path: &std::path::Path) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
-        Self::parse(&content)
-    }
-}
-
-#[cfg(test)]
-#[path = "test_io.rs"]
-mod test_io;
+fn default_growth_steps() -> u32 { 1000 }
+fn default_empty_pixel() -> String { "skip".to_string() }

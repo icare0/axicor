@@ -145,55 +145,59 @@ fn validate_department_level(
     }
 }
 
-/// Полная санитизация: dedup + orphan pruning
+/// Полная санитизация: dedup + orphan pruning (Hierarchical Matrix -> Pins)
 fn sanitize_port_table(
     doc: &mut DocumentMut,
     array_key: &str,
-    target_zone: &str,
+    _target_zone: &str,
     used_ports: &HashSet<String>,
     report: &mut ValidationReport,
 ) -> bool {
-    let mut indices_to_remove = Vec::new();
-    let mut seen_names: HashSet<String> = HashSet::new();
+    let mut matrices_to_remove = Vec::new();
+    let mut changed = false;
 
-    if let Some(arr) = doc.get(array_key).and_then(|i| i.as_array_of_tables()) {
-        for (i, table) in arr.iter().enumerate() {
-            let Some(name) = table.get("name").and_then(|v| v.as_str()) else {
-                indices_to_remove.push(i);
-                continue;
-            };
-            let name = name.to_string();
+    if let Some(matrices) = doc.get_mut(array_key).and_then(|i| i.as_array_of_tables_mut()) {
+        for (m_idx, matrix) in matrices.iter_mut().enumerate() {
+            let mut pins_to_remove = Vec::new();
+            if let Some(pins) = matrix.get_mut("pin").and_then(|p| p.as_array_of_tables_mut()) {
+                for (p_idx, pin) in pins.iter().enumerate() {
+                    if let Some(name) = pin.get("name").and_then(|v| v.as_str()) {
+                        let name_str = name.to_string();
+                        if PROTECTED_PORTS.contains(&name_str.as_str()) {
+                            continue;
+                        }
+                        if !used_ports.contains(&name_str) {
+                            pins_to_remove.push(p_idx);
+                        }
+                    } else {
+                        pins_to_remove.push(p_idx);
+                    }
+                }
 
-            let zone = table.get("zone").and_then(|v| v.as_str()).unwrap_or("");
-            if !zone.is_empty() && zone != target_zone {
-                seen_names.insert(name);
-                continue;
+                if !pins_to_remove.is_empty() {
+                    changed = true;
+                    report.pruned_ports += pins_to_remove.len();
+                    for &idx in pins_to_remove.iter().rev() {
+                        pins.remove(idx);
+                    }
+                }
+
+                if pins.is_empty() {
+                    matrices_to_remove.push(m_idx);
+                }
+            } else {
+                // Матрица без пинов — нелегальна
+                matrices_to_remove.push(m_idx);
             }
+        }
 
-            if !seen_names.insert(name.clone()) {
-                indices_to_remove.push(i);
-                report.deduped_ports += 1;
-                continue;
-            }
-
-            if PROTECTED_PORTS.contains(&name.as_str()) {
-                continue;
-            }
-
-            if !used_ports.contains(&name) {
-                indices_to_remove.push(i);
-                report.pruned_ports += 1;
+        if !matrices_to_remove.is_empty() {
+            changed = true;
+            for &idx in matrices_to_remove.iter().rev() {
+                matrices.remove(idx);
             }
         }
     }
 
-    if indices_to_remove.is_empty() { return false; }
-
-    if let Some(arr) = doc.get_mut(array_key).and_then(|i| i.as_array_of_tables_mut()) {
-        for &idx in indices_to_remove.iter().rev() {
-            arr.remove(idx);
-        }
-    }
-
-    true
+    changed
 }

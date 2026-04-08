@@ -122,8 +122,8 @@ pub fn apply_topology_mutations_system(
                 }
             }
 
-            TopologyMutation::UpdateBlueprint { .. } => {
-                // RAM мутации для UpdateBlueprint не требуются, так как редактирование идет In-Place в `ResMut<BrainTopologyGraph>`
+            TopologyMutation::UpdateBlueprint { .. } | TopologyMutation::UpdateIo { .. } => {
+                // RAM мутации для UpdateBlueprint и UpdateIo не требуются, так как редактирование идет In-Place в `ResMut<BrainTopologyGraph>`
             }
         }
     }

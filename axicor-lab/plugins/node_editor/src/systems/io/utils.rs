@@ -63,17 +63,25 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
                 let mut outputs = Vec::new();
 
                 if let Some(arr) = doc.get("input").and_then(|i| i.as_array_of_tables()) {
-                    for t in arr.iter() {
-                        if let Some(name) = t.get("name").and_then(|v| v.as_str()) {
-                            inputs.push(name.to_string());
+                    for matrix in arr.iter() {
+                        if let Some(pins) = matrix.get("pin").and_then(|p| p.as_array_of_tables()) {
+                            for pin in pins.iter() {
+                                if let Some(name) = pin.get("name").and_then(|v| v.as_str()) {
+                                    inputs.push(name.to_string());
+                                }
+                            }
                         }
                     }
                 }
 
                 if let Some(arr) = doc.get("output").and_then(|i| i.as_array_of_tables()) {
-                    for t in arr.iter() {
-                        if let Some(name) = t.get("name").and_then(|v| v.as_str()) {
-                            outputs.push(name.to_string());
+                    for matrix in arr.iter() {
+                        if let Some(pins) = matrix.get("pin").and_then(|p| p.as_array_of_tables()) {
+                            for pin in pins.iter() {
+                                if let Some(name) = pin.get("name").and_then(|v| v.as_str()) {
+                                    outputs.push(name.to_string());
+                                }
+                            }
                         }
                     }
                 }

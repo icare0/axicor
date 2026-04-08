@@ -2,8 +2,6 @@ use crate::bake::layout::{ShardSoA, CompiledShard};
 use crate::bake::axon_growth::{compute_layer_ranges, ShardBounds, grow_axons, GrownAxon, init_axon_head, inject_ghost_axons};
 use crate::bake::neuron_placement::generate_placement_from_config;
 use crate::bake::dendrite_connect::connect_dendrites;
-use crate::bake::input_map::{build_gxi_mapping};
-use crate::bake::output_map::{build_gxo_mapping};
 use genesis_core::config::{SimulationConfig, InstanceConfig, blueprints::NeuronType, anatomy::AnatomyConfig, io::IoConfig, blueprints::GenesisConstantMemory};
 use genesis_core::types::PackedPosition;
 use std::collections::HashMap;
@@ -55,64 +53,61 @@ pub fn build_local_topology_internal(
 
     let mut num_virtual = 0;
     let mut gxi_matrices = Vec::new();
-    if !io.inputs.is_empty() {
+    if !io.input.is_empty() {
         println!("[baker] Processing Input Maps for {}...", zone_name);
-        for matrix in &io.inputs {
-            let gxi = build_gxi_mapping(
-                &matrix.name,
-                zone_name,
-                matrix.width,
-                matrix.height,
-                (padded_n + num_virtual) as u32, // DOD FIX: Истинный VRAM offset
-                matrix.stride as u8,
-            );
-            
+        gxi_matrices = crate::bake::input_map::build_gxi_mappings(
+            io,
+            zone_name,
+            (padded_n + num_virtual) as u32,
+        );
+        
+        for matrix in &io.input {
             let zone_w = shard_cfg.dimensions.w;
             let zone_d = shard_cfg.dimensions.d;
             let zone_h = shard_cfg.dimensions.h;
 
-            for py in 0..matrix.height {
-                for px in 0..matrix.width {
-                    // ... (UV Projection logic same as before) ...
-                    let u = px as f32 / matrix.width as f32;
-                    let v = py as f32 / matrix.height as f32;
-                    let mapped_u = matrix.uv_rect[0] + u * matrix.uv_rect[2];
-                    let mapped_v = matrix.uv_rect[1] + v * matrix.uv_rect[3];
+            for pin in &matrix.pin {
+                for py in 0..pin.height {
+                    for px in 0..pin.width {
+                        let u = px as f32 / pin.width as f32;
+                        let v = py as f32 / pin.height as f32;
+                        let mapped_u = pin.local_u + u * pin.u_width;
+                        let mapped_v = pin.local_v + v * pin.v_height;
 
-                    let start_x = ((mapped_u * zone_w as f32) as u32).min(zone_w.saturating_sub(1));
-                    let start_y = ((mapped_v * zone_d as f32) as u32).min(zone_d.saturating_sub(1));
-                    
-                    let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
-                        "bottom" => (0, 1i32, glam::Vec3::Z),
-                        "mid" => (zone_h / 2, 1i32, glam::Vec3::Z),
-                        _ => (zone_h.saturating_sub(1), -1i32, glam::Vec3::NEG_Z), // "top"
-                    };
+                        let start_x = ((mapped_u * zone_w as f32) as u32).min(zone_w.saturating_sub(1));
+                        let start_y = ((mapped_v * zone_d as f32) as u32).min(zone_d.saturating_sub(1));
+                        
+                        let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
+                            "bottom" => (0, 1i32, glam::Vec3::Z),
+                            "mid" => (zone_h / 2, 1i32, glam::Vec3::Z),
+                            _ => (zone_h.saturating_sub(1), -1i32, glam::Vec3::NEG_Z), // "top"
+                        };
 
-                    let mut segments = Vec::new();
-                    let length = zone_h;
-                    let mut final_z = start_z;
+                        let mut segments = Vec::new();
+                        let length = zone_h;
+                        let mut final_z = start_z;
 
-                    for i in 0..length {
-                        let z = (start_z as i32 + i as i32 * z_step).clamp(0, zone_h.saturating_sub(1) as i32) as u32;
-                        final_z = z;
-                        segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
+                        for i in 0..length {
+                            let z = (start_z as i32 + i as i32 * z_step).clamp(0, zone_h.saturating_sub(1) as i32) as u32;
+                            final_z = z;
+                            segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
+                        }
+
+                        axons.push(GrownAxon {
+                            soma_idx: usize::MAX,
+                            type_idx: 0, 
+                            tip_x: start_x,
+                            tip_y: start_y,
+                            tip_z: final_z,
+                            length_segments: segments.len() as u32,
+                            segments,
+                            last_dir,
+                        });
+                        vram_axon_ids.push((padded_n + num_virtual) as u32);
+                        num_virtual += 1;
                     }
-
-                    axons.push(GrownAxon {
-                        soma_idx: usize::MAX,
-                        type_idx: 0, 
-                        tip_x: start_x,
-                        tip_y: start_y,
-                        tip_z: final_z,
-                        length_segments: segments.len() as u32,
-                        segments,
-                        last_dir,
-                    });
-                    vram_axon_ids.push((padded_n + num_virtual) as u32);
-                    num_virtual += 1;
                 }
             }
-            gxi_matrices.push(gxi);
         }
         println!("[baker] ✓ Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
     }
@@ -120,29 +115,16 @@ pub fn build_local_topology_internal(
     let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
 
     let mut gxo_matrices = Vec::new();
-    if !io.outputs.is_empty() {
+    if !io.output.is_empty() {
         println!("[baker] Processing Output Maps for {}...", zone_name);
-        for matrix in &io.outputs {
-            let target_type_id = if matrix.target_type.is_empty() {
-                None
-            } else {
-                type_names.iter().position(|n| n == &matrix.target_type).map(|id| id as u8)
-            };
-            
-            let gxo = build_gxo_mapping(
-                &matrix.name,
-                zone_name,
-                matrix.width as u32,
-                matrix.height as u32,
-                shard_cfg.dimensions.w,
-                shard_cfg.dimensions.d,
-                &packed_positions,
-                matrix.stride as u8,
-                target_type_id,
-                matrix.uv_rect,
-            );
-            gxo_matrices.push(gxo);
-        }
+        gxo_matrices = crate::bake::output_map::build_gxo_mappings(
+            io,
+            zone_name,
+            shard_cfg.dimensions.w,
+            shard_cfg.dimensions.d,
+            &packed_positions,
+            &type_names,
+        );
         println!("[baker] ✓ Processed {} output matrices", gxo_matrices.len());
     }
 

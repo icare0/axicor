@@ -4,5 +4,5 @@ pub use genesis_core::config::IoConfig;
 
 /// Парсит `io.toml` из строки.
 pub fn parse(src: &str) -> anyhow::Result<IoConfig> {
-    IoConfig::parse(src).map_err(|e| anyhow::anyhow!(e))
+    toml::from_str(src).map_err(|e| anyhow::anyhow!(e))
 }

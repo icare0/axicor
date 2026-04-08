@@ -81,3 +81,42 @@ pub fn persist_blueprints_system(
         }
     }
 }
+
+pub fn persist_io_system(
+    mut events: EventReader<crate::domain::TopologyMutation>,
+    graph: Res<crate::domain::BrainTopologyGraph>,
+) {
+    for ev in events.read() {
+        if let crate::domain::TopologyMutation::UpdateIo { zone, context_path } = ev {
+            let active_path = context_path.as_ref().unwrap_or_else(|| graph.active_path.as_ref().unwrap());
+            let Some(session) = graph.sessions.get(active_path) else { continue };
+            let Some(io_data) = session.shard_io.get(zone) else { continue };
+
+            let project_dir = active_path.parent().unwrap_or(std::path::Path::new("."));
+            let path_str = active_path.to_string_lossy();
+            let is_sim = path_str.ends_with("simulation.toml");
+            let is_zone_level = path_str.ends_with("shard.toml") || path_str.ends_with("io.toml") || path_str.ends_with("blueprints.toml") || path_str.ends_with("anatomy.toml");
+            let dept_name = active_path.file_name().unwrap_or_default().to_string_lossy().replace(".toml", "");
+
+            let cold_path = if is_sim {
+                project_dir.join(zone).join("io.toml")
+            } else if is_zone_level {
+                project_dir.join("io.toml")
+            } else {
+                project_dir.join(&dept_name).join(zone).join("io.toml")
+            };
+
+            let sandbox_path = layout_api::resolve_sandbox_path(&cold_path);
+            if let Some(p) = sandbox_path.parent() { let _ = std::fs::create_dir_all(p); }
+
+            // Прямая сериализация TOML (в io.toml нет кастомных заголовков)
+            if let Ok(toml_str) = toml::to_string_pretty(io_data) {
+                if let Err(e) = std::fs::write(&sandbox_path, toml_str) {
+                    error!("❌ [IO] Failed to save io.toml to sandbox: {}", e);
+                } else {
+                    info!("💾 [IO] IO Map for {} safely auto-saved to {:?}", zone, sandbox_path);
+                }
+            }
+        }
+    }
+}

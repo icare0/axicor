@@ -16,7 +16,7 @@ pub mod sys;
 
 pub use blueprints::{BlueprintsConfig, NeuronType};
 pub use anatomy::{AnatomyConfig, LayerConfig};
-pub use io::{IoConfig, InputMap};
+pub use io::{IoConfig, IoMatrix, IoPin};
 pub use instance::InstanceConfig;
 pub use manifest::*;
 
