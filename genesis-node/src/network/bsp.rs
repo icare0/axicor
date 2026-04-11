@@ -71,14 +71,12 @@ impl BspBarrier {
         }
     }
 
-    /// Вызывается ядром Node в конце батча: меняет буферы местами и инкрементирует эпоху.
-    pub fn sync_and_swap(&self, expected_epoch: u32) {
-        // [DOD FIX] Lock-Free AEP Barrier: Strict CAS to prevent UDP listener vs GPU race conditions
+    pub fn sync_and_swap(&self, expected_epoch: u32) -> Result<(), u32> {
         let next_epoch = expected_epoch + 1;
         match self.current_epoch.compare_exchange(
-            expected_epoch, 
-            next_epoch, 
-            Ordering::SeqCst, 
+            expected_epoch,
+            next_epoch,
+            Ordering::SeqCst,
             Ordering::Relaxed
         ) {
             Ok(_) => {
@@ -90,12 +88,9 @@ impl BspBarrier {
                 } else {
                     self.schedule_b.clear();
                 }
+                Ok(())
             },
-            Err(actual) => {
-                // Пакет "из будущего" уже обновил эпоху (Self-Healing). 
-                // Не трогаем буферы, чтобы не стереть новые спайки.
-                eprintln!("⚠️ [AEP Barrier] CAS failed! Expected: {}, Actual: {}. Network is leading.", expected_epoch, actual);
-            }
+            Err(actual) => Err(actual)
         }
     }
     /// Возвращает ссылку на буфер, в который сейчас должна писать сеть (Tokio).

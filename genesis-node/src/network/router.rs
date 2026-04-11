@@ -26,7 +26,8 @@ pub struct SpikeBatchHeaderV2 {
     pub src_zone_hash: u32,
     pub dst_zone_hash: u32,
     pub epoch: u32,
-    pub is_last: u32, 
+    pub chunk_idx: u16,    // 0xFFFF = ACK
+    pub total_chunks: u16, // 0 = Пустое сердцебиение / ACK
 }
 
 #[repr(C)]
@@ -144,7 +145,8 @@ impl InterNodeRouter {
                 (*header).src_zone_hash = src_zone_hash;
                 (*header).dst_zone_hash = target_zone_hash;
                 (*header).epoch = epoch;
-                (*header).is_last = 1; // Единственный и последний
+                (*header).chunk_idx = 0;
+                (*header).total_chunks = 0; // Heartbeat
                 msg.size = 16;
             }
             msg.target = target_addr;
@@ -167,8 +169,8 @@ impl InterNodeRouter {
                 (*header).src_zone_hash = src_zone_hash;
                 (*header).dst_zone_hash = target_zone_hash;
                 (*header).epoch = epoch;
-                // Только последний чанк пробивает барьер получателя
-                (*header).is_last = if i == total_chunks - 1 { 1 } else { 0 };
+                (*header).chunk_idx = i as u16;
+                (*header).total_chunks = total_chunks as u16;
 
                 let events_bytes = bytemuck::cast_slice(chunk);
                 std::ptr::copy_nonoverlapping(
@@ -193,7 +195,16 @@ impl InterNodeRouter {
         // [DOD FIX] Слушаем все интерфейсы (0.0.0.0), чтобы принимать спайки от других физических нод
         let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
         
+        #[derive(Clone, Copy)]
+        struct PeerState {
+            hash: u32,
+            epoch: u32,
+            received_chunks: u16,
+            chunk_mask: [u64; 16], // Битовая маска на 1024 чанка (~65MB батч макс)
+        }
+        
         tokio::spawn(async move {
+            let mut peers = [PeerState { hash: 0, epoch: 0, received_chunks: 0, chunk_mask: [0; 16] }; 32];
             let mut buf = vec![0u8; 65507];
             loop {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
@@ -238,33 +249,71 @@ impl InterNodeRouter {
                     }
 
                     // 3. Обработка ACK-пакета
-                    if header.is_last == 2 {
+                    if header.chunk_idx == 0xFFFF {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
                         continue;
                     }
 
-                    // 4. Обработка спайков (safe parse: network buffer may be unaligned)
-                    let payload_bytes = &buf[16..size];
-                    if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
-                        let schedule = bsp_barrier.get_write_schedule();
-                        for chunk in payload_bytes.chunks_exact(8) {
-                            let ghost_id = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
-                            let tick_offset = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
-                            schedule.push_spike(tick_offset as usize, ghost_id);
+                    // 4. Zero-Cost O(1) Deduplication State
+                    let mut peer_idx = 32;
+                    for i in 0..32 {
+                        if peers[i].hash == header.src_zone_hash { peer_idx = i; break; }
+                        if peers[i].hash == 0 { peers[i].hash = header.src_zone_hash; peer_idx = i; break; }
+                    }
+                    if peer_idx == 32 { continue; } // Защита от переполнения пиров
+
+                    let peer = &mut peers[peer_idx];
+
+                    // Сброс при новой эпохе
+                    if header.epoch > peer.epoch {
+                        peer.epoch = header.epoch;
+                        peer.received_chunks = 0;
+                        peer.chunk_mask.fill(0);
+                    } else if header.epoch == peer.epoch {
+                        // Дропаем дубликаты внутри эпохи
+                        if header.total_chunks == 0 {
+                            continue; // Дубликат Heartbeat
+                        }
+                        let mask_idx = (header.chunk_idx / 64) as usize;
+                        let bit_idx = header.chunk_idx % 64;
+                        if mask_idx < 16 && (peer.chunk_mask[mask_idx] & (1 << bit_idx)) != 0 {
+                            continue; // Дубликат чанка со спайками (Drop phantom spikes!)
+                        }
+                    }
+
+                    // Если дошли сюда — это уникальный Data-Driven пакет.
+                    if header.total_chunks > 0 {
+                        let mask_idx = (header.chunk_idx / 64) as usize;
+                        let bit_idx = header.chunk_idx % 64;
+                        if mask_idx < 16 {
+                            peer.chunk_mask[mask_idx] |= 1 << bit_idx;
+                            peer.received_chunks += 1;
+                        }
+
+                        // Чтение спайков
+                        let payload_bytes = &buf[16..size];
+                        if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
+                            let schedule = bsp_barrier.get_write_schedule();
+                            for chunk in payload_bytes.chunks_exact(8) {
+                                let ghost_id = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
+                                let tick_offset = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
+                                schedule.push_spike(tick_offset as usize, ghost_id);
+                            }
                         }
                     }
 
                     // 5. Триггер барьера и отправка ACK
-                    if header.is_last == 1 {
+                    let is_complete = header.total_chunks == 0 || peer.received_chunks == header.total_chunks;
+                    if is_complete {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
 
-                        // Отправляем ACK отправителю
                         if let Some((src_addr, _mtu)) = routing_table.get_address(header.src_zone_hash) {
                             let ack = SpikeBatchHeaderV2 {
-                                src_zone_hash: header.dst_zone_hash, // Меняем местами для обратного роутинга
+                                src_zone_hash: header.dst_zone_hash,
                                 dst_zone_hash: header.src_zone_hash,
                                 epoch: header.epoch,
-                                is_last: 2, // 2 = ACK
+                                chunk_idx: 0xFFFF, // ACK
+                                total_chunks: 0,
                             };
                             let _ = sock.send_to(bytemuck::bytes_of(&ack), src_addr).await;
                         }

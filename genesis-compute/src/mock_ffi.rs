@@ -346,6 +346,18 @@ pub extern "C" fn launch_extract_telemetry(
     }
 }
 
+unsafe fn aligned_alloc_zeroed<T>(count: usize) -> *mut T {
+    if count == 0 {
+        return ptr::null_mut();
+    }
+    let size = count * std::mem::size_of::<T>();
+    let mut p = ptr::null_mut();
+    let res = libc::posix_memalign(&mut p, 64, size);
+    assert_eq!(res, 0, "FATAL: posix_memalign failed for I/O buffers");
+    ptr::write_bytes(p, 0, size);
+    p as *mut T
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn cu_allocate_io_buffers(
     input_words: u32,
@@ -355,22 +367,27 @@ pub unsafe extern "C" fn cu_allocate_io_buffers(
     d_incoming_spikes: *mut *mut u32,
     d_output_history: *mut *mut u8,
 ) -> i32 {
-    *d_input_bitmask = if input_words == 0 {
-        ptr::null_mut()
-    } else {
-        libc::calloc(input_words as usize, std::mem::size_of::<u32>()) as *mut u32
-    };
-    *d_incoming_spikes = if schedule_capacity == 0 {
-        ptr::null_mut()
-    } else {
-        libc::calloc(schedule_capacity as usize, std::mem::size_of::<u32>()) as *mut u32
-    };
-    *d_output_history = if output_capacity == 0 {
-        ptr::null_mut()
-    } else {
-        libc::calloc(output_capacity as usize, std::mem::size_of::<u8>()) as *mut u8
-    };
+    *d_input_bitmask = aligned_alloc_zeroed::<u32>(input_words as usize);
+    *d_incoming_spikes = aligned_alloc_zeroed::<u32>(schedule_capacity as usize);
+    *d_output_history = aligned_alloc_zeroed::<u8>(output_capacity as usize);
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cu_free_io_buffers(
+    d_input_bitmask: *mut u32,
+    d_incoming_spikes: *mut u32,
+    d_output_history: *mut u8,
+) {
+    if !d_input_bitmask.is_null() {
+        libc::free(d_input_bitmask as *mut c_void);
+    }
+    if !d_incoming_spikes.is_null() {
+        libc::free(d_incoming_spikes as *mut c_void);
+    }
+    if !d_output_history.is_null() {
+        libc::free(d_output_history as *mut c_void);
+    }
 }
 
 #[no_mangle]

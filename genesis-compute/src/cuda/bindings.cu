@@ -721,6 +721,18 @@ int32_t cu_allocate_io_buffers(
   return 0;
 }
 
+int32_t cu_free_io_buffers(uint32_t *d_input_bitmask,
+                           uint32_t *d_incoming_spikes,
+                           uint8_t *d_output_history) {
+  if (d_input_bitmask)
+    cudaFree(d_input_bitmask);
+  if (d_incoming_spikes)
+    cudaFree(d_incoming_spikes);
+  if (d_output_history)
+    cudaFree(d_output_history);
+  return 0;
+}
+
 int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       const uint32_t *h_input_bitmask, uint32_t input_words,
                       uint32_t *d_incoming_spikes,

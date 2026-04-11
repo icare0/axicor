@@ -255,6 +255,12 @@ extern "C" {
         d_output_history: *mut *mut u8,
     ) -> i32;
 
+    pub fn cu_free_io_buffers(
+        d_input_bitmask: *mut u32,
+        d_incoming_spikes: *mut u32,
+        d_output_history: *mut u8,
+    );
+
     pub fn cu_dma_h2d_io(
         d_input_bitmask: *mut u32,
         h_input_bitmask: *const u32,

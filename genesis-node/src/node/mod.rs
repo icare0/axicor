@@ -478,7 +478,26 @@ impl NodeRuntime {
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             self.services.bsp_barrier.wait_for_data_sync();
 
-            self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32);
+            if let Err(actual_epoch) = self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32) {
+                let delta = actual_epoch.saturating_sub((batch_counter & 0xFFFFFFFF) as u32);
+                if delta > 0 {
+                    self.services.telemetry.push_log(
+                        format!("⚠️ [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta), 
+                        crate::tui::state::LogLevel::Warning
+                    );
+                    
+                    // Hardware Fast-Forward
+                    batch_counter += delta as u64;
+                    current_tick += (delta * batch_size) as u64;
+                    
+                    // Обязательная очистка зависшего read_schedule, иначе GPU 
+                    // на следующем тике прочитает призраки из далекого прошлого.
+                    self.services.bsp_barrier.get_read_schedule().clear();
+                    
+                    // Пропускаем остаток цикла (routing patching etc.) и начинаем новый чистый батч
+                    continue;
+                }
+            }
 
             // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
             // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.

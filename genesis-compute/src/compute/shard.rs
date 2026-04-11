@@ -1,6 +1,5 @@
 use crate::memory::VramState;
 use std::ptr;
-use crate::cpu;
 
 pub struct GpuIoBuffers {
     pub d_input_bitmask: *mut u32,
@@ -28,6 +27,24 @@ pub struct IoBuffers {
 
 unsafe impl Send for IoBuffers {}
 unsafe impl Sync for IoBuffers {}
+
+impl Drop for IoBuffers {
+    fn drop(&mut self) {
+        match &mut self.backend {
+            IoBackend::Gpu(b) => unsafe {
+                // Жесткая очистка VRAM-буферов. Никаких висячих указателей.
+                crate::ffi::cu_free_io_buffers(
+                    b.d_input_bitmask,
+                    b.d_incoming_spikes,
+                    b.d_output_history,
+                );
+            },
+            IoBackend::Cpu(_) => {
+                // Для CPU вектора очистятся автоматически (Rust Drop)
+            }
+        }
+    }
+}
 
 pub struct GpuEngine {
     pub vram: VramState,
@@ -138,64 +155,77 @@ impl ShardEngine {
             }
             Self::Cpu(ref mut cpu) => {
                 if let IoBackend::Cpu(ref mut b) = io_buffers.backend {
+                    // 1. STRICT BSP INVARIANTS (Pre-loop validation)
+                    // Математически доказываем размеры до входа в цикл. Если тут ошибка - это краш сети (Data-Oriented контракт нарушен),
+                    // маскировать такие ошибки нельзя.
+                    if let Some(mask) = h_input_bitmask {
+                        let expected_mask_len = (io_buffers.input_words_per_tick * sync_batch_ticks) as usize;
+                        assert_eq!(mask.len(), expected_mask_len, "FATAL: Input bitmask size violation");
+                    }
+                    if let Some(spikes) = h_incoming_spikes {
+                        let expected_spikes_len = (io_buffers.max_spikes_per_tick * sync_batch_ticks) as usize;
+                        assert_eq!(spikes.len(), expected_spikes_len, "FATAL: Incoming spikes capacity violation");
+                    }
+                    assert_eq!(h_spike_counts.len(), sync_batch_ticks as usize, "FATAL: Spike counts size violation");
+
+                    // 1.5. Hardware Integrity Check: Гарантируем, что ни один счетчик не пробьет capacity
+                    let max_spikes = io_buffers.max_spikes_per_tick;
+                    for &c in h_spike_counts {
+                        assert!(c <= max_spikes, "FATAL: Network provided spike count exceeding tick capacity");
+                    }
+
                     for tick in 0..sync_batch_ticks {
                         let global_tick = tick_base + tick;
                         let tick_idx = tick as usize;
 
-                        // 0. Inject Virtual Axons (Sensors)
+                        // 0. Inject Virtual Axons (Sensors) - ZERO COST SLICING
                         if let Some(mask) = h_input_bitmask {
                             let start = tick_idx * io_buffers.input_words_per_tick as usize;
-                            let end = start.saturating_add(io_buffers.input_words_per_tick as usize);
-                            if end <= mask.len() {
-                                let tick_mask = &mask[start..end];
-                                unsafe {
-                                    let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                    crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
-                                }
+                            let len = io_buffers.input_words_per_tick as usize;
+                            unsafe {
+                                // bounds уже доказаны пре-валидацией, используем raw pointer math
+                                let tick_mask = std::slice::from_raw_parts(mask.as_ptr().add(start), len);
+                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
+                                crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
                             }
                         }
                         
-                        // 1. Inject Network Spikes
+                        // 1. Inject Network Spikes - ZERO COST SLICING
                         if let Some(spikes) = h_incoming_spikes {
                             let start = tick_idx * io_buffers.max_spikes_per_tick as usize;
-                            let count = h_spike_counts
-                                .get(tick_idx)
-                                .copied()
-                                .unwrap_or(0)
-                                .min(io_buffers.max_spikes_per_tick) as usize;
-                            let end = start.saturating_add(count);
-                            if end <= spikes.len() {
-                                let tick_spikes = &spikes[start..end];
-
-                                unsafe {
-                                    let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                    cpu::physics::cpu_apply_spike_batch(axon_heads, tick_spikes, v_seg);
-                                }
+                            unsafe {
+                                // get_unchecked избавляет от ветвлений
+                                let count = *h_spike_counts.get_unchecked(tick_idx) as usize;
+                                debug_assert!(count <= io_buffers.max_spikes_per_tick as usize);
+                                
+                                let tick_spikes = std::slice::from_raw_parts(spikes.as_ptr().add(start), count);
+                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
+                                crate::cpu::physics::cpu_apply_spike_batch(axon_heads, tick_spikes, v_seg);
                             }
                         }
                         
                         unsafe {
                             let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                            cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
+                            crate::cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
                         }
 
                         // 2. GLIF Physics
                         unsafe {
-                            cpu::physics::cpu_update_neurons(&cpu.vram.ptrs, cpu.vram.padded_n, global_tick, v_seg);
+                            crate::cpu::physics::cpu_update_neurons(&cpu.vram.ptrs, cpu.vram.padded_n, global_tick, v_seg);
                         }
 
                         // 3. Plasticity
                         unsafe {
-                            cpu::physics::cpu_apply_gsop(&cpu.vram.ptrs, cpu.vram.padded_n, dopamine);
+                            crate::cpu::physics::cpu_apply_gsop(&cpu.vram.ptrs, cpu.vram.padded_n, dopamine);
                         }
 
                         // 4. Output History
                         let soma_flags = unsafe { std::slice::from_raw_parts(cpu.vram.ptrs.soma_flags, cpu.vram.padded_n as usize) };
                         let mapped_ids = unsafe { std::slice::from_raw_parts(mapped_soma_ids_device, io_buffers.num_outputs as usize) };
-                        cpu::physics::cpu_record_outputs(soma_flags, mapped_ids, &mut b.h_output_history, tick, io_buffers.num_outputs);
+                        crate::cpu::physics::cpu_record_outputs(soma_flags, mapped_ids, &mut b.h_output_history, tick, io_buffers.num_outputs);
 
                         // 5. Telemetry
-                        cpu.telemetry_count = cpu::physics::cpu_extract_telemetry(soma_flags, &mut cpu.telemetry_ids);
+                        cpu.telemetry_count = crate::cpu::physics::cpu_extract_telemetry(soma_flags, &mut cpu.telemetry_ids);
                     }
                 }
             }
@@ -217,5 +247,151 @@ impl Drop for ShardEngine {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi::ShardVramPtrs;
+
+    #[test]
+    fn test_shard_allocation() {
+        // Простейшая проверка аллокации (CPU)
+        let vram = VramState {
+            padded_n: 32,
+            total_axons: 64,
+            total_ghosts: 0,
+            use_gpu: false,
+            ptrs: ShardVramPtrs {
+                soma_voltage: std::ptr::null_mut(),
+                soma_flags: std::ptr::null_mut(),
+                threshold_offset: std::ptr::null_mut(),
+                timers: std::ptr::null_mut(),
+                soma_to_axon: std::ptr::null_mut(),
+                dendrite_targets: std::ptr::null_mut(),
+                dendrite_weights: std::ptr::null_mut(),
+                dendrite_timers: std::ptr::null_mut(),
+                axon_heads: std::ptr::null_mut(),
+            },
+        };
+        let engine = ShardEngine::new(vram);
+        drop(engine);
+    }
+
+    #[test]
+    fn test_io_buffers_allocation_mock_gpu() {
+        // Тест аллокации через Mock GPU C-ABI
+        let mut d_input = std::ptr::null_mut();
+        let mut d_spikes = std::ptr::null_mut();
+        let mut d_output = std::ptr::null_mut();
+        
+        unsafe {
+            let err = crate::ffi::cu_allocate_io_buffers(
+                10, 20, 30,
+                &mut d_input, &mut d_spikes, &mut d_output
+            );
+            assert_eq!(err, 0);
+            assert!(!d_input.is_null());
+            assert!(!d_spikes.is_null());
+            assert!(!d_output.is_null());
+            
+            crate::ffi::cu_free_io_buffers(d_input, d_spikes, d_output);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "FATAL: Network provided spike count exceeding tick capacity")]
+    fn test_shard_step_crash_on_exceeded_spikes() {
+        let vram = VramState {
+            padded_n: 32,
+            total_axons: 64,
+            total_ghosts: 0,
+            use_gpu: false,
+            ptrs: ShardVramPtrs {
+                soma_voltage: std::ptr::null_mut(),
+                soma_flags: std::ptr::null_mut(),
+                threshold_offset: std::ptr::null_mut(),
+                timers: std::ptr::null_mut(),
+                soma_to_axon: std::ptr::null_mut(),
+                dendrite_targets: std::ptr::null_mut(),
+                dendrite_weights: std::ptr::null_mut(),
+                dendrite_timers: std::ptr::null_mut(),
+                axon_heads: std::ptr::null_mut(),
+            },
+        };
+        let mut engine = ShardEngine::new(vram);
+        let mut io_buffers = IoBuffers {
+            backend: IoBackend::Cpu(CpuIoBuffers {
+                h_input_bitmask: vec![],
+                h_incoming_spikes: vec![],
+                h_output_history: vec![],
+            }),
+            max_spikes_per_tick: 1000,
+            input_words_per_tick: 0,
+            num_outputs: 0,
+        };
+
+        let spike_counts = vec![999999];
+
+        engine.step_day_phase_batch(
+            1,
+            &mut io_buffers,
+            None,
+            None,
+            &spike_counts,
+            0, 0,
+            std::ptr::null(),
+            0, 0, 0
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "FATAL: Input bitmask size violation")]
+    fn test_shard_step_crash_on_mismatched_mask() {
+        let vram = VramState {
+            padded_n: 32,
+            total_axons: 64,
+            total_ghosts: 0,
+            use_gpu: false,
+            ptrs: ShardVramPtrs {
+                soma_voltage: std::ptr::null_mut(),
+                soma_flags: std::ptr::null_mut(),
+                threshold_offset: std::ptr::null_mut(),
+                timers: std::ptr::null_mut(),
+                soma_to_axon: std::ptr::null_mut(),
+                dendrite_targets: std::ptr::null_mut(),
+                dendrite_weights: std::ptr::null_mut(),
+                dendrite_timers: std::ptr::null_mut(),
+                axon_heads: std::ptr::null_mut(),
+            },
+        };
+        let mut engine = ShardEngine::new(vram);
+        let mut io_buffers = IoBuffers {
+            backend: IoBackend::Cpu(CpuIoBuffers {
+                h_input_bitmask: vec![],
+                h_incoming_spikes: vec![],
+                h_output_history: vec![],
+            }),
+            max_spikes_per_tick: 10,
+            input_words_per_tick: 2,
+            num_outputs: 0,
+        };
+
+        // sync_batch_ticks = 2. Expected mask len = 2 * 2 = 4.
+        // We provide mask len = 3.
+        let bad_mask = vec![0u32; 3];
+        let spike_counts = vec![0u32; 2];
+
+        engine.step_day_phase_batch(
+            2,
+            &mut io_buffers,
+            Some(&bad_mask),
+            None,
+            &spike_counts,
+            0, 0,
+            std::ptr::null(),
+            0, 0, 0
+        );
     }
 }
