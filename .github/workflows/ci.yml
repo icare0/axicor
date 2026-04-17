@@ -1,0 +1,23 @@
+name: Dual-Platform Build Matrix
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        features: ["--features genesis-compute/mock-gpu"]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build Workspace
+      run: cargo build --workspace ${{ matrix.features }}
+    - name: Test Workspace
+      run: cargo test --workspace ${{ matrix.features }}
