@@ -84,6 +84,19 @@ pub fn shm_file_path(zone_hash: u32) -> std::path::PathBuf {
     }
 }
 
+/// Path to the manifest file exported to shared memory/temp dir.
+pub fn manifest_shm_path(zone_hash: u32) -> std::path::PathBuf {
+    let filename = format!("genesis_manifest_{:08X}.toml", zone_hash);
+    #[cfg(unix)]
+    {
+        std::path::PathBuf::from("/dev/shm").join(filename)
+    }
+    #[cfg(windows)]
+    {
+        std::env::temp_dir().join(filename)
+    }
+}
+
 /// POSIX shm_open name (Unix only). Includes leading slash for shm namespace.
 #[cfg(unix)]
 pub fn shm_posix_name(zone_hash: u32) -> String {
@@ -119,7 +132,10 @@ pub const fn shm_size(padded_n: usize) -> usize {
     let threshold_bytes = padded_n * 4;
     let timers_bytes = (padded_n + 63) & !63; // Align to 64 bytes
     
-    128 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes + voltage_bytes + threshold_bytes + timers_bytes
+    let total_bytes = 128 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes + voltage_bytes + threshold_bytes + timers_bytes;
+
+    // [DOD FIX] OS Page Alignment (4096 bytes) for strict memory mapping contracts
+    (total_bytes + 4095) & !4095
 }
 
 #[repr(C)]

@@ -100,12 +100,12 @@ fn main() -> Result<()> {
         for zone_name in &zones_to_boot {
             let zone_name: &String = zone_name;
             let zone_hash = genesis_core::hash::fnv1a_32(zone_name.as_bytes());
-            let manifest_shm_path = format!("/dev/shm/genesis_manifest_{:08X}.toml", zone_hash);
+            let manifest_shm_path = genesis_core::ipc::manifest_shm_path(zone_hash);
             
             let manifest_vfs_path = format!("baked/{}/manifest.toml", zone_name);
             if let Some(manifest_bytes) = archive.get_file(&manifest_vfs_path) {
                 std::fs::write(&manifest_shm_path, manifest_bytes)
-                    .with_context(|| format!("Failed to export manifest to {}", manifest_shm_path))?;
+                    .with_context(|| format!("Failed to export manifest to {:?}", manifest_shm_path))?;
             }
         }
 
@@ -176,11 +176,14 @@ fn main() -> Result<()> {
         std::thread::Builder::new()
             .name("genesis-orchestrator".into())
             .spawn(move || {
-                let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
-                unsafe { libc::CPU_SET(0, &mut cpuset) };
-                let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
-                if res == 0 {
-                    println!("🚀 [Core] Orchestrator locked to OS Thread Core 0");
+                #[cfg(target_os = "linux")]
+                {
+                    let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+                    unsafe { libc::CPU_SET(0, &mut cpuset) };
+                    let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+                    if res == 0 {
+                        println!("🚀 [Core] Orchestrator locked to OS Thread Core 0");
+                    }
                 }
                 node.run_node_loop();
             })

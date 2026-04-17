@@ -3,6 +3,8 @@ import mmap
 import struct
 import numpy as np
 
+from .platform import get_shm_path
+
 class GenesisMemory:
     # Строгий C-ABI v3 (128 bytes) -> genesis-core/src/ipc.rs
     SHM_HEADER_FMT = "<IBBHIIIIQIIIIIIIIIII13I"
@@ -11,13 +13,13 @@ class GenesisMemory:
 
     def __init__(self, zone_hash: int, read_only: bool = False):
         self.zone_hash = zone_hash
-        path = f"/dev/shm/genesis_shard_{zone_hash:08X}"
+        path = get_shm_path(zone_hash)
         
         mode = os.O_RDONLY if read_only else os.O_RDWR
-        prot = mmap.PROT_READ if read_only else mmap.PROT_READ | mmap.PROT_WRITE
+        access = mmap.ACCESS_READ if read_only else mmap.ACCESS_WRITE
         
         fd = os.open(path, mode)
-        self._mm = mmap.mmap(fd, 0, prot=prot)
+        self._mm = mmap.mmap(fd, 0, access=access)
         os.close(fd)
         
         # 1. Читаем заголовок

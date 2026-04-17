@@ -3,6 +3,7 @@ import struct
 import mmap
 import numpy as np
 from genesis.memory import GenesisMemory
+from genesis.platform import get_shm_path
 
 def test_checkpointing():
     ZONE_HASH = 0xCAFEBABE
@@ -25,7 +26,7 @@ def test_checkpointing():
     
     SHM_SIZE = flags_off + FLAGS_SIZE
     
-    shm_path = f"/dev/shm/genesis_shard_{ZONE_HASH:08X}"
+    shm_path = get_shm_path(ZONE_HASH)
     
     # 1. Создаем фейковый дамп VRAM
     with open(shm_path, "wb") as f:

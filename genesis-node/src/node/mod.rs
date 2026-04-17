@@ -289,6 +289,10 @@ impl NodeRuntime {
     ) -> Vec<Child> {
         let mut daemons = Vec::with_capacity(shards.len());
         let exe_path = env::current_exe().expect("FATAL: Failed to get current exe path");
+        
+        #[cfg(target_os = "windows")]
+        let daemon_path = exe_path.with_file_name("genesis-baker-daemon.exe");
+        #[cfg(not(target_os = "windows"))]
         let daemon_path = exe_path.with_file_name("genesis-baker-daemon");
 
         for desc in shards {
@@ -297,7 +301,7 @@ impl NodeRuntime {
             let _ = std::fs::remove_file(&socket_addr);
 
             // [DOD FIX] Шард-треды используют манифесты из /dev/shm
-            let manifest_shm_path = format!("/dev/shm/genesis_manifest_{:08X}.toml", desc.hash);
+            let manifest_shm_path = genesis_core::ipc::manifest_shm_path(desc.hash);
 
             println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
             let child = Command::new(&daemon_path)

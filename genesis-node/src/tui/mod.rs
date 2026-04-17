@@ -27,6 +27,7 @@ pub fn run_tui(telemetry: Arc<state::LockFreeTelemetry>, log_mode: bool) -> Resu
     // [TUI] Redirect stdout/stderr to /dev/null to suppress println! from all threads.
     // Boot-time prints (before this point) still go to terminal normally.
     // After TUI exits, we restore normally via LeaveAlternateScreen (crossterm handles this).
+    #[cfg(target_os = "linux")]
     unsafe {
         let devnull = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
         if devnull >= 0 {
@@ -38,12 +39,21 @@ pub fn run_tui(telemetry: Arc<state::LockFreeTelemetry>, log_mode: bool) -> Resu
 
     // Initialize TUI — writes go to the alternate screen via crossterm's own fd
     enable_raw_mode()?;
-    // Re-open /dev/tty for the TUI backend (crossterm needs a real terminal)
+
+    #[cfg(target_os = "linux")]
     let tty = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/tty")?;
+
+    #[cfg(not(target_os = "linux"))]
+    let tty = std::io::stdout(); // На Windows используем стандартный поток
+
+    #[cfg(target_os = "linux")]
     execute!(&tty, EnterAlternateScreen)?;
+    #[cfg(not(target_os = "linux"))]
+    execute!(std::io::stdout(), EnterAlternateScreen)?;
+
     let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
 
@@ -70,9 +80,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, telemetry: Arc<state::LockFre
     let mut local_state = DashboardState::new();
 
     // Open /dev/tty for keyboard events since stdin might be redirected
-    let tty_fd = std::fs::File::open("/dev/tty")?;
-    // crossterm reads from /dev/tty automatically on Linux when stdin is not a tty
-    drop(tty_fd);
+    #[cfg(target_os = "linux")]
+    {
+        let tty_fd = std::fs::File::open("/dev/tty")?;
+        // crossterm reads from /dev/tty automatically on Linux when stdin is not a tty
+        drop(tty_fd);
+    }
 
     loop {
         // 1. SYNC: Pull metrics from Lock-Free atomics

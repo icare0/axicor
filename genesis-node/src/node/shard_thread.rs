@@ -686,7 +686,7 @@ pub fn spawn_shard_thread(
     ctx: NodeContext,
     rx: Receiver<ComputeCommand>,
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
-    core_id: usize,
+    _core_id: usize,
     sync_batch_ticks: u32,
 ) {
     let max_spikes_per_tick = 100_000u32;
@@ -698,13 +698,20 @@ pub fn spawn_shard_thread(
         .name(format!("compute-{}", hash))
         .spawn(move || {
             // [DOD FIX] Hardware Sympathy: Pinning compute thread
-            let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
-            unsafe { libc::CPU_SET(core_id, &mut cpuset) };
-            let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
-            if res != 0 {
-                eprintln!("Warning: Failed to set thread affinity to core {}", core_id);
-            } else {
-                println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, core_id);
+            #[cfg(target_os = "linux")]
+            {
+                let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+                unsafe { libc::CPU_SET(_core_id, &mut cpuset) };
+                let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+                if res != 0 {
+                    eprintln!("Warning: Failed to set thread affinity to core {}", _core_id);
+                } else {
+                    println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, _core_id);
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                println!("🚀 [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
             }
 
             // 1. Инициализация аппаратного контекста

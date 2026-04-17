@@ -4,6 +4,7 @@ import mmap
 import time
 import numpy as np
 from genesis.memory import GenesisMemory
+from genesis.platform import get_shm_path
 
 def test_distillation():
     ZONE_HASH = 0xDEADBEEF
@@ -16,7 +17,7 @@ def test_distillation():
     # [DOD FIX] Strict C-ABI v4 Header requirements
     SHM_SIZE = 64 + WEIGHTS_SIZE + TARGETS_SIZE + (10000 * 20) + (10000 * 8) + PADDED_N
     
-    shm_path = f"/dev/shm/genesis_shard_{ZONE_HASH:08X}"
+    shm_path = get_shm_path(ZONE_HASH)
     
     # 1. Создаем фейковый дамп VRAM
     with open(shm_path, "wb") as f:
@@ -56,10 +57,10 @@ def test_distillation():
     # 3. Инжектируем тестовые данные (создаем 100 000 сильных и 100 000 слабых связей)
     # Используем строгий C-ABI Packer (Zero-Index Trap Protection)
     mem.targets[0, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 4), np.zeros(PADDED_N)) 
-    mem.weights[0, :] = 100 # Сильная связь
+    mem.weights[0, :] = 100 << 16 # Сильная связь
     
     mem.targets[1, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 9), np.zeros(PADDED_N))
-    mem.weights[1, :] = 10 # Слабая связь (должна быть уничтожена)
+    mem.weights[1, :] = 10 << 16 # Слабая связь (должна быть уничтожена)
     
     # 4. Запуск дистилляции
     print(f"🧠 Запуск дистилляции {PADDED_N} нейронов (Threshold = 15)...")

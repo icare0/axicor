@@ -3,6 +3,7 @@ import toml
 from typing import Callable, Any
 
 from .axic import AxicReader
+from .platform import get_manifest_path
 from .utils import fnv1a_32 # DOD FIX: Исправлен Circular Import
 
 class GenesisControl:
@@ -13,7 +14,7 @@ class GenesisControl:
     def __init__(self, axic_path: str, zone_name: str):
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
         # [DOD FIX] Node экспортирует манифест в SHM. SDK меняет его там!
-        self.manifest_path = f"/dev/shm/genesis_manifest_{self.zone_hash:08X}.toml"
+        self.manifest_path = get_manifest_path(self.zone_hash)
         
         if not os.path.exists(self.manifest_path):
             reader = AxicReader(axic_path)
