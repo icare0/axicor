@@ -4,12 +4,12 @@ use crate::bake::spatial_grid::SpatialGrid;
 
 pub struct ConeParams {
     pub radius_um: f32,
-    pub fov_cos: f32,       // cos(FOV / 2.0). Если FOV = 60°, то cos(30°) ≈ 0.866
-    pub owner_type: u8,     // [DOD] Сырой 4-битный тип владельца аксона
-    pub type_affinity: f32, // [DOD] 0.0=тянется к чужим, 0.5=нейтрально, 1.0=к своим
+    pub fov_cos: f32,       // cos(FOV / 2.0). If FOV = 60°, then cos(30°) ≈ 0.866
+    pub owner_type: u8,     // [DOD] Raw 4-bit axon owner type
+    pub type_affinity: f32, // [DOD] 0.0=attracted to others, 0.5=neutral, 1.0=attracted to own type
 }
 
-/// Zero-Cost распаковка из 32 бит в f32 вектор (микрометры)
+/// Zero-Cost unpacking from 32-bit to f32 vector (micrometers)
 #[inline(always)]
 pub fn unpack_to_vec3(pos: PackedPosition, voxel_size_um: f32) -> Vec3 {
     Vec3::new(
@@ -19,7 +19,7 @@ pub fn unpack_to_vec3(pos: PackedPosition, voxel_size_um: f32) -> Vec3 {
     )
 }
 
-/// Сканирует пространство перед аксоном и вычисляет градиент притяжения (V_attract)
+/// Scans the space ahead of the axon and calculates the attraction gradient (V_attract)
 pub fn calculate_v_attract(
     origin_pos: PackedPosition,
     current_dir: Vec3,
@@ -29,7 +29,7 @@ pub fn calculate_v_attract(
 ) -> Vec3 {
     let origin_vec = unpack_to_vec3(origin_pos, voxel_size_um);
 
-    // Переводим радиус поиска из мкм в чанки для SpatialGrid
+    // Convert search radius from µm to chunks for SpatialGrid
     let radius_cells = (params.radius_um / (grid.cell_size as f32 * voxel_size_um)).ceil() as i32;
 
     let mut v_attract = Vec3::ZERO;
@@ -38,14 +38,14 @@ pub fn calculate_v_attract(
     grid.for_each_in_radius(&origin_pos, radius_cells, |dense_id| {
         let neighbor_pos = grid.get_position(dense_id);
 
-        // Игнорируем себя (коллизия координат)
+        // Ignore self (coordinate collision)
         if neighbor_pos.0 == origin_pos.0 { return; }
 
         let target_vec = unpack_to_vec3(neighbor_pos, voxel_size_um);
         let diff = target_vec - origin_vec;
         let dist_sq = diff.length_squared();
 
-        // Быстрое отсечение по сфере (Squared — никаких sqrt!)
+        // Fast sphere culling (Squared — no sqrt!)
         if dist_sq > params.radius_um * params.radius_um || dist_sq == 0.0 {
             return;
         }
@@ -53,16 +53,16 @@ pub fn calculate_v_attract(
         let dist = dist_sq.sqrt();
         let dir_to_target = diff / dist;
 
-        // Отсечение по Конусу (Cone Frustum Culling)
+        // Cone Frustum Culling
         let dot = current_dir.dot(dir_to_target);
         if dot > params.fov_cos {
             // [DOD] Branchless Type Affinity Math
-            // is_same = 1.0 если типы совпадают, 0.0 если различаются
+            // is_same = 1.0 if types match, 0.0 if different
             let is_same = (neighbor_pos.type_id() == params.owner_type) as i32 as f32;
 
-            // При is_same=1.0 → берём affinity
-            // При is_same=0.0 → берём (1.0 - affinity)
-            // ×2.0: при affinity=0.5 нейтральный множитель = 1.0 для всех
+            // When is_same=1.0 → use affinity
+            // When is_same=0.0 → use (1.0 - affinity)
+            // ×2.0: with affinity=0.5 the multiplier becomes 1.0 for all
             let affinity_mod = (is_same * params.type_affinity
                 + (1.0 - is_same) * (1.0 - params.type_affinity)) * 2.0;
 
@@ -71,7 +71,7 @@ pub fn calculate_v_attract(
         }
     });
 
-    // Если в конусе пусто, вектор нулевой. Иначе возвращаем нормализованную тягу.
+    // If cone is empty, vector is zero. Otherwise return normalized attraction.
     if v_attract.length_squared() > 0.0 {
         v_attract.normalize()
     } else {

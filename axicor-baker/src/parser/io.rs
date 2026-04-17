@@ -1,8 +1,8 @@
-//! Парсер IO (делегируется к `axicor_core::config`).
+//! IO parser (delegates to `axicor_core::config`).
+use axicor_core::config::io::IoConfig as CoreIo;
+pub type IoConfig = CoreIo;
 
-pub use axicor_core::config::IoConfig;
-
-/// Парсит `io.toml` из строки.
-pub fn parse(src: &str) -> anyhow::Result<IoConfig> {
-    toml::from_str(src).map_err(|e| anyhow::anyhow!(e))
+/// Parses `io.toml` from a string.
+pub fn parse(content: &str) -> anyhow::Result<IoConfig> {
+    IoConfig::parse(content).map_err(|e: String| anyhow::anyhow!(e))
 }

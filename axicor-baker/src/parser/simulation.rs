@@ -1,9 +1,8 @@
-//! Парсер симуляции (делегируется к `axicor_core::config`).
+//! Simulation parser (delegates to `axicor_core::config`).
+use axicor_core::config::SimulationConfig as CoreSim;
+pub type SimulationConfig = CoreSim;
 
-pub use axicor_core::config::{SimulationConfig, SimulationParams, WorldConfig};
-
-/// Парсит `simulation.toml` из строки, конвертируя `String` ошибку в `anyhow::Result`.
-pub fn parse(src: &str) -> anyhow::Result<SimulationConfig> {
-    SimulationConfig::parse(src).map_err(|e| anyhow::anyhow!(e))
+/// Parses `simulation.toml` from a string, converting `String` error to `anyhow::Result`.
+pub fn parse(content: &str) -> anyhow::Result<SimulationConfig> {
+    SimulationConfig::parse(content).map_err(|e: String| anyhow::anyhow!(e))
 }
-

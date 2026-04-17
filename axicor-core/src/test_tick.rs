@@ -3,7 +3,7 @@
 use crate::config::blueprints::NeuronType;
 use crate::constants::{AXON_SENTINEL, V_SEG};
 
-/// Эмулятор ядра PropagateAxons (Spec §1.6)
+/// PropagateAxons kernel emulator (Spec §1.6)
 fn emulate_propagate_axons(heads: &mut [u32], v_seg: u32) {
     for head in heads.iter_mut() {
         if *head != AXON_SENTINEL {
@@ -12,7 +12,7 @@ fn emulate_propagate_axons(heads: &mut [u32], v_seg: u32) {
     }
 }
 
-/// Состояние одной сомы для эмулятора UpdateNeurons
+/// Single soma state for UpdateNeurons emulator
 #[derive(Debug, Clone, Default)]
 struct SomaState {
     pub voltage: i32,
@@ -21,7 +21,7 @@ struct SomaState {
     pub flags: u8, // bit 0: is_spiking
 }
 
-/// Состояние одного дендрита
+/// Single dendrite state
 #[derive(Debug, Clone, Default)]
 struct DendriteState {
     pub target_packed: u32,
@@ -29,8 +29,8 @@ struct DendriteState {
     pub timer: u8,
 }
 
-/// Эмулятор ядра UpdateNeurons (Spec §1.5)
-/// Для тестов упрощен до работы с одной сомой и списком её дендритов
+/// UpdateNeurons kernel emulator (Spec §1.5)
+/// Simplified to work with a single soma and its list of dendrites for testing
 fn emulate_update_neuron(
     soma: &mut SomaState,
     dendrites: &mut [DendriteState],
@@ -78,7 +78,7 @@ fn emulate_update_neuron(
 
         println!("DEBUG: checking slot. head={}, seg={}, dist={}, p_len={}", head, seg_idx, dist, p.signal_propagation_length);
 
-        // Инвариант §1.6 (exclusive, синхронизировано с CUDA в этой итерации)
+        // Invariant §1.6 (exclusive, synced with CUDA in this iteration)
         if dist < p.signal_propagation_length as u32 {
             // sign baked in
             v += d.weight as i32;
@@ -128,7 +128,7 @@ fn test_neuron() -> NeuronType {
 }
 
 // ============================================================================
-// Тесты PropagateAxons
+// PropagateAxons Tests
 // ============================================================================
 
 #[test]
@@ -147,7 +147,7 @@ fn test_propagate_sentinel_stays() {
 }
 
 // ============================================================================
-// Тесты UpdateNeurons
+// UpdateNeurons Tests
 // ============================================================================
 
 #[test]
@@ -197,8 +197,8 @@ fn test_homeostasis_decay_clamps_zero() {
 fn test_active_tail_triggers_voltage() {
     let p = test_neuron();
     // propagation_length = 3
-    // Leak = 10. Если начать с 0, leak сделает напряжение 0 (clamp rest).
-    // Ставим начальное 10, leak сделает 0, dendrite добавит 150 -> итог 150.
+    // Leak = 10. If starting with 0, leak will make voltage 0 (clamp rest).
+    // Set initial 10, leak will make it 0, dendrite adds 150 -> final 150.
     let mut soma = SomaState { voltage: 10, ..Default::default() };
     let mut dendrites = [
         // axon 1, seg 0 -> target_packed = (0 << 24) | (1 + 1) = 2

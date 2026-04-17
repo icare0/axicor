@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use axicor_core::types::PackedPosition;
 use crate::bake::axon_growth::GrownAxon;
-// [DOD] Добавляем Rayon для мгновенной сортировки плоских массивов
+// [DOD] Adding Rayon for instant sorting of flat arrays
 use rayon::prelude::*;
 
-/// Пространственный хэш для O(1) поиска соседей.
-/// [DOD FIX] Переведен на плоские массивы (Flat Grid).
+/// Spatial hash for O(1) neighbor lookup.
+/// [DOD FIX] Converted to flat arrays (Flat Grid).
 pub struct SpatialGrid {
     pub cell_size: u32,
     cell_index: HashMap<u64, std::ops::Range<u32>>,
@@ -39,8 +39,8 @@ impl SpatialGrid {
             flat_cells.push((hash, dense_id as u32));
         }
 
-        // [DOD FIX] O(N log N) параллельная сортировка по хэшу.
-        // Элементы одной ячейки физически слипаются в памяти.
+        // [DOD FIX] O(N log N) parallel sorting by hash.
+        // Elements in the same cell are physically adjacent in memory.
         flat_cells.par_sort_unstable_by_key(|k| k.0);
 
         let mut cell_index = HashMap::with_capacity(flat_cells.len() / 10);
@@ -79,7 +79,7 @@ impl SpatialGrid {
                     if x < 0 { continue; }
 
                     let hash = Self::hash_cell(x as u32, y as u32, z as u32);
-                    // [DOD FIX] 1 лукап, далее срез (slice) и аппаратный Prefetching
+                    // [DOD FIX] One lookup followed by slice and hardware Prefetching
                     if let Some(range) = self.cell_index.get(&hash) {
                         for i in range.start..range.end {
                             f(self.flat_cells[i as usize].1);

@@ -37,7 +37,7 @@ struct Cli {
     zone_hash: u32,
     #[arg(long)]
     baked_dir: PathBuf,
-    // DOD FIX: Принимаем манифест из /dev/shm
+    // [DOD FIX] Accepting manifest from /dev/shm
     #[arg(long)]
     manifest: PathBuf, 
 }
@@ -46,7 +46,7 @@ fn main() {
     let cli = Cli::parse();
     let zone_hash = cli.zone_hash;
 
-    // 1. Читаем манифест шарда из /dev/shm
+    // 1. Read shard manifest from /dev/shm
     let manifest_path = &cli.manifest;
     let manifest_str = std::fs::read_to_string(manifest_path).expect("Failed to read manifest.toml");
     let manifest: ZoneManifest = toml::from_str(&manifest_str).expect("Failed to parse manifest");
@@ -54,10 +54,10 @@ fn main() {
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons = (manifest.memory.virtual_axons + manifest.memory.ghost_capacity + manifest.memory.padded_n) as u32;
 
-    // 2. Вычисляем размер SHM
+    // 2. Calculate SHM size
     let shm_len = axicor_core::ipc::shm_size(padded_n as usize);
 
-    // 3. Создаем file-backed shared memory
+    // 3. Create file-backed shared memory
     let shm_path = shm_file_path(cli.zone_hash);
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -70,19 +70,19 @@ fn main() {
 
     let mut mmap = unsafe { memmap2::MmapMut::map_mut(&file).expect("Daemon failed to mmap SHM") };
 
-    // 4. Инициализируем заголовок контракта
+    // 4. Initialize contract header
     let header = ShmHeader::new(cli.zone_hash, padded_n, total_axons);
     unsafe { std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header) };
 
     println!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
 
-    // Загружаем blueprints.toml из SRAM папки
+    // Load blueprints.toml from SRAM folder
     let blueprints = load_blueprints(&cli.baked_dir);
 
-    println!("🧠 Genesis Baker Daemon starting (zone_hash={:08X})", zone_hash);
+    println!("🧠 Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
-    // Кешируем конфиги
+    // Cache configs
     let mut night_ctx = build_night_context(&cli.baked_dir, &cli.manifest, zone_hash);
 
     let socket_addr = default_socket_path(zone_hash);
@@ -94,7 +94,7 @@ fn main() {
         let listener = std::os::unix::net::UnixListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind Unix socket {}", socket_addr));
         println!("🔌 Listening on {}", socket_addr);
-        println!("   Waiting for Night Phase requests from genesis-node...");
+        println!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
@@ -112,7 +112,7 @@ fn main() {
         let listener = std::net::TcpListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind TCP {}", socket_addr));
         println!("🔌 Listening on {}", socket_addr);
-        println!("   Waiting for Night Phase requests from genesis-node...");
+        println!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
@@ -293,7 +293,7 @@ fn run_night_phase<S: Read + Write>(
 
     println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
 
-    // [DOD FIX] Читаем карту владельцев призраков (Origin Tracking)
+    // [DOD FIX] Read ghost owner map (Origin Tracking)
     let total_ghosts = ctx.as_ref().map(|c| c._total_ghosts as usize).unwrap_or(0);
     let mut ghost_origins = vec![0u32; total_ghosts];
     if total_ghosts > 0 {
@@ -334,7 +334,7 @@ fn run_night_phase<S: Read + Write>(
 
     // 4. CPU Sprouting & Living Axons (Zero-Copy)
     let (_new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
-        // Каст заголовка и вычисление смещений
+        // Cast header and compute offsets
         let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const axicor_core::layout::PathsFileHeader) };
         let paths_total_axons = paths_hdr.total_axons as usize;
 
@@ -360,7 +360,7 @@ fn run_night_phase<S: Read + Write>(
             )
         };
 
-        // Извлекаем tips и dirs из _geom_mmap
+        // Extract tips and dirs from _geom_mmap
         let geom_total_axons = ctx._total_axons_max as usize;
         let tips_slice = unsafe {
             std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr() as *mut u32, geom_total_axons)
@@ -374,10 +374,10 @@ fn run_night_phase<S: Read + Write>(
             weights,
             flags,
             &ghost_origins,       // NEW: Origin Tracking
-            handovers,            // NEW: передаем очередь
-            h_count,              // НОВЫЙ ПАРАМЕТР
-            tips_slice,           // Из MmapMut
-            dirs_slice,           // Из MmapMut
+            handovers,            // NEW: pass queue
+            h_count,              // NEW PARAMETER
+            tips_slice,           // From MmapMut
+            dirs_slice,           // From MmapMut
             &ctx._soma_to_axon,
             padded_n,
             ctx._total_ghosts as usize, // NEW
@@ -388,7 +388,7 @@ fn run_night_phase<S: Read + Write>(
             lengths_slice,   // NEW
             paths_slice,     // NEW
             soma_positions,  // NEW
-            ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
+            ctx._master_seed, // <--- [DOD FIX] Entropy forwarding
             _zone_hash,
             req.max_sprouts,
             req.prune_threshold, // [DOD FIX] For initial weight protection
@@ -398,14 +398,14 @@ fn run_night_phase<S: Read + Write>(
         (0, 0, vec![])
     };
 
-    // Обновляем счетчик сгенерированных хэндоверов
+    // Update count of generated handovers
     unsafe {
         (*hdr_ptr).handovers_count = generated_handovers as u32;
     }
 
     if let Some(ctx) = ctx.as_deref_mut() {
-        // [DOD FIX] Асинхронный сброс грязных страниц на SSD (Crash Tolerance).
-        // Не блокирует поток, ОС сама скинет данные на диск в фоне.
+        // [DOD FIX] Asynchronous dirty page flush to SSD (Crash Tolerance).
+        // Does not block the thread; OS will sync data to disk in background.
         let _ = ctx._geom_mmap.flush_async();
         let _ = ctx._paths_mmap.flush_async();
     }
@@ -414,11 +414,11 @@ fn run_night_phase<S: Read + Write>(
     let ack_magic = axicor_core::ipc::BAKE_READY_MAGIC;
     stream.write_all(&ack_magic.to_le_bytes())?;
 
-    // Отправляем количество сгенерированных ACK-ответов
+    // Send count of generated ACK responses
     let ack_count = acks.len() as u32;
     stream.write_all(&ack_count.to_le_bytes())?;
 
-    // Отправляем сами ACK (Lock-Free Memory Layout)
+    // Send ACKs (Lock-Free Memory Layout)
     if ack_count > 0 {
         let bytes = unsafe {
             std::slice::from_raw_parts(

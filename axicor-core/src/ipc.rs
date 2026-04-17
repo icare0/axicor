@@ -25,12 +25,12 @@ pub const MAX_PRUNES_PER_NIGHT: usize = 10_000; // [DOD FIX]
 
 use serde::{Serialize, Deserialize};
 
-/// Сетевой пакет межзональной передачи аксона (Half-Duplex SHM Data Plane).
+/// Network packet for inter-zone axon transmission (Half-Duplex SHM Data Plane).
 /// MUST remain exactly 20 bytes — SHM layout depends on this.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AxonHandoverEvent {
-    pub origin_zone_hash: u32, // <--- КРИТИЧНО: Обратный адрес для ACK!
+    pub origin_zone_hash: u32, // <--- CRITICAL: Return address for ACK!
     pub local_axon_id: u32,
     pub entry_x: u16,
     pub entry_y: u16,
@@ -39,7 +39,7 @@ pub struct AxonHandoverEvent {
     pub vector_z: i8,
     pub type_mask: u8,
     pub remaining_length: u16,
-    pub entry_z: u8, // [DOD FIX] Z-координата входа
+    pub entry_z: u8, // [DOD FIX] Z-coordinate of entry
     pub _padding: u8,
 }
 const _: () = assert!(
@@ -47,18 +47,18 @@ const _: () = assert!(
     "AxonHandoverEvent must be 20 bytes for SHM layout"
 );
 
-// [DOD FIX] События структурной пластичности для Dynamic Capacity Routing
+// [DOD FIX] Structural plasticity events for Dynamic Capacity Routing
 
-/// Подтверждение от соседа, что Ghost-аксон создан. Содержит выделенный слот.
+/// ACK from neighbor confirming Ghost axon creation. Contains assigned slot.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AxonHandoverAck {
     pub target_zone_hash: u32,
     pub src_axon_id: u32,
-    pub dst_ghost_id: u32, // Индекс в VRAM соседа
+    pub dst_ghost_id: u32, // Index in neighbor's VRAM
 }
 
-/// Уведомление соседу (или себе), что связь разорвана и слот нужно очистить.
+/// Notification to neighbor (or self) that a connection is broken and slot must be cleared.
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AxonHandoverPrune {
@@ -271,7 +271,7 @@ pub struct BakeRequest {
     pub zone_hash: u32,       // FNV-1a of zone name
     pub current_tick: u32,
     pub prune_threshold: i16,
-    pub max_sprouts: u16,     // [DOD FIX] Динамическое ограничение новых связей за ночь
+    pub max_sprouts: u16,     // [DOD FIX] Dynamic limit of new connections per night
 }
 
 const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");
@@ -558,9 +558,9 @@ pub struct ShardStateHeader {
     pub magic: u32,
     pub zone_hash: u32,
     pub tick: u32,
-    pub _padding1: u32,      // Добиваем до 16 байт для выравнивания u64
-    pub payload_size: u64,   // Смещено на 16 байт
-    pub _padding2: [u64; 1], // Добиваем еще 8 байт до 32
+    pub _padding1: u32,      // Pad to 16 bytes for u64 alignment
+    pub payload_size: u64,   // Offset by 16 bytes
+    pub _padding2: [u64; 1], // Pad another 8 bytes to 32
 }
 
 const _: () = assert!(std::mem::size_of::<ShardStateHeader>() == 32);
@@ -574,7 +574,7 @@ pub struct RouteUpdate {
     pub zone_hash: u32,
     pub new_ipv4: u32,
     pub new_port: u16,
-    pub mtu: u16,            // [DOD FIX] Dynamic MTU вместо padding
+    pub mtu: u16,            // [DOD FIX] Dynamic MTU instead of padding
     pub cluster_secret: u64, 
 }
 

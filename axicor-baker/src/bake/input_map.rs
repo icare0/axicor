@@ -1,7 +1,7 @@
 // genesis-baker/src/bake/input_map.rs
 //
-// Фаза A: Input Matrix / Virtual Axons (GXI)
-// Спецификация: 08_io_matrix.md §2.1 / 09_baking_pipeline.md §2.1
+// Phase A: Input Matrix / Virtual Axons (GXI)
+// Specification: 08_io_matrix.md §2.1 / 09_baking_pipeline.md §2.1
 
 use axicor_core::hash::fnv1a_32;
 use axicor_core::constants::GXI_MAGIC;
@@ -9,19 +9,19 @@ use axicor_core::config::io::IoConfig;
 use std::path::Path;
 use std::io::Write;
 
-/// Дескриптор одной матрицы в файле .gxi (16 байт)
+/// Descriptor of a single matrix in a .gxi file (16 bytes)
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GxiMatrixDescriptor {
     pub name_hash: u32,
-    pub offset:    u32, // Индекс в Axon Array
+    pub offset:    u32, // Index in Axon Array
     pub width:     u16,
     pub height:    u16,
     pub stride:    u8,
     pub _padding:  [u8; 3],
 }
 
-/// Результат запекания одной матрицы входа.
+/// Result of baking a single input matrix.
 #[derive(Clone)]
 pub struct BakedGxi {
     pub name_hash: u32,
@@ -44,7 +44,7 @@ pub fn build_gxi_mappings(
             let axon_ids: Vec<u32> = (0..total_pixels).map(|i| base_axon_id + i).collect();
             
             gxi_matrices.push(BakedGxi {
-                name_hash: fnv1a_32(pin.name.as_bytes()), // РОУТИНГ ПО ПИНУ
+                name_hash: fnv1a_32(pin.name.as_bytes()), // PIN-BASED ROUTING
                 width: pin.width as u16,
                 height: pin.height as u16,
                 stride: pin.stride as u8,

@@ -1,5 +1,5 @@
-/// Все тесты signal.rs (§1.3 Active Tail).
-/// Подключается через: `#[path = "test_signal.rs"] mod test_signal;` в signal.rs
+/// All signal.rs tests (§1.3 Active Tail).
+/// Included via: `#[path = "test_signal.rs"] mod test_signal;` in signal.rs
 use super::*;
 use crate::constants::{AXON_SENTINEL, V_SEG};
 
@@ -14,14 +14,14 @@ fn segment_in_tail_is_active() {
     let head = 10u32;
     assert!(is_segment_active(head, 8, 3));
     assert!(is_segment_active(head, 9, 3));
-    assert!(is_segment_active(head, 10, 3)); // dist=0 < 3 → входит
+    assert!(is_segment_active(head, 10, 3)); // dist=0 < 3 → active
 }
 
 #[test]
 fn segment_outside_tail_is_inactive() {
     let head = 10u32;
-    assert!(!is_segment_active(head, 7, 3)); // dist=3, не < 3
-    assert!(!is_segment_active(head, 0, 3)); // слишком далеко
+    assert!(!is_segment_active(head, 7, 3)); // dist=3, not < 3
+    assert!(!is_segment_active(head, 0, 3)); // too far
 }
 
 #[test]
@@ -32,22 +32,22 @@ fn initial_head_is_not_sentinel() {
 }
 
 
-/// initial_axon_head стартует так чтобы через length тиков голова достигла AXON_SENTINEL.
-/// В промежуточных тиках (пока не SENTINEL) сегмент в хвосте должен быть активен.
+/// initial_axon_head starts such that head reaches AXON_SENTINEL after length ticks.
+/// In intermediate ticks (before SENTINEL) a segment in the tail must be active.
 #[test]
 fn axon_fires_after_length_ticks() {
     let length = 5u32;
     let propagation = 3u32;
     let mut head = initial_axon_head(length);
 
-    // За length - propagation тиков голова ещё не «добежала» до SENTINEL,
-    // но уже достаточно сдвинулась чтобы сегмент попал в хвост.
-    // На тике length - 1 голова находится на расстоянии V_SEG от SENTINEL.
+    // In length - propagation ticks, head hasn't "reached" SENTINEL yet,
+    // but has shifted enough for segment to fall into the tail.
+    // At tick length - 1, head is V_SEG away from SENTINEL.
     for _ in 0..(length - propagation) {
         head = head.wrapping_add(V_SEG);
     }
 
-    // Сейчас dist до начального сегмента < propagation → он должен быть активен
+    // Now dist to initial segment < propagation → it must be active
     let starting_segment = AXON_SENTINEL.wrapping_sub(length * V_SEG);
     assert!(
         is_segment_active(head, starting_segment, propagation),
@@ -55,7 +55,7 @@ fn axon_fires_after_length_ticks() {
     );
 }
 
-/// Active Tail шириной P покрывает ровно P сегментов.
+/// Active Tail with width P covers exactly P segments.
 #[test]
 fn tail_width_equals_propagation_length() {
     let head = 100u32;
@@ -69,7 +69,7 @@ fn tail_width_equals_propagation_length() {
         "Active tail must cover exactly propagation_length={p} segments, got {active_count}");
 }
 
-/// Детерминизм: два вызова с одинаковыми аргументами дают одинаковый результат.
+/// Determinism: two calls with same arguments yield same result.
 #[test]
 fn is_segment_active_is_pure() {
     let head = 42u32;
@@ -78,7 +78,7 @@ fn is_segment_active_is_pure() {
     assert_eq!(is_segment_active(head, seg, p), is_segment_active(head, seg, p));
 }
 
-/// Граничный случай: propagation_length = 0 → никакой сегмент не активен.
+/// Edge case: propagation_length = 0 → no segment is ever active.
 #[test]
 fn zero_propagation_length_never_active() {
     let head = 100u32;
@@ -88,7 +88,7 @@ fn zero_propagation_length_never_active() {
     }
 }
 
-/// sentinel всегда неактивен независимо от propagation_length.
+/// sentinel is always inactive regardless of propagation_length.
 #[test]
 fn sentinel_always_dead() {
     for p in [0u32, 1, 10, u32::MAX] {

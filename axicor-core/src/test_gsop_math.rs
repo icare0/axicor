@@ -1,9 +1,9 @@
-/// CPU эмуляция и тесты для математики ядра ApplyGSOP (Spec §1.3)
-/// Проверяет формулы potentiation, depression, clamp, spatial cooling и inertia rank.
+/// CPU emulation and tests for ApplyGSOP kernel math (Spec §1.3)
+/// Verifies formulas for potentiation, depression, clamp, spatial cooling, and inertia rank.
 
 use crate::config::blueprints::NeuronType;
 
-/// Полная копия branchless логики из `physics.cu -> apply_gsop_kernel`
+/// Full copy of branchless logic from `physics.cu -> apply_gsop_kernel`
 fn emulate_gsop_math(
     weight: i32,
     dopamine: i16,
@@ -14,7 +14,7 @@ fn emulate_gsop_math(
     let sign = if weight >= 0 { 1 } else { -1 };
     let abs_w = weight.abs();
 
-    // 1. Модуляция дофамином
+    // 1. Dopamine modulation
     let pot_mod = ((dopamine as i32) * (p.d1_affinity as i32)) >> 7;
     let dep_mod = ((dopamine as i32) * (p.d2_affinity as i32)) >> 7;
 
@@ -22,7 +22,7 @@ fn emulate_gsop_math(
     let raw_dep = (p.gsop_depression as i32) - dep_mod;
     let final_dep = raw_dep.max(0);
 
-    // 2. Инерция и пачки
+    // 2. Inertia and bursts
     let rank = (abs_w >> 27) as usize;
     let rank_safe = rank.min(15);
     let inertia = p.inertia_curve[rank_safe] as i32;
@@ -36,14 +36,14 @@ fn emulate_gsop_math(
     let min_dist = dist_to_spike.unwrap_or(u32::MAX);
     let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
 
-    // 4. Итоговая дельта
+    // 4. Final delta
     let delta = if is_active {
         delta_pot >> cooling_shift
     } else {
         -delta_dep
     };
 
-    // 5. Глобальный Decay
+    // 5. Global Decay
     let decay = 128i32;
     let delta = (delta * decay) >> (7 + cooling_shift);
 
@@ -112,4 +112,3 @@ fn test_gsop_spatial_cooling() {
     // new_abs = 1000 + 20 = 1020
     assert_eq!(w, 1020);
 }
-

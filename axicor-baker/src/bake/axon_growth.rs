@@ -6,35 +6,35 @@ use axicor_core::config::blueprints::NeuronType;
 use crate::parser::simulation::SimulationConfig;
 use crate::parser::anatomy::Anatomy;
 
-/// Выращенный аксон готовый к записи в ShardStateSoA.
+/// Grown axon ready for writing to ShardStateSoA.
 #[derive(Debug, Clone)]
 pub struct GrownAxon {
-    /// Индекс сомы в массиве нейронов
+    /// Soma index in the neuron array
     pub soma_idx: usize,
-    /// Тип нейрона (копируется для дендритной фильтрации без lookup)
+    /// Neuron type (copied for dendritic filtering without lookup)
     pub type_idx: usize,
-    /// Tip position — конечная точка аксона (где ищем дендриты)
+    /// Tip position — axon endpoint (where dendrites are sought)
     pub tip_x: u32,
     pub tip_y: u32,
     pub tip_z: u32,
-    /// Длина аксона в сегментах (для инициализации axon_head)
+    /// Axon length in segments (for axon_head initialization)
     pub length_segments: u32,
-    /// Геометрия кусочно-линейная (PackedPositions: Type|Z|Y|X)
+    /// Piecewise-linear geometry (PackedPositions: Type|Z|Y|X)
     pub segments: Vec<u32>,
     /// Last segment vector (for handover)
     pub last_dir: glam::Vec3,
 }
 
-/// Плоский контекст для единого цикла роста аксона
+/// Flat context for a single axon growth cycle
 pub struct GrowthContext {
     pub current_pos_um: Vec3,
     pub current_pos_vox: Vec3,
     pub forward_dir: Vec3,
-    pub target_pos: Option<Vec3>, // None для Ghost-аксонов (летят по инерции)
+    pub target_pos: Option<Vec3>, // None for Ghost axons (fly by inertia)
     
     pub remaining_steps: u32,
     pub owner_type_idx: u8,
-    pub soma_idx: usize,          // usize::MAX для Ghost-аксонов
+    pub soma_idx: usize,          // usize::MAX for Ghost axons
     pub origin_shard_id: u32,
 }
 
@@ -44,7 +44,7 @@ pub struct SteeringWeights {
     pub noise: f32,
 }
 
-/// Вычисляет следующий шаг аксона, смешивая градиенты, и возвращает (Непрерывную позицию, Квантованную позицию)
+/// Calculates the next axon step by mixing gradients and returns (Continuous position, Quantized position)
 #[inline(always)]
 pub fn step_and_pack(
     current_pos_um: Vec3,
@@ -56,7 +56,7 @@ pub fn step_and_pack(
     rng: &mut ChaCha8Rng,
     voxel_size_um: f32,
 ) -> (Vec3, PackedPosition) {
-    // 1. V_noise: Выход из локальных минимумов (WyHash/ChaCha джиттер)
+    // 1. V_noise: Escape from local minima (WyHash/ChaCha jitter)
     let theta = rng.gen_range(0.0..std::f32::consts::TAU);
     let phi = rng.gen_range(0.0..std::f32::consts::PI);
     let v_noise = Vec3::new(
@@ -65,23 +65,23 @@ pub fn step_and_pack(
         phi.cos()
     );
 
-    // 2. Взвешенное смешивание (Steering)
+    // 2. Weighted steering mix
     let mut v_final = (v_global * weights.global) 
                     + (v_attract * weights.attract) 
                     + (v_noise * weights.noise);
 
-    // Защита от идеального математического нуля
+    // Protection against mathematical zero
     if v_final.length_squared() < 0.0001 {
         v_final = v_global;
     } else {
         v_final = v_final.normalize();
     }
 
-    // 3. Шаг в непрерывном пространстве (сохраняем f32 для защиты от дрейфа сетки)
+    // 3. Step in continuous space (retain f32 to protect against grid drift)
     let next_pos_um = current_pos_um + (v_final * step_size_um);
 
-    // 4. Квантование (Zero-Cost конвертация в индексы вокселей)
-    // Ограничиваем снизу нулем, чтобы избежать underflow при приведении к u32
+    // 4. Quantization (Zero-Cost conversion to voxel indices)
+    // Clamp bottom to zero to avoid underflow when casting to u32
     let x_idx = (next_pos_um.x / voxel_size_um).max(0.0) as u32;
     let y_idx = (next_pos_um.y / voxel_size_um).max(0.0) as u32;
     let z_idx = (next_pos_um.z / voxel_size_um).max(0.0) as u32;
@@ -91,7 +91,7 @@ pub fn step_and_pack(
     (next_pos_um, packed)
 }
 
-/// Единый физический конвейер роста. Используется и для локальных, и для Ghost аксонов.
+/// Unified physical growth pipeline. Used for both local and Ghost axons.
 pub fn execute_growth_loop(
     ctx: &mut GrowthContext,
     params: &crate::bake::cone_tracing::ConeParams,
@@ -113,17 +113,16 @@ pub fn execute_growth_loop(
     while ctx.remaining_steps > 0 {
         ctx.remaining_steps -= 1;
 
-        // 1. Определение V_global
+        // 1. Determine V_global
         let v_global = if let Some(target) = ctx.target_pos {
             (target - ctx.current_pos_vox).normalize_or_zero()
         } else {
-            ctx.forward_dir // Ghost-аксоны используют инерцию как цель
+            ctx.forward_dir // Ghost axons use inertia as target
         };
 
-        // 2. Остановка по достижению Z-цели (только если есть target)
+        // 2. Stop upon reaching Z-target (only if target exists)
         if let Some(target) = ctx.target_pos {
-            // H-аксоны или V-аксоны: проверяем достижение цели
-            // (В оригинале была разная логика для H и V, тут пробуем унифицировать)
+            // H-axons or V-axons: check target achievement
             let is_growing_up = target.z >= ctx.current_pos_vox.z;
             if (is_growing_up && ctx.current_pos_vox.z >= target.z) || 
                (!is_growing_up && ctx.current_pos_vox.z <= target.z) {
@@ -157,7 +156,7 @@ pub fn execute_growth_loop(
         let y = next_packed.y() as u32;
         let z = next_packed.z() as u32;
 
-        // 5. Границы шарда
+        // 5. Shard boundaries
         if shard_bounds.is_outside(x, y, z) {
             ghost_packet = Some(GhostPacket {
                 origin_shard_id: ctx.origin_shard_id,
@@ -172,7 +171,7 @@ pub fn execute_growth_loop(
             break;
         }
 
-        // 6. Защита от стагнации
+        // 6. Stagnation protection
         if segments.last().copied() == Some(next_packed.0) {
             break; 
         }
@@ -183,7 +182,7 @@ pub fn execute_growth_loop(
     (segments, ghost_packet)
 }
 
-/// Кэш Z-диапазонов слоёв (вычисляется один раз из anatomy + sim)
+/// Cache of layer Z-ranges (calculated once from anatomy + sim)
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct LayerZRange {
@@ -192,10 +191,10 @@ pub struct LayerZRange {
     pub z_end_vox: u32,
 }
 
-/// Границы шарда в мировых координатах (вокселях).
-/// Аксоны, пересекающие эту границу, становятся Ghost Axons в соседнем шарде.
-/// В монорежиме (один шард) передавать `ShardBounds::full_world(&sim)` —
-/// тогда crossing никогда не произойдёт и поведение идентично текущему.
+/// Shard boundaries in world coordinates (voxels).
+/// Axons crossing this boundary become Ghost Axons in a neighboring shard.
+/// In mono-mode (single shard), pass `ShardBounds::full_world(&sim)` —
+/// crossing will never occur and behavior remains identical.
 #[derive(Debug, Clone)]
 pub struct ShardBounds {
     pub x_start: u32, pub x_end: u32,
@@ -204,7 +203,7 @@ pub struct ShardBounds {
 }
 
 impl ShardBounds {
-    /// Единый шард = весь мировой объём. Ghost Packets генерироваться не будут.
+    /// Single shard = entire world volume. Ghost Packets will not be generated.
     pub fn full_world(sim: &SimulationConfig) -> Self {
         let voxel_um = sim.simulation.voxel_size_um;
         Self {
@@ -217,9 +216,9 @@ impl ShardBounds {
         }
     }
 
-    /// [DOD FIX] Реальные границы конкретной зоны из shard.toml (в вокселях).
-    /// Аксон, пересёкший x_end, корректно создаст GhostPacket вместо
-    /// бесконечного блуждания до края глобального мира.
+    /// [DOD FIX] Real boundaries for a specific zone from shard.toml (in voxels).
+    /// Axons crossing x_end will correctly create a GhostPacket instead of
+    /// wandering indefinitely to the edge of the global world.
     pub fn from_config(cfg: &axicor_core::config::InstanceConfig) -> Self {
         Self {
             x_start: cfg.world_offset.x,
@@ -231,7 +230,7 @@ impl ShardBounds {
         }
     }
 
-    /// Проверяет, вышла ли точка за пределы шарда.
+    /// Checks if a point has exited shard boundaries.
     #[inline]
     pub fn is_outside(&self, x: u32, y: u32, z: u32) -> bool {
         x < self.x_start || x >= self.x_end
@@ -240,28 +239,28 @@ impl ShardBounds {
     }
 }
 
-/// Пакет межшардовой передачи.
-/// Генерируется, когда аксон в шарде A пересекает свою границу.
-/// Шард B получает этот пакет и создаёт Ghost Axon на своей стороне границы.
+/// Inter-shard transmission packet.
+/// Generated when an axon in shard A crosses its boundary.
+/// Shard B receives this packet and creates a Ghost Axon on its side of the boundary.
 #[derive(Debug, Clone)]
 pub struct GhostPacket {
-    /// ID шарда-источника (для маршрутизации в полишардовой топологии)
+    /// Source shard ID (for routing in multi-shard topologies)
     pub origin_shard_id: u32,
-    /// аксон без локальной сомы → usize::MAX
+    /// Axon without local soma → usize::MAX
     pub soma_idx: usize,
-    /// Тип нейрона (для whitelist, affinity и т.д.)
+    /// Neuron type (for whitelist, affinity, etc.)
     pub type_idx: usize,
-    /// Точка входа в новый шард (уже в его координатах)
+    /// Entry point into the new shard (already in its coordinates)
     pub entry_x: u32,
     pub entry_y: u32,
     pub entry_z: u32,
-    /// Направление движения в момент пересечения (для сохранения инерции)
+    /// Direction at the moment of crossing (to maintain inertia)
     pub entry_dir: Vec3,
-    /// Сколько шагов осталось до окончания роста
+    /// Number of steps remaining until growth completion
     pub remaining_steps: u32,
 }
 
-/// Предвычисляет Z-диапазоны всех слоёв в вокселях.
+/// Precalculates Z-ranges of all layers in voxels.
 pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<LayerZRange> {
     let voxel_um = sim.simulation.voxel_size_um;
     let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
@@ -281,17 +280,17 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
     ranges
 }
 
-/// Cone Tracing: вычитает конечную позицию аксона для каждого нейрона.
+/// Cone Tracing: calculates the axon endpoint for each neuron.
 ///
-/// Алгоритм (04_connectivity.md §1.3):
-/// 1. Найти слой сомы по Z-координате.
+/// Algorithm (04_connectivity.md §1.3):
+/// 1. Find home layer by soma Z-coordinate.
 /// 2. `Soma_Rel_Z = (soma_z - layer_z_start) / layer_height`
-/// 3. Целевой слой = слой выше (Z+), если нейрон не в верхнем слое.
-///    (Для первого Baking — каждый нейрон тянется в ближайший вышестоящий слой)
+/// 3. Target layer = next layer up (Z+), unless in the topmost layer.
+///    (For initial Baking — each neuron seeks the nearest layer above)
 /// 4. `Target_Z = target_z_start + Soma_Rel_Z × target_height`
-/// 5. XY: небольшой дрейф конуса (FOV) относительно оригинальной XY-позиции.
-///    `tip_x = soma_x + Δx`, где `|Δx| ≤ cone_radius`
-/// 6. Длина аксона = |target_z - soma_z| + 1 (в сегментах-вокселях)
+/// 5. XY: small cone drift (FOV) relative to original XY position.
+///    `tip_x = soma_x + Δx`, where `|Δx| ≤ cone_radius`
+/// 6. Axon length = |target_z - soma_z| + 1 (in segments/voxels)
 use crate::bake::cone_tracing::calculate_v_attract;
 use crate::bake::spatial_grid::SpatialGrid;
 use glam::Vec3;
@@ -360,34 +359,34 @@ pub fn grow_single_axon(
 ) -> (GrownAxon, Option<GhostPacket>) {
     use crate::bake::cone_tracing::ConeParams;
 
-    // Чтение параметров роста за O(1) из плоского массива:
+    // O(1) growth parameter lookup from flat array:
     let type_params = &types[type_idx as usize];
 
-    // 1. Найдём слой сомы (Index_home)
+    // 1. Find home layer (Index_home)
     let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
     let (home_z_start, home_z_end) = match home_layer {
         Some(l) => (l.z_start_vox, l.z_end_vox),
         None => (soma_z, soma_z + 1), // fallback, if soma is outside defined layers
     };
 
-    // 2. Soma_Rel_Z — относительная позиция в домашнем слое [0.0, 1.0)
+    // 2. Soma_Rel_Z — relative position in home layer [0.0, 1.0)
     let layer_h = (home_z_end - home_z_start).max(1) as f32;
     let soma_rel_z = (soma_z.saturating_sub(home_z_start) as f32) / layer_h;
 
-    // 3. Целевой слой — следующий вверх по Z (index + 1)
+    // 3. Target layer — next one up along Z (index + 1)
     let target_layer = layer_ranges.iter().find(|l| l.z_start_vox > soma_z);
     let (target_z_start, target_z_end) = match target_layer {
         Some(l) => (l.z_start_vox, l.z_end_vox),
         None => {
             if layer_ranges.len() == 1 {
-                // Одиночный слой: растём к противоположной границе мира
+                // Single layer: grow toward opposite world boundary
                 if soma_rel_z < 0.5 {
                     (world_h_vox, world_h_vox.saturating_add(1))
                 } else {
                     (0, 1)
                 }
             } else {
-                // Если слоёв много, а мы в верхнем — тянемся вниз к самому первому
+                // If multiple layers and we're in the topmost — pull down to the very first
                 layer_ranges
                     .first()
                     .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox))
@@ -425,21 +424,21 @@ pub fn grow_single_axon(
     let is_growing_up = tip_z >= soma_z;
 
     let (forward_dir, target_pos) = if is_horizontal {
-        // Случайный радиальный вектор в XY
+        // Random radial vector in XY
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
         let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
         let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
         
-        // target_pos не используется для остановки H-нейронов, но используется
-        // для генерации константного v_global на каждом шаге. 
-        // Cоздаем целевую точку далеко в выбранном направлении.
+        // target_pos is not used to stop H-neurons, but is used
+        // to generate constant v_global at each step.
+        // Create target point far in the chosen direction.
         let far_target = current_pos + dir * 5000.0;
         (dir, far_target)
     } else {
-        // Вертикальная цель: целевой слой по Z 
+        // Vertical target: target layer along Z
         let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
         
-        // Горизонтальная компонента (ограниченно)
+        // Horizontal component (limited)
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
         let target_x = random_f32(horiz_seed) * world_w_vox as f32;
         let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
@@ -458,8 +457,8 @@ pub fn grow_single_axon(
     let params = ConeParams {
         radius_um: type_params.steering_radius_um,
         fov_cos,
-        owner_type: type_idx,                       // [DOD] Сырой 4-битный тип
-        type_affinity: type_params.type_affinity,   // Читаем из Blueprint
+        owner_type: type_idx,                       // [DOD] Raw 4-bit type
+        type_affinity: type_params.type_affinity,   // Read from Blueprint
     };
 
     let mut ctx = GrowthContext {
@@ -505,28 +504,28 @@ pub fn grow_single_axon(
     (axon, ghost_packet)
 }
 
-/// Инициализировать axon_head по spec:
+/// Initialize axon_head according to spec:
 /// `axon_head = AXON_SENTINEL - length_segments * v_seg`
-/// Это позволяет PropagateAxons в первый же тик корректно распространить сигнал.
+/// This allows PropagateAxons to correctly distribute signals in the very first tick.
 pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
     use axicor_core::constants::AXON_SENTINEL;
     AXON_SENTINEL.wrapping_sub(length_segments * v_seg)
 }
 
-/// Продолжает рост аксонов, пересёкших границу шарда (Ghost Axons).
+/// Continues growth of axons that crossed the shard boundary (Ghost Axons).
 ///
-/// Каждый GhostPacket описывает аксон, вошедший в этот шард через границу.
-/// Ghost Axon продолжает рост с сохранением инерции (`entry_dir`) и
-/// притяжением к нейронам текущего шарда.
+/// Each GhostPacket describes an axon that entered this shard through a boundary.
+/// Ghost Axon continues growth while maintaining inertia (`entry_dir`) and
+/// attraction to neurons of the current shard.
 ///
-/// - `soma_idx = usize::MAX` — нет локальной сомы, GSOP не применяется
-/// - Если Ghost Axon снова пересекает границу → генерируется новый GhostPacket
+/// - `soma_idx = usize::MAX` — no local soma, GSOP is not applied
+/// - If Ghost Axon crosses a boundary again → a new GhostPacket is generated
 ///
-/// Возвращает: `(grown_ghosts, outgoing_packets)`
+/// Returns: `(grown_ghosts, outgoing_packets)`
 pub fn inject_ghost_axons(
     ghost_packets: &[GhostPacket],
     positions: &[PackedPosition],
-    types: &[axicor_core::config::blueprints::NeuronType], // [DOD FIX] Проброс типов
+    types: &[axicor_core::config::blueprints::NeuronType], // [DOD FIX] Type propagation
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
     master_seed: u64,
@@ -539,7 +538,7 @@ pub fn inject_ghost_axons(
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
     for packet in ghost_packets {
-        // [DOD FIX] Больше никакого хардкода. Читаем физику владельца аксона!
+        // [DOD FIX] No more hardcode. Read the axon owner's physics!
         let t_params = &types[packet.type_idx];
         let fov_cos = (t_params.steering_fov_deg / 2.0).to_radians().cos();
 
@@ -562,7 +561,7 @@ pub fn inject_ghost_axons(
             radius_um: t_params.steering_radius_um,
             fov_cos,
             owner_type: packet.type_idx as u8,
-            type_affinity: t_params.type_affinity, // Применяем affinity из типа
+            type_affinity: t_params.type_affinity, // Apply affinity from type
         };
         let weights = SteeringWeights {
             global: t_params.steering_weight_inertia,
@@ -609,7 +608,7 @@ pub fn inject_ghost_axons(
         };
 
         grown.push(GrownAxon {
-            soma_idx: usize::MAX, // Ghost — нет локальной сомы
+            soma_idx: usize::MAX, // Ghost — no local soma
             type_idx: packet.type_idx,
             tip_x: final_x,
             tip_y: final_y,
@@ -721,11 +720,11 @@ mod tests {
 }
 
 // =============================================================================
-// § Half-Duplex SHM Bridge: Входящие межзональные аксоны
+// § Half-Duplex SHM Bridge: Incoming inter-zone axons
 // =============================================================================
 
-/// Конвертирует сетевые AxonHandoverEvent (из SHM) в физические GhostPacket
-/// и продолжает их рост внутри нового шарда.
+/// Converts network `AxonHandoverEvent`s (from SHM) into physical `GhostPacket`s
+/// and continues their growth within the new shard.
 pub fn inject_handover_events(
     handovers: &[axicor_core::ipc::AxonHandoverEvent],
     positions: &[PackedPosition],
@@ -740,7 +739,7 @@ pub fn inject_handover_events(
     }
 
     let voxel_um = sim.simulation.voxel_size_um;
-    // SpatialGrid для притяжения к существующим нейронам
+    // SpatialGrid for attraction to existing neurons
     let search_r = (sim.simulation.segment_length_voxels as f32 * 3.0).max(1.0).ceil() as u32;
     let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(positions.to_vec(), search_r);
 
@@ -756,12 +755,12 @@ pub fn inject_handover_events(
 
         let type_idx = (ev.type_mask as usize).min(types.len().saturating_sub(1));
 
-        // Точка входа в глобальных координатах
+        // Entry point in global coordinates
         let entry_x = ev.entry_x as u32 + shard_bounds.x_start;
         let entry_y = ev.entry_y as u32 + shard_bounds.y_start;
         let entry_z = ev.entry_z as u32 + shard_bounds.z_start; 
 
-        // Seed детерминированный
+        // Deterministic seed
         let ghost_seed = master_seed.wrapping_add(idx as u64).wrapping_add(0x4748_5354_0000_0000);
 
         let entry_dir = if raw_dir.length_squared() > 0.001 {
@@ -775,14 +774,14 @@ pub fn inject_handover_events(
             current_pos_vox: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32),
             forward_dir: entry_dir,
             target_pos: None,
-            // [DOD FIX] Берем остаток ресурса роста из сетевого события!
+            // [DOD FIX] Extract remaining growth resource from the network event!
             remaining_steps: ev.remaining_length as u32, 
             owner_type_idx: type_idx as u8,
             soma_idx: usize::MAX,
-            origin_shard_id: 0, // Routing hash используется на уровне оркестратора
+            origin_shard_id: 0, // Routing hash is used at orchestrator level
         };
 
-        // Т.к. params зависят от типа, достанем их:
+        // Since params depend on type, fetch them:
         let t_params = &types[type_idx];
         let fov_cos = (t_params.steering_fov_deg / 2.0).to_radians().cos();
         let weights = SteeringWeights {

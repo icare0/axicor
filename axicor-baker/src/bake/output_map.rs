@@ -1,7 +1,7 @@
 // genesis-baker/src/bake/output_map.rs
 //
-// Фаза B: Readout Interface (GXO)
-// Спецификация: 08_io_matrix.md §3.1 / 09_baking_pipeline.md §2.2
+// Phase B: Readout Interface (GXO)
+// Specification: 08_io_matrix.md §3.1 / 09_baking_pipeline.md §2.2
 
 use axicor_core::hash::fnv1a_32;
 use axicor_core::ipc::EMPTY_PIXEL;
@@ -9,19 +9,19 @@ use axicor_core::constants::GXO_MAGIC;
 use axicor_core::config::io::IoConfig;
 use std::path::Path;
 
-/// Дескриптор одной матрицы в файле .gxo (16 байт)
+/// Descriptor of a single matrix in a .gxo file (16 bytes)
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GxoMatrixDescriptor {
     pub name_hash: u32,
-    pub offset:    u32, // Индекс в Soma Array
+    pub offset:    u32, // Index into Soma Array
     pub width:     u16,
     pub height:    u16,
     pub stride:    u8,
     pub _padding:  [u8; 3],
 }
 
-/// Результат запекания одного пина (виртуальной матрицы для GPU).
+/// Baking result of a single pin (virtual matrix for the GPU).
 #[derive(Clone)]
 pub struct BakedGxo {
     pub name_hash: u32,

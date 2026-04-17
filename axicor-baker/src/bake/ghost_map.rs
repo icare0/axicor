@@ -1,37 +1,37 @@
 // genesis-baker/src/bake/ghost_map.rs
 //
-// Фаза C: Inter-zone Ghost Routing (.ghosts)
-// Спецификация: 09_baking_pipeline.md §1.3
+// Phase C: Inter-zone Ghost Routing (.ghosts)
+// Specification: 09_baking_pipeline.md §1.3
 //
-// Контракт:
-//   Фаза C строго выполняется ПОСЛЕ Фазы B (GXO).
-//   src_soma_ids ОБЯЗАНЫ браться из `BakedGxo.mapped_soma_ids` зоны-источника.
-//   Пиксели-сентинели (EMPTY_PIXEL) НЕ порождают связей.
+// Contract:
+//   Phase C is strictly executed AFTER Phase B (GXO).
+//   src_soma_ids MUST be fetched from the source zone's `BakedGxo.mapped_soma_ids`.
+//   Sentinel pixels (EMPTY_PIXEL) DO NOT produce connections.
 
 use axicor_core::hash::fnv1a_32;
 use axicor_core::ipc::{GhostsHeader, GhostConnection, EMPTY_PIXEL};
 use std::path::Path;
 use std::io::Write;
 
-/// Результат запекания межзональных связей.
+/// Result of baking inter-zone connections.
 pub struct BakedGhosts {
     pub connections: Vec<GhostConnection>,
     pub header: GhostsHeader,
 }
 
-/// Строит межзональные связи по принципу:
-/// «Выходная матрица Зоны A (src_mapped_soma_ids) проецируется во входную матрицу Зоны B».
+/// Builds inter-zone connections using the following principle:
+/// "The output matrix of Zone A (src_mapped_soma_ids) is projected into the input matrix of Zone B."
 ///
-/// `src_mapped_soma_ids` — плоский массив из `BakedGxo.mapped_soma_ids` зоны-источника.
-///                         ПУСТЫЕ пиксели (EMPTY_PIXEL) порождают соответствующий GHOST аксон,
-///                         но не привязывают реальную сому.
-/// `dst_base_ghost_id`   — индекс первого ghost-аксона в Зоне B (= base_axon_id из Phase A).
+/// `src_mapped_soma_ids` — flat array from the source zone's `BakedGxo.mapped_soma_ids`.
+///                         EMPTY pixels (EMPTY_PIXEL) produce a corresponding GHOST axon
+///                         but do not bind a real soma.
+/// `dst_base_ghost_id`   — index of the first ghost axon in Zone B (= base_axon_id from Phase A).
 ///
-/// Контракт: порядок обхода пикселей детерминирован (row-major pixel_index).
-/// Все `connection_count` связей записываются, даже для EMPTY_PIXEL, чтобы сохранить
-/// 1:1 соответствие пикселей между зонами.
-/// Но src_soma_id для пустых пикселей устанавливается в EMPTY_PIXEL,
-/// что позволяет рантайму сделать Early Exit и не инжектировать сигнал.
+/// Contract: pixel traversal order is deterministic (row-major pixel_index).
+/// All `connection_count` links are recorded, even for EMPTY_PIXEL, to maintain
+/// 1:1 pixel correspondence between zones.
+/// However, src_soma_id for empty pixels is set to EMPTY_PIXEL,
+/// allowing the runtime to perform an Early Exit and avoid signal injection.
 pub fn build_ghost_mapping(
     from_zone_name: &str,
     to_zone_name: &str,
@@ -54,7 +54,7 @@ pub fn build_ghost_mapping(
     BakedGhosts { connections, header }
 }
 
-/// Zero-copy сериализация в `<out_dir>/<from>_<to>.ghosts`.
+/// Zero-copy serialization to `<out_dir>/<from>_<to>.ghosts`.
 pub fn write_ghosts_file(out_dir: &Path, from_name: &str, to_name: &str, ghosts: &BakedGhosts) {
     let filename = format!("{}_{}.ghosts", from_name, to_name);
     let path = out_dir.join(filename);
@@ -65,7 +65,7 @@ pub fn write_ghosts_file(out_dir: &Path, from_name: &str, to_name: &str, ghosts:
         .expect("Failed to write ghost connections");
 }
 
-/// Возвращает количество «реальных» (не-сентинельных) связей в .ghosts блобе.
+/// Returns the number of "real" (non-sentinel) connections in the .ghosts blob.
 #[inline]
 pub fn count_live_connections(ghosts: &BakedGhosts) -> u32 {
     ghosts.connections.iter()

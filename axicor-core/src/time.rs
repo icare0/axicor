@@ -1,27 +1,27 @@
-/// Временна́я метрика (Spec 01 §1.4).
+/// Temporal metric (Spec 01 §1.4).
 ///
-/// Квант времени: 1 Тик = `TICK_DURATION_US` мкс = 0.1 мс.
-/// Все таймеры (рефрактерность, decay, ночные интервалы) задаются в тиках.
-/// Пример: 5 мс рефрактерность = 50 тиков.
+/// Time quantum: 1 Tick = `TICK_DURATION_US` µs = 0.1 ms.
+/// All timers (refractoriness, decay, night intervals) are specified in ticks.
+/// Example: 5 ms refractoriness = 50 ticks.
 use crate::constants::TICK_DURATION_US;
 use crate::types::Tick;
 
-/// Миллисекунды → тики.
-/// Пример: `ms_to_ticks(5.0)` = 50 (при TICK_DURATION_US=100).
+/// Milliseconds → ticks.
+/// Example: `ms_to_ticks(5.0)` = 50 (at TICK_DURATION_US=100).
 #[inline]
 pub fn ms_to_ticks(ms: f32) -> Tick {
     let us = ms * 1000.0;
     (us / TICK_DURATION_US as f32).round() as Tick
 }
 
-/// Микросекунды → тики.
-/// Пример: `us_to_ticks(500)` = 5.
+/// Microseconds → ticks.
+/// Example: `us_to_ticks(500)` = 5.
 #[inline]
 pub fn us_to_ticks(us: u32) -> Tick {
     (us / TICK_DURATION_US) as Tick
 }
 
-/// Тики → миллисекунды (для логов и отладки).
+/// Ticks → milliseconds (for logs and debugging).
 #[inline]
 pub fn ticks_to_ms(ticks: Tick) -> f32 {
     ticks as f32 * TICK_DURATION_US as f32 / 1000.0
@@ -30,8 +30,8 @@ pub fn ticks_to_ms(ticks: Tick) -> f32 {
 pub struct PhysicalMetrics;
 
 impl PhysicalMetrics {
-    /// Вычисляет дискретную скорость распространения сигнала (v_seg).
-    /// Вызывает panic (Baking Phase), если параметры не согласованы.
+    /// Calculates discrete signal propagation speed (v_seg).
+    /// panics (Baking Phase) if parameters are inconsistent.
     ///
     /// v_seg = speed_um_tick / segment_length_um
     pub fn compute_v_seg(
@@ -47,7 +47,7 @@ impl PhysicalMetrics {
         let v_seg_f32 = speed_um_tick / segment_length_um;
         let v_seg = v_seg_f32.round() as u32;
 
-        // Контракт: Дробная часть должна быть строго равна нулю (с учетом погрешности float).
+        // Contract: Fractional part must be strictly zero (accounting for float precision).
         let diff = (v_seg_f32 - (v_seg as f32)).abs();
         assert!(
             diff < 1e-5,

@@ -1,5 +1,5 @@
-/// Тесты The Train Model (§1.1) с различными `v_seg` и `propagation_length`.
-/// Позволяет убедиться, что "дыр" при прыжках головы нет, если `prop_len >= v_seg`.
+/// The Train Model (§1.1) tests with various `v_seg` and `propagation_length`.
+/// Ensures no "gaps" during head jumps if `prop_len >= v_seg`.
 
 use super::*;
 use crate::constants::{AXON_SENTINEL, V_SEG};
@@ -9,7 +9,7 @@ fn test_no_gap_v_seg_1() {
     let v_seg = 1;
     let prop_len = 5;
     
-    // Эмуляция 50 тиков
+    // Simulate 50 ticks
     let start_head = 100u32;
     let mut current_head = start_head;
     
@@ -18,8 +18,8 @@ fn test_no_gap_v_seg_1() {
     for _ in 0..50 {
         current_head = current_head.wrapping_add(v_seg);
         
-        // В каждом тике какие-то сегменты активны. Запомним их.
-        // Активный хвост: (head - prop_len ..= head]  (если < prop_len)
+        // In each tick, some segments are active. Remember them.
+        // Active tail: (head - prop_len ..= head]  (if < prop_len)
         for seg in 0..200 {
             if is_segment_active(current_head, seg, prop_len) {
                 covered_segments.push(seg);
@@ -27,12 +27,12 @@ fn test_no_gap_v_seg_1() {
         }
     }
     
-    // Сортируем и убираем дубли
+    // Sort and dedup
     covered_segments.sort_unstable();
     covered_segments.dedup();
     
-    // Проверяем, что нет "дыр" (непройденных сегментов) в диапазоне от start_head до start_head + 50*v_seg
-    // Те сегменты, которые лежали внутри этого диапазона, все должны быть в covered_segments.
+    // Check that there are no "gaps" (unvisited segments) in the range from start_head to start_head + 50*v_seg
+    // All segments that were within this range should be in covered_segments.
     let min_expected = start_head + v_seg;
     let max_expected = start_head + 50 * v_seg - prop_len + 1;
     
@@ -44,7 +44,7 @@ fn test_no_gap_v_seg_1() {
 #[test]
 fn test_no_gap_v_seg_large() {
     let v_seg = 5;
-    let prop_len = 5; // prop >= v_seg, дыр быть не должно
+    let prop_len = 5; // prop >= v_seg, should be no gaps
     
     let start_head = 100u32;
     let mut current_head = start_head;
@@ -74,7 +74,7 @@ fn test_no_gap_v_seg_large() {
 #[test]
 fn test_gap_when_prop_lt_v_seg() {
     let v_seg = 5;
-    let prop_len = 3; // prop < v_seg, ДОЛЖНЫ быть дыры
+    let prop_len = 3; // prop < v_seg, MUST have gaps
     
     let start_head = 100u32;
     let mut current_head = start_head;
@@ -93,9 +93,9 @@ fn test_gap_when_prop_lt_v_seg() {
     covered_segments.sort_unstable();
     covered_segments.dedup();
     
-    // Прыжки 100 -> 105, 105 -> 110.
-    // Если prop=3, то хвост [103..105], [108..110].
-    // Сегменты 101, 102, 106, 107 пропущены!
+    // Jumps: 100 -> 105, 105 -> 110.
+    // If prop=3, then tails are [103..105], [108..110].
+    // Segments 101, 102, 106, 107 are skipped!
     assert!(!covered_segments.contains(&106), "Segment 106 should be MISSED, but it was covered!");
     assert!(!covered_segments.contains(&107), "Segment 107 should be MISSED, but it was covered!");
 }
@@ -103,7 +103,7 @@ fn test_gap_when_prop_lt_v_seg() {
 #[test]
 fn test_roundtrip_fire_to_overlap() {
     let length = 10u32;
-    // v_seg используем из константы для этого теста
+    // use v_seg from constant for this test
     let mut head = initial_axon_head(length);
     let prop_len = 3;
     
@@ -111,13 +111,13 @@ fn test_roundtrip_fire_to_overlap() {
         head = head.wrapping_add(V_SEG);
     }
     
-    // На тике `length` голова должна оказаться возле 0 для сегмента 0
+    // On tick `length`, head should be near 0 for segment 0
     let _start_segment = AXON_SENTINEL.wrapping_sub(length * V_SEG);
     
-    // Если мы сдвинули initial_head на length * V_SEG, мы окажемся в start_segment + length * V_SEG = AXON_SENTINEL
-    // Ух ты, начальный сегмент это AXON_SENTINEL - length * V_SEG. Конечный - AXON_SENTINEL.
-    // Значит когда голова == AXON_SENTINEL, сигнал "умер".
-    // Но давайте проверим на 1 тик РАНЬШЕ:
+    // If we shifted initial_head by length * V_SEG, we end up at start_segment + length * V_SEG = AXON_SENTINEL
+    // Oh wow, the initial segment is AXON_SENTINEL - length * V_SEG. The end is AXON_SENTINEL.
+    // So when head == AXON_SENTINEL, the signal is "dead".
+    // But let's check 1 tick EARLIER:
     
     let mut before_end_head = initial_axon_head(length);
     for _ in 0..(length - 1) {

@@ -4,41 +4,41 @@ use bytemuck::{Pod, Zeroable};
 
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 
-/// Структура параметров типа нейрона.
-/// 64 байта = 1 кэш-линия L2 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
-/// Ровно одна строка кэша на тип → 100% Coalesced Access, нулевой False Sharing.
+/// Neuron type parameter structure.
+/// 64 bytes = 1 GPU L2 cache line. 16 types × 64B = 1024B = entire __constant__ buffer.
+/// Exactly one cache line per type → 100% Coalesced Access, zero False Sharing.
 #[repr(C, align(64))]
 #[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 pub struct VariantParameters {
-    // === Блок 1: 32-bit (Смещения 0..20) ===
+    // === Block 1: 32-bit (Offsets 0..20) ===
     pub threshold: i32,
     pub rest_potential: i32,
     pub leak_rate: i32,
     pub homeostasis_penalty: i32,
     pub spontaneous_firing_period_ticks: u32,
 
-    // === Блок 2: 16-bit (Смещения 20..28) ===
+    // === Block 2: 16-bit (Offsets 20..28) ===
     pub initial_synapse_weight: u16,
     pub gsop_potentiation: u16,
     pub gsop_depression: u16,
     pub homeostasis_decay: u16,
 
-    // === Блок 3: 8-bit (Смещения 28..32) ===
+    // === Block 3: 8-bit (Offsets 28..32) ===
     pub refractory_period: u8,
     pub synapse_refractory_period: u8,
     pub signal_propagation_length: u8,
     pub is_inhibitory: u8, // 1 = true (GABA), 0 = false (Glu)
 
-    // === Блок 4: Массивы (Смещения 32..48) ===
+    // === Block 4: Arrays (Offsets 32..48) ===
     pub inertia_curve: [u8; 16],
 
-    // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+    // === Block 5: Adaptive Leak Hardware (Offsets 48..58) ===
     pub adaptive_leak_max: i32,    // 48..52
     pub adaptive_leak_gain: u16,   // 52..54
     pub adaptive_mode: u8,         // 54..55
     pub _leak_pad: [u8; 3],        // 55..58
 
-    // === Блок 6: Pad (Смещения 58..64) ===
+    // === Block 6: Pad (Offsets 58..64) ===
     pub d1_affinity: u8,
     pub d2_affinity: u8,
     pub _pad: [u8; 4],
@@ -47,7 +47,7 @@ pub struct VariantParameters {
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64, "L1 Cache line size violation!");
 const _: () = assert!(std::mem::align_of::<VariantParameters>() == 64, "Alignment violation!");
 
-// [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
+// [DOD] 32-byte alignment guarantees 8 heads are loaded in 1 L1 cache transaction.
 #[repr(C, align(32))]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct BurstHeads8 {
@@ -73,13 +73,13 @@ impl BurstHeads8 {
 const _: () = assert!(std::mem::size_of::<BurstHeads8>() == 32);
 const _: () = assert!(std::mem::align_of::<BurstHeads8>() == 32);
 
-/// Алгоритм выравнивания N по 64 байтам (L2 Cache Line & AMD Wavefront).
+/// Alignment algorithm for N to 64 bytes (L2 Cache Line & AMD Wavefront).
 pub fn align_to_warp(n: usize) -> usize {
     (n + 63) & !63
 }
 
-/// Заголовок файла состояния (.state)
-/// Ровно 16 байт.
+/// State file header (.state)
+/// Exactly 16 bytes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StateFileHeader {
@@ -116,8 +116,8 @@ impl StateFileHeader {
 
 const _: () = assert!(std::mem::size_of::<StateFileHeader>() == 16);
 
-/// Заголовок файла аксонов (.axons)
-/// Ровно 16 байт.
+/// Axon file header (.axons)
+/// Exactly 16 bytes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AxonsFileHeader {
@@ -168,13 +168,13 @@ pub struct PathsFileHeader {
 
 const _: () = assert!(std::mem::size_of::<PathsFileHeader>() == 16, "PathsFileHeader must be 16 bytes");
 
-/// Вычисляет точный размер файла `shard.paths`.
-/// Гарантирует, что матрица segments начнётся с адреса, кратного 64 байтам.
+/// Calculates exact size of `shard.paths` file.
+/// Guarantees the segments matrix starts at an address multiple of 64 bytes.
 pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
     let header_sz = std::mem::size_of::<PathsFileHeader>(); // 16
     let lengths_sz = total_axons;
     
-    // Выравнивание до 64 байт
+    // Align to 64 bytes
     let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
     
     let matrix_sz = total_axons * MAX_SEGMENTS_PER_AXON * 4; // 4 bytes per PackedPosition
@@ -182,7 +182,7 @@ pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
     header_sz + lengths_sz + padding + matrix_sz
 }
 
-/// Смещение до начала матрицы
+/// Offset to start of the matrix
 pub const fn calculate_paths_matrix_offset(total_axons: usize) -> usize {
     let header_sz = 16;
     let lengths_sz = total_axons;
@@ -212,9 +212,9 @@ pub struct ShardStateSoA {
 }
 
 impl ShardStateSoA {
-    /// Инициализация нового шарда.
-    /// - `padded_n`: кол-во нейронов (кратно 32).
-    /// - `total_axons`: общее кол-во аксонов (локальные + ghost + виртуальные).
+    /// Initializes a new shard.
+    /// - `padded_n`: number of neurons (multiple of 32).
+    /// - `total_axons`: total axons (local + ghost + virtual).
     pub fn new(padded_n: usize, total_axons: usize) -> Self {
         assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
         
@@ -233,7 +233,7 @@ impl ShardStateSoA {
         }
     }
 
-    /// Вычисляет плоский индекс для Coalesced Access на GPU
+    /// Calculates flat index for Coalesced Access on GPU
     #[inline(always)]
     pub fn columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
         assert!(neuron_idx < padded_n && slot < MAX_DENDRITES,
@@ -248,8 +248,8 @@ impl ShardStateSoA {
 
 use crate::constants::{TARGET_AXON_MASK, TARGET_SEG_SHIFT};
 
-/// Упаковывает Axon_ID и смещение сегмента.
-/// Применяет +1 к Axon_ID чтобы target == 0 всегда значило "пустой слот".
+/// Packs Axon_ID and segment offset.
+/// Applies +1 to Axon_ID so target == 0 always means "empty slot".
 #[inline(always)]
 pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
     // Axon_ID: 24 bits, Segment_Offset: 8 bits
@@ -260,17 +260,17 @@ pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
         panic!("CRITICAL: Segment offset exceeds 8 bits");
     }
     
-    // Сдвигаем axon_id на +1
+    // Shift axon_id by +1
     (segment_offset << TARGET_SEG_SHIFT) | ((axon_id + 1) & TARGET_AXON_MASK)
 }
 
-/// Извлекает Axon_ID (с учётом обратного сдвига -1).
+/// Extracts Axon_ID (accounting for -1 reverse shift).
 #[inline(always)]
 pub const fn unpack_axon_id(target_packed: u32) -> u32 {
     (target_packed & TARGET_AXON_MASK).saturating_sub(1)
 }
 
-/// Извлекает смещение сегмента [0..255].
+/// Extracts segment offset [0..255].
 #[inline(always)]
 pub const fn unpack_segment_offset(target_packed: u32) -> u32 {
     target_packed >> TARGET_SEG_SHIFT
@@ -307,9 +307,9 @@ pub struct VramState {
 }
 
 impl VramState {
-    /// ВНИМАНИЕ: Вызывающий код обязан гарантировать, что `soa` не будет 
-    /// перемещен, изменен в размере или удален, пока используется `VramState`.
-    /// Для GPU DMA массивы внутри `soa` должны быть аллоцированы как Page-Locked.
+    /// WARNING: Caller must guarantee `soa` is not moved, resized, or dropped
+    /// while `VramState` is in use. For GPU DMA, arrays in `soa` must be
+    /// allocated as Page-Locked.
     #[inline(always)]
     pub unsafe fn from_soa(soa: &mut ShardStateSoA) -> Self {
         Self {

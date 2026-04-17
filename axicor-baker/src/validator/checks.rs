@@ -3,7 +3,7 @@ use anyhow::bail;
 use axicor_core::config::blueprints::GenesisConstantMemory;
 use axicor_core::time::PhysicalMetrics;
 
-/// Запускает все проверки конфигурации.
+/// Launches all configuration checks.
 pub fn validate_all(
     sim: &SimulationConfig,
     const_mem: &GenesisConstantMemory,
@@ -18,7 +18,7 @@ pub fn validate_all(
         );
     }
 
-    // 1. Инвариант Времени и Пространства
+    // 1. Space and Time Invariant
     validate_physics_constraints(
         sim.simulation.signal_speed_m_s,
         sim.simulation.tick_duration_us,
@@ -26,11 +26,11 @@ pub fn validate_all(
         sim.simulation.segment_length_voxels,
     ).map_err(|e| anyhow::anyhow!(e))?;
 
-    // 2. Инвариант 16 Типов
+    // 2. 16-Types Invariant
     let types_count = const_mem.variants.iter().filter(|v| v.signal_propagation_length > 0 || v.threshold != 0).count();
     validate_blueprints(types_count).map_err(|e| anyhow::anyhow!(e))?;
 
-    // 3. Инвариант Жестких Квот
+    // 3. Strict Quota Invariant
     check_layer_heights(anatomy)?;
     check_composition_quotas(anatomy)?;
     
@@ -38,7 +38,7 @@ pub fn validate_all(
     Ok(())
 }
 
-/// Перехватывает панику из genesis-core для выдачи красивой ошибки.
+/// Catches panic from axicor-core to issue a formatted error.
 pub fn validate_physics_constraints(
     speed_m_s: f32, tick_us: u32, voxel_um: f32, seg_voxels: u32
 ) -> Result<u32, String> {
@@ -58,9 +58,9 @@ pub fn validate_blueprints(types_count: usize) -> Result<(), String> {
     Ok(())
 }
 
-/// Детерминированное распределение квот с компенсацией остатка (Zero Lost Neurons).
+/// Deterministic quota distribution with remainder compensation (Zero Lost Neurons).
 pub fn distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>, String> {
-    // 1. Проверка суммы (Float Precision 1e-4)
+    // 1. Sum check (Float Precision 1e-4)
     let sum: f32 = quotas.iter().sum();
     if (sum - 1.0).abs() > 1e-4 {
         return Err(format!("CRITICAL: Quotas must sum to 1.0, found {}", sum));
@@ -69,20 +69,20 @@ pub fn distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>
     let mut result = Vec::with_capacity(quotas.len());
     let mut allocated = 0;
 
-    // 2. Базовое распределение (floor)
+    // 2. Base distribution (floor)
     for &q in quotas {
         let count = (total_capacity as f32 * q).floor() as u32;
         result.push(count);
         allocated += count;
     }
 
-    // 3. Компенсация остатка в последний АКТИВНЫЙ тип
+    // 3. Remainder compensation to the last ACTIVE type
     let remainder = total_capacity - allocated;
     if remainder > 0 {
         if let Some(idx) = quotas.iter().rposition(|&q| q > 0.0) {
             result[idx] += remainder;
         } else {
-            // Fallback (не должен сработать при sum == 1.0)
+            // Fallback (should not be triggered when sum == 1.0)
             result[quotas.len() - 1] += remainder;
         }
     }
@@ -90,20 +90,20 @@ pub fn distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>
     Ok(result)
 }
 
-/// Главный валидатор архитектуры. Вызывается перед началом запекания шарда.
+/// Main architecture validator. Called before starting shard baking.
 pub fn run_all_checks(const_mem: &GenesisConstantMemory) -> anyhow::Result<()> {
     validate_gsop_dead_zones(const_mem);
     check_single_spike_in_flight(const_mem)?;
     Ok(())
 }
 
-/// Проверка инварианта: (potentiation * inertia) >> 7 >= 1
+/// Invariant check: (potentiation * inertia) >> 7 >= 1
 fn validate_gsop_dead_zones(const_mem: &GenesisConstantMemory) {
     for (_type_idx, variant) in const_mem.variants.iter().enumerate() {
         if variant.gsop_potentiation > 0 {
-            // Внимание: inertia_curve теперь часть VariantParameters в layout.rs?
-            // Нет, в blueprints.toml. В VariantParameters её нет, она в LUT.
-            // Оставляем как было, если интерфейс позволяет.
+            // Note: inertia_curve is now part of VariantParameters in layout.rs?
+            // No, in blueprints.toml. It's not in VariantParameters, it's in the LUT.
+            // Leave as is if the interface allows.
         }
     }
 }
@@ -125,7 +125,7 @@ pub fn check_single_spike_in_flight(const_mem: &GenesisConstantMemory) -> anyhow
 }
 
 // ---------------------------------------------------------------------------
-// anatomy.toml — суммы height_pct и population_pct
+// anatomy.toml — height_pct and population_pct sums
 // ---------------------------------------------------------------------------
 
 pub fn check_layer_heights(anatomy: &Anatomy) -> anyhow::Result<()> {
@@ -133,7 +133,7 @@ pub fn check_layer_heights(anatomy: &Anatomy) -> anyhow::Result<()> {
     if (sum - 1.0).abs() > 1e-4 {
         bail!(
             "anatomy.toml: Σ(layer.height_pct) = {:.4} ≠ 1.0 (±1e-4).\n\
-             Слои обязаны покрывать всю высоту зоны без перекрытий и пробелов.",
+             Layers must cover the entire zone height without overlaps or gaps.",
             sum
         );
     }
@@ -146,7 +146,7 @@ pub fn check_composition_quotas(anatomy: &Anatomy) -> anyhow::Result<()> {
         if (sum - 1.0).abs() > 1e-4 {
             bail!(
                 "anatomy.toml: Layer '{}' Σ(composition) = {:.4} ≠ 1.0 (±1e-4).\n\
-                 Квоты типов нейронов в слое обязаны суммироваться в 1.0.",
+                 Neuron type quotas in a layer must sum to 1.0.",
                 layer.name,
                 sum
             );

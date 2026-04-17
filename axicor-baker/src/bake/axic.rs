@@ -25,8 +25,8 @@ pub fn pack_directory_to_axic(project_dir: &Path, out_file: &Path) -> anyhow::Re
     for (rel_path, abs_path) in files {
         let current_pos = file.stream_position()?;
         
-        // DOD FIX: Выравниваем смещение до границы 4096 (OS Page Size).
-        // Это жизненно важно для Zero-Copy mmap конкретного файла из архива!
+        // [DOD FIX] Align offset to 4096 boundary (OS Page Size).
+        // This is vital for Zero-Copy mmap of a specific file from the archive!
         let padding = (4096 - (current_pos % 4096)) % 4096;
         if padding > 0 {
             file.write_all(&vec![0u8; padding as usize])?;
@@ -62,7 +62,7 @@ fn collect_files_recursive(dir: &Path, base: &Path, files: &mut Vec<(String, Pat
                 collect_files_recursive(&path, base, files);
             } else {
                 let rel = path.strip_prefix(base).unwrap().to_string_lossy().to_string();
-                // Унифицируем слеши для совместимости Windows/Linux
+                // Unify slashes for Windows/Linux compatibility
                 files.push((rel.replace("\\", "/"), path)); 
             }
         }

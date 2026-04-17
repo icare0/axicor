@@ -40,7 +40,7 @@ fn test_distribute_quotas_rounding() {
     assert_eq!(res, vec![330, 330, 340]);
     assert_eq!(res.iter().sum::<u32>(), 1000);
 
-    // Кейс с реальным округлением
+    // Case with real rounding
     // 100 * 0.333 = 33.3 -> 33
     // 100 * 0.333 = 33.3 -> 33
     // 100 * 0.334 = 33.4 -> 33

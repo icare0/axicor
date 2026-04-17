@@ -1,9 +1,8 @@
-//! Парсер анатомии (делегируется к `axicor_core::config`).
+//! Anatomy parser (delegates to `axicor_core::config`).
+use axicor_core::config::anatomy::AnatomyConfig as CoreAnatomy;
+pub type Anatomy = CoreAnatomy;
 
-pub use axicor_core::config::AnatomyConfig as Anatomy;
-
-/// Парсит `anatomy.toml` из строки.
-pub fn parse(src: &str) -> anyhow::Result<Anatomy> {
-    Anatomy::parse(src).map_err(|e| anyhow::anyhow!(e))
+/// Parses `anatomy.toml` from a string.
+pub fn parse(content: &str) -> anyhow::Result<Anatomy> {
+    Anatomy::parse(content).map_err(|e: String| anyhow::anyhow!(e))
 }
-

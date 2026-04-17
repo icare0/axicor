@@ -1,23 +1,23 @@
-/// Физика сигнала: «Активный Хвост» (Active Tail, Spec 01 §1.3).
+/// Signal Physics: "Active Tail" (Spec 01 §1.3).
 ///
-/// Сигнал — это «поезд», скользящий по сегментам аксона.
-/// `axon_head` стартует с `AXON_SENTINEL - length * V_SEG` и растёт на `V_SEG` каждый тик.
-/// Когда `axon_head.wrapping_sub(segment_idx) < propagation_length` — сегмент «горит».
+/// A signal is a "train" sliding over axon segments.
+/// `axon_head` starts at `AXON_SENTINEL - length * V_SEG` and increments by `V_SEG` each tick.
+/// When `axon_head.wrapping_sub(segment_idx) < propagation_length` — the segment "lights up".
 ///
-/// Целочисленная арифметика с переполнением u32 гарантирует детерминизм на GPU без float.
+/// Integer arithmetic with u32 overflow guarantees determinism on GPU without floats.
 use crate::constants::{AXON_SENTINEL, V_SEG};
 use crate::types::AxonHead;
 
-/// Branchless Active Tail check для GPU Hot Loop (Spec 03 §1.3).
+/// Branchless Active Tail check for GPU Hot Loop (Spec 03 §1.3).
 ///
-/// Проверяет, находится ли дендритный сегмент внутри активного хвоста сигнала.
-/// Нет ветвлений — AXON_SENTINEL (0x80000000) обрабатывается автоматически:
-/// `0x80000000.wrapping_sub(any_small_idx)` ≈ 2.1 млрд > любого propagation_length.
+/// Checks if a dendritic segment falls within the signal's active tail.
+/// No branching — AXON_SENTINEL (0x80000000) is handled automatically:
+/// `0x80000000.wrapping_sub(any_small_idx)` ≈ 2.1B > any propagation_length.
 ///
-/// # Гарантии
-/// - Zero Warp Divergence на GPU (нет `if`)
-/// - Deterministic: одинаковый результат на CPU и GPU
-/// - AXON_SENTINEL всегда возвращает `false`
+/// # Guarantees
+/// - Zero Warp Divergence on GPU (no `if`)
+/// - Deterministic: identical result on CPU and GPU
+/// - AXON_SENTINEL always returns `false`
 #[inline(always)]
 pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_length: u8) -> bool {
     let dist = head_idx.wrapping_sub(segment_idx);
@@ -25,15 +25,15 @@ pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_leng
 }
 
 
-/// Проверяет, находится ли сегмент `segment_idx` в «активном хвосте» за данный тик.
+/// Checks if segment `segment_idx` is in the "active tail" for the current tick.
 ///
-/// # Аргументы
-/// - `axon_head` — текущая позиция головы аксона (u32, wrapping)
-/// - `segment_idx` — индекс проверяемого сегмента
-/// - `propagation_length` — длина хвоста в сегментах (`signal_propagation_length` из blueprints)
+/// # Arguments
+/// - `axon_head` — current axon head position (u32, wrapping)
+/// - `segment_idx` — index of the segment being checked
+/// - `propagation_length` — tail length in segments (`signal_propagation_length` from blueprints)
 ///
-/// # Возвращает
-/// `true` если сегмент входит в активный хвост `[head - propagation_length, head)`.
+/// # Returns
+/// `true` if the segment is within the active tail `[head - propagation_length, head]`.
 #[inline]
 pub fn is_segment_active(
     axon_head: AxonHead,
@@ -46,10 +46,10 @@ pub fn is_segment_active(
     axon_head.wrapping_sub(segment_idx) < propagation_length
 }
 
-/// Вычисляет начальную позицию головы аксона для N сегментов.
+/// Calculates the initial position of the axon head for N segments.
 /// `head = AXON_SENTINEL - length * V_SEG`
 ///
-/// Это позволяет `propagate_axons` корректно «доехать» до конца в первый же тик.
+/// This allows `propagate_axons` to correctly "reach" the end on the very first tick.
 #[inline]
 pub fn initial_axon_head(length_segments: u32) -> AxonHead {
     AXON_SENTINEL.wrapping_sub(length_segments * V_SEG)

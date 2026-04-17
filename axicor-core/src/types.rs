@@ -1,10 +1,10 @@
-/// Абсолютная пространственная единица: 1.0 = 1 мкм.
+/// Absolute spatial unit: 1.0 = 1 µm.
 pub type Microns = f32;
 
-/// Нормализованная координата [0.0, 1.0].
+/// Normalized coordinate [0.0, 1.0].
 pub type Fraction = f32;
 
-/// Дискретная координата в вокселях.
+/// Discrete coordinate in voxels.
 pub type VoxelCoord = u32;
 
 use bytemuck::{Pod, Zeroable};
@@ -16,7 +16,7 @@ use bytemuck::{Pod, Zeroable};
 pub struct PackedPosition(pub u32);
 
 impl PackedPosition {
-    /// Упаковывает сырые индексы вокселей и тип в один u32 регистр.
+    /// Packs raw voxel indices and type into a single u32 register.
     /// Layout: X (10 bit) | Y (10 bit) | Z (8 bit) | Type (4 bit)
     #[inline(always)]
     pub fn pack_raw(x_idx: u32, y_idx: u32, z_idx: u32, type_idx: u8) -> Self {
@@ -38,7 +38,7 @@ impl PackedPosition {
         Self(x_q | (y_q << 10) | (z_q << 20) | (t_q << 28))
     }
 
-    // Методы для GPU-вычислений (если потребуются на CPU)
+    // Methods for GPU calculations (if required on CPU)
     #[inline(always)] pub const fn type_id(&self) -> u8 { (self.0 >> 28) as u8 }
     #[inline(always)] pub const fn x(&self) -> u16 { (self.0 & 0x3FF) as u16 }
     #[inline(always)] pub const fn y(&self) -> u16 { ((self.0 >> 10) & 0x3FF) as u16 }
@@ -67,7 +67,7 @@ pub type AxonHead = u32;
 /// Dendrite target: [31..24] segment_offset (8 bits) | [23..0] axon_id + 1 (24 bits).
 pub type PackedTarget = u32;
 
-/// Индекс сегмента внутри аксона. 10 бит → 0..=1023.
+/// Segment index within an axon. 10 bits → 0..=1023.
 pub type SegmentIndex = u32;
 
 /// Variant ID (0..15)

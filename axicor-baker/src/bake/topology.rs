@@ -44,7 +44,7 @@ pub fn build_local_topology_internal(
     );
     let local_axons_count = axons.len();
 
-    // DOD FIX: Строгий VRAM-маппинг
+    // [DOD FIX] Strict VRAM mapping
     let padded_n = positions.len(); 
     let mut vram_axon_ids = Vec::with_capacity(padded_n * 2);
     for ax in &axons {
@@ -132,7 +132,7 @@ pub fn build_local_topology_internal(
         let (mut ghost_axons, _) = inject_ghost_axons(
             &ghost_packets,
             &positions,
-            // [DOD FIX] Заменили const_mem на neuron_types
+            // [DOD FIX] Replaced const_mem with neuron_types
             neuron_types, 
             sim,
             &shard_bounds,
@@ -175,7 +175,7 @@ pub fn build_local_topology_internal(
         &axons,
         &vram_axon_ids,
         neuron_types,
-        sim.simulation.voxel_size_um as f32, // Передаем размер вокселя
+        sim.simulation.voxel_size_um as f32, // Pass voxel size
     );
     println!("[baker] ✓ Synapses established: {} (avg: {:.1}/soma)", 
         total_synapses, 
@@ -209,12 +209,12 @@ pub fn build_local_topology_internal(
         let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
         shard.axon_dirs_xyz[dst_offset] = (dz << 16) | (dy << 8) | dx;
         
-        // DOD FIX: Берем точный VRAM адрес, никаких угадываний
+        // [DOD FIX] Get exact VRAM address, no guessing
         let len = ax.length_segments.min(256) as usize;
         shard.axon_lengths[dst_offset] = len as u8;
         
         if len > 0 {
-            // GrownAxon хранит все сегменты (или только до ограничения)
+            // GrownAxon stores all segments (or only up to the limit)
             let copy_len = ax.segments.len().min(len);
             let path_start = dst_offset * axicor_core::layout::MAX_SEGMENTS_PER_AXON;
             shard.axon_paths[path_start..path_start + copy_len]

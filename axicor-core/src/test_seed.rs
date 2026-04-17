@@ -1,4 +1,4 @@
-/// Тесты Master Seed и wyhash (§2).
+/// Master Seed and wyhash tests (§2).
 use super::*;
 
 #[test]
@@ -16,13 +16,13 @@ fn different_strings_different_seeds() {
 }
 
 #[test]
-fn farsh_string_test() {
-    // Всякий мусор, пробелы, китайские(и не только) символы, эмодзи
+fn messy_string_test() {
+    // Random garbage, spaces, Chinese (and others) characters, emojis
     let messy = "  🚀 GENESIS   __ 2026   你好โลก   \n\t_!!   $#@%   ";
     let s = MasterSeed::from_str(messy);
-    assert_ne!(s.raw(), 0, "Seed не должен быть 0 даже для фарша");
+    assert_ne!(s.raw(), 0, "Seed should not be 0 even for messy input");
     
-    // Хэш стабилен
+    // Hash is stable
     let s2 = MasterSeed::from_str(messy);
     assert_eq!(s.raw(), s2.raw());
 }
@@ -30,17 +30,17 @@ fn farsh_string_test() {
 #[test]
 fn empty_string_handled_safely() {
     let s = MasterSeed::from_str("");
-    // wyhash нормально жуёт пустую строку
+    // wyhash handles empty string correctly
     let s2 = MasterSeed::from_str("");
     assert_eq!(s, s2);
 }
 
 #[test]
 fn raw_not_equal_to_literal() {
-    // Демонстрация бага: старый хардкод "GENESIS" байтами это не "GENESIS" прогнанное через wyhash
+    // Bug demonstration: old hardcoded "GENESIS" bytes is not "GENESIS" passed through wyhash
     let old_hardcode: u64 = 0x47454E455349530; 
     let real_seed = MasterSeed::from_str("GENESIS");
-    assert_ne!(old_hardcode, real_seed.raw(), "Хардкод байтов строки не равен хэшу wyhash!");
+    assert_ne!(old_hardcode, real_seed.raw(), "Hardcoded string bytes do not equal wyhash hash!");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn test_avalanche_effect() {
     
     assert_ne!(s1, s2, "Adjacent IDs must have different seeds");
     
-    // Проверка что биты сильно перемешаны (минимум 16 бит разницы - эвристика)
+    // Check that bits are thoroughly mixed (minimum 16 bits difference - heuristic)
     let diff_bits = (s1 ^ s2).count_ones();
     assert!(diff_bits >= 16, "Avalanche effect too weak: only {diff_bits} bits differ");
 }

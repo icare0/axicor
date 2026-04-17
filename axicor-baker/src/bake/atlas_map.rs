@@ -2,7 +2,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::fs::File;
 
-/// FNV-1a для детерминированного шума
+/// FNV-1a for deterministic jitter
 fn hash_jitter(seed: u64, salt: u32) -> f32 {
     let mut hash = 0x811c9dc5_u32;
     for &b in &seed.to_le_bytes() {
@@ -12,18 +12,18 @@ fn hash_jitter(seed: u64, salt: u32) -> f32 {
     hash ^= salt;
     hash = hash.wrapping_mul(0x01000193);
     
-    // Нормализация в диапазон [-1.0 .. 1.0]
+    // Normalization to [-1.0 .. 1.0] range
     ((hash % 2000) as f32 / 1000.0) - 1.0
 }
 
-/// Генерирует .ghosts файл на основе UV-проекции
+/// Generates a .ghosts file based on UV projection
 pub fn bake_atlas_connection(
     out_dir: &Path,
     from_name: &str,
     to_name: &str,
     src_packed_pos: &[u32],
     src_size_um: (f32, f32), // (width, depth)
-    conn_grid: (u16, u16),   // Разрешение проекции (width, height)
+    conn_grid: (u16, u16),   // Projection resolution (width, height)
     dst_ghost_offset: u32,
     master_seed: u64,
 ) -> u32 {
@@ -35,11 +35,11 @@ pub fn bake_atlas_connection(
 
     for py in 0..grid_h {
         for px in 0..grid_w {
-            // 1. UV нормализация (0.0 .. 1.0)
+            // 1. UV normalization (0.0 .. 1.0)
             let u = (px as f32) / (grid_w as f32);
             let v = (py as f32) / (grid_h as f32);
 
-            // 2. Детерминированный Jitter (шум до 5% от размера сетки)
+            // 2. Deterministic Jitter (noise up to 5% of grid size)
             let salt = (py as u32) << 16 | (px as u32);
             let jitter_u = hash_jitter(master_seed, salt) * 0.05;
             let jitter_v = hash_jitter(master_seed, salt.wrapping_mul(2)) * 0.05;
@@ -47,18 +47,18 @@ pub fn bake_atlas_connection(
             let u_noisy = (u + jitter_u).clamp(0.0, 1.0);
             let v_noisy = (v + jitter_v).clamp(0.0, 1.0);
 
-            // 3. Целевая физическая точка в зоне-источнике
+            // 3. Target physical point in source zone
             let target_x = u_noisy * src_size_um.0;
             let target_y = v_noisy * src_size_um.1;
 
-            // 4. Z-Sort: Ищем ближайшую сому-отправителя
+            // 4. Z-Sort: find nearest source soma
             let mut best_soma_id = u32::MAX;
             let mut min_dist_sq = f32::MAX;
 
             for (dense_id, &packed) in src_packed_pos.iter().enumerate() {
-                // [DOD FIX] Пересчёт: Voxel Coords (0..720) -> Microns (0..18000)
-                let vx_um = (packed & 0x7FF) as f32 * 25.0; 
-                let vy_um = ((packed >> 11) & 0x7FF) as f32 * 25.0; 
+                // [DOD FIX] Recalculation: Voxel Coords (0..1024) -> Microns (0..25600)
+                let vx_um = (packed & 0x3FF) as f32 * 25.0; 
+                let vy_um = ((packed >> 10) & 0x3FF) as f32 * 25.0; 
                 
                 let dx = vx_um - target_x;
                 let dy = vy_um - target_y;
@@ -77,11 +77,11 @@ pub fn bake_atlas_connection(
         }
     }
 
-    // 5. Запись бинарного контракта (Zero-Copy Ready)
+    // 5. Binary contract write (Zero-Copy Ready)
     let path = out_dir.join(format!("{}_{}.ghosts", from_name, to_name));
     let mut file = BufWriter::new(File::create(path).expect("Failed to create .ghosts file"));
     
-    // [DOD FIX] Используем новые C-ABI структуры из ipc.rs
+    // [DOD FIX] Using new C-ABI structures from ipc.rs
     use axicor_core::ipc::{GhostsHeader, GhostConnection};
     use axicor_core::hash::fnv1a_32;
 

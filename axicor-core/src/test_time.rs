@@ -1,24 +1,24 @@
-/// Тесты временно́й метрики (§1.4).
+/// Temporal metric tests (§1.4).
 use super::*;
 use crate::constants::TICK_DURATION_US;
 
 #[test]
 fn ms_to_ticks_basic() {
-    // 5 мс / 0.1 мс = 50 тиков
+    // 5 ms / 0.1 ms = 50 ticks
     assert_eq!(ms_to_ticks(5.0), 50);
-    // 1 мс = 10 тиков
+    // 1 ms = 10 ticks
     assert_eq!(ms_to_ticks(1.0), 10);
-    // 0.1 мс = 1 тик
+    // 0.1 ms = 1 tick
     assert_eq!(ms_to_ticks(0.1), 1);
 }
 
 #[test]
 fn us_to_ticks_basic() {
-    // 500 мкс / 100 мкс = 5 тиков
+    // 500 us / 100 us = 5 ticks
     assert_eq!(us_to_ticks(500), 5);
-    // 100 мкс = 1 тик
+    // 100 us = 1 tick
     assert_eq!(us_to_ticks(TICK_DURATION_US), 1);
-    // 0 мкс = 0 тиков
+    // 0 us = 0 ticks
     assert_eq!(us_to_ticks(0), 0);
 }
 
@@ -32,6 +32,6 @@ fn ticks_to_ms_roundtrip() {
 
 #[test]
 fn biological_refractory_example() {
-    // Спека §1.4: 5 мс рефрактерность = 50 тиков
+    // Spec §1.4: 5 ms refractoriness = 50 ticks
     assert_eq!(ms_to_ticks(5.0), 50);
 }

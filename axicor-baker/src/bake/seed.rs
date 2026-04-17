@@ -1,5 +1,5 @@
-/// Реэкспорт seed примитивов из genesis-core.
-/// Baker использует этот модуль напрямую, runtime и другие крейты берут из genesis-core.
+/// Re-export of seed primitives from axicor-core.
+/// Baker uses this module directly, while runtime and other crates fetch from axicor-core.
 
 pub use axicor_core::seed::{
     entity_seed,

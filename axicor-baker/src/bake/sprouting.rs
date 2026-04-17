@@ -3,8 +3,8 @@ use rand::SeedableRng;
 
 
 
-/// Вычисляет привлекательность сомы-кандидата для растущего аксона.
-/// Вся математика здесь легально использует f32, так как это Night Phase.
+/// Calculates the attraction score of a candidate soma for a growing axon.
+/// All math here legally uses f32 as this is the Night Phase.
 #[inline]
 pub fn compute_sprouting_score(
     target_type: &NeuronType,
@@ -19,7 +19,7 @@ pub fn compute_sprouting_score(
         + noise * target_type.sprouting_weight_explore
 }
 
-/// Евклидово расстояние в вокселях между двумя точками.
+/// Euclidean distance in voxels between two points.
 pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
     let dx = ax as f32 - bx as f32;
     let dy = ay as f32 - by as f32;
@@ -27,15 +27,15 @@ pub fn voxel_dist(ax: u32, ay: u32, az: u32, bx: u32, by: u32, bz: u32) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-/// Вычисляет "силу" сомы на базе накопленных весов всех её входящих синапсов.
-/// Используется для аттракции аксонов к функционально важным нейронам.
+/// Calculates soma "power" based on accumulated weights of all incoming synapses.
+/// Used for attracting axons toward functionally important neurons.
 pub fn compute_power_index(soma_idx: usize, weights: &[i32], padded_n: usize) -> f32 {
-    let mut power = 0u64; // [DOD FIX] 128 * 2.14B переполнит u32, используем u64
+    let mut power = 0u64; // [DOD FIX] 128 * 2.14B would overflow u32, using u64
     for slot in 0..MAX_DENDRITE_SLOTS {
         let w = weights[slot * padded_n + soma_idx];
-        power += w.unsigned_abs() as u64; // Без float, без бранчей
+        power += w.unsigned_abs() as u64; // Float-free, branchless
     }
-    // Нормализация в 0.0..1.0 (128 слотов по 2.14B макс веса)
+    // Normalization to 0.0..1.0 (128 slots * 2.14B max weight)
     power as f32 / (MAX_DENDRITE_SLOTS as f32 * 2140000000.0)
 }
 
@@ -58,10 +58,10 @@ fn nudge_axon(
     handovers_count: &mut usize,
     max_x: u32,
     max_y: u32,
-    zone_hash: u32, // <--- НОВЫЙ ПАРАМЕТР
+    zone_hash: u32, // <--- NEW PARAMETER
 ) {
     let packed_tip = tips[axon_id];
-    if packed_tip == 0 { return; } // Мертвый или улетевший аксон
+    if packed_tip == 0 { return; } // Dead or departed axon
 
     let pos = axicor_core::types::PackedPosition(tips[axon_id]);
     let tx = pos.x() as u32;
@@ -82,12 +82,12 @@ fn nudge_axon(
     let new_ty = ty as i32 + shift_y;
     let new_tz = tz as i32 + shift_z;
 
-    // [DOD FIX] Handover Trigger: выход за границы шарда
+    // [DOD FIX] Handover Trigger: excursion outside shard boundaries
     if new_tx < 0 || new_tx >= max_x as i32 || new_ty < 0 || new_ty >= max_y as i32 || new_tz < 0 || new_tz > 63 {
         if *handovers_count < axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             let len = lengths[axon_id] as u16;
             handovers[*handovers_count] = AxonHandoverEvent {
-                origin_zone_hash: zone_hash, // [DOD FIX] Штампуем наш ID
+                origin_zone_hash: zone_hash, // [DOD FIX] Stamp our ID
                 local_axon_id: axon_id as u32,
                 entry_x: new_tx.clamp(0, 2047) as u16,
                 entry_y: new_ty.clamp(0, 2047) as u16,
@@ -101,7 +101,7 @@ fn nudge_axon(
             };
             *handovers_count += 1;
         }
-        // Аксон покинул шард. Обнуляем Tip, чтобы прекратить локальный рост.
+        // Axon left the shard. Zero out Tip to stop local growth.
         tips[axon_id] = 0;
         return;
     }
@@ -159,7 +159,7 @@ pub fn run_sprouting_pass(
     }
 
     // [DOD FIX] O(1) Reverse Lookup Map (Axon -> Soma)
-    // Предотвращает O(N) поиск сомы при проверке активности или принадлежности аксона.
+    // Prevents O(N) soma search when checking axon activity or ownership.
     let mut axon_to_soma = vec![usize::MAX; total_axons];
     for (s_idx, &a_idx) in soma_to_axon.iter().enumerate() {
         if a_idx != u32::MAX && (a_idx as usize) < total_axons {
@@ -167,7 +167,7 @@ pub fn run_sprouting_pass(
         }
     }
 
-    // 0. Абсорбция входящих Ghost Axons (до перезаписи SHM)
+    // 0. Absorption of incoming Ghost Axons (before SHM rewrite)
     let mut generated_acks = Vec::with_capacity(incoming_handovers_count);
     
     let mut next_free_ghost = ghost_start;
@@ -183,7 +183,7 @@ pub fn run_sprouting_pass(
             break;
         }
 
-        // [DOD FIX] Создаем ACK для отправителя
+        // [DOD FIX] Create ACK for sender
         generated_acks.push(axicor_core::ipc::AxonHandoverAck {
             target_zone_hash: ev.origin_zone_hash,
             src_axon_id: ev.local_axon_id,
@@ -201,7 +201,7 @@ pub fn run_sprouting_pass(
 
         axon_tips_uvw[next_free_ghost] = packed_tip;
         axon_dirs_xyz[next_free_ghost] = packed_dir;
-        lengths[next_free_ghost] = 0; // Сбрасываем длину, он только родился здесь
+        lengths[next_free_ghost] = 0; // Reset length, just born here
         paths[next_free_ghost * 256] = packed_tip;
 
         next_free_ghost += 1;
@@ -209,9 +209,9 @@ pub fn run_sprouting_pass(
 
     let mut handovers_count = 0;
 
-    // 1. Living Axons (Локальные)
+    // 1. Living Axons (Local)
     for soma_idx in 0..padded_n {
-        // [DOD FIX] Проверяем аккумулятор спайков за весь батч (биты 3:1), а не только последнюю микросекунду
+        // [DOD FIX] Check spike accumulator for the full batch (bits 3:1), not just the last microsecond
         let f = flags[soma_idx];
         let burst_count = (f >> 1) & 0x07;
         let is_spiking = f & 0x01;
@@ -227,7 +227,7 @@ pub fn run_sprouting_pass(
         }
     }
 
-    // 2. Ghost Axons (Безусловный рост по инерции)
+    // 2. Ghost Axons (Unconditional growth by inertia)
     let ghost_end = padded_n + total_ghosts;
     for axon_id in padded_n..ghost_end {
         nudge_axon(
@@ -236,7 +236,7 @@ pub fn run_sprouting_pass(
         );
     }
 
-    // 3. Строим Spatial Grid из путей
+    // 3. Build Spatial Grid from paths
     let segment_grid = AxonSegmentGrid::build_from_paths(lengths, paths, total_axons, 2);
 
     // 4. Synaptogenesis (Zero-Cost Spatial Search with Type Scoring)
@@ -246,13 +246,13 @@ pub fn run_sprouting_pass(
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 { continue; }
         
-        // [DOD FIX] Проверяем аккумулятор спайков за весь батч (биты 3:1), а не только последнюю микросекунду
+        // [DOD FIX] Check spike accumulator for the full batch (bits 3:1), not just the last microsecond
         let f = flags[i];
         let burst_count = (f >> 1) & 0x07;
         let is_spiking = f & 0x01;
 
         if burst_count == 0 && is_spiking == 0 {
-            continue; // Нейрон физически молчал весь день
+            continue; // Neuron was physically silent all day
         }
 
         let my_pos = PackedPosition(my_pos_raw);
@@ -261,19 +261,19 @@ pub fn run_sprouting_pass(
         let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
 
         let mut sprouts_tonight = 0;
-        // [DOD FIX] Итерируемся ВПЕРЕД (0..128).
-        // Массив уплотнен (dense) после GPU Sort & Prune.
-        // Первый встреченный 0 — это конец плотного блока и идеальное место для нового синапса.
+        // [DOD FIX] Iterate FORWARD (0..128).
+        // Array is compacted (dense) after GPU Sort & Prune.
+        // First encountered 0 is the end of the dense block and ideal place for a new synapse.
         for slot in 0..MAX_DENDRITE_SLOTS {
             let col_idx = slot * padded_n + i;
             if targets[col_idx] != 0 {
-                continue; // Пропускаем живые синапсы, ищем первый пустой слот
+                continue; // Skip live synapses, find first empty slot
             }
 
             let mut best_candidate = None;
             let mut best_score = -1.0;
 
-            // O(K) сканирование кандидатов
+            // O(K) candidate scan
             segment_grid.for_each_in_radius(&my_pos, 2, |seg_ref| {
                 if soma_to_axon[i] == seg_ref.axon_id { return; } // Self-connection guard
 
@@ -288,11 +288,11 @@ pub fn run_sprouting_pass(
                 }
                 if is_dup { return; }
 
-                // [DOD FIX] Эвристика: Power Index + Type Affinity + Explore Noise
+                // [DOD FIX] Heuristic: Power Index + Type Affinity + Explore Noise
                 let cand_type_idx = seg_ref.type_idx as usize;
                 let is_same_type = (my_type_idx == cand_type_idx) as i32 as f32;
                 
-                // Детерминированный шум на базе аксона и эпохи
+                // Deterministic noise based on axon and epoch
                 let noise = crate::bake::seed::random_f32(
                     master_seed.wrapping_add(seg_ref.axon_id as u64).wrapping_add(_epoch)
                 );
@@ -300,15 +300,15 @@ pub fn run_sprouting_pass(
                 // [DOD FIX] O(1) Target Power calculation
                 let owner_soma = axon_to_soma[seg_ref.axon_id as usize];
                 let target_power = if owner_soma == usize::MAX {
-                    1.0 // [DOD FIX] Virtual / Ghost аксоны имеют максимальную привлекательность!
+                    1.0 // [DOD FIX] Virtual / Ghost axons have maximum attraction!
                 } else {
                     compute_power_index(owner_soma, weights, padded_n)
                 };
 
                 let mut score = 1.0;
                 if let Some(cfg) = my_type_cfg {
-                    // Используем sprouting_weight_type из конфига!
-                    score = cfg.sprouting_weight_distance * 1.0 // Считаем дистанцию близкой (r=2)
+                    // Use sprouting_weight_type from config!
+                    score = cfg.sprouting_weight_distance * 1.0 // Consider distance close (r=2)
                           + cfg.sprouting_weight_explore * noise
                           + cfg.sprouting_weight_type * is_same_type
                           + cfg.sprouting_weight_power * target_power;
@@ -331,7 +331,7 @@ pub fn run_sprouting_pass(
                         // Shift prune threshold to match Mass Domain comparison
                         let prune_i32 = (prune_threshold.abs() as i32) << 16;
                         
-                        // Защита от Dead on Arrival
+                        // Dead on Arrival protection
                         if start_w <= prune_i32 {
                             start_w = prune_i32 + start_w.max(100 << 16);
                         }
@@ -342,14 +342,14 @@ pub fn run_sprouting_pass(
                 targets[col_idx] = new_target;
                 weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };
                 
-                // [DOD FIX] Аксон получил новую связь, он жив
+                // [DOD FIX] Axon received a new connection, it is alive
                 active_axons[seg.axon_id as usize] = true;
 
                 new_synapses += 1;
                 sprouts_tonight += 1;
             } else {
-                // [DOD FIX] Если вокруг сомы больше нет подходящих аксонов для этого слота, 
-                // их не будет и для остальных. Прекращаем бессмысленный скан памяти.
+                // [DOD FIX] If there are no more suitable axons around the soma for this slot,
+                // there won't be any for the others. Stop senseless memory scan.
                 break;
             }
             
@@ -359,40 +359,40 @@ pub fn run_sprouting_pass(
         }
     }
 
-    // [DOD FIX] 5. GC Sweep: Ищем сирот среди Ghost Axons
+    // [DOD FIX] 5. GC Sweep: Scan for orphaned Ghost Axons
     let mut prunes = Vec::new();
     for ghost_id in ghost_start..ghost_end {
         if !active_axons[ghost_id] && axon_tips_uvw[ghost_id] != 0 {
-            // Найден призрак без связей!
+            // Found a ghost without connections!
             let idx = ghost_id - ghost_start;
             let target_zone_hash = ghost_origins[idx];
             
             if target_zone_hash != 0 {
-                // Регистрируем смерть в SHM
+                // Register death in SHM
                 prunes.push(axicor_core::ipc::AxonHandoverPrune {
                     target_zone_hash,
                     dst_ghost_id: ghost_id as u32,
                 });
                 
-                // Физическое убийство: записываем сентенель в BurstHeads8 (axon_heads)
+                // Physical kill: write sentinel into BurstHeads8 (axon_heads)
                 // AXON_SENTINEL = 0xFFFFFFFF
-                axon_tips_uvw[ghost_id] = 0; // На хосте
-                // В VRAM (через SHM не получится, нужно дождаться записи на диск или прямо сейчас?)
-                // Мы находимся в Baker, мы пишем в наши локальные структуры Tips/Dirs.
-                // Эти структуры потом будут запечены или синхронизированы.
-                // В данном случае мы просто обнуляем Tips, и nudge_axon(ghost_id) в следующую ночь
-                // просто пропустит этот аксон. 
+                axon_tips_uvw[ghost_id] = 0; // On host
+                // In VRAM (via SHM won't work, wait for disk write or now?)
+                // We are in Baker, we write to our local Tips/Dirs structures.
+                // These structures will later be baked or synchronized.
+                // In this case we just zero out Tips, and nudge_axon(ghost_id) next night
+                // will just skip this axon.
             }
         }
     }
 
-    // Записываем Prunes в SHM
+    // Write Prunes into SHM
     if !prunes.is_empty() {
         let hdr = unsafe { &mut *(shm_ptr as *mut axicor_core::ipc::ShmHeader) };
         let dest = unsafe {
             shm_ptr.add(hdr.prunes_offset as usize) as *mut axicor_core::ipc::AxonHandoverPrune
         };
-        let count = prunes.len().min(1000); // Лимит на ночь
+        let count = prunes.len().min(1000); // Night limit
         unsafe {
             std::ptr::copy_nonoverlapping(prunes.as_ptr(), dest, count);
             hdr.prunes_count = count as u32;
@@ -403,7 +403,7 @@ pub fn run_sprouting_pass(
 }
 
 
-/// Продолжает рост аксонов, пересёкших границу шарда (Ghost Axons).
+/// Continues growth of axons that crossed the shard boundary (Ghost Axons).
 pub fn inject_ghost_axons(
     ghost_packets: &[crate::bake::axon_growth::GhostPacket],
     positions: &[PackedPosition],
@@ -442,7 +442,7 @@ pub fn inject_ghost_axons(
             radius_um: max_search_radius_vox * voxel_um as f32,
             fov_cos,
             owner_type: packet.type_idx as u8,
-            type_affinity: 0.5, // Ghost-аксоны: нейтральное сродство
+            type_affinity: 0.5, // Ghost axons: neutral affinity
         };
         let weights = crate::bake::axon_growth::SteeringWeights {
             global: 0.6,
@@ -454,7 +454,7 @@ pub fn inject_ghost_axons(
             current_pos_um,
             current_pos_vox: current_pos,
             forward_dir,
-            target_pos: None, // Ghost-аксоны летят по инерции
+            target_pos: None, // Ghost axons grow by inertia
             remaining_steps: packet.remaining_steps,
             owner_type_idx: packet.type_idx as u8,
             soma_idx: packet.soma_idx,
@@ -488,7 +488,7 @@ pub fn inject_ghost_axons(
         };
 
         grown.push(crate::bake::axon_growth::GrownAxon {
-            soma_idx: usize::MAX, // Ghost — нет локальной сомы
+            soma_idx: usize::MAX, // Ghost — no local soma
             type_idx: packet.type_idx,
             tip_x: final_x,
             tip_y: final_y,

@@ -4,15 +4,15 @@ pub const MAX_SPIKES_PER_TICK: usize = 1024;
 /// LTM / WM boundary slot index.
 pub const WM_SLOT_START: usize = 80;
 
-/// Hard Constraint: Ровно 128 дендритов на сому. 
-/// Гарантирует выравнивание памяти (Columnar Layout) и 100% утилизацию кэш-линий L1.
+/// Hard Constraint: Exactly 128 dendrites per soma. 
+/// Guarantees memory alignment (Columnar Layout) and 100% L1 cache line utilization.
 pub const MAX_DENDRITE_SLOTS: usize = 128;
 
-/// Sentinel-значение для неактивных аксонов. 
-/// При сдвиге (0x80000000 - seg_idx) даёт отрицательное число, отключая Active Tail.
+/// Sentinel value for inactive axons. 
+/// When shifted (0x80000000 - seg_idx) yields a negative number, disabling the Active Tail.
 pub const AXON_SENTINEL: u32 = 0x80000000;
 
-/// Триггер для Maintenance Pipeline: сброс переполненных аксонов (каждые ~50 часов симуляции)
+/// Trigger for Maintenance Pipeline: reset overflowed axons (every ~50 simulation hours)
 pub const SENTINEL_REFRESH_TICKS: u64 = 1_800_000_000; 
 pub const SENTINEL_DANGER_THRESHOLD: u32 = 0x7000_0000; 
 
@@ -27,30 +27,30 @@ pub const GPU_WARP_SIZE: usize = 64;
 pub const GPU_WARP_SIZE: usize = 32;
 
 // ---------------------------------------------------------------------------
-// Физические константы (Spec 01 §1.6) — Фиксированная конфигурация
-// Изменение любого из них требует пересчёта V_SEG и проверки компилятора.
+// Physical constants (Spec 01 §1.6) — Fixed configuration
+// Any changes to these require V_SEG recalculation and compiler check.
 // ---------------------------------------------------------------------------
 
-/// Шаг времени: 100 мкс = 0.1 мс.
+/// Time step: 100 µs = 0.1 ms.
 pub const TICK_DURATION_US: u32 = 100;
 
-/// Размер вокселя в мкм.
+/// Voxel size in µm.
 pub const VOXEL_SIZE_UM: u32 = 25;
 
-/// Длина одного сегмента аксона в вокселях.
+/// Length of one axon segment in voxels.
 pub const SEGMENT_LENGTH_VOXELS: u32 = 2;
 
-/// Длина сегмента в мкм (= VOXEL_SIZE_UM × SEGMENT_LENGTH_VOXELS).
+/// Segment length in µm (= VOXEL_SIZE_UM × SEGMENT_LENGTH_VOXELS).
 pub const SEGMENT_LENGTH_UM: u32 = VOXEL_SIZE_UM * SEGMENT_LENGTH_VOXELS; // 50
 
-/// Скорость сигнала в мкм/тик (0.5 м/с = 50 мкм/тик).
+/// Signal speed in µm/tick (0.5 m/s = 50 µm/tick).
 pub const SIGNAL_SPEED_UM_TICK: u32 = 50;
 
-/// Дискретная скорость: сегментов за тик. Обязана быть целым числом.
+/// Discrete speed: segments per tick. MUST be an integer.
 pub const V_SEG: u32 = SIGNAL_SPEED_UM_TICK / SEGMENT_LENGTH_UM; // 1
 
-/// Инвариант §1.6: signal_speed_um_tick ОБЯЗАНА делиться на segment_length_um без остатка.
-/// Если v_seg дробное — GPU не может работать без флоатов — нарушение Integer Physics.
+/// Invariant §1.6: signal_speed_um_tick MUST be divisible by segment_length_um without remainder.
+/// If v_seg is fractional, the GPU cannot operate without floats, violating Integer Physics.
 #[allow(clippy::eq_op)]
 const _: () = assert!(
     SIGNAL_SPEED_UM_TICK % SEGMENT_LENGTH_UM == 0,
@@ -58,21 +58,21 @@ const _: () = assert!(
 );
 
 // ==========================================
-// Магические числа бинарных форматов (Little-Endian)
+// Binary format magic numbers (Little-Endian)
 // ==========================================
 
-/// Заголовок файла Input Mapping (.gxi)
+/// Input Mapping file header (.gxi)
 pub const GXI_MAGIC: u32 = 0x47584900; // "GXI\0"
 
-/// Заголовок файла Output Mapping (.gxo)
+/// Output Mapping file header (.gxo)
 pub const GXO_MAGIC: u32 = 0x47584F00; // "GXO\0"
 
-/// Заголовок UDP-телеметрии (IDE WebSocket & Fast Path)
+/// UDP telemetry header (IDE WebSocket & Fast Path)
 pub const TELEMETRY_MAGIC: u32 = 0x474E5353; // "GNSS"
 
-/// Внешний I/O: Магические числа для UDP пакетов
+/// External I/O: Magic numbers for UDP packets
 pub const GSIO_MAGIC: u32 = 0x4F495347; // "GSIO" (Input)
 pub const GSOO_MAGIC: u32 = 0x4F4F5347; // "GSOO" (Output)
 
-/// Максимальный размер полезной нагрузки UDP (MTU limit)
+/// Maximum UDP payload size (MTU limit)
 pub const MAX_UDP_PAYLOAD: usize = 65507;

@@ -16,47 +16,47 @@ pub fn connect_dendrites(
     shard: &mut ShardSoA,
     positions: &[PackedPosition],
     axons: &[GrownAxon],
-    vram_axon_ids: &[u32], // ДОБАВЛЕНО
+    vram_axon_ids: &[u32], // ADDED
     types: &[NeuronType],
     voxel_size_um: f32,
 ) -> usize {
-    // 1. ИНВЕРСИЯ: Строим SpatialGrid из СЕГМЕНТОВ аксонов.
-    // Оптимальный размер чанка для хэш-сетки = 2 вокселя (~50 мкм)
+    // 1. INVERSION: Build SpatialGrid from axon SEGMENTS.
+    // Optimal chunk size for hash grid = 2 voxels (~50 µm)
     let cell_size_vox = 2u32;
     let segment_grid = AxonSegmentGrid::build_from_axons(axons, cell_size_vox);
 
-    // 2. Локальные AoS буферы для каждой сомы (Zero Lock Contention)
+    // 2. Local AoS buffers for each soma (Zero Lock Contention)
     let mut aos_dendrites = vec![[TempSlot::default(); axicor_core::constants::MAX_DENDRITE_SLOTS]; shard.padded_n];
     let mut soma_slot_counts = vec![0usize; shard.padded_n];
 
-    // 3. 100% Параллельный сбор связей
+    // 3. 100% Parallel connection establishment
     let total_synapses: usize = aos_dendrites.par_iter_mut()
         .zip(soma_slot_counts.par_iter_mut())
         .enumerate()
-        .filter(|(soma_id, _)| positions[*soma_id].0 != 0) // Игнорируем пустышки
+        .filter(|(soma_id, _)| positions[*soma_id].0 != 0) // Ignore dummy somas
         .map(|(soma_id, (slots, count))| {
             let my_pos = positions[soma_id];
             let my_type = &types[my_pos.type_id() as usize];
 
-            // [DOD FIX] Динамический радиус дендритов из Бланка (blueprints.toml)
+            // [DOD FIX] Dynamic dendrite radius from blueprints (blueprints.toml)
             let radius_vox = (my_type.dendrite_radius_um / voxel_size_um).ceil() as u32;
             let radius_cells = (radius_vox as f32 / cell_size_vox as f32).ceil() as i32;
 
-            // Сома сканирует пространство вокруг себя
+            // Soma scans the space around itself
             segment_grid.for_each_in_radius(&my_pos, radius_cells, |seg_ref: &SegmentRef| {
                 if *count >= axicor_core::constants::MAX_DENDRITE_SLOTS { return; }
                 
-                // DOD FIX: Используем истинный VRAM ID вместо индекса вектора
+                // [DOD FIX] Use true VRAM ID instead of vector index
                 let original_axon_index = seg_ref.axon_id as usize;
                 let vram_axon_id = vram_axon_ids[original_axon_index];
 
-                // Самоисключение
+                // Self-exclusion
                 if axons[original_axon_index].soma_idx == soma_id { return; }
                 
                 let owner_type_idx = seg_ref.type_idx as usize;
                 let owner_name = &types[owner_type_idx].name;
                 
-                //TODO рефакторинг логики
+                // TODO: logic refactoring
                 if !my_type.dendrite_whitelist.is_empty() && !my_type.dendrite_whitelist.contains(owner_name) {
                     return; 
                 }
@@ -86,7 +86,7 @@ pub fn connect_dendrites(
         })
         .sum();
 
-    // 4. ТРАНСПОЗИЦИЯ: AoS -> SoA (Один линейный проход)
+    // 4. TRANSPOSITION: AoS -> SoA (Single linear pass)
     for soma_id in 0..shard.padded_n {
         let count = soma_slot_counts[soma_id];
         for slot in 0..count {

@@ -1,6 +1,6 @@
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng; // Быстрый и детерминированный алгоритм
+use rand_chacha::ChaCha8Rng; // Fast and deterministic algorithm
 use axicor_core::types::PackedPosition;
 use axicor_core::config::anatomy::AnatomyConfig;
 use axicor_core::config::InstanceConfig;
@@ -8,7 +8,7 @@ use axicor_core::config::InstanceConfig;
 pub fn generate_placement_from_config(
     anatomy: &AnatomyConfig,
     shard_cfg: &InstanceConfig,
-    master_seed: u64, // Удалили global_density отсюда
+    master_seed: u64, // Removed global_density from here
     type_names: &[String],
 ) -> Vec<PackedPosition> {
     let max_x = shard_cfg.dimensions.w;
@@ -34,12 +34,12 @@ pub fn generate_placement_from_config(
 
         let layer_volume = max_x * max_y * (z_end_local - z_start_local).max(1);
         
-        // [DOD FIX] Бюджет слоя считается от объема слоя и его личной плотности!
+        // [DOD FIX] Layer budget is calculated from layer volume and its specific density!
         let layer_budget = (layer_volume as f32 * layer.density).floor() as usize;
         if layer_budget == 0 { continue; }
 
         let mut pool: Vec<u32> = (0..layer_volume).collect();
-        // 100% Детерминированное перемешивание In-Place
+        // 100% Deterministic In-Place shuffle
         pool.shuffle(&mut rng);
 
         let most_frequent_type_name = layer.composition.iter()

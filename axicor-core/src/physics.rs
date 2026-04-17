@@ -1,39 +1,39 @@
-/// Конвейер пересчёта физических констант при старте (Spec 01 §1.5).
+/// Physics constants recalculation pipeline at startup (Spec 01 §1.5).
 ///
-/// При старте движок берёт человеко-читаемые значения из конфига и вычисляет
-/// «сырые» GPU-константы. Горячий цикл не делает умножений — он оперирует
-/// уже готовыми числами из Constant Memory.
+/// At startup, the engine takes human-readable values from the config and calculates
+/// "raw" GPU constants. The hot loop does not perform multiplications — it operates
+/// on pre-calculated numbers from Constant Memory.
 ///
-/// Инвариант §1.6: `signal_speed_um_tick % segment_length_um == 0`.
-/// Нарушение → возврат Err до любого GPU-upload.
+/// Invariant §1.6: `signal_speed_um_tick % segment_length_um == 0`.
+/// Violation → return Err before any GPU-upload.
 
-/// Производные физические константы готовые к загрузке в GPU Constant Memory.
+/// Derived physical constants ready for loading into GPU Constant Memory.
 ///
-/// Вычисляются один раз при старте через `compute_derived_physics`.
-/// Поля намеренно плоские — прямой маппинг в C-структуру для `cudaMemcpyToSymbol`.
+/// Calculated once at startup via `compute_derived_physics`.
+/// Fields are intentionally flat — direct mapping to C-structure for `cudaMemcpyToSymbol`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedPhysics {
-    /// Скорость сигнала в мкм/тик (§1.5 п.1).
-    /// GPU прибавляет это к позиции головы каждый тик.
+    /// Signal speed in µm/tick (§1.5 p.1).
+    /// GPU adds this to the head position every tick.
     pub signal_speed_um_tick: u32,
-    /// Длина одного сегмента в мкм = voxel_size_um × segment_length_voxels.
+    /// Length of one segment in µm = voxel_size_um × segment_length_voxels.
     pub segment_length_um: u32,
-    /// Дискретная скорость: сегментов/тик (§1.5 п.2).
-    /// `v_seg = signal_speed_um_tick / segment_length_um` — гарантированно целое.
-    /// GPU: `axon_head += v_seg` за тик. Никаких float, никакой интерполяции.
+    /// Discrete speed: segments/tick (§1.5 p.2).
+    /// `v_seg = signal_speed_um_tick / segment_length_um` — guaranteed integer.
+    /// GPU: `axon_head += v_seg` per tick. No floats, no interpolation.
     pub v_seg: u32,
 }
 
-/// Вычисляет `DerivedPhysics` из значений конфига — конвейер пересчёта §1.5.
+/// Calculates `DerivedPhysics` from config values — recalculation pipeline §1.5.
 ///
-/// Возвращает `Err` если нарушен инвариант §1.6 (`v_seg` дробное).
+/// Returns `Err` if invariant §1.6 is violated (`v_seg` is fractional).
 ///
-/// # Аргументы
-/// - `signal_speed_um_tick` — из `simulation.signal_speed_um_tick`
-/// - `voxel_size_um`        — из `simulation.voxel_size_um`
-/// - `segment_length_vox`   — из `simulation.segment_length_voxels`
+/// # Arguments
+/// - `signal_speed_um_tick` — from `simulation.signal_speed_um_tick`
+/// - `voxel_size_um`        — from `simulation.voxel_size_um`
+/// - `segment_length_vox`   — from `simulation.segment_length_voxels`
 ///
-/// # Пример (конфигурация из спека)
+/// # Example (config from spec)
 /// ```
 /// # use axicor_core::physics::compute_derived_physics;
 /// let p = compute_derived_physics(0.5, 100, 25.0, 2).unwrap();
@@ -78,11 +78,11 @@ pub fn compute_derived_physics(
 // GLIF Dynamics (Spec 03 §2, §3)
 // ---------------------------------------------------------------------------
 
-/// Вычисляет новое напряжение мембраны (Integer GLIF).
+/// Calculates new membrane voltage (Integer GLIF).
 ///
 /// `dV = -(V - V_rest) / leak_rate + I_input`
 ///
-/// Деление целочисленное (truncation toward zero) — детерминизм на CPU и GPU.
+/// Integer division (truncation toward zero) — determinism on CPU and GPU.
 #[inline(always)]
 pub const fn compute_glif(
     voltage: i32,
@@ -99,12 +99,12 @@ pub const fn compute_glif(
 // Homeostasis (Spec 03 §3.2 — Adaptive Threshold)
 // ---------------------------------------------------------------------------
 
-/// Branchless обновление адаптивного порога.
+/// Branchless update of adaptive threshold.
 ///
-/// Логика: `max(0, offset - decay) + (is_spiking ? penalty : 0)`
+/// Logic: `max(0, offset - decay) + (is_spiking ? penalty : 0)`
 ///
-/// Использует `wrapping_sub` + arithmetic shift для branchless clamp к 0.
-/// Никаких паник в debug builds при underflow.
+/// Uses `wrapping_sub` + arithmetic shift for branchless clamp to 0.
+/// No panics in debug builds on underflow.
 #[inline(always)]
 pub const fn update_homeostasis(
     threshold_offset: i32,
@@ -112,14 +112,14 @@ pub const fn update_homeostasis(
     is_spiking: bool,
     penalty: i32,
 ) -> i32 {
-    // wrapping_sub: безопасен даже если offset < decay (даёт отрицательное число в i32)
+    // wrapping_sub: safe even if offset < decay (yields negative i32)
     let decayed = threshold_offset.wrapping_sub(decay as i32);
-    // Arithmetic shift: 0xFFFFFFFF если < 0, иначе 0x00000000
+    // Arithmetic shift: 0xFFFFFFFF if < 0, else 0x00000000
     let mask = decayed >> 31;
-    // Branchless max(0, decayed): обнулить если отрицательное
+    // Branchless max(0, decayed): zero out if negative
     let clamped = decayed & !mask;
 
-    // Penalty добавляется только при спайке
+    // Penalty added only on spike
     let spike_penalty = if is_spiking { penalty } else { 0 };
     clamped + spike_penalty
 }
@@ -128,16 +128,16 @@ pub const fn update_homeostasis(
 // GSOP Plasticity (Spec 04 §2.4, §2.5)
 // ---------------------------------------------------------------------------
 
-/// Inertia Rank: разделяем диапазон |weight| (0..2.14 млрд) на 16 рангов.
-/// `rank = abs_w >> 27`. Это 1 такт ALU, без ветвлений.
+/// Inertia Rank: split |weight| range (0..2.14B) into 16 ranks.
+/// `rank = abs_w >> 27`. This is 1 ALU cycle, no branching.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
-    let rank = (abs_weight >> 27) as usize; // 2.14 млрд >> 27 = 15
+    let rank = (abs_weight >> 27) as usize; // 2.14B >> 27 = 15
     if rank > 15 { 15 } else { rank }
 }
 
-/// Вычисляет новое значение синаптического веса согласно алгоритму GSOP (STDP).
-/// Математика оптимизирована под целочисленные вычисления (Fixed Point).
+/// Calculates new synaptic weight value according to GSOP (STDP) algorithm.
+/// Math is optimized for fixed-point integer calculations.
 pub fn compute_gsop_weight(
     current_weight: i32,
     dopamine: i16,
@@ -152,41 +152,41 @@ pub fn compute_gsop_weight(
     let sign = if current_weight >= 0 { 1 } else { -1 };
     let abs_w = current_weight.abs();
 
-    // 1. Модуляция дофамином (D1 бустит LTP, D2 подавляет LTD при награде)
-    // Целочисленная физика: (i16 * u8) >> 7
+    // 1. Dopamine modulation (D1 boosts LTP, D2 suppresses LTD on reward)
+    // Integer physics: (i16 * u8) >> 7
     let pot_mod = ((dopamine as i32) * (d1_affinity as i32)) >> 7;
     let dep_mod = ((dopamine as i32) * (d2_affinity as i32)) >> 7;
 
     let raw_pot = (gsop_potentiation as i32) + pot_mod;
     let raw_dep = (gsop_depression as i32) - dep_mod;
 
-    // Защита от отрицательной депрессии (Dead Zone Guard)
+    // Protection against negative depression (Dead Zone Guard)
     let final_dep = if raw_dep < 0 { 0 } else { raw_dep };
 
-    // 2. Базовый дельта-импульс с учетом инерции и силы пачки
-    // [BIT ACCURACY] Умножение ДО сдвига строго как в CUDA
+    // 2. Base delta impulse with inertia and burst strength
+    // [BIT ACCURACY] Multiplication BEFORE shift strictly as in CUDA
     let delta_pot = (raw_pot * (inertia as i32) * (burst_mult as i32)) >> 7;
     let delta_dep = (final_dep * (inertia as i32) * (burst_mult as i32)) >> 7;
 
-    // 3. Пространственное охлаждение (Spatial Cooling)
-    // Чем дальше спайк от синапса, тем слабее эффект LTP
+    // 3. Spatial Cooling
+    // Farther spike from synapse = weaker LTP effect
     let is_active = dist_to_spike.is_some();
     let min_dist = if let Some(d) = dist_to_spike { d } else { u32::MAX };
     let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
 
-    // 4. Итоговая дельта
+    // 4. Final delta
     let delta = if is_active {
         delta_pot >> cooling_shift
     } else {
         -delta_dep
     };
 
-    // 5. Глобальный коэффициент затухания (Decay)
-    let decay = 128i32; // 1.0 в Fixed Point 7
+    // 5. Global Decay coefficient
+    let decay = 128i32; // 1.0 in Fixed Point 7
     let delta = (delta * decay) >> (7 + cooling_shift);
 
-    // 6. Применяем изменение и ограничиваем лимитами i32 с Headroom
-    // Потолок 2.14 млрд оставляет запас до i32::MAX для предотвращения wrap-around.
+    // 6. Apply change and clamp to i32 limits with Headroom
+    // 2.14B ceiling leaves room to i32::MAX to prevent wrap-around.
     let mut new_abs = abs_w + delta;
     if new_abs < 0 {
         new_abs = 0;
@@ -194,7 +194,7 @@ pub fn compute_gsop_weight(
     if new_abs > 2140000000 {
         new_abs = 2140000000;
     }
-    // 7. Восстанавливаем знак
+    // 7. Restore sign
     (sign * new_abs) as i32
 }
 

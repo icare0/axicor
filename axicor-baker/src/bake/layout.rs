@@ -6,56 +6,56 @@ use std::fs::File;
 use bytemuck::cast_slice;
 use axicor_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
 
-/// Строгий контракт данных локального шарда после Фазы A (до межзональных связей).
+/// Strict contract for local shard data after Phase A (before inter-zone connections).
 pub struct CompiledShard {
     pub _zone_name: String,
     pub local_axons_count: usize,
-    /// Маппинг Dense ID -> Axon ID
+    /// Dense ID -> Axon ID mapping
     pub soma_to_axon_map: Vec<u32>,
-    /// Упакованные 32-битные координаты (X|Y|Z|Type)
+    /// Packed 32-bit coordinates (X|Y|Z|Type)
     pub packed_positions: Vec<u32>,
-    /// Физические размеры зоны в вокселях (W, D, H)
+    /// Physical zone dimensions in voxels (W, D, H)
     pub _bounds_voxels: (u32, u32, u32),
-    /// Физические размеры в микронах (W, D) для UV-Атласа
+    /// Physical dimensions in microns (W, D) for the UV-Atlas
     pub bounds_um: (f32, f32),
 }
 
-/// Промежуточная SoA-структура на CPU перед дампом на диск.
-/// Гарантирует правильный padding для CUDA варпов.
+/// Intermediate SoA structure on CPU before disk dump.
+/// Guarantees proper padding for CUDA warps.
 pub struct ShardSoA {
     pub padded_n: usize,
     pub _total_axons: usize,
 
-    // Динамическое состояние сом
+    // Dynamic soma state
     pub voltage: Vec<i32>,
     pub flags: Vec<u8>,
     pub threshold_offset: Vec<i32>,
     pub refractory_timer: Vec<u8>,
 
-    // Транспонированная матрица дендритов (Columnar Layout)
+    // Transposed dendrite matrix (Columnar Layout)
     pub dendrite_targets: Vec<u32>,
     pub dendrite_weights: Vec<i32>,
     pub dendrite_timers: Vec<u8>, // Refractory timers for synapses
 
-    // Аксоны
+    // Axons
     pub axon_heads: Vec<axicor_core::layout::BurstHeads8>,
     pub axon_tips_uvw: Vec<u32>, // PackedTip -> .geom
     pub axon_dirs_xyz: Vec<u32>, // PackedDir -> .geom
     
-    // НОВЫЕ ПОЛЯ
+    // NEW FIELDS
     pub axon_lengths: Vec<u8>, // size: total_axons
     pub axon_paths: Vec<u32>,  // size: total_axons * 256
 
-    // Маппинг: soma_idx → axon_idx
+    // Mapping: soma_idx → axon_idx
     pub soma_to_axon: Vec<u32>,
 
-    /// Упакованные позиции сом (u32: 11-бит X, 11-бит Y, 6-бит Z, 4-бит Type)
+    /// Packed soma positions (u32: 11-bit X, 11-bit Y, 6-bit Z, 4-bit Type)
     pub soma_positions: Vec<u32>,
 }
 
 impl ShardSoA {
-    /// Аллоцирует массивы нужного размера, заполняя их нулями или сентинелами.
-    /// Автоматически применяет align_to_warp для N и Axons.
+    /// Allocates arrays of required size, filling them with zeros or sentinels.
+    /// Automatically applies align_to_warp for N and Axons.
     pub fn new(raw_neuron_count: usize, raw_axon_count: usize) -> Self {
         let padded_n = align_to_warp(raw_neuron_count);
         let total_axons = align_to_warp(raw_axon_count);
@@ -72,7 +72,7 @@ impl ShardSoA {
             dendrite_weights: vec![0; MAX_DENDRITES * padded_n],
             dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
 
-            // Хард-инвариант: пустые аксоны ОБЯЗАНЫ быть 0x80000000
+            // Hard invariant: empty axons MUST be 0x80000000
             axon_heads: vec![axicor_core::layout::BurstHeads8::empty(AXON_SENTINEL); total_axons],
             axon_tips_uvw: vec![0; total_axons],
             axon_dirs_xyz: vec![0; total_axons],
@@ -85,14 +85,14 @@ impl ShardSoA {
         }
     }
 
-    /// Вычисляет плоский индекс для Coalesced Access на GPU.
+    /// Calculates flat index for Coalesced Access on GPU.
     #[inline(always)]
     pub fn _columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
         debug_assert!(neuron_idx < padded_n && slot < MAX_DENDRITE_SLOTS);
         slot * padded_n + neuron_idx
     }
 
-    /// Дамп SoA-структур в бинарные файлы. Zero-cost для загрузки в рантайме.
+    /// Dumps SoA structures to binary files. Zero-cost for loading at runtime.
     pub fn dump_to_disk(&self, out_dir: &Path) {
         let state_path = out_dir.join("shard.state");
         write_state_blob(
@@ -111,7 +111,7 @@ impl ShardSoA {
         let axons_path = out_dir.join("shard.axons");
         write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write axons blob");
 
-        // [DOD FIX] Выгрузка геометрии для Night Phase
+        // [DOD FIX] Geometry export for Night Phase
         let paths_path = out_dir.join("shard.paths");
         write_paths_blob(&paths_path, self.axon_heads.len(), &self.axon_lengths, &self.axon_paths)
             .expect("Failed to write paths blob");
@@ -122,8 +122,8 @@ impl ShardSoA {
     }
 }
 
-/// Zero-Cost сборка бинарного блоба .state.
-/// Массивы обязаны быть длины `padded_n`.
+/// Zero-Cost assembly of .state binary blob.
+/// Arrays must have length `padded_n`.
 pub fn write_state_blob(
     path: &Path,
     padded_n: usize,
@@ -132,16 +132,16 @@ pub fn write_state_blob(
     thresholds: &[i32],
     timers: &[u8],
     soma_to_axon: &[u32],
-    dendrite_targets: &[u32], // Длина: padded_n * 128
-    dendrite_weights: &[i32], // Длина: padded_n * 128
-    dendrite_timers: &[u8],  // Длина: padded_n * 128
+    dendrite_targets: &[u32], // Length: padded_n * 128
+    dendrite_weights: &[i32], // Length: padded_n * 128
+    dendrite_timers: &[u8],  // Length: padded_n * 128
 ) -> std::io::Result<()> {
     let (_, total_size) = calculate_state_blob_size(padded_n);
     
-    // Преаллокация точного размера для предотвращения реаллокаций памяти
+    // Pre-allocate exact size to prevent memory reallocations
     let mut blob = Vec::with_capacity(total_size);
 
-    // [Contract] Строгая последовательность укладки байт согласно ShardVramPtrs
+    // [Contract] Strict byte layout sequence according to ShardVramPtrs
     blob.extend_from_slice(cast_slice(&voltages[..padded_n]));
     blob.extend_from_slice(cast_slice(&flags[..padded_n]));
     blob.extend_from_slice(cast_slice(&thresholds[..padded_n]));
@@ -158,10 +158,10 @@ pub fn write_state_blob(
     Ok(())
 }
 
-/// Выгрузка .axons блоба.
+/// Export of .axons blob.
 pub fn write_axons_blob(
     path: &Path,
-    axon_heads: &[axicor_core::layout::BurstHeads8], // Длина: total_axons
+    axon_heads: &[axicor_core::layout::BurstHeads8], // Length: total_axons
 ) -> std::io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(cast_slice(axon_heads))?;
@@ -179,7 +179,7 @@ pub fn write_paths_blob(
     
     let mut blob = vec![0u8; total_size];
     
-    // Заголовок
+    // Header
     let header = axicor_core::layout::PathsFileHeader {
         magic: axicor_core::layout::PATHS_MAGIC,
         version: 1,
@@ -187,7 +187,7 @@ pub fn write_paths_blob(
         max_segments: axicor_core::layout::MAX_SEGMENTS_PER_AXON as u32,
     };
     
-    // Копирование без аллокаций
+    // Copying without allocations
     unsafe {
         std::ptr::copy_nonoverlapping(
             &header as *const _ as *const u8,
@@ -210,4 +210,3 @@ pub fn write_paths_blob(
     
     std::fs::write(path, &blob)
 }
-
