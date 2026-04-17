@@ -2,6 +2,30 @@ use genesis_core::layout::{BurstHeads8, VariantParameters};
 use crate::ffi::ShardVramPtrs;
 use genesis_core::constants::AXON_SENTINEL;
 use std::ffi::c_void;
+use std::alloc::{alloc_zeroed, dealloc, Layout};
+
+// =============================================================================
+// § Size-Prefixed Allocator (DOD-way для обхода потери Layout)
+// =============================================================================
+unsafe fn alloc_aligned_with_prefix(size: usize, align: usize) -> *mut u8 {
+    let layout = Layout::from_size_align_unchecked(size + align, align);
+    let ptr = alloc_zeroed(layout);
+    if ptr.is_null() { return std::ptr::null_mut(); }
+    
+    // Записываем размер в самое начало (метаданные)
+    *(ptr as *mut usize) = size;
+    
+    // Возвращаем смещенный указатель, идеально выровненный на L1/L2 кэш-линию
+    ptr.add(align)
+}
+
+unsafe fn free_aligned_with_prefix(ptr: *mut u8, align: usize) {
+    if ptr.is_null() { return; }
+    let real_ptr = ptr.sub(align);
+    let size = *(real_ptr as *const usize);
+    let layout = Layout::from_size_align_unchecked(size + align, align);
+    dealloc(real_ptr, layout);
+}
 
 // =============================================================================
 // §1.1 Эмуляция Constant Memory (LUT)
@@ -20,7 +44,7 @@ pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
 }
 
 // =============================================================================
-// §1.2 VRAM Allocation через libc
+// §1.2 VRAM Allocation через std::alloc
 // =============================================================================
 
 pub unsafe fn cpu_allocate_shard(
@@ -29,42 +53,37 @@ pub unsafe fn cpu_allocate_shard(
     out_vram: *mut ShardVramPtrs,
 ) -> i32 {
     let n = padded_n as usize;
-    let total_state_size = n * 1166; 
-    
-    let mut base_ptr: *mut c_void = std::ptr::null_mut();
-    let res = libc::posix_memalign(&mut base_ptr, 64, total_state_size);
-    if res != 0 { return res; }
-    
-    std::ptr::write_bytes(base_ptr, 0, total_state_size);
-    
-    let base = base_ptr as *mut u8;
-    
-    (*out_vram).soma_voltage      = base.add(0) as *mut i32;
-    (*out_vram).soma_flags        = base.add(4 * n) as *mut u8;
-    (*out_vram).threshold_offset  = base.add(5 * n) as *mut i32;
-    (*out_vram).timers            = base.add(9 * n) as *mut u8;
-    (*out_vram).soma_to_axon      = base.add(10 * n) as *mut u32;
-    (*out_vram).dendrite_targets  = base.add(14 * n) as *mut u32;
-    (*out_vram).dendrite_weights  = base.add(526 * n) as *mut i32;
-    (*out_vram).dendrite_timers   = base.add(1038 * n) as *mut u8;
+    let total_state_size = n * 1166; // The 1166-Byte Invariant
 
-    // DOD Fix: Initialize soma_to_axon with 0xFFFFFFFF (sentinel) 
-    // to prevent multiple neurons from shifting axon heads at index 0.
+    // Базовый указатель .state строго выровнен на 64 байта
+    let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
+    if base_ptr.is_null() { return -1; }
+
+    (*out_vram).soma_voltage      = base_ptr.add(0) as *mut i32;
+    (*out_vram).soma_flags        = base_ptr.add(4 * n) as *mut u8;
+    (*out_vram).threshold_offset  = base_ptr.add(5 * n) as *mut i32;
+    (*out_vram).timers            = base_ptr.add(9 * n) as *mut u8;
+    (*out_vram).soma_to_axon      = base_ptr.add(10 * n) as *mut u32;
+    (*out_vram).dendrite_targets  = base_ptr.add(14 * n) as *mut u32;
+    (*out_vram).dendrite_weights  = base_ptr.add(526 * n) as *mut i32;
+    (*out_vram).dendrite_timers   = base_ptr.add(1038 * n) as *mut u8;
+
     std::ptr::write_bytes((*out_vram).soma_to_axon as *mut u8, 0xFF, n * 4);
-    
+
     let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
-    let mut axons_ptr: *mut c_void = std::ptr::null_mut();
-    let res = libc::posix_memalign(&mut axons_ptr, 32, total_axons_size);
-    if res != 0 {
-        libc::free(base_ptr);
-        return res;
-    }
     
+    // Аксоны выровнены строго на 32 байта для Burst Architecture
+    let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
+    if axons_ptr.is_null() {
+        free_aligned_with_prefix(base_ptr, 64);
+        return -1;
+    }
+
     let axon_slice = std::slice::from_raw_parts_mut(axons_ptr as *mut BurstHeads8, total_axons as usize);
     axon_slice.fill(BurstHeads8::empty(AXON_SENTINEL));
-    
+
     (*out_vram).axon_heads = axons_ptr as *mut BurstHeads8;
-    
+
     0
 }
 
@@ -92,18 +111,17 @@ pub unsafe fn cpu_upload_axons_blob(
 
 pub unsafe fn cpu_free_shard(vram: *mut ShardVramPtrs) {
     if vram.is_null() { return; }
-    
+
     let ptrs = &mut *vram;
-    
+
     if !ptrs.soma_voltage.is_null() {
-        libc::free(ptrs.soma_voltage as *mut c_void);
+        free_aligned_with_prefix(ptrs.soma_voltage as *mut u8, 64);
     }
-    
+
     if !ptrs.axon_heads.is_null() {
-        libc::free(ptrs.axon_heads as *mut c_void);
+        free_aligned_with_prefix(ptrs.axon_heads as *mut u8, 32);
     }
-    
-    // Architect Fix: Zero out the entire struct to prevent dangling pointers.
+
     std::ptr::write_bytes(vram, 0, 1);
 }
 

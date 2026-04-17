@@ -4,7 +4,6 @@ members = [
     "genesis-baker",
     "genesis-compute",
     "genesis-node",
-    "genesis-retina",
     "axicor-lab",
     "axicor-lab/crates/layout-api",
     "axicor-lab/plugins/project_explorer",

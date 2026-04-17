@@ -26,27 +26,46 @@ fn log_call(name: &str, ptr_addr: usize) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Memory Management
+// Memory Management (DOD Size-Prefixed Allocator)
 // ─────────────────────────────────────────────────────────────────────────────
+
+use std::alloc::{alloc_zeroed, dealloc, Layout};
+
+unsafe fn mock_alloc_64(size: usize) -> *mut c_void {
+    if size == 0 { return std::ptr::null_mut(); }
+    let layout = Layout::from_size_align_unchecked(size + 64, 64);
+    let ptr = alloc_zeroed(layout);
+    if ptr.is_null() { return std::ptr::null_mut(); }
+    *(ptr as *mut usize) = size;
+    ptr.add(64) as *mut c_void
+}
+
+unsafe fn mock_free_64(ptr: *mut c_void) {
+    if ptr.is_null() { return; }
+    let real_ptr = (ptr as *mut u8).sub(64);
+    let size = *(real_ptr as *const usize);
+    let layout = Layout::from_size_align_unchecked(size + 64, 64);
+    dealloc(real_ptr, layout);
+}
 
 #[no_mangle]
 pub extern "C" fn gpu_malloc(size: usize) -> *mut c_void {
-    unsafe { libc::malloc(size) as *mut c_void }
+    unsafe { mock_alloc_64(size) }
 }
 
 #[no_mangle]
 pub extern "C" fn gpu_free(dev_ptr: *mut c_void) {
-    unsafe { libc::free(dev_ptr) }
+    unsafe { mock_free_64(dev_ptr) }
 }
 
 #[no_mangle]
 pub extern "C" fn gpu_host_alloc(size: usize) -> *mut c_void {
-    unsafe { libc::malloc(size) as *mut c_void }
+    unsafe { mock_alloc_64(size) }
 }
 
 #[no_mangle]
 pub extern "C" fn gpu_host_free(dev_ptr: *mut c_void) {
-    unsafe { libc::free(dev_ptr) }
+    unsafe { mock_free_64(dev_ptr) }
 }
 
 #[no_mangle]
@@ -351,11 +370,7 @@ unsafe fn aligned_alloc_zeroed<T>(count: usize) -> *mut T {
         return ptr::null_mut();
     }
     let size = count * std::mem::size_of::<T>();
-    let mut p = ptr::null_mut();
-    let res = libc::posix_memalign(&mut p, 64, size);
-    assert_eq!(res, 0, "FATAL: posix_memalign failed for I/O buffers");
-    ptr::write_bytes(p, 0, size);
-    p as *mut T
+    mock_alloc_64(size) as *mut T
 }
 
 #[no_mangle]
@@ -380,13 +395,13 @@ pub unsafe extern "C" fn cu_free_io_buffers(
     d_output_history: *mut u8,
 ) {
     if !d_input_bitmask.is_null() {
-        libc::free(d_input_bitmask as *mut c_void);
+        mock_free_64(d_input_bitmask as *mut c_void);
     }
     if !d_incoming_spikes.is_null() {
-        libc::free(d_incoming_spikes as *mut c_void);
+        mock_free_64(d_incoming_spikes as *mut c_void);
     }
     if !d_output_history.is_null() {
-        libc::free(d_output_history as *mut c_void);
+        mock_free_64(d_output_history as *mut c_void);
     }
 }
 
