@@ -4,16 +4,16 @@ use std::ptr;
 pub struct InterNodeChannel {
     pub target_zone_hash: u32,
     pub src_zone_hash: u32,
-    pub capacity: u32, // [DOD FIX] Физический лимит VRAM
-    pub count: u32,    // [DOD FIX] Текущее число активных связей
+    pub capacity: u32, // [DOD FIX] Physical VRAM limit
+    pub count: u32,    // [DOD FIX] Current number of active links
 
     pub src_indices_host: Vec<u32>,
-    pub dst_ghost_ids_host: Vec<u32>, // [DOD FIX] Зеркало для Swap-and-Pop
+    pub dst_ghost_ids_host: Vec<u32>, // [DOD FIX] Mirror for Swap-and-Pop
 
     pub src_indices_d: *mut u32,
     pub dst_ghost_ids_d: *mut u32,
 
-    // Zero-Copy Pinned RAM (доступен и GPU, и CPU)
+    // Zero-Copy Pinned RAM (accessible by both GPU and CPU)
     pub out_events_pinned: *mut SpikeEvent,
     pub out_count_pinned: *mut u32,
 }
@@ -37,22 +37,22 @@ impl InterNodeChannel {
         let count = src_indices.len() as u32;
         assert!(count <= capacity, "FATAL: Initial connections exceed capacity");
 
-        // Аллокация под MAX CAPACITY, а не под текущий count
+        // Allocate for MAX CAPACITY, not current count
         let bytes_capacity = (capacity as usize) * 4;
         let src_d = axicor_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
         let dst_d = axicor_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
 
-        // Копируем только РЕАЛЬНЫЕ данные
+        // Copy only REAL data
         if count > 0 {
             let bytes_active = (count as usize) * 4;
             axicor_compute::ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices.as_ptr() as *const _, bytes_active, ptr::null_mut());
             axicor_compute::ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_ghost_ids.as_ptr() as *const _, bytes_active, ptr::null_mut());
         }
 
-        // Максимум 8 спайков на аксон за батч. Лимит берется от Capacity.
+        // Max 8 spikes per axon per batch. Limit derived from Capacity.
         let events_size = (capacity as usize) * 8 * std::mem::size_of::<SpikeEvent>();
 
-        // Host-mirroring с преаллокацией
+        // Host-mirroring with preallocation
         let mut src_host = Vec::with_capacity(capacity as usize);
         src_host.extend_from_slice(src_indices);
         let mut dst_host = Vec::with_capacity(capacity as usize);
@@ -78,7 +78,7 @@ impl InterNodeChannel {
             axon_heads,
             self.src_indices_d,
             self.dst_ghost_ids_d,
-            self.count, // Ядро читает только count, мусор в хвосте VRAM игнорируется
+            self.count, // Kernel reads only count, garbage at VRAM tail is ignored
             sync_batch_ticks,
             v_seg,
             self.out_events_pinned as *mut std::ffi::c_void,
@@ -87,7 +87,7 @@ impl InterNodeChannel {
         );
     }
 
-    /// O(1) добавление новой межзональной связи (Hot-Patching)
+    /// O(1) addition of new inter-zone link (Hot-Patching)
     pub unsafe fn push_route(&mut self, src_axon: u32, dst_ghost: u32, stream: axicor_compute::ffi::CudaStream) {
         assert!(self.count < self.capacity, "FATAL: Routing capacity exceeded. Increase ghost_capacity.");
         let idx = self.count as usize;
@@ -98,7 +98,7 @@ impl InterNodeChannel {
         let src_ptr = self.src_indices_host.as_ptr().add(idx);
         let dst_ptr = self.dst_ghost_ids_host.as_ptr().add(idx);
 
-        // Микро-DMA (4 байта) прямо в свободный хвост массива VRAM
+        // Micro-DMA (4 bytes) directly into free tail of VRAM array
         axicor_compute::ffi::gpu_memcpy_host_to_device_async(
             self.src_indices_d.add(idx) as *mut _,
             src_ptr as *const _,
@@ -115,24 +115,24 @@ impl InterNodeChannel {
         self.count += 1;
     }
 
-    /// O(1) удаление связи через Swap-and-Pop
+    /// O(1) link removal via Swap-and-Pop
     pub unsafe fn prune_route(&mut self, target_ghost_id: u32, stream: axicor_compute::ffi::CudaStream) {
-        // O(N) поиск на хосте допустим, т.к. выполняется только в Night Phase
+        // O(N) host search is acceptable as it runs only in Night Phase
         let Some(idx) = self.dst_ghost_ids_host.iter().position(|&g| g == target_ghost_id) else {
-            return; // Связь уже удалена
+            return; // Link already removed
         };
 
         let last_idx = (self.count - 1) as usize;
 
-        // 1. Swap на хосте
+        // 1. Swap on host
         self.src_indices_host.swap(idx, last_idx);
         self.dst_ghost_ids_host.swap(idx, last_idx);
 
-        // 2. Pop хвоста
+        // 2. Pop tail
         self.src_indices_host.pop();
         self.dst_ghost_ids_host.pop();
 
-        // 3. Если удаленный элемент не был последним, нужно пропатчить образовавшуюся дыру в VRAM
+        // 3. If removed element was not last, patch the resulting hole in VRAM
         if idx != last_idx {
             let src_ptr = self.src_indices_host.as_ptr().add(idx);
             let dst_ptr = self.dst_ghost_ids_host.as_ptr().add(idx);

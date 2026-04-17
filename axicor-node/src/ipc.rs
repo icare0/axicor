@@ -113,7 +113,7 @@ impl BakerClient {
             );
             stream.write_all(req_bytes)?;
 
-            // [DOD FIX] Передаем карту владельцев призраков (Origin Tracking)
+            // [DOD FIX] Pass ghost owner map (Origin Tracking)
             let origin_bytes = std::slice::from_raw_parts(
                 ghost_origins.as_ptr() as *const u8,
                 ghost_origins.len() * 4
@@ -132,7 +132,7 @@ impl BakerClient {
             bail!("Baker daemon returned error magic: {:08X}", magic_resp);
         }
 
-        // Читаем ACKs
+        // Read ACKs
         let mut count_buf = [0u8; 4];
         stream.read_exact(&mut count_buf).context("Reading ACK count")?;
         let ack_count = u32::from_le_bytes(count_buf) as usize;

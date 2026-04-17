@@ -2,13 +2,13 @@ use axicor_compute::ffi;
 use axicor_compute::memory::VramState;
 use axicor_core::constants::AXON_SENTINEL;
 
-/// Интервал очистки: 1_800_000_000 тиков = 180 000 секунд = 50 часов (при 100мкс тике).
-/// Sentinel переполняется через 2^31 тиков ≈ 59.6 часов. 50 часов даёт консервативный запас.
+/// Cleanup interval: 1_800_000_000 ticks = 180,000 seconds = 50 hours (at 100us tick).
+/// Sentinel overflows after 2^31 ticks ≈ 59.6 hours. 50 hours provides a conservative margin.
 pub const SENTINEL_REFRESH_INTERVAL_TICKS: u64 = 1_800_000_000;
 
-/// Допуск переполнения, при котором аксон считается «мёртвым» и сбрасывается.
+/// Overflow tolerance at which axon is considered 'dead' and reset.
 /// 0x80000000 + 1_800_000_000 ≈ 0xEB9F_B000.
-/// Мы сбрасываем всё, что больше 0xE000_0000.
+/// We reset everything greater than 0xE000_0000.
 pub const SENTINEL_OVERFLOW_THRESHOLD: u32 = 0xE000_0000;
 
 pub struct SentinelManager {
@@ -28,9 +28,9 @@ impl SentinelManager {
         }
     }
 
-    /// Проверяет, пришло ли время делать Sentinel Refresh, и если да — делает его.
-    /// Это тяжелая операция (скачивание массива VRAM на хост и обратно),
-    /// но она происходит крайне редко (раз в 50 часов).
+    /// Checks if it's time to perform Sentinel Refresh, and if so, executes it.
+    /// This is a heavy operation (downloading VRAM array to host and back),
+    /// but it occurs extremely rarely (once per 50 hours).
     pub fn check_and_refresh(&mut self, vram: &VramState, current_tick: u64) {
         if current_tick - self.last_refresh_tick >= SENTINEL_REFRESH_INTERVAL_TICKS {
             println!(
@@ -54,10 +54,10 @@ impl SentinelManager {
             return;
         }
 
-        // 1. Выделяем 32-байтный выровненный буфер на хосте
+        // 1. Allocate 32-byte aligned buffer on host
         let mut host_axon_heads = vec![axicor_core::layout::BurstHeads8::empty(0); total_axons];
 
-        // 2. Скачиваем с GPU
+        // 2. Download from GPU
         unsafe {
             ffi::gpu_device_synchronize();
             ffi::gpu_memcpy_device_to_host(
@@ -67,7 +67,7 @@ impl SentinelManager {
             );
         }
 
-        // 3. Сканируем все 8 голов каждого аксона на CPU
+        // 3. Scan all 8 heads of each axon on CPU
         let mut reset_count = 0;
         for burst in host_axon_heads.iter_mut() {
             let mut changed = false;
@@ -86,7 +86,7 @@ impl SentinelManager {
             }
         }
 
-        // 4. Заливаем обратно
+        // 4. Upload back
         if reset_count > 0 {
             unsafe {
                 ffi::gpu_memcpy_host_to_device(

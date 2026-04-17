@@ -1,15 +1,15 @@
 use axicor_compute::ffi;
 use std::ptr;
 
-/// Канал синхронизации между зонами на одном GPU.
+/// Synchronization channel between zones on single GPU.
 ///
-/// Хранит две параллельных таблицы (src → dst) в VRAM.
-/// Поддерживает оба режима использования:
-///   - Legacy: передать два среза `&[u32]` напрямую.
-///   - Новый: передать `Vec<GhostLink>` и получить автоматическую разбивку.
+/// Stores two parallel tables (src -> dst) in VRAM.
+/// Supports both usage modes:
+///   - Legacy: pass two `&[u32]` slices directly.
+///   - New: pass `Vec<GhostLink>` and get automatic splitting.
 pub struct IntraGpuChannel {
-    pub src_zone_hash: u32,    // [DOD FIX] Жесткая привязка к источнику
-    pub target_zone_hash: u32, // [DOD FIX] Жесткая привязка к приемнику
+    pub src_zone_hash: u32,    // [DOD FIX] Strict binding to source
+    pub target_zone_hash: u32, // [DOD FIX] Strict binding to destination
     pub capacity: u32,
     pub count: u32,
 
@@ -72,15 +72,15 @@ impl IntraGpuChannel {
         }
     }
 
-    /// CPU-side ghost sync. Используется в mock-режиме и intra-host тестах.
-    /// In production зоны передают axon_head_index через ShardEngine, не через ZoneRuntime.
+    /// CPU-side ghost sync. Used in mock mode and intra-host tests.
+    /// In production zones pass axon_head_index via ShardEngine, not ZoneRuntime.
     pub fn sync_spikes(&mut self, _zones: &mut [crate::zone_runtime::ZoneRuntime]) {
         // Legacy path removed — ZoneRuntime no longer owns raw VRAM.
         // In production GPU sync is done via sync_ghosts() with raw device pointers.
         unimplemented!("sync_spikes is not available after genesis-compute split");
     }
 
-    /// GPU-side sync: вызов CUDA kernel launch_ghost_sync (production).
+    /// GPU-side sync: calls CUDA kernel launch_ghost_sync (production).
     pub unsafe fn sync_ghosts(
         &self, 
         src_heads: *const axicor_core::layout::BurstHeads8, 
@@ -102,7 +102,7 @@ impl IntraGpuChannel {
         );
     }
 
-    // Выкидываем src_zone_idx и dst_zone_idx из push_route
+    // Drop src_zone_idx and dst_zone_idx from push_route
     pub unsafe fn push_route(&mut self, src_axon: u32, dst_ghost: u32, stream: axicor_compute::ffi::CudaStream) {
         assert!(self.count < self.capacity, "FATAL: IntraGPU Routing capacity exceeded.");
         let idx = self.count as usize;

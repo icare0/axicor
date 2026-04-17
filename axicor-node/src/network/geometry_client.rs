@@ -114,7 +114,7 @@ impl GeometryServer {
                             }
                             GeometryRequest::BulkAck(acks) => {
                                 for ack in acks {
-                                    // Пушим в Lock-Free очередь Оркестратора, которую мы создали на прошлом шаге!
+                                    // Push to Orchestrator's Lock-Free queue created in previous step!
                                     queues.incoming_ack.push(ack); 
                                 }
                             }

@@ -2,7 +2,7 @@ use crossbeam::queue::SegQueue;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-// [DOD] AxonHandoverEvent определён в genesis-core для доступа из baker-daemon
+// [DOD] AxonHandoverEvent is defined in axicor-core for access from baker-daemon
 pub use axicor_core::ipc::AxonHandoverEvent;
 pub use axicor_core::ipc::AxonHandoverPrune;
 pub use axicor_core::ipc::AxonHandoverAck;

@@ -27,7 +27,7 @@ pub struct SpikeBatchHeaderV2 {
     pub dst_zone_hash: u32,
     pub epoch: u32,
     pub chunk_idx: u16,    // 0xFFFF = ACK
-    pub total_chunks: u16, // 0 = Пустое сердцебиение / ACK
+    pub total_chunks: u16, // 0 = Empty heartbeat / ACK
 }
 
 #[repr(C)]
@@ -60,12 +60,12 @@ impl RoutingTable {
         let boxed = Box::new(new_map);
         let new_ptr = Box::into_raw(boxed);
 
-        // Атомарный своп указателя (Release order гарантирует видимость данных для читателей)
+        // Atomic pointer swap (Release order guarantees data visibility for readers)
         let old_ptr = self.map_ptr.swap(new_ptr, std::sync::atomic::Ordering::Release);
 
         if !old_ptr.is_null() {
             let old_ptr_usize = old_ptr as usize;
-            // Отложенное удаление: даем 100мс всем Egress-потокам завершить чтение старой таблицы
+            // Deferred deletion: give 100ms for all Egress threads to finish reading old table
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, (SocketAddr, u16)>); 
@@ -134,7 +134,7 @@ impl InterNodeRouter {
         let safe_mtu = std::cmp::max(peer_mtu as usize, 1400); // 1400 is the minimum safe MTU for ESP32
         let max_events_per_packet: usize = (safe_mtu - 16) / 8;
 
-        // Отправка пустого Heartbeat, если спайков нет
+        // Send empty Heartbeat if no spikes
         if events.is_empty() {
             let mut msg = loop {
                 if let Some(m) = pool.free_queue.pop() { break m; }
@@ -154,7 +154,7 @@ impl InterNodeRouter {
             return;
         }
 
-        // L7 Фрагментация
+        // L7 Fragmentation
         let chunks = events.chunks(max_events_per_packet);
         let total_chunks = chunks.len();
 
@@ -185,14 +185,14 @@ impl InterNodeRouter {
         }
     }
 
-    /// Запускает слушатель межзональных спайков (Sender-Side Mapping)
+    /// Starts inter-zone spike listener (Sender-Side Mapping)
     pub async fn spawn_ghost_listener(
         port: u16,
         bsp_barrier: Arc<BspBarrier>,
         routing_table: Arc<RoutingTable>,
-        cluster_secret: u64, // [DOD FIX] Проброс секрета для аутентификации RCU
+        cluster_secret: u64, // [DOD FIX] Forward secret for RCU authentication
     ) {
-        // [DOD FIX] Слушаем все интерфейсы (0.0.0.0), чтобы принимать спайки от других физических нод
+        // [DOD FIX] Listen on all interfaces (0.0.0.0) to receive spikes from other physical nodes
         let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
         
         #[derive(Clone, Copy)]
@@ -200,7 +200,7 @@ impl InterNodeRouter {
             hash: u32,
             epoch: u32,
             received_chunks: u16,
-            chunk_mask: [u64; 16], // Битовая маска на 1024 чанка (~65MB батч макс)
+            chunk_mask: [u64; 16], // Bitmask for 1024 chunks (~65MB max batch)
         }
         
         tokio::spawn(async move {
@@ -210,7 +210,7 @@ impl InterNodeRouter {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
                     if size < 16 { continue; }
 
-                    // [DOD FIX] Перехват пакетов Control Plane (ROUT_MAGIC) до парсинга Data Plane
+                    // [DOD FIX] Intercept Control Plane packets (ROUT_MAGIC) before Data Plane parsing
                     let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
                     if magic == axicor_core::ipc::ROUT_MAGIC {
                         if size >= std::mem::size_of::<axicor_core::ipc::RouteUpdate>() {
@@ -232,12 +232,12 @@ impl InterNodeRouter {
                     let header = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeaderV2) };
                     let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
 
-                    // 1. Biological Amnesia: Игнорируем пакеты из прошлого
+                    // 1. Biological Amnesia: Ignore packets from the past
                     if header.epoch < current_epoch {
                         continue;
                     }
 
-                    // 2. Self-Healing: Прыжок в будущее (§2.8.1 distributed.md)
+                    // 2. Self-Healing: Jump to the future (§2.8.1 distributed.md)
                     if header.epoch > current_epoch {
                         let n = bsp_barrier.self_heal_log_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if n % 100 == 0 {
@@ -245,10 +245,10 @@ impl InterNodeRouter {
                         }
                         bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
                         bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
-                        bsp_barrier.get_write_schedule().clear(); // Сброс мусора из прошлого
+                        bsp_barrier.get_write_schedule().clear(); // Reset garbage from the past
                     }
 
-                    // 3. Обработка ACK-пакета
+                    // 3. Process ACK packet
                     if header.chunk_idx == 0xFFFF {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
                         continue;
@@ -260,28 +260,28 @@ impl InterNodeRouter {
                         if peers[i].hash == header.src_zone_hash { peer_idx = i; break; }
                         if peers[i].hash == 0 { peers[i].hash = header.src_zone_hash; peer_idx = i; break; }
                     }
-                    if peer_idx == 32 { continue; } // Защита от переполнения пиров
+                    if peer_idx == 32 { continue; } // Protection against peer overflow
 
                     let peer = &mut peers[peer_idx];
 
-                    // Сброс при новой эпохе
+                    // Reset on new epoch
                     if header.epoch > peer.epoch {
                         peer.epoch = header.epoch;
                         peer.received_chunks = 0;
                         peer.chunk_mask.fill(0);
                     } else if header.epoch == peer.epoch {
-                        // Дропаем дубликаты внутри эпохи
+                        // Drop duplicates within epoch
                         if header.total_chunks == 0 {
-                            continue; // Дубликат Heartbeat
+                            continue; // Duplicate Heartbeat
                         }
                         let mask_idx = (header.chunk_idx / 64) as usize;
                         let bit_idx = header.chunk_idx % 64;
                         if mask_idx < 16 && (peer.chunk_mask[mask_idx] & (1 << bit_idx)) != 0 {
-                            continue; // Дубликат чанка со спайками (Drop phantom spikes!)
+                            continue; // Duplicate chunk with spikes (Drop phantom spikes!)
                         }
                     }
 
-                    // Если дошли сюда — это уникальный Data-Driven пакет.
+                    // If reached here — it's a unique Data-Driven packet.
                     if header.total_chunks > 0 {
                         let mask_idx = (header.chunk_idx / 64) as usize;
                         let bit_idx = header.chunk_idx % 64;
@@ -290,7 +290,7 @@ impl InterNodeRouter {
                             peer.received_chunks += 1;
                         }
 
-                        // Чтение спайков
+                        // Read spikes
                         let payload_bytes = &buf[16..size];
                         if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
                             let schedule = bsp_barrier.get_write_schedule();
@@ -302,7 +302,7 @@ impl InterNodeRouter {
                         }
                     }
 
-                    // 5. Триггер барьера и отправка ACK
+                    // 5. Trigger barrier and send ACK
                     let is_complete = header.total_chunks == 0 || peer.received_chunks == header.total_chunks;
                     if is_complete {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);

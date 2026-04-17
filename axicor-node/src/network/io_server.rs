@@ -8,7 +8,7 @@ use crate::network::router::RoutingTable;
 use anyhow::Result;
 use std::collections::HashMap;
 
-/// Контекст I/O для конкретной зоны. Содержит персональный InputSwapchain.
+/// I/O Context for specific zone. Contains dedicated InputSwapchain.
 pub struct ZoneIoContext {
     pub swapchain: Arc<InputSwapchain>,
     pub matrix_offsets: HashMap<u32, u32>,
@@ -88,7 +88,7 @@ pub struct ExternalIoServer {
     pub routing_table: Arc<RoutingTable>,
     pub socket: Arc<UdpSocket>,
     
-    /// [DOD] Плоский массив контекстов зон. O(N) линейный поиск оптимален для N < 10.
+    /// [DOD] Flat array of zone contexts. O(N) linear search is optimal for N < 10.
     pub io_contexts: Vec<(u32, ZoneIoContext)>,
     
     // Validation hashes (Deprecated for multi-zone, use io_contexts)
@@ -163,10 +163,10 @@ impl ExternalIoServer {
                     return;
                 }
                 
-                // 1. Копируем текущую таблицу
+                // 1. Copy current table
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
                 
-                // 2. Патчим маршрут
+                // 2. Patch route
                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                 new_map.insert(update.zone_hash, (new_addr, update.mtu));
@@ -180,10 +180,10 @@ impl ExternalIoServer {
 
         // Magic number check (GSIO for Input)
         if header.magic != GSIO_MAGIC {
-            return; // Игнорируем чужой мусор
+            return; // Ignore foreign garbage
         }
 
-        // [DOD FIX] Zero-Cost Routing с диагностикой
+        // [DOD FIX] Zero-Cost Routing with diagnostics
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
             None => {
@@ -221,7 +221,7 @@ impl ExternalIoServer {
         }
     }
 
-    /// Отправка Output_History (Вызывается оркестратором после RecordReadout)
+    /// Send Output_History (Called by orchestrator after RecordReadout)
     pub async fn send_output_batch(
         &self, 
         target_addr: &str, 
@@ -229,7 +229,7 @@ impl ExternalIoServer {
         matrix_hash: u32, 
         pinned_output_addr: usize, 
         output_bytes: usize,
-        tx_buffer: &mut [u8] // [DOD] Переиспользуемый буфер от Caller'а
+        tx_buffer: &mut [u8] // [DOD] Reusable buffer from Caller
     ) {
         let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
         if total_size > 65535 || total_size > tx_buffer.len() {
@@ -255,14 +255,14 @@ impl ExternalIoServer {
         let _ = self.socket.send_to(&tx_buffer[..total_size], target_addr).await;
         // println!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
     }
-    /// O(1) Отправка Output_History через Lock-Free Egress Pool
+    /// O(1) Send Output_History via Lock-Free Egress Pool
     pub fn send_output_batch_pool(
         &self,
         pool: &crate::network::egress::EgressPool,
         target_addr_str: &str,
         zone_hash: u32,
         matrix_hash: u32,
-        payload: &[u8], // [DOD FIX] Берем безопасный срез
+        payload: &[u8], // [DOD FIX] Take safe slice
     ) {
         let Ok(target_addr) = target_addr_str.parse::<std::net::SocketAddr>() else { return; };
         let output_bytes = payload.len();

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 
 #[derive(Debug)]
 pub struct EgressMessage {
-    pub buffer: Vec<u8>, // Строго capacity = len = MAX_UDP_PAYLOAD
+    pub buffer: Vec<u8>, // Strictly capacity = len = MAX_UDP_PAYLOAD
     pub size: usize,
     pub target: SocketAddr,
 }
@@ -20,7 +20,7 @@ impl EgressPool {
 
         for _ in 0..capacity {
             let mut buffer = Vec::with_capacity(axicor_core::constants::MAX_UDP_PAYLOAD);
-            // [DOD FIX] Фиксируем длину. Мы больше НИКОГДА не будем делать push() или resize()
+            // [DOD FIX] Fix length. We will NEVER call push() or resize() again
             unsafe { buffer.set_len(axicor_core::constants::MAX_UDP_PAYLOAD); }
 
             free_queue.push(EgressMessage {

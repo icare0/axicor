@@ -32,12 +32,12 @@ pub struct BootResult {
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
 }
 
-/// Инициализирует ShardEngine прямым DMA-копированием из .state и .axons.
-/// Этот метод реализует O(1) деривацию размеров на основе файлового контракта:
-/// - .state: 910 байта на нейрон (SoA)
-/// - .axons: 32 байта на аксон (BurstHeads8)
+/// Initializes ShardEngine via direct DMA copy from .state and .axons.
+/// This method implements O(1) size derivation based on the file contract:
+/// - .state: 910 bytes per neuron (SoA)
+/// - .axons: 32 bytes per axon (BurstHeads8)
 pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &str, manifest: &ZoneManifest, project_name: &str, use_gpu: bool) -> Result<(ShardEngine, Vec<u32>, PathBuf)> {
-    // DOD FIX: Паттерн ROM / SRAM
+    // DOD FIX: ROM / SRAM pattern
     let mem_zone_dir = PathBuf::from("Genesis-Models")
         .join(format!("{}.axic.mem", project_name))
         .join(zone_name);
@@ -64,7 +64,7 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
         std::fs::write(&state_path, &state)?;
         std::fs::write(&axons_path, &axons)?;
 
-        // Выгружаем геометрию для Демона Пластичности
+        // Export geometry for Plasticity Daemon
         if let Some(geom) = archive.get_file(&format!("baked/{}/shard.geom", zone_name)) {
             std::fs::write(mem_zone_dir.join("shard.geom"), geom)?;
         }
@@ -72,7 +72,7 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
             std::fs::write(mem_zone_dir.join("shard.paths"), paths)?;
         }
 
-        // DOD FIX: Распаковываем ДНК в SRAM для Демона
+        // DOD FIX: Unpack DNA into SRAM for the Daemon
         let brain_dna_dir = mem_zone_dir.join("BrainDNA");
         std::fs::create_dir_all(&brain_dna_dir)?;
         for file in ["simulation.toml", "blueprints.toml", "anatomy.toml", "shard.toml"] {
@@ -94,14 +94,14 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
     let total_ghosts = manifest.memory.ghost_capacity as u32;
     let file_axons = (axons_blob.len() / 32) as u32;
 
-    // 2. Деривация размеров (берем максимум между конфигом и реальностью на диске)
+    // 2. Size derivation (take maximum between config and reality on disk)
     let calc_axons = (manifest.memory.padded_n as u32) + (manifest.memory.virtual_axons as u32) + total_ghosts;
     let total_axons = std::cmp::max(calc_axons, file_axons);
     let total_axons = (total_axons + 31) & !31; // Warp Alignment
     
     let padded_n = manifest.memory.padded_n as u32;
 
-    // Верификация целостности (защита от битых файлов)
+    // Integrity verification (protection against corrupted files)
     let (_, expected_state_size) = calculate_state_blob_size(padded_n as usize);
     if state_blob.len() != expected_state_size {
         anyhow::bail!(
@@ -110,14 +110,14 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
         );
     }
 
-    // Извлекаем soma_to_axon для маршрутизации Ghost-аксонов
+    // Extract soma_to_axon for Ghost-axon routing
     let offsets = compute_state_offsets(padded_n as usize);
     let s2a_bytes = &state_blob[offsets.soma_to_axon .. offsets.soma_to_axon + (padded_n as usize * 4)];
     let soma_to_axon: Vec<u32> = s2a_bytes.chunks_exact(4)
         .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
         .collect();
 
-    // 3. Выделение VRAM и DMA-заливка
+    // 3. VRAM allocation and DMA upload
     let vram = VramState::allocate(padded_n, total_axons, total_ghosts, use_gpu);
     vram.upload_state(&state_blob);
     vram.upload_axon_heads(&axons_blob);
@@ -175,7 +175,7 @@ impl Bootloader {
         let (intra_gpu_channels, inter_node_channels, expected_peers) = 
             Self::build_routing_channels_vfs(&archive, &zone_manifests_with_names, &s2a_maps, &axon_head_ptrs)?;
 
-        // [DOD FIX] Прошиваем таблицу маршрутизации для межзонального Egress
+        // [DOD FIX] Flash routing table for inter-zone Egress
         let mut initial_routes = HashMap::new();
         for (zm, _) in &zone_manifests_with_names {
             for conn in &zm.connections {
@@ -246,8 +246,8 @@ let node_runtime = NodeRuntime::boot(
             .with_context(|| format!("Failed to parse zone manifest for {}", zone_name))?;
 
         let sim_ref = zone_manifest.simulation.as_ref().context("ZoneManifest missing simulation reference")?;
-        // В архиве simulation.toml лежит в корне или по пути из манифеста. 
-        // Бейкер кладет его в BrainDNA/simulation.toml внутри папки зоны.
+        // In the archive, simulation.toml is in the root or via manifest path. 
+        // Baker places it in BrainDNA/simulation.toml inside the zone folder.
         let sim_vfs_path = format!("baked/{}/{}", zone_name, sim_ref.config.to_string_lossy());
         
         let sim_bytes = archive.get_file(&sim_vfs_path)
@@ -285,7 +285,7 @@ let node_runtime = NodeRuntime::boot(
     fn load_all_shards_into_vram_vfs(archive: &axicor_core::vfs::AxicArchive, project_name: &str, zone_manifests_with_names: &[(ZoneManifest, String)], sync_batch_ticks: u32, use_gpu: bool) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut axicor_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32, usize, usize)>>)> 
     {
-        // [DOD FIX] Явно биндим контекст устройства к главному потоку перед загрузкой!
+        // [DOD FIX] Explicitly bind device context to main thread before loading!
         if use_gpu {
             unsafe { axicor_compute::ffi::gpu_set_device(0); }
         }

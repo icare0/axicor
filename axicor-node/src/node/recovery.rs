@@ -27,7 +27,7 @@ impl NodeRuntime {
         println!("📡 [Recovery] Broadcasted RouteUpdate for 0x{:08X} to {} peers", zone_hash, table.len());
     }
 
-    /// Вызывается, если BspBarrier зафиксировал смерть соседа.
+    /// Called if BspBarrier detects neighbor death.
     pub async unsafe fn resurrect_shard(&self, dead_zone_hash: u32) {
         println!("⚕️ [Recovery] Initiating The Great Resurrection for 0x{:08X}", dead_zone_hash);
         

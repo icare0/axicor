@@ -5,14 +5,14 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
 /// 500ms allows ~20 batches slack when sender at ~4k TPS (batch=25ms).
 const BSP_SYNC_TIMEOUT_MS: u64 = 500;
 
-/// BSP Барьер для синхронизации сети и вычислителя (Latency Hiding).
-/// Мы используем Ping-Pong Double Buffering: пока GPU читает из A, сеть пишет в B.
+/// BSP Barrier for network and compute synchronization (Latency Hiding).
+/// We use Ping-Pong Double Buffering: while GPU reads from A, network writes to B.
 pub struct BspBarrier {
     pub schedule_a: SpikeSchedule,
     pub schedule_b: SpikeSchedule,
-    /// Если true, UDP-сервер пишет в B, а GPU читает из A.
+    /// If true, UDP server writes to B, and GPU reads from A.
     pub writing_to_b: AtomicBool, 
-    // [DOD] Сетевая синхронизация
+    // [DOD] Network synchronization
     pub expected_peers: usize,
     pub current_epoch: AtomicU32,     // [DOD] Global Sync Clock
     pub completed_peers: AtomicUsize, // [DOD] Count of is_last flags
@@ -93,7 +93,7 @@ impl BspBarrier {
             Err(actual) => Err(actual)
         }
     }
-    /// Возвращает ссылку на буфер, в который сейчас должна писать сеть (Tokio).
+    /// Returns reference to buffer where network (Tokio) should currently write.
     pub fn get_write_schedule(&self) -> &SpikeSchedule {
         if self.writing_to_b.load(Ordering::Acquire) {
             &self.schedule_b
@@ -102,7 +102,7 @@ impl BspBarrier {
         }
     }
 
-    /// Возвращает ссылку на буфер, из которого сейчас должен читать GPU (genesis-compute).
+    /// Returns reference to buffer from which GPU should currently read.
     pub fn get_read_schedule(&self) -> &SpikeSchedule {
         if self.writing_to_b.load(Ordering::Acquire) {
             &self.schedule_a

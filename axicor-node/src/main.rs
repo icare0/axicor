@@ -34,10 +34,10 @@ pub enum CpuProfile {
     version
 )]
 struct Cli {
-    /// Путь к архиву .axic
+    /// Path to .axic archive
     pub archive: PathBuf,
 
-    /// Конкретные зоны для запуска (если не указано - запускаются все из архива)
+    /// Specific zones to launch (if not specified, all from archive are launched)
     #[arg(long = "zone")]
     pub zones: Vec<String>,
 
@@ -81,12 +81,12 @@ fn main() -> Result<()> {
 
         let mut zones_to_boot = Vec::new();
         if cli.zones.is_empty() {
-            // Запускаем все зоны из конфига
+            // Launch all zones from config
             for zone in &brain_cfg.zones {
                 zones_to_boot.push(zone.name.clone());
             }
         } else {
-            // Фильтруем по запросу пользователя
+            // Filter by user request
             for zone_name in &cli.zones {
                 if brain_cfg.zones.iter().any(|z| &z.name == zone_name) {
                     zones_to_boot.push(zone_name.clone());

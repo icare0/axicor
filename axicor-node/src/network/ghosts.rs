@@ -1,7 +1,7 @@
 use axicor_core::ipc::{GhostsHeader, GhostConnection, GHST_MAGIC};
 
-/// Возвращает (src_soma_ids, target_ghost_ids)
-/// Поддерживает два формата данных .ghosts:
+/// Returns (src_soma_ids, target_ghost_ids)
+/// Supports two .ghosts data formats:
 /// 1. GHST (Header + GhostConnection Records)
 /// 2. Legacy (u32 Count + flat u32 arrays)
 pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
@@ -12,7 +12,7 @@ pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
     let first_u32 = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
 
     if first_u32 == GHST_MAGIC {
-        // --- НОВЫЙ ФОРМАТ (GHST) ---
+        // --- NEW FORMAT (GHST) ---
         if bytes.len() < 16 {
             panic!("Fatal: GHST data header too small");
         }
@@ -33,7 +33,7 @@ pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
             (src_soma_ids, target_ghost_ids)
         }
     } else {
-        // --- LEGACY ФОРМАТ (u32 count + flat blobs) ---
+        // --- LEGACY FORMAT (u32 count + flat blobs) ---
         let count = first_u32 as usize;
         let expected_size = 4 + (count * 4 * 2);
         if bytes.len() < expected_size {

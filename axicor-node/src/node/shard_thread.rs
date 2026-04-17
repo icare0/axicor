@@ -27,8 +27,8 @@ pub struct ShardDescriptor {
 
 use std::sync::atomic::{AtomicU64, AtomicI16, AtomicU16, Ordering};
 
-// TODO: Найти идеальный баланс для линейного стабильного роста, а потом аппроксимировать и 
-// заложить расчет нейрогенеза для каждого шарда автоматически на основе типов внутри.
+// TODO: Find ideal balance for linear stable growth, then approximate and 
+// embed neurogenesis calculation for each shard automatically based on internal types.
 pub struct ShardAtomicSettings {
     pub night_interval_ticks: AtomicU64,
     pub save_checkpoints_interval_ticks: AtomicU64, // ticks counter
@@ -56,7 +56,7 @@ pub struct ThreadWorkspace {
     pub timers_offset: usize,
     pub shm_buffer: MmapMut,
     pub checkpoint_state_buffer: Vec<u8>,
-    pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
+    pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Buffer for Active Tails
     pub ghost_origins: Vec<u32>, // [DOD FIX] O(1) Origin Tracking
 }
 
@@ -168,7 +168,7 @@ impl ThreadWorkspace {
     }
 }
 
-// ФАЗА 1: Выполнение GPU батча (Day Phase)
+// PHASE 1: GPU batch execution (Day Phase)
 #[inline(always)]
 fn execute_day_phase(
     shard: &mut ShardEngine,
@@ -189,7 +189,7 @@ fn execute_day_phase(
 
     let schedule = bsp_barrier.get_read_schedule();
     
-    // [DOD FIX] Zero-cost, 100% безопасное взятие слайсов из Pinned RAM
+    // [DOD FIX] Zero-cost, 100% safe slice extraction from Pinned RAM
     let incoming_slice = schedule.ghost_ids.as_slice();
     let counts_slice_atomic = schedule.counts.as_slice();
     let counts_slice = unsafe {
@@ -273,7 +273,7 @@ fn download_outputs(
     }
 }
 
-// ФАЗА 3: Периодический сброс на диск (I/O)
+// PHASE 3: Periodic disk flush (I/O)
 #[inline(always)]
 fn save_hot_checkpoint(
     shard: &ShardEngine, 
@@ -311,7 +311,7 @@ fn save_hot_checkpoint(
     let chk_axons = baked_dir.join("shard.axons");
     let tmp_axons = baked_dir.join("shard.axons.tmp");
 
-    // 2. Атомарная запись на диск
+    // 2. Atomic disk write
     if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {
         let _ = std::fs::rename(&tmp_state, &chk_state);
         let _ = std::fs::rename(&tmp_axons, &chk_axons);
@@ -319,7 +319,7 @@ fn save_hot_checkpoint(
     }
 }
 
-// ФАЗА 4: Обслуживание графа (Night Phase)
+// PHASE 4: Graph maintenance (Night Phase)
 #[inline(always)]
 fn execute_night_phase(
     shard: &mut ShardEngine,
@@ -444,7 +444,7 @@ fn execute_night_phase(
 
                 dispatch_handovers(client, shard_config, rt_handle);
                 
-                // [DOD FIX] Наполняем карту владельцев призраков (Origin Tracking)
+                // [DOD FIX] Fill ghost owners map (Origin Tracking)
                 for ack in &acks {
                     let idx = (ack.dst_ghost_id as usize).saturating_sub(padded_n);
                     if idx < workspace.ghost_origins.len() {
@@ -454,7 +454,7 @@ fn execute_night_phase(
                 
                 dispatch_acks(acks, rt_handle, routing_table); 
                 
-                // [DOD FIX] Чтение GC-очисток из SHM и маршрутизация смерти
+                // [DOD FIX] Read GC cleans from SHM and route deaths
                 dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
 
                 tracing::info!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
@@ -469,7 +469,7 @@ fn execute_night_phase(
     }
 }
 
-// Абстракция для отправки Spatial Geometry Routing внутри Night Phase
+// Abstraction to send Spatial Geometry Routing within Night Phase
 #[inline(always)]
 fn dispatch_handovers(
     client: &crate::ipc::BakerClient,
@@ -488,12 +488,12 @@ fn dispatch_handovers(
     let mut x_minus = Vec::new();
     let mut y_plus = Vec::new();
     let mut y_minus = Vec::new();
-    let mut z_plus = Vec::new();  // НОВАЯ ОЧЕРЕДЬ
-    let mut z_minus = Vec::new(); // НОВАЯ ОЧЕРЕДЬ
+    let mut z_plus = Vec::new();  // NEW QUEUE
+    let mut z_minus = Vec::new(); // NEW QUEUE
 
     let max_x = shard_config.dimensions.w as u16;
     let max_y = shard_config.dimensions.d as u16;
-    let max_z = shard_config.dimensions.h as u8; // entry_z в пакете имеет тип u8 [2]
+    let max_z = shard_config.dimensions.h as u8; // entry_z in packet has type u8 [2]
 
     for ev in handovers_slice {
         if ev.entry_x >= max_x {
@@ -505,9 +505,9 @@ fn dispatch_handovers(
         } else if ev.entry_y == 0 {
             y_minus.push(*ev);
         } else if ev.entry_z >= max_z {
-            z_plus.push(*ev);  // ПРОБИТИЕ ПОТОЛКА
+            z_plus.push(*ev);  // CEILING BREAK
         } else if ev.entry_z == 0 {
-            z_minus.push(*ev); // ПРОБИТИЕ ПОЛА
+            z_minus.push(*ev); // FLOOR BREAK
         }
     }
 
@@ -561,7 +561,7 @@ fn dispatch_acks(
 ) {
     if acks.is_empty() { return; }
 
-    // Группируем по target_zone_hash (чтобы отправить одним TCP пакетом на ноду)
+    // Group by target_zone_hash (to send in single TCP packet to node)
     let mut grouped: std::collections::HashMap<u32, Vec<axicor_core::ipc::AxonHandoverAck>> = std::collections::HashMap::new();
     for ack in acks {
         grouped.entry(ack.target_zone_hash).or_default().push(ack);
@@ -631,7 +631,7 @@ fn dispatch_prunes(
         }
     }
 }
-// Инициализация VRAM буферов
+// VRAM buffers initialization
 fn init_io_buffers(
     num_virtual_axons: u32,
     max_spikes_per_tick: u32,
@@ -711,7 +711,7 @@ pub fn spawn_shard_thread(
                 println!("🚀 [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
             }
 
-            // 1. Инициализация аппаратного контекста
+            // 1. Hardware context initialization
             let use_gpu = matches!(desc.engine, ShardEngine::Gpu(_));
             if use_gpu {
                 unsafe { axicor_compute::ffi::gpu_set_device(0); }
@@ -749,7 +749,7 @@ pub fn spawn_shard_thread(
             let _dendrites_count = padded_n * axicor_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = axicor_compute::memory::calculate_state_blob_size(padded_n);
 
-            // [DOD FIX] Выравниваем размер payload'а с ожиданиями Baker Daemon
+            // [DOD FIX] Align payload size with Baker Daemon expectations
             let mut workspace = ThreadWorkspace::new(hash, padded_n, vram.total_ghosts as usize);
             let axons_size = vram.total_axons as usize * std::mem::size_of::<axicor_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
@@ -758,7 +758,7 @@ pub fn spawn_shard_thread(
             let mut batch_counter: u64 = 0;
             let mut warmup_ticks_remaining: u32 = 2000;
 
-            // 2. Плоский горячий цикл
+            // 2. Flat hot loop
             while let Ok(cmd) = rx.recv() {
                 match cmd {
                     ComputeCommand::Resurrect => {
@@ -768,13 +768,13 @@ pub fn spawn_shard_thread(
                     ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
                         let is_warmup = warmup_ticks_remaining > 0;
                         
-                        // ФАЗА 1: Выполнение GPU батча (Day Phase)
+                        // PHASE 1: GPU batch execution (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
                             &ctx.io_ctx, &mut io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
                         );
 
-                        // --- ФАЗА 2: Чтение выходов ---
+                        // --- PHASE 2: Read outputs ---
                         if desc.num_outputs > 0 {
                             download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, &desc.engine);
                         }
@@ -785,7 +785,7 @@ pub fn spawn_shard_thread(
                             }
                         }
 
-                        // ФАЗА 3: Периодический сброс на диск (I/O)
+                        // PHASE 3: Periodic disk flush (I/O)
                         let cp_interval_ticks = ctx.atomic_settings.save_checkpoints_interval_ticks.load(Ordering::Relaxed);
                         let cp_interval = (cp_interval_ticks as u32 / batch_size).max(1);
                         if batch_counter > 0 && batch_counter % cp_interval as u64 == 0 {
@@ -798,7 +798,7 @@ pub fn spawn_shard_thread(
                             );
                         }
 
-                        // ФАЗА 4: Обслуживание графа (Night Phase)
+                        // PHASE 4: Graph maintenance (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
                         let n_interval = ctx.atomic_settings.night_interval_ticks.load(Ordering::Relaxed);
                         if n_interval > 0 && current_tick_count % n_interval == 0 {
@@ -814,7 +814,7 @@ pub fn spawn_shard_thread(
                             tracing::info!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
                         }
 
-                        // Отправка отчета оркестратору
+                        // Send feedback to orchestrator
                         if f_tx.send(ComputeFeedback::BatchComplete {
                             ticks_processed: batch_size,
                             zone_hash: hash,

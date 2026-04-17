@@ -74,17 +74,17 @@ pub struct NodeRuntime {
     pub total_ticks: Arc<AtomicU32>,
     pub local_ip: std::net::Ipv4Addr,
     pub local_port: u16,
-    /// [DOD] Маршруты выходов: zone_hash -> (TargetAddr, MatrixHash, PixelOffset, ChunkPixels)
+    /// [DOD] Output routes: zone_hash -> (TargetAddr, MatrixHash, PixelOffset, ChunkPixels)
     pub output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>>,
-    // [DOD] Владение дочерними процессами (Baker Daemons)
+    // [DOD] Ownership of child processes (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
-    // [DOD FIX] Метаданные шардов для Hot-Reload
+    // [DOD FIX] Shard metadata for Hot-Reload
     pub manifest_metadata: Mutex<HashMap<u32, ShardMetadata>>,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
     pub sync_batch_ticks: u32,
     pub cluster_secret: u64, // [DOD FIX]
-    // [DOD FIX] Преаллоцированный буфер для транспонирования выходов без аллокаций
+    // [DOD FIX] Preallocated buffer for output transposition without allocations
     pub egress_transpose_buffer: Vec<u8>,
 }
 
@@ -118,7 +118,7 @@ impl NodeRuntime {
         let bsp_listener_clone = bsp_barrier.clone();
         tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone, routing_table.clone(), cluster_secret));
 
-        // [DOD] Structured Concurrency: Оркестратор спавнит демонов сам
+        // [DOD] Structured Concurrency: Orchestrator spawns daemons itself
         let daemons = Self::spawn_baker_daemons(&shards);
 
         // [Windows] Daemon creates SHM file asynchronously; wait for it before shard threads open
@@ -197,7 +197,7 @@ impl NodeRuntime {
             virtual_offset_map,
             sync_batch_ticks,
             cluster_secret,
-            egress_transpose_buffer: Vec::with_capacity(1024 * 1024), // 1MB резерв
+            egress_transpose_buffer: Vec::with_capacity(1024 * 1024), // 1MB reserve
         };
 
         node
@@ -250,15 +250,15 @@ impl NodeRuntime {
         let stream = std::ptr::null_mut(); 
 
         while let Some(ack) = self.network.routing_acks.pop() {
-            // Ищем Inter-Node канал (если сосед на другой машине)
+            // Find Inter-Node channel (if neighbor is on another machine)
             if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
                 .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash) 
             {
                 unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
             }
-            // Ищем Intra-GPU канал (если обе зоны сидят в нашей VRAM)
+            // Find Intra-GPU channel (if both zones reside in our VRAM)
             else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
-                // [DOD FIX] Точный матчинг по хэшам без магических заглушек!
+                // [DOD FIX] Exact hash matching without magic stubs!
                 .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash) 
             {
                 unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
@@ -295,7 +295,7 @@ impl NodeRuntime {
             #[cfg(unix)]
             let _ = std::fs::remove_file(&socket_addr);
 
-            // [DOD FIX] Шард-треды используют манифесты из /dev/shm
+            // [DOD FIX] Shard threads use manifests from /dev/shm
             let manifest_shm_path = axicor_core::ipc::manifest_shm_path(desc.hash);
 
             println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
@@ -305,7 +305,7 @@ impl NodeRuntime {
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
                 .arg(&desc.baked_dir)
-                // [DOD FIX] Снимаем глушитель! Мы должны видеть паники CPU-демона в консоли ноды.
+                // [DOD FIX] Remove silencer! We must see CPU-daemon panics in node console.
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .spawn()
@@ -322,7 +322,7 @@ impl NodeRuntime {
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
 
-        // [DOD FIX] Жесткая привязка OS-потока оркестратора к аппаратному контексту
+        // [DOD FIX] Strict binding of orchestrator OS thread to hardware context
         unsafe { axicor_compute::ffi::gpu_set_device(0); }
 
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
@@ -385,7 +385,7 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] GPU Hardware Barrier — дожидаемся завершения всех стримов
+            // [DOD] GPU Hardware Barrier — wait for all streams to finish
             unsafe { axicor_compute::ffi::gpu_device_synchronize(); }
 
             // Ship outputs to network targets ONLY POST SYNC!
@@ -394,13 +394,13 @@ impl NodeRuntime {
                 let total_pixels = output_bytes / batch_size_usize;
                 let pinned_out_slice = unsafe { std::slice::from_raw_parts(pinned_out_ptr as *const u8, output_bytes) };
 
-                // 160 KB копируются в кэше L1/L2 процессора за наносекунды. Никаких аллокаций и memset!
+                // 160 KB copied in L1/L2 processor cache in nanoseconds. No allocations and memset!
                 unsafe {
-                    // Гарантируем, что capacity хватит. reserve() аллоцирует только если нужно.
+                    // Guarantee enough capacity. reserve() allocates only if needed.
                     if output_bytes > self.egress_transpose_buffer.capacity() {
                         self.egress_transpose_buffer.reserve(output_bytes);
                     }
-                    // Теперь сдвиг безопасен
+                    // Now shift is safe
                     self.egress_transpose_buffer.set_len(output_bytes);
                 }
                 
@@ -410,7 +410,7 @@ impl NodeRuntime {
                     }
                 }
 
-                // 2. Нарезаем и отправляем строго по L7-чанкам
+                // 2. Slice and send strictly by L7 chunks
                 if let Some(routes) = self.output_routes.get(&zone_hash) {
                     for (addr, m_hash, pixel_offset, chunk_pixels) in routes {
                         let byte_offset = pixel_offset * batch_size_usize;
@@ -424,7 +424,7 @@ impl NodeRuntime {
                             *m_hash,
                             payload,
                         );
-                        // [DOD FIX] Возрождаем счетчик UDP OUT!
+                        // [DOD FIX] Revive UDP OUT counter!
                     }
                 }
             }
@@ -443,7 +443,7 @@ impl NodeRuntime {
                 unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
             }
 
-            // [DOD] 5. GPU Barrier Sync (дожидаемся sync_ghosts в default stream)
+            // [DOD] 5. GPU Barrier Sync (wait for sync_ghosts in default stream)
             unsafe { axicor_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
 
             // [DOD] 6. Inter-Node Fast Path (Egress)
@@ -456,10 +456,10 @@ impl NodeRuntime {
                         tracing::info!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
                     }
                     */
-                    // В цикле Egress:
+                    // In Egress loop:
                 }
 
-                // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
+                // BSP Heartbeat: ALWAYS build and send packet
                 let events_slice = unsafe {
                     std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize)
                 };
@@ -484,19 +484,19 @@ impl NodeRuntime {
                     batch_counter += delta as u64;
                     current_tick += (delta * batch_size) as u64;
                     
-                    // Обязательная очистка зависшего read_schedule, иначе GPU 
-                    // на следующем тике прочитает призраки из далекого прошлого.
+                    // Mandatory cleanup of hanging read_schedule, otherwise GPU 
+                    // will read ghosts from distant past on next tick.
                     self.services.bsp_barrier.get_read_schedule().clear();
                     
-                    // Пропускаем остаток цикла (routing patching etc.) и начинаем новый чистый батч
+                    // Skip remainder of cycle (routing patching etc.) and start a clean new batch
                     continue;
                 }
             }
 
             // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
-            // Барьер пройден, GPU стоит. Идеальное вро шине PCIe.
+            // Barrier passed, GPU idle. Ideal window for PCIe bus.
             while let Some(prune) = self.network.routing_prunes.pop() {
-                // Ищем канал-владелец и удаляем роут
+                // Find owner channel and remove route
                 for (_, channel) in &mut self.network.inter_node_channels {
                     unsafe { channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut()); }
                 }
@@ -510,7 +510,7 @@ impl NodeRuntime {
             batch_start = std::time::Instant::now();
 
             batch_counter += 1;
-            // [DOD FIX] Восстанавливаем ход времени! Без этого GPU застрянет в первых N тиках.
+            // [DOD FIX] Restore time progression! Without this GPU will get stuck in first N ticks.
             current_tick += batch_size as u64;
 
             if batch_counter > 0 && batch_counter % 50 == 0 {
@@ -526,8 +526,8 @@ impl Drop for NodeRuntime {
     fn drop(&mut self) {
         let mut daemons = self.daemons.lock().unwrap();
         for (i, daemon) in daemons.iter_mut().enumerate() {
-            let _ = daemon.kill(); // Отправляем SIGKILL
-            let _ = daemon.wait(); // Ждем подтверждения смерти от ОС, предотвращая зомби
+            let _ = daemon.kill(); // Send SIGKILL
+            let _ = daemon.wait(); // Wait for OS death confirmation, preventing zombies
             println!("[Orchestrator] Baker Daemon {} successfully terminated.", i);
         }
     }

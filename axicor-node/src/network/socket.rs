@@ -36,7 +36,7 @@ impl NodeSocket {
         target: SocketAddr, 
         batch_id: u32, 
         events: &[SpikeEvent],
-        tx_buffer: &mut Vec<u8> // [DOD] Переиспользуемый буфер
+        tx_buffer: &mut Vec<u8> // [DOD] Reusable buffer
     ) -> Result<()> {
         let header = SpikeBatchHeader {
             magic: 0x5350494B, // "SPIK"
