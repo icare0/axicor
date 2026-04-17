@@ -1,7 +1,9 @@
 [package]
 name = "axicor-lab"
-version = "0.0.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 bevy = { version = "0.13", features = ["default"] }
@@ -18,7 +20,7 @@ anatomy_slicer = { package = "axicor-anatomy-slicer", path = "plugins/anatomy_sl
 matrix_editor = { package = "axicor-matrix-editor", path = "plugins/matrix_editor" }
 layout-api = { path = "crates/layout-api" }
 bytemuck = { version = "1.15", features = ["derive"] }
-genesis-core = { workspace = true }
+axicor-core = { workspace = true }
 ron = "0.8"
 serde = { workspace = true }
 toml = { workspace = true }

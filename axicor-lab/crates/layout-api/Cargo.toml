@@ -1,12 +1,12 @@
 [package]
 name = "layout-api"
-version = "0.0.0"
+version.workspace = true
 edition = "2021"
 
 [dependencies]
 bevy = { version = "0.13", features = ["default"] }
 bevy_egui = "0.27"
 egui_tiles = "0.8.0"
-genesis-core = { version = "0.0.0", path = "../../../genesis-core" }
+axicor-core = { workspace = true, path = "../../../axicor-core" }
 memmap2 = "0.9.10"
 serde = { version = "1.0", features = ["derive"] }

@@ -82,7 +82,7 @@ pub fn remove_array_of_tables_item(
 pub fn add_io_record(doc: &mut DocumentMut, section: &str, port_name: &str, _io_id: &str, zone_name: &str, width: u32, height: u32, voxel_z: Option<u32>) {
     // 1. Generate Matrix ID: {zone_suffix}_{uuid8}
     let z_suffix = if zone_name.len() >= 4 { &zone_name[zone_name.len()-4..] } else { zone_name };
-    let m_uuid_full = genesis_core::config::sys::SystemMeta::generate().id.replace("-", "");
+    let m_uuid_full = axicor_core::config::sys::SystemMeta::generate().id.replace("-", "");
     let m_uuid = &m_uuid_full[..8];
     let matrix_id = format!("{}_{}", z_suffix, m_uuid);
 
@@ -104,7 +104,7 @@ pub fn add_io_record(doc: &mut DocumentMut, section: &str, port_name: &str, _io_
 
     // 2. Generate Pin ID: {matrix_uuid_suffix}_{uuid4}
     let m_suffix = &m_uuid[m_uuid.len()-4..];
-    let p_uuid_full = genesis_core::config::sys::SystemMeta::generate().id.replace("-", "");
+    let p_uuid_full = axicor_core::config::sys::SystemMeta::generate().id.replace("-", "");
     let p_uuid = &p_uuid_full[..4];
     let pin_id = format!("{}_{}", m_suffix, p_uuid);
 

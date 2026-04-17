@@ -126,8 +126,8 @@ pub fn trace_active_connections_system(
         let target_packed = graph.targets[idx];
         if target_packed == 0 { break; } 
 
-        let axon_id_plus_1 = target_packed & genesis_core::constants::TARGET_AXON_MASK;
-        let seg_idx = (target_packed >> genesis_core::constants::TARGET_SEG_SHIFT) as usize;
+        let axon_id_plus_1 = target_packed & axicor_core::constants::TARGET_AXON_MASK;
+        let seg_idx = (target_packed >> axicor_core::constants::TARGET_SEG_SHIFT) as usize;
 
         if axon_id_plus_1 > 0 {
             let axon_id = (axon_id_plus_1 - 1) as usize;
@@ -186,9 +186,9 @@ pub fn trace_active_connections_system(
                 let target_packed = graph.targets[idx];
                 if target_packed == 0 { break; } 
 
-                let axon_id_plus_1 = target_packed & genesis_core::constants::TARGET_AXON_MASK;
+                let axon_id_plus_1 = target_packed & axicor_core::constants::TARGET_AXON_MASK;
                 if axon_id_plus_1 > 0 && (axon_id_plus_1 - 1) as usize == my_axon_idx {
-                    let seg_idx = (target_packed >> genesis_core::constants::TARGET_SEG_SHIFT) as usize;
+                    let seg_idx = (target_packed >> axicor_core::constants::TARGET_SEG_SHIFT) as usize;
                     if seg_idx < graph.axon_segments[my_axon_idx].len() {
                         let target_pos = graph.axon_segments[my_axon_idx][seg_idx];
                         lines_pos.push(other_pos);

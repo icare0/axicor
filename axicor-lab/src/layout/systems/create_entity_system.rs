@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use std::fs;
 use std::path::Path;
 use node_editor::domain::{BrainTopologyGraph, TopologyMutation, CreateTarget};
-use genesis_core::config::sys::SystemMeta;
+use axicor_core::config::sys::SystemMeta;
 use crate::layout::systems::wm_file_ops::{load_document, save_document, add_io_record};
 use toml_edit::{value, ArrayOfTables, InlineTable, Item, Table};
 

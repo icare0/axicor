@@ -210,4 +210,4 @@ pub fn default_stride() -> u32 { 1 }
 pub fn default_uv_rect() -> [f32; 4] { [0.0, 0.0, 1.0, 1.0] }
 pub fn default_width() -> u32 { 32 }
 
-pub use genesis_core::config::io::{IoConfig as ShardIoData, IoMatrix, IoPin, SysId};
+pub use axicor_core::config::io::{IoConfig as ShardIoData, IoMatrix, IoPin, SysId};

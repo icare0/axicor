@@ -67,7 +67,7 @@ pub fn spawn_cad_geometry_system(
 
         let mesh = meshes.add(Cuboid::from_size(Vec3::new(w, layer_h, d)));
         
-        let hash = genesis_core::hash::fnv1a_32(layer.name.as_bytes());
+        let hash = axicor_core::hash::fnv1a_32(layer.name.as_bytes());
         // Повышаем базовую яркость, чтобы не сливаться с фоном (0.4 - 0.7)
         let base_luma = 0.4 + (hash % 100) as f32 / 100.0 * 0.3;
         let r_shift = (((hash >> 8) % 100) as f32 / 100.0) * 0.4 - 0.2;

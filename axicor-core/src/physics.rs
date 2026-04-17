@@ -1,0 +1,364 @@
+/// Конвейер пересчёта физических констант при старте (Spec 01 §1.5).
+///
+/// При старте движок берёт человеко-читаемые значения из конфига и вычисляет
+/// «сырые» GPU-константы. Горячий цикл не делает умножений — он оперирует
+/// уже готовыми числами из Constant Memory.
+///
+/// Инвариант §1.6: `signal_speed_um_tick % segment_length_um == 0`.
+/// Нарушение → возврат Err до любого GPU-upload.
+
+/// Производные физические константы готовые к загрузке в GPU Constant Memory.
+///
+/// Вычисляются один раз при старте через `compute_derived_physics`.
+/// Поля намеренно плоские — прямой маппинг в C-структуру для `cudaMemcpyToSymbol`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivedPhysics {
+    /// Скорость сигнала в мкм/тик (§1.5 п.1).
+    /// GPU прибавляет это к позиции головы каждый тик.
+    pub signal_speed_um_tick: u32,
+    /// Длина одного сегмента в мкм = voxel_size_um × segment_length_voxels.
+    pub segment_length_um: u32,
+    /// Дискретная скорость: сегментов/тик (§1.5 п.2).
+    /// `v_seg = signal_speed_um_tick / segment_length_um` — гарантированно целое.
+    /// GPU: `axon_head += v_seg` за тик. Никаких float, никакой интерполяции.
+    pub v_seg: u32,
+}
+
+/// Вычисляет `DerivedPhysics` из значений конфига — конвейер пересчёта §1.5.
+///
+/// Возвращает `Err` если нарушен инвариант §1.6 (`v_seg` дробное).
+///
+/// # Аргументы
+/// - `signal_speed_um_tick` — из `simulation.signal_speed_um_tick`
+/// - `voxel_size_um`        — из `simulation.voxel_size_um`
+/// - `segment_length_vox`   — из `simulation.segment_length_voxels`
+///
+/// # Пример (конфигурация из спека)
+/// ```
+/// # use axicor_core::physics::compute_derived_physics;
+/// let p = compute_derived_physics(0.5, 100, 25.0, 2).unwrap();
+/// assert_eq!(p.v_seg, 1);
+/// ```
+pub fn compute_derived_physics(
+    signal_speed_m_s: f32,
+    tick_duration_us: u32,
+    voxel_size_um: f32,
+    segment_length_vox: u32,
+) -> Result<DerivedPhysics, String> {
+    let tick_ms = tick_duration_us as f32 / 1000.0;
+    // 1 m/s = 1000 um/ms
+    let signal_speed_um_tick = signal_speed_m_s * 1000.0 * tick_ms;
+    let segment_length_um = voxel_size_um * segment_length_vox as f32;
+
+    if segment_length_um < 1e-6 {
+        return Err("segment_length_um must be > 0".to_string());
+    }
+
+    let v_seg_f32 = signal_speed_um_tick / segment_length_um;
+    let v_seg = v_seg_f32.round() as u32;
+
+    let diff = (v_seg_f32 - v_seg as f32).abs();
+    if diff > 1e-5 {
+        return Err(format!(
+            "§1.6 violation: v_seg ({v_seg_f32:.4}) is not an integer. \
+             Physically impossible for Integer Physics engine. \
+             Check simulation.signal_speed_m_s ({} m/s) and simulation.voxel_size_um ({} um).",
+             signal_speed_m_s, voxel_size_um
+        ));
+    }
+
+    Ok(DerivedPhysics { 
+        signal_speed_um_tick: signal_speed_um_tick.round() as u32, 
+        segment_length_um: segment_length_um.round() as u32, 
+        v_seg 
+    })
+}
+
+// ---------------------------------------------------------------------------
+// GLIF Dynamics (Spec 03 §2, §3)
+// ---------------------------------------------------------------------------
+
+/// Вычисляет новое напряжение мембраны (Integer GLIF).
+///
+/// `dV = -(V - V_rest) / leak_rate + I_input`
+///
+/// Деление целочисленное (truncation toward zero) — детерминизм на CPU и GPU.
+#[inline(always)]
+pub const fn compute_glif(
+    voltage: i32,
+    rest_potential: i32,
+    leak_rate: i32,
+    input_current: i32,
+) -> i32 {
+    debug_assert!(leak_rate > 0, "Leak rate must be > 0");
+    let leak = (voltage - rest_potential) / leak_rate;
+    voltage - leak + input_current
+}
+
+// ---------------------------------------------------------------------------
+// Homeostasis (Spec 03 §3.2 — Adaptive Threshold)
+// ---------------------------------------------------------------------------
+
+/// Branchless обновление адаптивного порога.
+///
+/// Логика: `max(0, offset - decay) + (is_spiking ? penalty : 0)`
+///
+/// Использует `wrapping_sub` + arithmetic shift для branchless clamp к 0.
+/// Никаких паник в debug builds при underflow.
+#[inline(always)]
+pub const fn update_homeostasis(
+    threshold_offset: i32,
+    decay: u16,
+    is_spiking: bool,
+    penalty: i32,
+) -> i32 {
+    // wrapping_sub: безопасен даже если offset < decay (даёт отрицательное число в i32)
+    let decayed = threshold_offset.wrapping_sub(decay as i32);
+    // Arithmetic shift: 0xFFFFFFFF если < 0, иначе 0x00000000
+    let mask = decayed >> 31;
+    // Branchless max(0, decayed): обнулить если отрицательное
+    let clamped = decayed & !mask;
+
+    // Penalty добавляется только при спайке
+    let spike_penalty = if is_spiking { penalty } else { 0 };
+    clamped + spike_penalty
+}
+
+// ---------------------------------------------------------------------------
+// GSOP Plasticity (Spec 04 §2.4, §2.5)
+// ---------------------------------------------------------------------------
+
+/// Inertia Rank: разделяем диапазон |weight| (0..2.14 млрд) на 16 рангов.
+/// `rank = abs_w >> 27`. Это 1 такт ALU, без ветвлений.
+#[inline(always)]
+pub const fn inertia_rank(abs_weight: i32) -> usize {
+    let rank = (abs_weight >> 27) as usize; // 2.14 млрд >> 27 = 15
+    if rank > 15 { 15 } else { rank }
+}
+
+/// Вычисляет новое значение синаптического веса согласно алгоритму GSOP (STDP).
+/// Математика оптимизирована под целочисленные вычисления (Fixed Point).
+pub fn compute_gsop_weight(
+    current_weight: i32,
+    dopamine: i16,
+    d1_affinity: u8,
+    d2_affinity: u8,
+    gsop_potentiation: u16,
+    gsop_depression: u16,
+    inertia: u8,
+    dist_to_spike: Option<u32>,
+    burst_mult: u8,
+) -> i32 {
+    let sign = if current_weight >= 0 { 1 } else { -1 };
+    let abs_w = current_weight.abs();
+
+    // 1. Модуляция дофамином (D1 бустит LTP, D2 подавляет LTD при награде)
+    // Целочисленная физика: (i16 * u8) >> 7
+    let pot_mod = ((dopamine as i32) * (d1_affinity as i32)) >> 7;
+    let dep_mod = ((dopamine as i32) * (d2_affinity as i32)) >> 7;
+
+    let raw_pot = (gsop_potentiation as i32) + pot_mod;
+    let raw_dep = (gsop_depression as i32) - dep_mod;
+
+    // Защита от отрицательной депрессии (Dead Zone Guard)
+    let final_dep = if raw_dep < 0 { 0 } else { raw_dep };
+
+    // 2. Базовый дельта-импульс с учетом инерции и силы пачки
+    // [BIT ACCURACY] Умножение ДО сдвига строго как в CUDA
+    let delta_pot = (raw_pot * (inertia as i32) * (burst_mult as i32)) >> 7;
+    let delta_dep = (final_dep * (inertia as i32) * (burst_mult as i32)) >> 7;
+
+    // 3. Пространственное охлаждение (Spatial Cooling)
+    // Чем дальше спайк от синапса, тем слабее эффект LTP
+    let is_active = dist_to_spike.is_some();
+    let min_dist = if let Some(d) = dist_to_spike { d } else { u32::MAX };
+    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
+
+    // 4. Итоговая дельта
+    let delta = if is_active {
+        delta_pot >> cooling_shift
+    } else {
+        -delta_dep
+    };
+
+    // 5. Глобальный коэффициент затухания (Decay)
+    let decay = 128i32; // 1.0 в Fixed Point 7
+    let delta = (delta * decay) >> (7 + cooling_shift);
+
+    // 6. Применяем изменение и ограничиваем лимитами i32 с Headroom
+    // Потолок 2.14 млрд оставляет запас до i32::MAX для предотвращения wrap-around.
+    let mut new_abs = abs_w + delta;
+    if new_abs < 0 {
+        new_abs = 0;
+    }
+    if new_abs > 2140000000 {
+        new_abs = 2140000000;
+    }
+    // 7. Восстанавливаем знак
+    (sign * new_abs) as i32
+}
+
+#[cfg(test)]
+#[path = "test_physics.rs"]
+mod test_physics;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // GLIF
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_glif_leak_positive_offset() {
+        // voltage=100, rest=-70, leak=2, input=0
+        // leak = (100 - (-70)) / 2 = 85
+        // new_v = 100 - 85 + 0 = 15
+        assert_eq!(compute_glif(100, -70, 2, 0), 15);
+    }
+
+    #[test]
+    fn test_glif_leak_negative_offset() {
+        // voltage=-100, rest=-70, leak=2, input=0
+        // leak = (-100 - (-70)) / 2 = -15
+        // new_v = -100 - (-15) + 0 = -85
+        assert_eq!(compute_glif(-100, -70, 2, 0), -85);
+    }
+
+    #[test]
+    fn test_glif_at_rest_no_change() {
+        // voltage == rest -> leak=0 -> stays at rest (no input)
+        assert_eq!(compute_glif(-70, -70, 2, 0), -70);
+    }
+
+    #[test]
+    fn test_glif_with_input_current() {
+        // voltage=-70, rest=-70, leak=2, input=50
+        // leak=0, new_v = -70 + 50 = -20
+        assert_eq!(compute_glif(-70, -70, 2, 50), -20);
+    }
+
+    // -----------------------------------------------------------------------
+    // Homeostasis
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_homeostasis_branchless_clamp() {
+        // offset=5, decay=10 -> decayed = 5 - 10 = -5 -> clamped to 0
+        assert_eq!(update_homeostasis(5, 10, false, 100), 0);
+    }
+
+    #[test]
+    fn test_homeostasis_normal_decay() {
+        // offset=100, decay=3, not spiking -> 100 - 3 = 97
+        assert_eq!(update_homeostasis(100, 3, false, 15), 97);
+    }
+
+    #[test]
+    fn test_homeostasis_spike_adds_penalty() {
+        // offset=100, decay=3, spiking, penalty=15 -> 97 + 15 = 112
+        assert_eq!(update_homeostasis(100, 3, true, 15), 112);
+    }
+
+    #[test]
+    fn test_homeostasis_zero_stays_zero() {
+        // offset=0, decay=0, not spiking -> 0
+        assert_eq!(update_homeostasis(0, 0, false, 15), 0);
+    }
+
+    #[test]
+    fn test_homeostasis_spike_from_zero() {
+        // offset=0, decay=0, spiking -> 0 + penalty
+        assert_eq!(update_homeostasis(0, 0, true, 15), 15);
+    }
+
+    // -----------------------------------------------------------------------
+    // GSOP
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gsop_potentiation_basic() {
+        // current_weight=100, dopamine=0, d1_aff=0, d2_aff=0
+        // pot=80, dep=40, inertia=128 (1.0x), dist_to_spike=Some(0) (LTP), burst=128 (1.0x)
+        // delta_pot = (80 * 128 * 128) >> 7 = 80 << 7 / 128 = 80
+        // cooling_shift = 0 >> 4 = 0
+        // delta = 80 >> 0 = 80
+        // decay = (80 * 128) >> 7 = 80
+        // new_abs = 100 + 80 = 180
+        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 128), 180);
+    }
+
+    #[test]
+    fn test_gsop_depression_basic() {
+        // current_weight=100, dist_to_spike=None (LTD)
+        // delta_dep = (40 * 128 * 128) >> 7 = 40
+        // delta = -40
+        // final_delta = (-40 * 128) >> 7 = -40
+        // new_abs = 100 - 40 = 60
+        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 128), 60);
+    }
+
+    #[test]
+    fn test_gsop_i32_limits() {
+        // current_weight = -1000000
+        // Must NOT panic.
+        // potentiation (LTP): delta = 80
+        // new_abs = 1000000 + 80 = 1000080 -> sign=-1 -> -1000080
+        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        assert_eq!(w, -1000080);
+
+        // depression (LTD): delta = -40
+        // new_abs = 1000000 - 40 = 999960 -> sign=-1 -> -999960
+        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, None, 128);
+        assert_eq!(w2, -999960);
+    }
+
+    #[test]
+    fn test_gsop_sign_preservation_negative() {
+        // Negative weight should NEVER become positive (Dale's Law)
+        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 128);
+        assert!(w <= 0, "Dale's Law violated: negative weight became positive: {w}");
+        assert_eq!(w, -460);
+    }
+
+    #[test]
+    fn test_gsop_sign_preservation_depression_to_zero() {
+        // Small negative weight, heavy depression -> should clamp to 0, NOT become positive
+        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, None, 128);
+        assert_eq!(w, 0);
+    }
+
+    #[test]
+    fn test_gsop_clamp_max() {
+        // Large weight + potentiation -> clamp at Headroom limit (2.14B)
+        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        assert_eq!(w, 2140000000);
+    }
+
+    #[test]
+    fn test_gsop_inertia_rank_calculation() {
+        assert_eq!(inertia_rank(0), 0);
+        assert_eq!(inertia_rank(2047), 0);
+        assert_eq!(inertia_rank(2048), 1);
+        assert_eq!(inertia_rank(4095), 1);
+        assert_eq!(inertia_rank(4096), 2);
+        assert_eq!(inertia_rank(32767), 14);
+		assert_eq!(inertia_rank(40000), 14);
+    }
+
+    #[test]
+    fn test_gsop_cooling_effect() {
+        // dist_to_spike=64 (cooling_shift = 64>>4 = 4)
+        // delta_pot = 80
+        // delta = 80 >> 4 = 5
+        // decay = (5 * 128) >> (7 + 4) = 5 >> 4 = 0 (due to floor in cooling)
+        // NOTE: With dist=64, delta becomes very small in integer math
+        let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 128);
+        let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 128);
+        
+        assert!(w_close > w_far);
+        assert_eq!(w_close, 1128); // 1000 + 128
+        assert_eq!(w_far, 1000);   // 1000 + 0 (cooled down to zero)
+    }
+}

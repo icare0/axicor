@@ -208,12 +208,12 @@ pub struct PaneData {
 #[derive(Resource, Default)]
 pub struct ActiveBundle {
     pub project_name: String,
-    pub archive: Option<genesis_core::vfs::AxicArchive>,
+    pub archive: Option<axicor_core::vfs::AxicArchive>,
 }
 
 impl ActiveBundle {
     pub fn load(&mut self, axic_path: &Path, name: &str) -> Option<()> {
-        self.archive = genesis_core::vfs::AxicArchive::open(axic_path);
+        self.archive = axicor_core::vfs::AxicArchive::open(axic_path);
         self.project_name = name.to_string();
         self.archive.as_ref().map(|_| ())
     }

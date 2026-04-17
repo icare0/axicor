@@ -24,7 +24,7 @@ pub fn load_zone_geometry_system(
         let axic_path = std::path::PathBuf::from("Genesis-Models")
             .join(format!("{}.axic", ev.project_name));
 
-        let Some(archive) = genesis_core::vfs::AxicArchive::open(&axic_path) else {
+        let Some(archive) = axicor_core::vfs::AxicArchive::open(&axic_path) else {
             eprintln!("Failed to open VFS archive: {:?}", axic_path);
             continue;
         };

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use std::fs;
 use std::path::PathBuf;
 use layout_api::CreateNewModelEvent;
-use genesis_core::config::sys::SystemMeta;
+use axicor_core::config::sys::SystemMeta;
 
 /// Система-оркестратор: только создает фундамент модели
 pub fn create_model_system(

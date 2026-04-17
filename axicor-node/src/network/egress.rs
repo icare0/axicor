@@ -1,0 +1,35 @@
+use crossbeam::queue::ArrayQueue;
+use std::net::SocketAddr;
+
+#[derive(Debug)]
+pub struct EgressMessage {
+    pub buffer: Vec<u8>, // Строго capacity = len = MAX_UDP_PAYLOAD
+    pub size: usize,
+    pub target: SocketAddr,
+}
+
+pub struct EgressPool {
+    pub free_queue: ArrayQueue<EgressMessage>,
+    pub ready_queue: ArrayQueue<EgressMessage>,
+}
+
+impl EgressPool {
+    pub fn new(capacity: usize) -> Self {
+        let free_queue = ArrayQueue::new(capacity);
+        let ready_queue = ArrayQueue::new(capacity);
+
+        for _ in 0..capacity {
+            let mut buffer = Vec::with_capacity(axicor_core::constants::MAX_UDP_PAYLOAD);
+            // [DOD FIX] Фиксируем длину. Мы больше НИКОГДА не будем делать push() или resize()
+            unsafe { buffer.set_len(axicor_core::constants::MAX_UDP_PAYLOAD); }
+
+            free_queue.push(EgressMessage {
+                buffer,
+                size: 0,
+                target: "0.0.0.0:0".parse().unwrap(),
+            }).unwrap();
+        }
+
+        Self { free_queue, ready_queue }
+    }
+}

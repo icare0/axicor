@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::{render_asset::RenderAssetUsages, render_resource::PrimitiveTopology};
-use genesis_core::layout::{PathsFileHeader, PATHS_MAGIC, calculate_paths_matrix_offset, MAX_SEGMENTS_PER_AXON};
-use genesis_core::types::PackedPosition;
+use axicor_core::layout::{PathsFileHeader, PATHS_MAGIC, calculate_paths_matrix_offset, MAX_SEGMENTS_PER_AXON};
+use axicor_core::types::PackedPosition;
 
 pub struct AxonBuildResult {
     pub mesh: Mesh,

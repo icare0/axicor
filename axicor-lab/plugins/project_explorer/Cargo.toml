@@ -1,11 +1,11 @@
 [package]
 name = "project-explorer"
-version = "0.0.0"
+version.workspace = true
 edition = "2021"
 
 [dependencies]
 bevy = { version = "0.13", features = ["default"] }
-genesis-core = { version = "0.0.0", path = "../../../genesis-core" }
+axicor-core = { workspace = true, path = "../../../axicor-core" }
 bevy_egui = "0.27"
 toml = { workspace = true }
 layout-api = { path = "../../crates/layout-api" }

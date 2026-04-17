@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "genesis-core",
-    "genesis-baker",
-    "genesis-compute",
-    "genesis-node",
+    "axicor-core",
+    "axicor-baker",
+    "axicor-compute",
+    "axicor-node",
     "axicor-lab",
     "axicor-lab/crates/layout-api",
     "axicor-lab/plugins/project_explorer",
@@ -19,15 +19,21 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/H4V1K-dev/Axicor"
+description = "Axicor: High-Performance Spiking Neural Network Engine"
+homepage = "https://axicor.dev"
+documentation = "https://docs.rs/axicor-core"
+readme = "README.md"
+keywords = ["neural-network", "spiking", "gpu", "embodied-ai"]
+categories = ["science", "simulation"]
 
 [workspace.dependencies]
-# genesis-core is a local dep for the others
-genesis-core = { path = "genesis-core" }
+# axicor-core is a local dep for the others
+axicor-core = { version = "0.1.0", path = "axicor-core" }
 wyhash = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
