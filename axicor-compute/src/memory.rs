@@ -167,7 +167,7 @@ impl VramState {
         }
     }
 
-    /// Только аксоны хранятся отдельно: загружает `axon_heads` напрямую.
+    /// Only axons are stored separately: loads `axon_heads` directly.
     pub fn upload_axon_heads(&self, axon_heads_blob: &[u8]) {
         let expected = (self.total_axons as usize) * std::mem::size_of::<axicor_core::layout::BurstHeads8>();
         let actual = axon_heads_blob.len();

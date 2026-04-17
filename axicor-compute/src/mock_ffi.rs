@@ -241,7 +241,7 @@ pub unsafe extern "C" fn cu_upload_constant_memory(lut: *const VariantParameters
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Day Phase Kernel Launches (6 kernels — Шаг 10)
+// Day Phase Kernel Launches (6 kernels — Step 10)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[no_mangle]

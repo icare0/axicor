@@ -1,17 +1,17 @@
 use axicor_core::layout::{VariantParameters, VramState};
 use std::ffi::c_void;
 
-/// Опак-тип для CUDA Stream. В Rust мы не знаем его структуру, просто таскаем указатель.
+/// Opaque type for CUDA Stream. In Rust we don't know its structure, we just pass the pointer.
 pub type CudaStream = *mut c_void;
 
 // =============================================================================
-// § ShardVramPtrs — Абсолютный источник правды для VRAM-раскладки шарда.
+// § ShardVramPtrs — The absolute source of truth for the shard's VRAM layout.
 //
-// ЗАКОН: Порядок полей ЗАПРЕЩЕНО менять. Он определяет побайтовую раскладку
-// бинарного блоба .state, который baker пишет на диск, а compute заливает через
-// один cudaMemcpyAsync. Нарушение → Silent Data Corruption.
+// LAW: The order of fields is FORBIDDEN to change. It defines the byte-for-byte layout
+// of the binary .state blob that baker writes to disk and compute uploads via
+// a single cudaMemcpyAsync. Violation → Silent Data Corruption.
 //
-// Размеры массивов (N = padded_n, кратно 32):
+// Array sizes (N = padded_n, multiple of 32):
 //   soma_voltage       [N]     i32   | 4N bytes
 //   soma_flags         [N]     u8    | 1N bytes
 //   threshold_offset   [N]     i32   | 4N bytes
@@ -25,19 +25,19 @@ pub type CudaStream = *mut c_void;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShardVramPtrs {
-    // --- Soma State (Длина = padded_n) ---
-    pub soma_voltage:      *mut i32,   // GLIF потенциал
+    // --- Soma State (Length = padded_n) ---
+    pub soma_voltage:      *mut i32,   // GLIF potential
     pub soma_flags:        *mut u8,    // [7:4] Type | [0] is_spiking
-    pub threshold_offset:  *mut i32,   // Гомеостаз (накапливаемый штраф)
-    pub timers:            *mut u8,    // Рефрактерный счётчик
-    pub soma_to_axon:      *mut u32,   // Индекс первого аксона (в axon_heads)
+    pub threshold_offset:  *mut i32,   // Homeostasis (accumulated penalty)
+    pub timers:            *mut u8,    // Refractory counter
+    pub soma_to_axon:      *mut u32,   // Index of the first axon (in axon_heads)
 
-    // --- Columnar Dendrites (Длина = padded_n * MAX_DENDRITES) ---
+    // --- Columnar Dendrites (Length = padded_n * MAX_DENDRITES) ---
     pub dendrite_targets:  *mut u32,   // Packed: DenseID + SegmentOffset
-    pub dendrite_weights:  *mut i32,   // Синаптический вес до 2.1 млрд
-    pub dendrite_timers:   *mut u8,    // Синаптическая рефрактерность
+    pub dendrite_weights:  *mut i32,   // Synaptic weight up to 2.1 billion
+    pub dendrite_timers:   *mut u8,    // Synaptic refractoriness
 
-    // --- Axon Heads (Длина = total_axons: Local + Ghost + Virtual) ---
+    // --- Axon Heads (Length = total_axons: Local + Ghost + Virtual) ---
     pub axon_heads:        *mut axicor_core::layout::BurstHeads8,
 }
 
@@ -49,11 +49,11 @@ unsafe impl Sync for ShardVramPtrs {}
 #[cfg_attr(all(not(feature = "mock-gpu"), feature = "amd"), link(name = "genesis_amd", kind = "static"))]
 extern "C" {
     // =====================================================================
-    // § Новый Zero-Cost контракт (cu_* функции)
+    // § New Zero-Cost contract (cu_* functions)
     // =====================================================================
 
-    /// Аллоцирует VRAM для одного шарда и записывает указатели в out_vram.
-    /// Возвращает 0 при успехе, ненулевой cudaError_t при ошибке.
+    /// Allocates VRAM for a single shard and writes pointers to out_vram.
+    /// Returns 0 on success, non-zero cudaError_t on error.
     pub fn cu_allocate_shard(
         padded_n:    u32,
         total_axons: u32,
@@ -66,27 +66,27 @@ extern "C" {
         stream: CudaStream,
     );
 
-    /// Zero-Cost DMA Upload: один cudaMemcpyAsync для всего .state блоба.
-    /// state_blob — плоский массив байт в порядке полей ShardVramPtrs.
-    /// Возвращает 0 при успехе.
+    /// Zero-Cost DMA Upload: one cudaMemcpyAsync for the entire .state blob.
+    /// state_blob — flat byte array in the order of ShardVramPtrs fields.
+    /// Returns 0 on success.
     pub fn cu_upload_state_blob(
         vram:        *const ShardVramPtrs,
         state_blob:  *const c_void,
         state_size:  usize,
     ) -> i32;
 
-    /// Загружает .axons блоб (плоский [total_axons]u32) в axon_heads.
-    /// Возвращает 0 при успехе.
+    /// Loads the .axons blob (flat [total_axons]u32) into axon_heads.
+    /// Returns 0 on success.
     pub fn cu_upload_axons_blob(
         vram:        *const ShardVramPtrs,
         axons_blob:  *const c_void,
         axons_size:  usize,
     ) -> i32;
 
-    /// Освобождает все VRAM-буферы, ассоциированные с шардом.
+    /// Frees all VRAM buffers associated with the shard.
     pub fn cu_free_shard(vram: *mut ShardVramPtrs);
 
-    /// Day Phase Orchestrator: запускает 6 ядер асинхронно.
+    /// Day Phase Orchestrator: launches 6 kernels asynchronously.
     pub fn cu_step_day_phase(
         vram: *const ShardVramPtrs,
         padded_n: u32,
@@ -105,11 +105,11 @@ extern "C" {
         stream: CudaStream,
     ) -> i32;
 
-    /// Глобальная константная память GPU (448 байт).
+    /// Global constant GPU memory (448 bytes).
     pub fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32;
 
     // =====================================================================
-    // § Управление памятью и потоками (legacy helpers, используются memory.rs)
+    // § Memory and stream management (legacy helpers, used by memory.rs)
     // =====================================================================
     pub fn gpu_malloc(size: usize) -> *mut c_void;
     pub fn gpu_free(dev_ptr: *mut c_void);
@@ -153,7 +153,7 @@ extern "C" {
     /// Barrier: blocks CPU until all previous commands in the default stream are done.
     pub fn gpu_synchronize();
     
-    // Загрузка Blueprint-параметров в Constant Memory GPU
+    // Loading Blueprint parameters into GPU Constant Memory
     pub fn gpu_load_constants(host_ptr: *const c_void);
     pub fn update_constant_memory_hot_reload(new_variants: *const VariantParameters, stream: CudaStream);
 
@@ -187,10 +187,10 @@ extern "C" {
     );
 
     // =====================================================================
-    // 2. Day Phase Pipeline (6 ядер строго по спецификации Шага 10)
+    // 2. Day Phase Pipeline (6 kernels strictly according to Step 10 specification)
     // =====================================================================
 
-    /// Ядро 1: Инъекция внешних сигналов.
+    /// Kernel 1: Injection of external signals.
     /// [VramState, bitmask, current_tick, total_virtual_axons]
     pub fn launch_inject_inputs(
         vram: VramState,
@@ -199,7 +199,7 @@ extern "C" {
         total_virtual_axons: u32,
     );
 
-    /// Ядро 2: Инъекция сетевых спайков.
+    /// Kernel 2: Injection of network spikes.
     /// [VramState, tick_schedule, tick_spikes_count]
     pub fn launch_apply_spike_batch(
         vram: VramState,
@@ -207,25 +207,25 @@ extern "C" {
         tick_spikes_count: u32,
     );
 
-    /// Ядро 3: Безусловный сдвиг голов всех аксонов.
+    /// Kernel 3: Unconditional shift of all axon heads.
     pub fn launch_propagate_axons(
         vram: VramState,
         v_seg: u32,
     );
 
-    /// Ядро 4: GLIF Физика, суммация дендритов.
+    /// Kernel 4: GLIF Physics, dendrite summation.
     pub fn launch_update_neurons(
         vram: VramState,
         constants_ptr: *const c_void,
         current_tick: u32,
     );
 
-    /// Ядро 5: Пластичность GSOP.
+    /// Kernel 5: GSOP Plasticity.
     pub fn launch_apply_gsop(
         vram: VramState,
     );
 
-    /// Ядро 6: Вывод активности сом (RecordReadout).
+    /// Kernel 6: Soma activity readout (RecordReadout).
     pub fn launch_record_readout(
         vram: VramState,
         mapped_soma_ids: *const u32,
@@ -234,10 +234,10 @@ extern "C" {
         total_pixels: u32,
     );
 
-    // Zero-Cost обнуление атомика перед батчем
+    // Zero-Cost atomic reset before batch
     pub fn gpu_reset_telemetry_count(count_d: *mut u32, stream: CudaStream);
 
-    // Аппаратная сборка спайков
+    // Hardware spike aggregation
     pub fn launch_extract_telemetry(
         flags_d: *const u8,
         out_ids_d: *mut u32,

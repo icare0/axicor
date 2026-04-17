@@ -397,28 +397,28 @@ mod tests {
     #[test]
     fn test_burst_shift_spike() {
         let mut heads = vec![BurstHeads8::empty(AXON_SENTINEL); 1];
-        heads[0].h0 = 100; // старый спайк
+        heads[0].h0 = 100; // old spike
         
         cpu_apply_spike_batch(&mut heads, &[0], 5);
         
-        assert_eq!(heads[0].h1, 100); // сдвинулся
-        assert_eq!(heads[0].h0, 0u32.wrapping_sub(5)); // новый инициализирован
+        assert_eq!(heads[0].h1, 100); // shifted
+        assert_eq!(heads[0].h0, 0u32.wrapping_sub(5)); // new initialized
     }
 
     #[test]
     fn test_record_outputs_unconditional() {
         let flags = vec![0x00, 0x01, 0x00, 0x01];
         let mapped_ids = vec![1, 3];
-        let mut history = vec![255; 4]; // Грязный буфер
+        let mut history = vec![255; 4]; // Dirty buffer
         
         cpu_record_outputs(&flags, &mapped_ids, &mut history, 0, 2);
         assert_eq!(history[0], 1);
         assert_eq!(history[1], 1);
         
-        // Теперь нейрон 1 выключен
+        // Now neuron 1 is turned off
         let flags_new = vec![0x00, 0x00, 0x00, 0x01];
         cpu_record_outputs(&flags_new, &mapped_ids, &mut history, 1, 2);
-        assert_eq!(history[2], 0); // Должно быть 0, а не 255
+        assert_eq!(history[2], 0); // Should be 0, not 255
         assert_eq!(history[3], 1);
     }
 
@@ -431,7 +431,7 @@ mod tests {
         unsafe {
             cpu_allocate_shard(padded_n, axons, &mut ptrs);
             
-            // Настройка VARIANT_LUT для типа 0
+            // Setup VARIANT_LUT for type 0
             let mut p = VariantParameters::default();
             p.threshold = 100;
             p.rest_potential = 0;
@@ -441,21 +441,21 @@ mod tests {
             
             VARIANT_LUT.variants[0] = p;
             
-            // Нейрон 0: Voltage = 150 (должен спайкнуть)
+            // Neuron 0: Voltage = 150 (should spike)
             *ptrs.soma_voltage.add(0) = 150;
             *ptrs.soma_flags.add(0) = 0 << 4; // Type 0
             *ptrs.soma_to_axon.add(0) = 0;    // Axon 0
             
-            // Тик 1
+            // Tick 1
             cpu_update_neurons(&ptrs, padded_n, 1, 1);
             
-            // Проверка спайка
+            // Spike check
             assert_eq!((*ptrs.soma_flags.add(0)) & 0x01, 1, "Neuron 0 must spike");
             assert_eq!((*ptrs.soma_voltage.add(0)), 0, "Voltage must reset to rest_potential");
             assert_eq!((*ptrs.timers.add(0)), 5, "Refractory timer must be set");
             assert_eq!((*ptrs.threshold_offset.add(0)), 50, "Homeostasis penalty applied");
             
-            // Проверка выстрела аксона
+            // Axon fire check
             let h = *ptrs.axon_heads.add(0);
             assert_eq!(h.h0, 0u32.wrapping_sub(1), "Axon head h0 must be initialized with temporal sync");
             
@@ -480,19 +480,19 @@ mod tests {
             p.signal_propagation_length = 5;
             VARIANT_LUT.variants[0] = p;
             
-            // Нейрон 0 спайкнул
+            // Neuron 0 spiked
             *ptrs.soma_flags.add(0) = (0 << 4) | 0x01;
             
-            // Синапс 0 в слоте 0: вес 1000 (Mass Domain)
+            // Synapse 0 in slot 0: weight 1000 (Mass Domain)
             let old_w_full = 1000 << 16;
             *ptrs.dendrite_weights.add(0) = old_w_full;
-            // Цель: Axon 1, сегмент 0
+            // Target: Axon 1, segment 0
             *ptrs.dendrite_targets.add(0) = (0 << 24) | 2; // saturating_sub(1) -> axon 1
             
-            // Axon 1 имеет спайк на h0 = 0
+            // Axon 1 has spike on h0 = 0
             (*ptrs.axon_heads.add(1)).h0 = 0;
             
-            // Apply GSOP с дофамином +200
+            // Apply GSOP with dopamine +200
             cpu_apply_gsop(&ptrs, padded_n, 200);
             
             let new_w_full = *ptrs.dendrite_weights.add(0);
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn test_extract_telemetry() {
         let mut flags = vec![0u8; 10000];
-        // Ставим рандомный мусор в другие биты
+        // Put random garbage in other bits
         for i in 0..10000 { flags[i] = ((i % 15) as u8) << 4; }
         
         flags[42] |= 0x01;

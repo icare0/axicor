@@ -5,17 +5,17 @@ use std::ffi::c_void;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 
 // =============================================================================
-// § Size-Prefixed Allocator (DOD-way для обхода потери Layout)
+// § Size-Prefixed Allocator (DOD workaround for Layout loss)
 // =============================================================================
 unsafe fn alloc_aligned_with_prefix(size: usize, align: usize) -> *mut u8 {
     let layout = Layout::from_size_align_unchecked(size + align, align);
     let ptr = alloc_zeroed(layout);
     if ptr.is_null() { return std::ptr::null_mut(); }
     
-    // Записываем размер в самое начало (метаданные)
+    // Write size at the very beginning (metadata)
     *(ptr as *mut usize) = size;
     
-    // Возвращаем смещенный указатель, идеально выровненный на L1/L2 кэш-линию
+    // Return shifted pointer, perfectly aligned to L1/L2 cache line
     ptr.add(align)
 }
 
@@ -28,7 +28,7 @@ unsafe fn free_aligned_with_prefix(ptr: *mut u8, align: usize) {
 }
 
 // =============================================================================
-// §1.1 Эмуляция Constant Memory (LUT)
+// §1.1 Constant Memory Emulation (LUT)
 // =============================================================================
 
 #[repr(C, align(64))]
@@ -44,7 +44,7 @@ pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
 }
 
 // =============================================================================
-// §1.2 VRAM Allocation через std::alloc
+// §1.2 VRAM Allocation via std::alloc
 // =============================================================================
 
 pub unsafe fn cpu_allocate_shard(
@@ -55,7 +55,7 @@ pub unsafe fn cpu_allocate_shard(
     let n = padded_n as usize;
     let total_state_size = n * 1166; // The 1166-Byte Invariant
 
-    // Базовый указатель .state строго выровнен на 64 байта
+    // Base .state pointer is strictly 64-byte aligned
     let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
     if base_ptr.is_null() { return -1; }
 
@@ -72,7 +72,7 @@ pub unsafe fn cpu_allocate_shard(
 
     let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
     
-    // Аксоны выровнены строго на 32 байта для Burst Architecture
+    // Axons are strictly 32-byte aligned for Burst Architecture
     let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
     if axons_ptr.is_null() {
         free_aligned_with_prefix(base_ptr, 64);
@@ -88,7 +88,7 @@ pub unsafe fn cpu_allocate_shard(
 }
 
 // =============================================================================
-// §1.4 Zero-Copy DMA и Free
+// §1.4 Zero-Copy DMA and Free
 // =============================================================================
 
 pub unsafe fn cpu_upload_state_blob(
@@ -126,7 +126,7 @@ pub unsafe fn cpu_free_shard(vram: *mut ShardVramPtrs) {
 }
 
 // =============================================================================
-// §1.5 Логика Тестирования
+// §1.5 Testing Logic
 // =============================================================================
 
 #[cfg(test)]

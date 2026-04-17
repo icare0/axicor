@@ -8,6 +8,348 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.1368.134] - 2026-04-18 02:49:53
+
+**Docs & Remove TUI subsystem and replace with structured logging**
+
+### Added
+- Remove entire TUI module including tui/ directory and all widgets (button_bar, core_loop, event_log, global_state, io_panel, zone_table)
+- Delete TUI dependencies (ratatui, crossterm) from Cargo.toml and replace with tracing and tracing-subscriber
+- Remove telemetry parameter from Bootloader::boot_node, Bootloader::boot_node_with_profile, and Bootloader::setup_networking
+- Remove telemetry field from NodeRuntime::boot and NodeServices struct
+- Replace TUI telemetry logging calls in io_server.rs with tracing macros (tracing::warn, tracing::info)
+- Remove telemetry parameter from ExternalIoServer::new and its field from struct
+- Add comprehensive library documentation to axicor-core/src/lib.rs with module index (layout, ipc, physics, signal)
+- Replace main TUI loop with simple ctrl_c shutdown handler and tracing subscriber initialization
+- Clean up main.rs by removing TUI imports and telemetry initialization
+
+## [0.1365.134] - 2026-04-18 00:23:36
+
+**[System] Standardize workspace package metadata and versioning**
+
+### Added
+- Bump workspace package version from 0.0.0 to 0.1.0 in root Cargo.toml
+- Add comprehensive crate metadata: description, homepage, documentation, readme, keywords, categories
+- Update axicor-core dependency in workspace to use version = "0.1.0" with path
+- Propagate workspace metadata (repository, homepage, documentation) to axicor-compute and axicor-core
+- Align axicor-lab and all plugin crates to use workspace version, authors, and license
+- Unify axicor-core dependency declarations across plugins to use workspace = true
+
+## [0.1359.134] - 2026-04-17 23:45:46
+
+**Implement CI/CD pipeline and Windows bootstrap script**
+
+### Added
+- Add .github/workflows/ci.yml with dual-platform build matrix for ubuntu-latest and windows-latest
+- Implement matrix strategy with os and features variables, including genesis-compute/mock-gpu feature flag
+- Enforce CI triggers on push and pull_request to main branch with cargo build and cargo test steps
+- Add scripts/setup.ps1 Windows bootstrap script with dependency checks for Python and Rust (cargo)
+- Implement Python virtual environment creation (.venv) and activation via .venv\Scripts\Activate.ps1
+- Install Python dependencies: numpy==1.26.4, gymnasium==0.29.1, pygame==2.5.2, optuna==3.6.1, toml==0.10.2
+- Build genesis-node and genesis-baker in release mode with --features genesis-compute/mock-gpu
+
+## [0.1351.134] - 2026-04-17 23:33:38
+
+**Cross-platform Shared Memory and Thread Affinity Support**
+
+### Added
+- Implement platform.py with get_shm_path() and get_manifest_path() functions for Unix /dev/shm and Windows temp directory
+- Update GenesisControl.__init__() to use get_manifest_path() instead of hardcoded /dev/shm path
+- Update GenesisMemory.__init__() to use get_shm_path() and mmap.ACCESS_READ/ACCESS_WRITE
+- Fix test_checkpointing.py and test_distillation.py to import and use get_shm_path()
+- Add manifest_shm_path() function in genesis-core/src/ipc.rs with Unix/Windows conditional compilation
+- Enforce OS page alignment (4096 bytes) in shm_size() function for strict memory mapping contracts
+- Update main.rs to use genesis_core::ipc::manifest_shm_path() for manifest export
+- Wrap libc::sched_setaffinity calls in #[cfg(target_os = "linux")] blocks in main.rs and shard_thread.rs
+- Add Windows daemon executable detection in node/mod.rs with genesis-baker-daemon.exe
+- Fix TUI initialization in tui/mod.rs with conditional /dev/tty opening and stdout fallback for Windows
+- Guard /dev/null redirection with #[cfg(target_os = "linux")] to prevent compilation errors
+- Fix test_distillation.py to use weight shift (100 << 16, 10 << 16) instead of raw values for strong/weak connections
+
+## [0.1347.132] - 2026-04-17 22:54:45
+
+**[System] Remove genesis-retina workspace member and libc dependencies**
+
+### Added
+- Remove genesis-retina from workspace members in Cargo.toml
+- Remove libc dependency from genesis-baker and genesis-compute Cargo.toml files
+- Replace cfg!(feature = "mock-gpu") check with CARGO_FEATURE_MOCK_GPU environment variable in build.rs
+- Add conditional link search for ROCm on Linux only
+- Remove forced -ccbin=gcc-13 and -allow-unsupported-compiler flags for NVCC
+- Add alloc_aligned_with_prefix and free_aligned_with_prefix functions in bindings.rs
+- Replace libc::posix_memalign and libc::free with new allocator in cpu_allocate_shard and cpu_free_shard
+- Integrate size-prefixed allocator into mock_ffi.rs for gpu_malloc, gpu_free, and cu_free_io_buffers
+- Maintain 64-byte alignment for .state and 32-byte alignment for axon_heads
+
+## [0.1340.132] - 2026-04-11 19:28:48
+
+**Implement strict BSP invariants and zero-copy slicing in CPU shard engin**
+
+### Added
+- Implement strict BSP invariants with pre-loop validation and hard assertions for input bitmask, incoming spikes, and spike counts sizes
+- Replace bounds-checked slicing with raw pointer math and get_unchecked for zero-cost slicing in cpu_inject_inputs and cpu_apply_spike_batch
+- Add hardware integrity check to guarantee no spike count exceeds tick capacity before loop entry
+- Implement Drop for IoBuffers to call cu_free_io_buffers for Gpu backend, ensuring no dangling pointers
+- Add cu_free_io_buffers to AMD HIP and CUDA bindings for d_input_bitmask, d_incoming_spikes, d_output_history deallocation
+- Extend mock_ffi.rs with cu_free_io_buffers for testing
+- Implement test_shard_allocation, test_io_buffers_allocation_mock_gpu in shard.rs
+- Add test_shard_step_crash_on_exceeded_spikes to validate spike count capacity assertion
+- Add test_shard_step_crash_on_mismatched_mask to validate input bitmask size violation
+- Remove unused crate::cpu import and replace cpu::physics calls with crate::cpu::physics
+- Update network router and BSP modules with minor refactoring and fixes
+
+## [0.1332.132] - 2026-04-08 18:49:05
+
+**Matrix Editor v3 — Hierarchical I/O Model with Matrices and Pins**
+
+### Added
+- Implement IoMatrix struct with direction, entry_z, and Vec<IoPin> container in node_editor/src/domain.rs
+- Implement IoPin struct with dual coordinates: normalized UV for cortex projection and pixel width/height for VRAM payload
+- Add EntityId struct for matrix_id_v1 and pin_id_v1 using {parent}_{uuid} hierarchical pattern
+- Remove old IoInputMap and IoOutputMap structures, replace with ShardIoData containing matrix Vec
+- Modify loader.rs to parse nested [[matrix]] and [[matrix.pin]] sections from io.toml
+- Update save.rs persist_io_system to serialize ShardIoData with new hierarchical structure
+- Rewrite validate.rs to enforce pin name uniqueness within shard and non-empty matrices
+- Change utils.rs sync_io_ports_from_disk to iterate through matrix.pin[] for node_inputs/node_outputs
+- Refactor input_map.rs with dual loop: matrix[] → pin[] → UV projection → flat BakedGxi
+- Refactor output_map.rs with dual loop: matrix[] → pin[] → UV projection → flat BakedGxo
+- Update topology.rs to handle new matrix-based I/O structure during baking phase
+- Modify create_entity_system.rs to generate io.toml in new format when spawning zones
+- Update wm_file_ops.rs add_io_entry/remove_io_entry to work with [[matrix]] instead of [[input]]/[[output]]
+- Refactor io_inspector/src/systems/render.rs to iterate through matrix.pin[] for I/O Router capsule display
+- Adjust genesis-client/builder.py for new I/O structure in build process
+
+## [0.1316.132] - 2026-04-03 11:56:51
+
+**Blueprint Editor: Neuron Settings Infrastructure & UI Skeleton**
+
+### Added
+- Add ShardBlueprint struct to node_editor::domain with shard_id and neuron_types Vec<NeuronType>
+- Extend ProjectSession with shard_blueprints HashMap for RAM caching of blueprints.toml
+- Define BlueprintEditorState component with active_zone and selected_type_idx
+- Define BlueprintAction enum in blueprint_editor::domain for UI signals
+- Integrate blueprints.toml parsing in node_editor/systems/loader.rs using overlay_read_to_string and serde
+- Add init_blueprint_windows_system and sync_active_zone_system in blueprint_editor/systems/interaction.rs
+- Implement render_blueprint_editor_system with Area, unified_header, and ScrollArea
+- Extend mutations.rs to handle TopologyMutation::UpdateBlueprint and set session.is_dirty
+- Create type selector ComboBox in ui/type_selector.rs with color-coded inhibitory/excitatory indicator
+- Implement labeled_row utility in ui/utils.rs for consistent label-control layout
+- Build UI sections for Identity, Membrane, Timing, Homeostasis, Plasticity, Growth, Morphology, Sprouting, Inertia, and Dendrite Filter
+- Add specialized widgets: inertia_curve mini-chart, sprouting weights sum indicator, dendrite_whitelist chip editor
+- Load blueprints into ProjectSession.shard_blueprints during project load
+- Render system reads &mut NeuronType directly from session for UI controls
+- UI sections return bool changed flag without EventWriter for separation of concerns
+
+## [0.1312.132] - 2026-04-08 18:47:25
+
+**Merge pull request #8 from valmasone/fix-mock-gpu-bootstrap-runtime**
+
+### Added
+- Fix mock-gpu bootstrap, baking fallback, and CPU runtime startup
+
+## [0.1311.131] - 2026-04-07 23:28:50
+
+**Fix mock-gpu bootstrap, baking fallback, and CPU runtime startup**
+
+## [0.1311.130] - 2026-04-03 10:18:40
+
+**Refactor CAD inspection into anatomy slicer, remove shard_cad plugin**
+
+### Added
+- Remove shard_cad plugin from workspace and plugin registry in Cargo.toml
+- Delete DOMAIN_SHARD_CAD constant and references from layout-api
+- Move cad_glass_material.rs from node_editor to anatomy_slicer
+- Add dependencies to anatomy_slicer: node-editor, connectome-viewer, genesis-core, toml_edit
+- Add domain.rs with AnatomySlicerState, ShardCadEntity, and CadCameraState structs
+- Implement systems/mod.rs and include interaction, render, cad_inspector modules
+- Add render.rs with render_anatomy_slicer_system for UI rendering
+- Implement interaction.rs with init_slicer_windows_system and sync_active_zone_system
+- Add Default implementation for IoWirePayload in layout-api
+- Replace placeholder render_anatomy_slicer_system with full system chain
+- Register CadGlassMaterial MaterialPlugin in AnatomySlicerPlugin::build
+- Chain 13 systems including camera, geometry, raycast, vram, cleanup, and interaction
+- Move and adapt camera.rs with spawn_cad_camera_system, sync_camera_aspect_system, cad_camera_control_system
+- Move and adapt geometry.rs with refresh_cad_geometry_on_change_system, spawn_cad_geometry_system, sync_hover_plane_system
+- Move and adapt raycast.rs with dnd_raycast_system
+- Add new cleanup.rs with cleanup_cad_scene_system for zone transitions
+- Move and adapt vram.rs with allocate_vram_system and sync_vram_system
+- Delete node_editor/src/ui/breadcrumb/crumb_shard_system.rs
+- Remove cad_inspector/cleanup.rs from node_editor
+- Delete node_editor/src/ui/panels.rs
+- Remove shard_cad plugin entirely: Cargo.toml, domain.rs, lib.rs
+- Prune node_editor UI modules: breadcrumb/mod.rs, panels.rs, adjust canvas.rs
+
+## [0.1306.130] - 2026-04-03 05:34:14
+
+**[Documentation] Update plugin architecture and node editor documentation**
+
+### Added
+- Rewrite node_editor.md section 8 to document micro-level decomposition into independent plugins: shard_cad, io_inspector, blueprint_editor, anatomy_slicer
+- Document Cross-Plugin DND Protocol using egui memory as global DTO blackboard and OpenContextMenuEvent for completion
+- Update warning about pipe symbol prohibition to mention DTO-routing of intents and input filtering in TextEdit
+- Add two new architectural laws in plugin_structure.md: Cross-Plugin Blackboard and Plugin Registry (SSoT) in layout_api::AVAILABLE_PLUGINS
+- Add two new architectural invariants: #7 Z-Index Bleed and Focus Theft, #8 Absolute Hit-Test for WM using ui.ctx().layer_painter
+- Add section 6 on Multi-Workspace Layout (Window Manager) with WorkspaceState, HashMap<String, egui_tiles::Tree> and SavedLayout persistence via config/default_layout.ron
+
+## [0.1300.130] - 2026-04-03 05:15:59
+
+**Integrate core neuromorphic CAD plugins and refactor cross‑plugin DND ar**
+
+### Added
+- Add shard_cad, io_inspector, blueprint_editor, anatomy_slicer, and matrix_editor as workspace members in root Cargo.toml
+- Register the new plugins in axicor-lab/Cargo.toml with their respective package and path mappings
+- Extend AllPlugins group in axicor-lab/plugins/mod.rs to include the five new plugin instances
+- Define new domain constants: DOMAIN_SHARD_CAD, DOMAIN_IO_INSPECTOR, DOMAIN_BLUEPRINT_EDITOR, DOMAIN_ANATOMY_SLICER, DOMAIN_MATRIX_EDITOR
+- Implement AVAILABLE_PLUGINS array as a single DTO registry and source of truth for all plugin domains and titles
+- Add IoWirePayload struct with zone, port, is_input, and start_pos fields for cross‑plugin wire drag‑and‑drop
+- Update domain_title() function to return appropriate titles for the new plugin domains
+- Add ShardPopout enum with Io, Blueprints, and Anatomy variants
+- Extend NodeGraphUiState with active_popout: Option<ShardPopout> field
+- Rewrite cleanup_cad_scene_system to track EditorLevel transitions and only clean 3D scene when exiting zone level
+- Modify dnd_raycast_system to use global EguiContexts and read IoWirePayload from egui memory for cross‑plugin wire drops
+- Replace pending_3d_drop with payload from temp storage and use pointer release events to trigger raycast and context menu
+- Refactor draw_shard_panels in axicor-lab/plugins/node_editor/src/ui/panels.rs, removing custom panel drawing constants and logic
+- Replace manual panel rendering with centralized egui window and panel management
+- Refactor layout/behavior.rs, layout/overlay.rs, and layout/systems/window/evaluate_drag.rs for updated interaction patterns
+- Extend render_workspace system in layout/systems/render/render_workspace.rs to support new plugin domains and rendering states
+- Update save_layout.rs, execute_commands.rs, and garbage_collector.rs for compatibility with extended plugin set
+
+## [0.1290.130] - 2026-04-02 01:32:31
+
+**[UI] Refactor code editor top bar with DOD-safe DND zone**
+
+### Added
+- Implement ProjectNode, ProjectModel, and ProjectFsCache in layout-api with serialization
+- Add ProjectStatus, GitStatus, and ProjectNodeType enums for project explorer domain
+- Adjust SYS_UI_SAFE_ZONE constant from 41.5 to 42.0 in layout-api/src/lib.rs
+- Refactor render_code_editor_system to compute separate header_rect with SYS_UI_SAFE_ZONE offset for DND anchor
+- Move render_top_bar into dedicated header UI child in code_editor/src/systems/render.rs
+- Add CadGlassMaterial plugin and MaterialPlugin to NodeEditorPlugin in node_editor/src/lib.rs
+- Replace StandardMaterial with CadGlassMaterial in spawn_cad_geometry_system for Fresnel-effect glass shader
+- Increase CAD camera background color from rgb(0.06, 0.06, 0.07) to rgb(0.10, 0.11, 0.12) in camera.rs
+- Implement refresh_cad_geometry_on_change_system to despawn geometry on TopologyChangedEvent and TopologyMutation
+- Adjust layer color generation to higher base luma (0.4-0.7) and remove 0.95 height scaling in geometry.rs
+- Update CAD geometry material to use rgba color with 0.15 alpha for transparency
+- Modify loader.rs, project_explorer domain.rs and scanner.rs, layout systems create_entity_system.rs, delete_entity_system.rs, wm_file_ops.rs
+
+## [0.1277.130] - 2026-04-01 23:30:58
+
+**[NodeEditor] Update config file handling and refactor shard panels**
+
+### Added
+- Add blueprints.toml to node name extraction condition in sync_smart_focus_system within axicor-lab/plugins/node_editor/src/systems/interaction.rs
+- Modify spawn_load_task_system to return early for blueprints.toml, io.toml, and anatomy.toml files, preventing graph rebuild for detailed configs
+- Adjust level assignment logic, now only assigning EditorLevel::Zone for shard.toml files
+- Replace panel position interpolation with dynamic width calculation (COLLAPSED_WIDTH + (PANEL_WIDTH - COLLAPSED_WIDTH) * slide) in draw_shard_panels
+- Anchor left panel to window_rect.min.x and right panel to window_rect.max.x - current_width
+- Implement child UI contexts with explicit content_rect and set_clip_rect for proper clipping during slide animation
+- Adjust right panel content with x_offset to slide text out of view, using inner_rect and inner_ui
+- Reorganize layout to use top_down_justified for IN/OUT labels and port listings
+- Delete copilot.local.toml file containing api_endpoint and api_key
+
+## [0.1273.130] - 2026-04-01 11:58:28
+
+**[UI/Editor] Implement shard-level file tabs and line-by-line diff visual**
+
+### Added
+- Add saved_content field to CodeEditorState for tracking modifications
+- Implement tabbed interface for shard-level files (shard.toml, io.toml, anatomy.toml, blueprints.toml) in render_top_bar
+- Add line-by-line diff visualization with gutter line numbers in render_editor
+- Enhance TOML syntax highlighting with advanced type heuristics (strings, booleans, numbers, arrays)
+- Integrate GitStatus enum (Unmodified, Added, Deleted) into ProjectExplorer domain
+- Update file open/delete handling to sync saved_content in interaction systems
+- Disable text wrapping in toml_layout_job to maintain line number synchronization
+- Implement precise pixel-aligned line number rendering using Galley row coordinates
+- Replace vertical-only scroll area with bidirectional ScrollArea for editor content
+- Add visual modification indicator (*) in tab labels and enable/disable Apply button state
+- Extend render_top_bar to accept OpenFileEvent writer for tab switching
+- Update save_and_notify to update saved_content upon successful save
+- Add sandbox path resolution check for sibling files in tab rendering
+- Modify evict_deleted_files_system to update both content and saved_content
+
+## [0.1258.130] - 2026-04-01 11:07:56
+
+**[CAD Inspector] Implement 3D drag-and-drop with hover plane and DOD rayc**
+
+### Added
+- Add bool flag to dragging_pin and pending_3d_drop tuples to track input/output direction
+- Introduce CadHoverPlane component and spawn invisible hover plane in spawn_cad_geometry_system
+- Implement sync_hover_plane_system to update plane visibility, position, and color based on active_3d_hover and drag source
+- Add static anchor rendering for EnvRx (green) and Inter-zone (orange) layers from io.toml and brain.toml
+- Move render_node_editor_system before dnd_raycast_system to ensure UI writes pending_3d_drop and dragging_over_3d
+- Execute sync_hover_plane_system after UI render to read active_3d_hover from previous frame's raycast
+- Keep dnd_raycast_system last to read pending_3d_drop and send OpenContextMenuEvent
+- Update ui/panels.rs with significant refactoring (241 ++-- changes)
+- Adjust ui/connections.rs and ui/node.rs for connection drawing and node UI
+- Extend context menu rendering in layout/systems/render/context_menu.rs to support new CAD drop events
+- Extend docs/plugins/node_editor.md with 265 ++-- lines covering new CAD inspector features
+- Update docs/plugins/plugin_structure.md with 98 ++-- lines detailing system ordering and new components
+
+### Fixed
+- In dnd_raycast_system, project snap_world_pos to left edge (-w/2) for inputs and right edge (w/2) for outputs based on dragging_pin bool flag
+- In compile_project_system, call flush_session_to_disk via super::utils before transactional commit to sync node positions
+- Add validation import and improve error handling for sandbox backup operations
+
+## [0.1248.127] - 2026-04-01 06:33:15
+
+**[Node Editor] Extend domain and systems for 3D CAD inspection and shard**
+
+### Added
+- Add uuid dependency to axicor-lab/Cargo.toml for entity identification
+- Extend NodeGraphUiState with fields for CAD viewport (cad_viewport_size, cad_viewport_rect), 3D drag-and-drop state (pending_3d_drop, dragging_over_3d, active_3d_hover), and shard render target handle (shard_rtt)
+- Add new domain structs: ShardCadEntity marker component, CadCameraState component with target, radius, alpha, beta, ShardLayer, and ShardAnatomy (w, d, h, layers)
+- Extend ProjectSession with shard_anatomies HashMap and voxel_size_um field
+- Extend DeleteTarget enum with Layer variant for zone and name
+- Extend CreateTarget enum with Connection variant including voxel_z Option<u32>, IoPin variant, and Layer variant with height_pct
+- Register new CAD inspector systems in NodeEditorPlugin: allocate_vram_system, sync_vram_system, spawn_cad_camera_system, sync_camera_aspect_system, cad_camera_control_system, spawn_cad_geometry_system, dnd_raycast_system, cleanup_cad_scene_system
+- Extend handle_node_editor_menu_triggers_system to parse and emit TopologyMutation::Create for DND matrix connections with voxel_z parameter from action_id format "node_editor.connect_matrix|src_zone|src_port|target_zone|target_port|voxel_z"
+- Enhance sync_io_ports_from_disk in io/utils.rs to handle zone-level paths (shard.toml, io.toml, blueprints.toml, anatomy.toml) and clean up session maps when ports are empty
+- Extend LoadedGraph struct with shard_anatomies and voxel_size_um fields and populate them in apply_loaded_graph_system
+- Implement shard anatomy and geometry loading in load_graph_from_disk: read voxel_size_um from simulation.toml, parse dimensions from shard.toml, and parse layers from anatomy.toml for each zone
+- Modify create_entity_system, delete_entity_system, and rename_zone_system in axicor-lab/src/layout/systems to incorporate new domain variants and logic
+- Update wm_file_ops system with extended file operation handling
+- Update genesis-core/src/physics.rs with modifications to physics structures and systems
+- Update genesis-node/src/network/test_intra_gpu.rs with revised intra-GPU network testing logic
+
+## [0.1244.127] - 2026-03-31 06:48:57
+
+**Implement Sandbox Overlay FS and enforce DOD file protection across UI p**
+
+### Added
+- Implement resolve_sandbox_path() to map cold paths to .Sandbox/.tmp.autosave/
+- Implement overlay_read_to_string() that reads from Sandbox with fallback to cold path
+- Expose functions in layout-api/src/lib.rs for cross-plugin consumption
+- Replace std::fs::read_to_string with layout_api::overlay_read_to_string in code_editor interaction.rs and render.rs
+- Replace std::fs::read_to_string with layout_api::overlay_read_to_string in node_editor loader.rs
+- Update flush_session_to_disk in node_editor io/utils.rs to write layout files via resolve_sandbox_path
+- Modify sync_io_ports_from_disk to parse io.toml via overlay_read_to_string using toml_edit, removing dependency on IoConfig
+- Remove local resolve_sandbox_path from wm_file_ops.rs, delegate to layout_api::resolve_sandbox_path
+- Update load_document to use layout_api::overlay_read_to_string
+- Update save_document to resolve path via layout_api::resolve_sandbox_path
+- Extend add_io_record with mandatory biological parameters for Genesis Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
+- In code_editor render.rs save_and_notify, write strictly to Sandbox path via resolve_sandbox_path, create parent directories
+- In create_entity_system.rs, use layout_api::resolve_sandbox_path for brain and shard directories
+- Update project name extraction in loader.rs to use path components for consistency
+
+## [0.1240.127] - 2026-03-31 05:56:46
+
+**Implement transactional sandbox commit and UI panel toggles**
+
+### Added
+- Replace per-session TOML flushing with transactional directory overlay from .Sandbox/.tmp.autosave
+- Implement copy_dir_recursive for applying sandbox changes to pure Genesis-Models files
+- Add backup rotation: rename .tmp.last_backup to .tmp.old_backup, then autosave to last_backup
+- Reset session dirty flags only after successful atomic rename of autosave directory
+- Extend NodeGraphUiState with show_inputs_panel, show_outputs_panel, and show_uv_panel booleans
+- Block canvas pan/zoom at Zone editor level by resetting pan to Vec2::ZERO and zoom to 1.0
+- Add new ui/panels.rs module for panel rendering logic
+- Simplify flush_session_to_disk to only save visual layout to .layout.tmp.toml files
+- Remove TOML AST editing functions update_simulation_toml and update_department_toml
+- Update save system log messages to reflect layout-only saving
+- Remove unused imports and simplify utils.rs, delegating TOML mutations to DOD window manager routers
+- Adjust path generation for layout files to replace .toml extension in temporary filenames
+- Update delete_entity_system and wm_file_ops with minor logic adjustments
+
 ## [0.1232.127] - 2026-03-31 06:48:57
 
 **Implement Sandbox Overlay FS and enforce DOD file protection across UI p**
@@ -326,17 +668,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Connectome Viewer Refactor: DOD Architecture & VRAM Facade Integration**
 
 ### Added
-- Replace heavy `ConnectomeData` resource with minimal `ConnectomeState` storing only `active_shard`, `center_offset`, `voxel_size_mm`
-- Rewrite `load_zone_geometry_system` in `geometry.rs` to spawn entities in batches using `spawn_batch` and `StandardMaterial`, removing manual buffer management
-- Integrate `ShardStateView` and `ShardPosView` facades for zero-copy access to simulation data in `soma_picking_system`
-- Remove custom `ConnectomeMaterial` and `connectome.wgsl` shader, switching to automatic Bevy instancing
-- Use `genesis_core::coords::unpack_position` for consistent coordinate extraction across viewer and simulation
-- Eliminate redundant pre-computed position caches, unpacking coordinates directly from VRAM dumps during entity spawning
-- Implement linear scan over raw memory slices in picking system for optimal CPU cache hits
-- Enable on-the-fly connectivity visualization for "micro-surgery" rendering with zero overhead
-- Add central architecture specification in `docs/plugins/plugin_structure.md`
-- Update `connectome_viewer.md`, `project_explorer.md`, and `node_editor.md` plugin specs
-- Revise core specification documents including `02_configuration.md`, `04_connectivity.md`, `06_distributed.md`, and `08_ide.md`
 - Replace heavy `ConnectomeData` resource with minimal `ConnectomeState` storing only `active_shard`, `center_offset`, `voxel_size_mm`
 - Rewrite `load_zone_geometry_system` in `geometry.rs` to spawn entities in batches using `spawn_batch` and `StandardMaterial`, removing manual buffer management
 - Integrate `ShardStateView` and `ShardPosView` facades for zero-copy access to simulation data in `soma_picking_system`
