@@ -63,8 +63,6 @@ pub struct NodeServices {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
-    // [DOD FIX]
-    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
 }
 
 pub struct NodeRuntime {
@@ -109,7 +107,6 @@ impl NodeRuntime {
         axon_head_ptrs: HashMap<u32, *mut axicor_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         manifest_metadata: HashMap<u32, ShardMetadata>,
-        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverAck>>,
         shared_prunes_queue: Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverPrune>>,
         sync_batch_ticks: u32,
@@ -163,7 +160,6 @@ impl NodeRuntime {
                 rt_handle: rt_handle.clone(),
                 atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
-                telemetry: telemetry.clone(),
                 routing_table: routing_table.clone(), // [DOD FIX]
             };
                 
@@ -178,7 +174,6 @@ impl NodeRuntime {
                 io_server,
                 routing_table,
                 bsp_barrier,
-                telemetry,
             },
             network: NetworkTopology {
                 intra_gpu_channels,
@@ -333,7 +328,7 @@ impl NodeRuntime {
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; axicor_core::constants::MAX_UDP_PAYLOAD];
 
-        self.services.telemetry.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
+        tracing::info!("Entering main loop (Batch size: {})", batch_size);
 
         let loop_start = std::time::Instant::now();
         let mut batch_start = loop_start;
@@ -430,7 +425,6 @@ impl NodeRuntime {
                             payload,
                         );
                         // [DOD FIX] Возрождаем счетчик UDP OUT!
-                        self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                     }
                 }
             }
@@ -459,11 +453,10 @@ impl NodeRuntime {
                 if out_count > 0 {
                     /* 
                     if batch_counter % 100 == 0 {
-                        self.services.telemetry.push_log(format!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash), crate::tui::state::LogLevel::Info);
+                        tracing::info!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
                     }
                     */
                     // В цикле Egress:
-                    self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
 
                 // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
@@ -485,10 +478,7 @@ impl NodeRuntime {
             if let Err(actual_epoch) = self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32) {
                 let delta = actual_epoch.saturating_sub((batch_counter & 0xFFFFFFFF) as u32);
                 if delta > 0 {
-                    self.services.telemetry.push_log(
-                        format!("⚠️ [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta), 
-                        crate::tui::state::LogLevel::Warning
-                    );
+                    tracing::warn!("⚠️ [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
                     
                     // Hardware Fast-Forward
                     batch_counter += delta as u64;
@@ -504,7 +494,7 @@ impl NodeRuntime {
             }
 
             // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
-            // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.
+            // Барьер пройден, GPU стоит. Идеальное вро шине PCIe.
             while let Some(prune) = self.network.routing_prunes.pop() {
                 // Ищем канал-владелец и удаляем роут
                 for (_, channel) in &mut self.network.inter_node_channels {
@@ -516,16 +506,12 @@ impl NodeRuntime {
             }
             self.patch_routing_tables();
 
-            let wall_ms = batch_start.elapsed().as_millis() as u64;
+            let _wall_ms = batch_start.elapsed().as_millis() as u64;
             batch_start = std::time::Instant::now();
 
             batch_counter += 1;
             // [DOD FIX] Восстанавливаем ход времени! Без этого GPU застрянет в первых N тиках.
             current_tick += batch_size as u64;
-            
-            self.services.telemetry.batch_number.store(batch_counter, Ordering::Relaxed);
-            self.services.telemetry.total_ticks.store(current_tick as u64, Ordering::Relaxed);
-            self.services.telemetry.wall_ms.store(wall_ms, Ordering::Relaxed);
 
             if batch_counter > 0 && batch_counter % 50 == 0 {
                 // Remove console printing to keep TUI clean, stats are visible in Core Loop widget

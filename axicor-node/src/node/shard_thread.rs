@@ -44,8 +44,6 @@ pub struct NodeContext {
     pub rt_handle: tokio::runtime::Handle,
     pub atomic_settings: Arc<ShardAtomicSettings>,
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
-    // [DOD FIX] Удален Mutex<DashboardState>, используем Lock-Free структуру
-    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>, 
     pub routing_table: Arc<crate::network::router::RoutingTable>, // [DOD FIX]
 }
 pub struct ThreadWorkspace {
@@ -335,7 +333,6 @@ fn execute_night_phase(
     prune_threshold: i16, 
     max_sprouts: u16,
     routing_table: &Arc<crate::network::router::RoutingTable>,
-    telemetry: &Arc<crate::tui::state::LockFreeTelemetry>,
 ) {
     let vram = match shard {
         ShardEngine::Gpu(gpu) => &gpu.vram,
@@ -460,15 +457,15 @@ fn execute_night_phase(
                 // [DOD FIX] Чтение GC-очисток из SHM и маршрутизация смерти
                 dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
 
-                telemetry.push_log(format!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash), crate::tui::state::LogLevel::Night);
+                tracing::info!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
             Err(e) => {
-                telemetry.push_log(format!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e), crate::tui::state::LogLevel::Error);
+                tracing::error!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
                 *baker_client = None;
             }
         }
     } else {
-        telemetry.push_log(format!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash), crate::tui::state::LogLevel::Warning);
+        tracing::warn!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
     }
 }
 
@@ -766,7 +763,7 @@ pub fn spawn_shard_thread(
                 match cmd {
                     ComputeCommand::Resurrect => {
                         warmup_ticks_remaining = 100;
-                        ctx.telemetry.push_log(format!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash), crate::tui::state::LogLevel::Info);
+                        tracing::info!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash);
                     }
                     ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
                         let is_warmup = warmup_ticks_remaining > 0;
@@ -784,7 +781,7 @@ pub fn spawn_shard_thread(
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
                             if warmup_ticks_remaining == 0 {
-                                ctx.telemetry.push_log(format!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash), crate::tui::state::LogLevel::Info);
+                                tracing::info!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash);
                             }
                         }
 
@@ -811,30 +808,10 @@ pub fn spawn_shard_thread(
                              execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
-                                current_prune_threshold, current_max_sprouts, &ctx.routing_table, &ctx.telemetry
+                                current_prune_threshold, current_max_sprouts, &ctx.routing_table
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
-                            ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);
-                        }
-
-                        // Update spikes in UI
-                        match desc.engine {
-                            ShardEngine::Gpu(ref gpu) => {
-                                unsafe {
-                                    axicor_compute::ffi::gpu_memcpy_device_to_host_async(
-                                        gpu.telemetry_count_pinned_h as *mut _,
-                                        gpu.telemetry_count_d as *const _,
-                                        4,
-                                        gpu.stream
-                                    );
-                                    axicor_compute::ffi::gpu_stream_synchronize(gpu.stream);
-                                    let actual_spikes = std::ptr::read_volatile(gpu.telemetry_count_pinned_h);
-                                    ctx.telemetry.update_zone_spikes(hash, actual_spikes);
-                                }
-                            }
-                            ShardEngine::Cpu(ref cpu) => {
-                                ctx.telemetry.update_zone_spikes(hash, cpu.telemetry_count);
-                            }
+                            tracing::info!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
                         }
 
                         // Отправка отчета оркестратору

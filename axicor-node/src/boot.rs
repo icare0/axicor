@@ -127,11 +127,11 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
 
 impl Bootloader {
     /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
-    pub async fn boot_node(archive: Arc<axicor_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>) -> Result<BootResult> {
-        Self::boot_node_with_profile(archive, project_name, zone_names, telemetry, crate::CpuProfile::Aggressive, true).await
+    pub async fn boot_node(archive: Arc<axicor_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String]) -> Result<BootResult> {
+        Self::boot_node_with_profile(archive, project_name, zone_names, crate::CpuProfile::Aggressive, true).await
     }
 
-    pub async fn boot_node_with_profile(archive: Arc<axicor_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], telemetry: Arc<crate::tui::state::LockFreeTelemetry>, cpu_profile: crate::CpuProfile, use_gpu: bool) -> Result<BootResult> {
+    pub async fn boot_node_with_profile(archive: Arc<axicor_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], cpu_profile: crate::CpuProfile, use_gpu: bool) -> Result<BootResult> {
         // 1. Data/Config Phase: Load brain and simulation configs
         let mut zone_manifests_with_names = Vec::new();
         let mut sim_config = None;
@@ -203,32 +203,30 @@ impl Bootloader {
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), shared_prunes_queue.clone(), telemetry.clone(), cluster_secret).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone(), shared_prunes_queue.clone(), cluster_secret).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
-
-        let node_runtime = NodeRuntime::boot(
-            shards,
-            io_server,
-            routing_table,
-            bsp_barrier,
-            telemetry_swapchain.clone(),
-            std::net::Ipv4Addr::new(127, 0, 0, 1),
-            first_manifest.network.fast_path_udp_local,
-            output_routes,
-            intra_gpu_channels,
-            inter_node_channels,
-            inter_node_router,
-            axon_head_ptrs,
-            egress_pool.clone(),
-            manifest_metadata,
-            telemetry,
-            shared_acks_queue,
-            shared_prunes_queue,
-            sync_batch_ticks,
-            cluster_secret,
-        );
+let node_runtime = NodeRuntime::boot(
+    shards,
+    io_server,
+    routing_table,
+    bsp_barrier,
+    telemetry_swapchain.clone(),
+    std::net::Ipv4Addr::new(127, 0, 0, 1),
+    first_manifest.network.fast_path_udp_local,
+    output_routes,
+    intra_gpu_channels,
+    inter_node_channels,
+    inter_node_router,
+    axon_head_ptrs,
+    egress_pool.clone(),
+    manifest_metadata,
+    shared_acks_queue,
+    shared_prunes_queue,
+    sync_batch_ticks,
+    cluster_secret,
+);
 
         Ok(BootResult {
             node_runtime,
@@ -508,7 +506,6 @@ impl Bootloader {
         routing_table: Arc<RoutingTable>,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverAck>>,
         shared_prunes_queue: Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverPrune>>,
-        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
         cluster_secret: u64, // [DOD FIX]
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::router::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
@@ -521,7 +518,6 @@ impl Bootloader {
             io_contexts,
             routing_table.clone(),
             Arc::new(io_socket),
-            telemetry.clone(),
             cluster_secret,
         )?);
 

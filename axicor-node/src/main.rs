@@ -10,7 +10,6 @@ pub mod config;
 pub mod ipc;
 pub mod input;
 pub mod output;
-pub mod tui;
 pub mod sentinel;
 
 use anyhow::{Context, Result};
@@ -59,6 +58,7 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     // 1. Initialize dedicated Tokio Runtime for I/O (2 threads max)
     let rt = Builder::new_multi_thread()
         .worker_threads(2)
@@ -109,17 +109,13 @@ fn main() -> Result<()> {
             }
         }
 
-        // 0. Initialize CLI Monitor (TUI or Log)
-        let telemetry = Arc::new(crate::tui::state::LockFreeTelemetry::default());
-        let log_mode = cli.log;
-
         println!("[Node] Starting Genesis Distributed Daemon...");
         
         let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
         let use_gpu = !cli.cpu;
-        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, telemetry.clone(), cli.cpu_profile, use_gpu).await
+        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, cli.cpu_profile, use_gpu).await
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join
@@ -146,18 +142,8 @@ fn main() -> Result<()> {
             .name("genesis-egress-tx".into())
             .spawn(move || {
                 let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-                // use std::sync::atomic::AtomicU32;
-                // static EGRESS_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
                 loop {
                     if let Some(msg) = worker_pool.ready_queue.pop() {
-                        /* 
-                        if msg.target.port() == 8092 {
-                            let n = EGRESS_LOG_COUNT.fetch_add(1, Ordering::Relaxed);
-                            if n % 100 == 0 {
-                                println!("📤 [Egress Thread] Sending {} bytes to {} ({} packets)", msg.size, msg.target, n + 1);
-                            }
-                        }
-                        */
                         let _ = socket.send_to(&msg.buffer[..msg.size], msg.target);
                         worker_pool.free_queue.push(msg).unwrap();
                     } else {
@@ -189,11 +175,10 @@ fn main() -> Result<()> {
             })
             .expect("Fatal: Failed to spawn orchestrator OS thread");
 
-        // 8. Run Dashboard UI (blocks main thread)
-        // [DOD FIX] TUI now uses the lock-free telemetry bridge and maintains its own local state
-        crate::tui::run_tui(telemetry, log_mode).unwrap_or_else(|e| {
-            eprintln!("UI error: {:?}", e);
-        });
+        // 8. Wait for termination
+        tokio::signal::ctrl_c().await.unwrap();
+        println!("[Node] Shutting down...");
         Ok(())
     })
 }
+

@@ -1,3 +1,16 @@
+//! # Axicor Core
+//!
+//! Shared types, constants, and SoA (Structure of Arrays) memory layout for the Axicor 
+//! spiking neural network engine. This crate enforces zero-cost C-ABI contracts 
+//! for cross-platform DMA and GPU execution, strictly avoiding runtime allocations.
+//!
+//! ## Module Index
+//!
+//! - `[layout]` — GPU-aligned data structures (`BurstHeads8`, `VariantParameters`).
+//! - `[ipc]` — Cross-platform shared memory and Zero-Copy IPC primitives.
+//! - `[physics]` — Integer GLIF neuron model and GSOP plasticity math.
+//! - `[signal]` — Axon propagation math (branchless, zero-float).
+
 #![deny(warnings)]
 #![deny(unused_variables)]
 #![deny(dead_code)]
