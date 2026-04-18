@@ -8,7 +8,7 @@ const LAYOUT_FILE: &str = "config/default_layout.ron";
 pub fn boot_layout_system(mut commands: Commands) {
     info!("[WM] Booting Layout Manager");
 
-    // Пытаемся загрузить пользовательский лейаут
+    //    
     if let Ok(content) = fs::read_to_string(LAYOUT_FILE) {
         if let Ok(saved) = ron::from_str::<SavedLayout>(&content) {
             info!("[WM] Loaded custom layout from {}", LAYOUT_FILE);
@@ -25,7 +25,7 @@ pub fn boot_layout_system(mut commands: Commands) {
         }
     }
 
-    // Фолбэк на дефолт (только если файла нет)
+    //    (   )
     info!("[WM] No custom layout found. Booting factory layout.");
     let mut trees = bevy::utils::HashMap::new();
     trees.insert("Main".to_string(), build_default_tree());

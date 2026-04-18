@@ -5,23 +5,24 @@ import numpy as np
 
 # Virtual environment activation check
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
-    print("❌ ERROR: Virtual environment not active!")
+    print("[ERROR] ERROR: Virtual environment not active!")
     sys.exit(1)
 
 try:
     import optuna
     import gymnasium as gym
 except ImportError:
-    print("❌ ERROR: optuna or gymnasium not installed. Run: pip install optuna gymnasium")
+    print("[ERROR] ERROR: optuna or gymnasium not installed. Run: pip install optuna gymnasium")
     sys.exit(1)
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "genesis-client")))
-from genesis.client import GenesisMultiClient
-from genesis.encoders import PopulationEncoder
-from genesis.decoders import PwmDecoder
-from genesis.control import GenesisControl
-from genesis.utils import fnv1a_32
-from genesis.contract import GenesisIoContract
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "axicor-client")))
+from axicor.client import AxicorMultiClient
+from axicor.encoders import PopulationEncoder
+from axicor.decoders import PwmDecoder
+from axicor.control import AxicorControl
+from axicor.utils import fnv1a_32
+from axicor.contract import AxicorIoContract
+
 
 # ==========================================
 # 1. Global Initialization (Zero-Downtime)
@@ -30,25 +31,25 @@ from genesis.contract import GenesisIoContract
 BATCH_SIZE = 10
 
 # [DOD FIX] Path synchronization with the current model
-baked_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Genesis-Models/cartpole_exp/baked/MotorCortex"))
+baked_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Axicor-Models/cartpole_exp/baked/MotorCortex"))
 manifest_path = os.path.join(baked_dir, "manifest.toml")
 
 if not os.path.exists(manifest_path):
-    print(f"❌ FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
+    print(f"[ERROR] FATAL: Control Plane manifest NOT FOUND at {manifest_path}")
     sys.exit(1)
 
-contract = GenesisIoContract(baked_dir, "MotorCortex")
+contract = AxicorIoContract(baked_dir, "MotorCortex")
 zone_hash = contract.zone_hash
 
-print("🔌 Connecting to Genesis Node (Data & Memory Planes)...")
+print(" Connecting to Axicor Node (Data & Memory Planes)...")
 # [DOD FIX] Use contract for client configuration (including RX Layout)
 client_cfg = contract.get_client_config(BATCH_SIZE)
-client = GenesisMultiClient(addr=("127.0.0.1", 8081), **client_cfg)
+client = AxicorMultiClient(addr=("127.0.0.1", 8081), **client_cfg)
 
 try:
     client.sock.bind(("0.0.0.0", 8092))
 except OSError as e:
-    print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents before running. Error: {e}")
+    print(f"[ERROR] FATAL: Port 8092 is busy! Kill zombie agents before running. Error: {e}")
     sys.exit(1)
 
 # [DOD FIX] Automatic encoder/decoder creation from contract
@@ -60,8 +61,8 @@ dec_right = contract.create_pwm_decoder("motor_right", batch_size=BATCH_SIZE)
 out_l_sz = contract.outputs["motor_left"]["width"] * contract.outputs["motor_left"]["height"] * BATCH_SIZE
 out_r_sz = contract.outputs["motor_right"]["width"] * contract.outputs["motor_right"]["height"] * BATCH_SIZE
 
-control = GenesisControl(manifest_path)
-memory = GenesisMemory(zone_hash, read_only=False)
+control = AxicorControl(manifest_path)
+memory = AxicorMemory(zone_hash, read_only=False)
 
 bounds = np.array([[-2.4, 2.4], [-3.0, 3.0], [-0.41, 0.41], [-2.0, 2.0]], dtype=np.float16)
 range_diff = bounds[:, 1] - bounds[:, 0]
@@ -202,18 +203,18 @@ if __name__ == '__main__':
     # [DOD FIX] Zero-Cost Telemetry Hook
     def hft_telemetry_callback(study, trial):
         max_score = trial.user_attrs.get("max_score", 0)
-        print(f"🏁 Trial {trial.number:03d} | Survived: {trial.value:5.0f} steps | MAX SCORE: {max_score:5.0f} | "
+        print(f" Trial {trial.number:03d} | Survived: {trial.value:5.0f} steps | MAX SCORE: {max_score:5.0f} | "
               f"Pulse: {trial.params.get('dopamine_pulse')}, Reward: {trial.params.get('dopamine_reward')}")
 
     study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
-    print("🚀 Starting Zero-Downtime Bayesian Search...")
+    print(" Starting Zero-Downtime Bayesian Search...")
     
     try:
         # Run 200 trials
         study.optimize(objective, n_trials=200, callbacks=[hft_telemetry_callback])
-        print("\n🏆 Best Hyperparameters:")
+        print("\n Best Hyperparameters:")
         for key, value in study.best_trial.params.items():
             print(f"  {key}: {value}")
-        print(f"🏅 Best Score: {study.best_value:.1f}")
+        print(f" Best Score: {study.best_value:.1f}")
     except KeyboardInterrupt:
         print("\nSearch interrupted by user.")

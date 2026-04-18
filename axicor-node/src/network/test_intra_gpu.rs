@@ -1,4 +1,4 @@
-// genesis-runtime/src/network/test_intra_gpu.rs
+// axicor-runtime/src/network/test_intra_gpu.rs
 //
 // Tests for IntraGpuChannel: Spike routing verification.
 // Uses mock-gpu (libc::malloc) so no real CUDA is required.
@@ -170,7 +170,7 @@ mod tests {
             set(h0, 10, sentinel);
             manual_sync(&channel, h0, h1);
 
-            // Sentinel MUST be faithfully copied — GPU kernel will handle early-exit
+            // Sentinel MUST be faithfully copied  GPU kernel will handle early-exit
             assert_eq!(get(h1, 60), sentinel);
 
             axicor_compute::ffi::gpu_free(h0 as *mut _);

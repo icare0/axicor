@@ -58,10 +58,10 @@ pub fn create_entity_system(
                     crate::layout::systems::wm_file_ops::add_io_record(&mut doc, section, name, &io_id, zone, 32, 32, None);
 
                     let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
-                    info!("✅ [IO] Created pin {} in {:?}", name, io_path);
+                    info!("[OK] [IO] Created pin {} in {:?}", name, io_path);
 
                     if let Some(session) = graph.sessions.get_mut(target_path) {
-                        // 1. Обновляем список имен для Node Editor
+                        // 1.     Node Editor
                         if *is_input {
                             let inputs = session.node_inputs.entry(zone.to_string()).or_default();
                             if !inputs.contains(&name.to_string()) { inputs.push(name.to_string()); }
@@ -70,7 +70,7 @@ pub fn create_entity_system(
                             if !outputs.contains(&name.to_string()) { outputs.push(name.to_string()); }
                         }
 
-                        // 2. Обновляем ShardIoData для Matrix Editor
+                        // 2.  ShardIoData  Matrix Editor
                         if let Some(io_data) = session.shard_io.get_mut(zone) {
                             if let Ok(new_io) = toml::from_str::<node_editor::domain::ShardIoData>(&doc.to_string()) {
                                 *io_data = new_io;
@@ -255,7 +255,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             add_io_record(&mut doc, "input", from_port, &io_id, to, 32, 32, voxel_z);
             let _ = save_document(&dst_io_path, &doc);
         }
-        // [DOD FIX] Роутинг Z для входов от окружения
+        // [DOD FIX]  Z    
         if let Some(z) = voxel_z {
             if let Ok(mut io_doc) = load_document(&dst_io_path) {
                 if crate::layout::systems::wm_file_ops::update_io_input_z(&mut io_doc, from_port, z) {
@@ -269,7 +269,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
             let _ = save_document(&src_io_path, &doc);
         }
     } else {
-        // [DCR] 1. Извлекаем реальные габариты матрицы-источника (иерархия Matrix -> Pin)
+        // [DCR] 1.    - ( Matrix -> Pin)
         let mut proj_w: i64 = 32;
         let mut proj_h: i64 = 32;
         if let Ok(src_doc) = load_document(&src_io_path) {
@@ -289,7 +289,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         }
 
         let local_doc = match load_document(active_path) { Ok(d) => d, Err(_) => return };
-        // Родитель всегда знает детей: берем ID родителя из локального файла
+        //    :  ID    
         let macro_path = if let Some(parent_id) = local_doc.get("depart_id_v1").and_then(|i| i.get("id")).and_then(|v| v.as_str()) {
             crate::layout::systems::wm_file_ops::find_path_by_id(fs_cache, parent_id).unwrap_or(active_path.to_path_buf())
         } else {
@@ -318,7 +318,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) { arr.push(conn_table); }
         let _ = save_document(&macro_path, &doc);
 
-        // [DCR] 2. Динамическое резервирование VRAM на целевом шарде
+        // [DCR] 2.   VRAM   
         if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
             let capacity_add = proj_w * proj_h * 2;
             let current = dst_doc.get("settings").and_then(|s| s.get("ghost_capacity")).and_then(|v| v.as_integer()).unwrap_or(0);
@@ -326,7 +326,7 @@ fn create_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
                 settings.insert("ghost_capacity", value(current + capacity_add));
             }
             let _ = save_document(&dst_shard_path, &dst_doc);
-            info!("✅ [DCR] Reserved {} ghost_capacity for {}", capacity_add, to);
+            info!("[OK] [DCR] Reserved {} ghost_capacity for {}", capacity_add, to);
         }
     }
 
@@ -357,7 +357,7 @@ fn create_anatomy_layer(active_path: &Path, zone: &str, name: &str, height_pct: 
 
     crate::layout::systems::wm_file_ops::add_anatomy_layer_record(&mut doc, name, height_pct);
     let _ = crate::layout::systems::wm_file_ops::save_document(&anatomy_path, &doc);
-    info!("✅ [Anatomy] Created layer {} in {:?}", name, anatomy_path);
+    info!("[OK] [Anatomy] Created layer {} in {:?}", name, anatomy_path);
 
     if let Some(session) = graph.sessions.get_mut(active_path) {
         if let Some(anatomy) = session.shard_anatomies.get_mut(zone) {

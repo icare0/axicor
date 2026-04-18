@@ -29,7 +29,7 @@ pub fn build_local_topology_internal(
         master_seed,
         &type_names,
     );
-    println!("[baker] ✓ Placed {} neurons", positions.len());
+    println!("[baker]  Placed {} neurons", positions.len());
 
     println!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = compute_layer_ranges(anatomy, sim);
@@ -109,7 +109,7 @@ pub fn build_local_topology_internal(
                 }
             }
         }
-        println!("[baker] ✓ Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
+        println!("[baker]  Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
     }
 
     let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
@@ -125,7 +125,7 @@ pub fn build_local_topology_internal(
             &packed_positions,
             &type_names,
         );
-        println!("[baker] ✓ Processed {} output matrices", gxo_matrices.len());
+        println!("[baker]  Processed {} output matrices", gxo_matrices.len());
     }
 
     if !ghost_packets.is_empty() {
@@ -147,7 +147,7 @@ pub fn build_local_topology_internal(
     }
 
     let total_ghosts = axons.len() - local_axons_count - num_virtual;
-    println!("[baker] ✓ Total Grown: {} axons ({} local, {} virtual, {} ghosts)", 
+    println!("[baker]  Total Grown: {} axons ({} local, {} virtual, {} ghosts)", 
         axons.len(), local_axons_count, num_virtual, total_ghosts);
 
     let total_capacity = axons.len() + ghost_capacity;
@@ -177,7 +177,7 @@ pub fn build_local_topology_internal(
         neuron_types,
         sim.simulation.voxel_size_um as f32, // Pass voxel size
     );
-    println!("[baker] ✓ Synapses established: {} (avg: {:.1}/soma)", 
+    println!("[baker]  Synapses established: {} (avg: {:.1}/soma)", 
         total_synapses, 
         total_synapses as f64 / positions.len() as f64
     );
@@ -221,7 +221,7 @@ pub fn build_local_topology_internal(
                 .copy_from_slice(&ax.segments[..copy_len]);
         }
     }
-    println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);
+    println!("[baker]  Axon heads initialized (v_seg={})", v_seg);
 
     shard.soma_positions.copy_from_slice(&packed_positions[..positions.len()]);
 

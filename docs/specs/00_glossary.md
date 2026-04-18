@@ -1,14 +1,14 @@
-# Genesis Architecture Glossary
+# Axicor Architecture Glossary
 
 **Version:** 0.0.2 ***"Stable MVP"***  
 **Last Updated:** 2026-03-12  
-**Scope:** Complete terminology reference across all 11 Genesis specifications
+**Scope:** Complete terminology reference across all 11 Axicor specifications
 
 ---
 
 ## Overview
 
-This glossary defines ~60 core terms used throughout the Genesis neuromorphic simulation architecture. Terms are alphabetically organized with cross-references to primary spec sections.
+This glossary defines ~60 core terms used throughout the Axicor neuromorphic simulation architecture. Terms are alphabetically organized with cross-references to primary spec sections.
 
 ---
 
@@ -19,7 +19,7 @@ This glossary defines ~60 core terms used throughout the Genesis neuromorphic si
 The trailing edge of a dendritic tree segment that contains soma-proximal synapses still receiving spike signals. Contrasts with the "dormant head" in pruned branches.
 
 **See also:** Pruning, Inertia Curves  
-**Specs:** 04_connectivity.md (§4.3), 05_signal_physics.md (§5.2)
+**Specs:** 04_connectivity.md (4.3), 05_signal_physics.md (5.2)
 
 ---
 
@@ -30,10 +30,10 @@ TOML-formatted specification file defining:
 - Layer arrangement and Z-order sorting
 - Initial axon/dendrite connectivity patterns (via cones)
 
-Generated from `.toml` files in `config/zones/*/anatomy.toml` by genesis-baker.
+Generated from `.toml` files in `config/zones/*/anatomy.toml` by axicor-baker.
 
 **See also:** Baking, Configuration  
-**Specs:** 02_configuration.md (§2.1), 09_baking_pipeline.md (§9.1)
+**Specs:** 02_configuration.md (2.1), 09_baking_pipeline.md (9.1)
 
 ---
 
@@ -42,30 +42,30 @@ Generated from `.toml` files in `config/zones/*/anatomy.toml` by genesis-baker.
 Boundary marker at the end of each neuron's axon output list on GPU. Enables O(1) detection of axon array bounds during spike propagation. Stored as `0xFFFFFFFF` soma ID.
 
 **See also:** Dense Index, Pruning  
-**Specs:** 05_signal_physics.md (§5.3), 07_gpu_runtime.md (§7.2)
+**Specs:** 05_signal_physics.md (5.3), 07_gpu_runtime.md (7.2)
 
 ---
 
 ### Baking (Compilation Pipeline)
 
-Multi-stage process converting TOML configuration → GPU-ready binary formats:
+Multi-stage process converting TOML configuration  GPU-ready binary formats:
 1. **Parse:** Anatomy + Blueprint TOML
 2. **Validate:** Check constraints (max dendrites, axon counts)
 3. **Place:** Z-sort neurons, assign grid coordinates
 4. **Connect:** Cone tracing, growth sprouting
 5. **Serialize:** Output .gxi/.gxo/.ghosts binary files
 
-Executed by genesis-baker, runs on CPU only.
+Executed by axicor-baker, runs on CPU only.
 
-**See also:** Anatomical Blueprint, Genesis-Baker, GXI/GXO  
-**Specs:** 09_baking_pipeline.md (entire), 02_configuration.md (§2.3)
+**See also:** Anatomical Blueprint, Axicor-Baker, GXI/GXO  
+**Specs:** 09_baking_pipeline.md (entire), 02_configuration.md (2.3)
 
 ---
 
 ### Blueprint (Connectivity)
 
 TOML specification of target connectivity patterns:
-- Neuron type pairs (e.g., SensoryCortex → HiddenCortex)
+- Neuron type pairs (e.g., SensoryCortex  HiddenCortex)
 - Connection probability or density
 - Synaptic weight initialization distributions
 - Growth/pruning rate schedules
@@ -73,7 +73,7 @@ TOML specification of target connectivity patterns:
 Defines "wiring rules" that baking applies via cone tracing + sprouting.
 
 **See also:** Anatomical Blueprint, Cone Tracing, Sprouting  
-**Specs:** 04_connectivity.md (§4.1), 09_baking_pipeline.md (§9.2)
+**Specs:** 04_connectivity.md (4.1), 09_baking_pipeline.md (9.2)
 
 ---
 
@@ -88,7 +88,7 @@ Independently-executable GPU subdivision of a zone. Each shard:
 Multiple shards per zone enable large-scale training.
 
 **See also:** Zone, Night Phase, Ghost Axon, Day Phase  
-**Specs:** 06_distributed.md (§6.1), 07_gpu_runtime.md (§7.3)
+**Specs:** 06_distributed.md (6.1), 07_gpu_runtime.md (7.3)
 
 ---
 
@@ -100,16 +100,16 @@ Inter-zone synchronization primitive ensuring all zones complete Day Phase befor
 - Used in MVP distributed mode (P1+)
 
 **See also:** Day Phase, Night Phase, Distributed Mode  
-**Specs:** 06_distributed.md (§6.2), 07_gpu_runtime.md (§7.5)
+**Specs:** 06_distributed.md (6.2), 07_gpu_runtime.md (7.5)
 
 ---
 
-### Bare Metal Runtime (Genesis-Lite)
+### Bare Metal Runtime (Axicor-Lite)
 
-A streamlined, C/C++ implementation of the Genesis compute kernel designed for microcontrollers (e.g., ESP32-S3) and embedded systems. Operates without a full OS, targeting direct hardware interactions.
+A streamlined, C/C++ implementation of the Axicor compute kernel designed for microcontrollers (e.g., ESP32-S3) and embedded systems. Operates without a full OS, targeting direct hardware interactions.
 
 **See also:** ESP32, I/O Matrix  
-**Specs:** 10_hardware_backends.md (§3.1)
+**Specs:** 10_hardware_backends.md (3.1)
 
 ---
 
@@ -123,7 +123,7 @@ Rust abstraction enabling pluggable I/O backends:
 Central to zone_runtime.rs orchestration.
 
 **See also:** External I/O, Ghost Axon, IPC  
-**Specs:** 07_gpu_runtime.md (§7.4), 08_io_matrix.md (§8.1)
+**Specs:** 07_gpu_runtime.md (7.4), 08_io_matrix.md (8.1)
 
 ---
 
@@ -138,7 +138,7 @@ GPU memory organization storing neuron properties as separate linear arrays:
 Enables coalesced memory access and AVX-512 vectorization on CPU.
 
 **See also:** PackedPosition, Warp Alignment, VramState  
-**Specs:** 03_neuron_model.md (§3.2), 07_gpu_runtime.md (§7.2)
+**Specs:** 03_neuron_model.md (3.2), 07_gpu_runtime.md (7.2)
 
 ---
 
@@ -153,14 +153,14 @@ Geometric algorithm for axon sprouting:
 Used by baking pipeline to create realistic long-range connectivity.
 
 **See also:** Sprouting, Blueprint, Baking  
-**Specs:** 04_connectivity.md (§4.2), 09_baking_pipeline.md (§9.2)
+**Specs:** 04_connectivity.md (4.2), 09_baking_pipeline.md (9.2)
 
 ---
 
 ### Day Phase
 
 GPU-resident simulation cycle executing 6 CUDA kernels per tick:
-1. **PropagateAxons**: Process dendritic tree inputs → soma voltage
+1. **PropagateAxons**: Process dendritic tree inputs  soma voltage
 2. **ApplySpikeBatch**: Add spike buffers to dendritic trees
 3. **InjectInputs**: Add external I/O (CartPole, etc.)
 4. **UpdateNeurons**: Integrate differential equations (Hodgkin-Huxley variant)
@@ -170,24 +170,24 @@ GPU-resident simulation cycle executing 6 CUDA kernels per tick:
 Completes in ~10-100 ms on modern GPU. Followed by Night Phase (CPU-resident).
 
 **See also:** Night Phase, CUDA Kernels, Tick  
-**Specs:** 05_signal_physics.md (§5.4), 07_gpu_runtime.md (§7.3)
+**Specs:** 05_signal_physics.md (5.4), 07_gpu_runtime.md (7.3)
 
 ---
 
 ### Dense Index
 
-Spike propagation data structure mapping neuron ID → dendritic tree children. Enables O(log N) lookup of which neurons receive input from a given axon.
+Spike propagation data structure mapping neuron ID  dendritic tree children. Enables O(log N) lookup of which neurons receive input from a given axon.
 
 Stored as bitmask array with Axon Sentinels marking boundaries.
 
 **See also:** Axon Sentinel, Pruning  
-**Specs:** 05_signal_physics.md (§5.3), 07_gpu_runtime.md (§7.2)
+**Specs:** 05_signal_physics.md (5.3), 07_gpu_runtime.md (7.2)
 
 ---
 
 ### External I/O
 
-Communication channel between Genesis and external processes (CartPole client, visualization tools):
+Communication channel between Axicor and external processes (CartPole client, visualization tools):
 - **UDP 8081 (Input):** Receives sensory data (encoded as Input_Bitmask)
 - **UDP 8082 (Output):** Sends motor commands (encoded as Output_History)
 - **WebSocket (TelemetryServer):** Real-time telemetry (spikes, voltages)
@@ -196,7 +196,7 @@ Communication channel between Genesis and external processes (CartPole client, v
 Multiplexed via ExternalIoHeader (zone_hash, matrix_hash, payload_size).
 
 **See also:** I/O Matrix, CartPole, ExternalIoServer  
-**Specs:** 08_io_matrix.md (§8.2), 08_ide.md (§2.3)
+**Specs:** 08_io_matrix.md (8.2), 08_ide.md (2.3)
 
 ---
 
@@ -214,27 +214,27 @@ Offset  Field         Type      Purpose
 Used by UDP 8081/8082 External I/O servers.
 
 **See also:** External I/O, I/O Matrix  
-**Specs:** 08_io_matrix.md (§8.2), 07_gpu_runtime.md (§7.4)
+**Specs:** 08_io_matrix.md (8.2), 07_gpu_runtime.md (7.4)
 
 ---
 
-### Genesis-Baker (Baker)
+### Axicor-Baker (Baker)
 
-CPU-only Rust application (genesis-baker crate) performing the Baking pipeline:
+CPU-only Rust application (axicor-baker crate) performing the Baking pipeline:
 - Input: Anatomy + Blueprint TOML files
 - Processing: Validation, placement, connectivity, serialization
 - Output: `.gxi`, `.gxo`, `.ghosts` binary files in `baked/` directory
 
 Runs on developer machine or CI/CD prior to runtime deployment.
 
-**See also:** Baking, GXI/GXO, Genesis-Runtime  
-**Specs:** 09_baking_pipeline.md (§9.1), project_structure.md (§genesis-baker/)
+**See also:** Baking, GXI/GXO, Axicor-Runtime  
+**Specs:** 09_baking_pipeline.md (9.1), project_structure.md (axicor-baker/)
 
 ---
 
-### Genesis-Core (Core)
+### Axicor-Core (Core)
 
-Shared Rust library (genesis-core crate) providing:
+Shared Rust library (axicor-core crate) providing:
 - Type definitions (Signal, PackedPosition, VariantParameters)
 - Constants (PackedPosition bit widths, MAX_DENDRITE_SLOTS=128)
 - Mathematical primitives (GSOP curves, signal physics)
@@ -243,13 +243,13 @@ Shared Rust library (genesis-core crate) providing:
 Depended on by baker, runtime, and IDE.
 
 **See also:** PackedPosition, VariantParameters, Channel Trait  
-**Specs:** 05_signal_physics.md (§5.1), project_structure.md (§genesis-core/)
+**Specs:** 05_signal_physics.md (5.1), project_structure.md (axicor-core/)
 
 ---
 
-### Genesis-IDE (IDE)
+### Axicor-IDE (IDE)
 
-GPU-accelerated 3D visualization tool (genesis-ide crate):
+GPU-accelerated 3D visualization tool (axicor-ide crate):
 - Built with Bevy engine
 - Subscribes to TelemetryServer (WebSocket)
 - Real-time rendering of neuron spikes, voltage heat maps, growth visualization
@@ -258,13 +258,13 @@ GPU-accelerated 3D visualization tool (genesis-ide crate):
 Primarily for development/debugging, not production.
 
 **See also:** TelemetryServer, Visualization  
-**Specs:** 08_ide.md (entire), project_structure.md (§genesis-ide/)
+**Specs:** 08_ide.md (entire), project_structure.md (axicor-ide/)
 
 ---
 
-### Genesis-Runtime (Runtime)
+### Axicor-Runtime (Runtime)
 
-GPU-intensive Rust application (genesis-runtime crate) executing:
+GPU-intensive Rust application (axicor-runtime crate) executing:
 - Day Phase CUDA kernels (5 computational + 1 readout per tick)
 - Night Phase state transitions (CPU-resident)
 - I/O multiplexing (External I/O, Ghost Sync, Telemetry)
@@ -273,7 +273,7 @@ GPU-intensive Rust application (genesis-runtime crate) executing:
 Primary production deployment target.
 
 **See also:** Day Phase, Night Phase, Zone  
-**Specs:** 07_gpu_runtime.md (entire), project_structure.md (§genesis-runtime/)
+**Specs:** 07_gpu_runtime.md (entire), project_structure.md (axicor-runtime/)
 
 ---
 
@@ -288,7 +288,7 @@ Virtual representation of inter-shard axon connection. At runtime:
 Enables independent shard execution while maintaining biological connectivity.
 
 **See also:** Brain Shard, Day Phase, Ghost Sync  
-**Specs:** 06_distributed.md (§6.1), 05_signal_physics.md (§5.5)
+**Specs:** 06_distributed.md (6.1), 05_signal_physics.md (5.5)
 
 ---
 
@@ -303,31 +303,31 @@ CUDA kernel (6th Day Phase kernel, executed after RecordOutputs) that:
 Runs asynchronously with Night Phase execution.
 
 **See also:** Ghost Axon, Day Phase, ExternalIoServer  
-**Specs:** 05_signal_physics.md (§5.5), 07_gpu_runtime.md (§7.3)
+**Specs:** 05_signal_physics.md (5.5), 07_gpu_runtime.md (7.3)
 
 ---
 
 ### GLIF (Generalized Leaky Integrate-and-Fire)
 
 Neuronal model variant incorporating:
-- Subthreshold dynamics: `dv/dt = -(v - v_rest) / τ + I_in`
-- Spike threshold: `v > v_thresh → emit spike`
+- Subthreshold dynamics: `dv/dt = -(v - v_rest) /  + I_in`
+- Spike threshold: `v > v_thresh  emit spike`
 - Refractoriness: Dead time after spike emission
 - Adaptation: Current-dependent threshold increase
 
-Genesis implements GLIF with 64-dimensional voltage state per neuron.
+Axicor implements GLIF with 64-dimensional voltage state per neuron.
 
 **See also:** Hodgkin-Huxley, Voltage State  
-**Specs:** 03_neuron_model.md (§3.1), 05_signal_physics.md (§5.4)
+**Specs:** 03_neuron_model.md (3.1), 05_signal_physics.md (5.4)
 
 ---
 
 ### HIP / ROCm (AMD Backend)
 
-The C++ heterogeneous-compute interface (HIP) and open-source platform (ROCm) for AMD GPUs. Genesis targets HIP as its primary alternative to CUDA for server-grade hardware diversification.
+The C++ heterogeneous-compute interface (HIP) and open-source platform (ROCm) for AMD GPUs. Axicor targets HIP as its primary alternative to CUDA for server-grade hardware diversification.
 
 **See also:** Day Phase, GPU Runtime  
-**Specs:** 10_hardware_backends.md (§2.1), 07_gpu_runtime.md (§1.6)
+**Specs:** 10_hardware_backends.md (2.1), 07_gpu_runtime.md (1.6)
 
 ---
 
@@ -344,11 +344,11 @@ Variant-encoded in VariantParameters (16 bits per synapse). Transitions driven b
 - Activity history (active tail priority)
 
 **See also:** VariantParameters, Inertia Curves, Pruning  
-**Specs:** 04_connectivity.md (§4.3), 07_gpu_runtime.md (§7.2)
+**Specs:** 04_connectivity.md (4.3), 07_gpu_runtime.md (7.2)
 
 ---
 
-### GXI (Genesis eXternal Input)
+### GXI (Axicor eXternal Input)
 
 Binary file format for Input I/O matrices:
 - **Header:** zone_id, matrix_hash, input_count, total_pixels
@@ -358,11 +358,11 @@ Binary file format for Input I/O matrices:
 Generated by baking pipeline. Loaded by ExternalIoServer at runtime.
 
 **See also:** GXO, I/O Matrix, External I/O  
-**Specs:** 08_io_matrix.md (§8.1), 09_baking_pipeline.md (§9.3)
+**Specs:** 08_io_matrix.md (8.1), 09_baking_pipeline.md (9.3)
 
 ---
 
-### GXO (Genesis eXternal Output)
+### GXO (Axicor eXternal Output)
 
 Binary file format for Output I/O matrices:
 - **Header:** zone_id, matrix_hash, output_count
@@ -372,7 +372,7 @@ Binary file format for Output I/O matrices:
 Generated by baking pipeline. Used by RecordOutputs kernel to fill output buffers.
 
 **See also:** GXI, I/O Matrix, RecordOutputs  
-**Specs:** 08_io_matrix.md (§8.1), 09_baking_pipeline.md (§9.3)
+**Specs:** 08_io_matrix.md (8.1), 09_baking_pipeline.md (9.3)
 
 ---
 
@@ -382,18 +382,18 @@ Classical neurophysiological model with separate gating variables for ion channe
 - Na (depolarizing), K (repolarizing), L (leak)
 - Each with voltage-dependent opening/closing rates
 
-Genesis uses simplified variant (GLIF-like) with fewer parameters but biological plausibility.
+Axicor uses simplified variant (GLIF-like) with fewer parameters but biological plausibility.
 
 **See also:** GLIF, Voltage State, Neuron Model  
-**Specs:** 03_neuron_model.md (§3.1), 05_signal_physics.md (§5.1)
+**Specs:** 03_neuron_model.md (3.1), 05_signal_physics.md (5.1)
 
 ---
 
 ### I/O Matrix
 
 Interface abstraction mapping:
-- **Input:** External sensory data → soma voltage injection
-- **Output:** Spike records → external command signals
+- **Input:** External sensory data  soma voltage injection
+- **Output:** Spike records  external command signals
 
 Stored in GXI (input routing), GXO (output recording), and ExternalIoHeader (packet envelope).
 
@@ -405,14 +405,14 @@ Stored in GXI (input routing), GXO (output recording), and ExternalIoHeader (pac
 ### Inertia Curves
 
 Time-dependent decay profiles for synapses in GSOP Pruning state:
-- Functionally: `strength(t) = strength_0 * exp(-t / τ_inertia)`
+- Functionally: `strength(t) = strength_0 * exp(-t / _inertia)`
 - Biologically: Represents post-synaptic physical dissolution
 - Prevents abrupt connectivity loss
 
 Active Tail synapses have longer inertias than dormant head synapses.
 
 **See also:** GSOP, Active Tail, Pruning  
-**Specs:** 04_connectivity.md (§4.3), 05_signal_physics.md (§5.2)
+**Specs:** 04_connectivity.md (4.3), 05_signal_physics.md (5.2)
 
 ---
 
@@ -425,7 +425,7 @@ Dendritic compartment classification:
 Each neuron allocates 128 dendrite slots split between LTM/WM ratios (configurable).
 
 **See also:** Dendrite, Segment, Neuron Model  
-**Specs:** 03_neuron_model.md (§3.2), 04_connectivity.md (§4.2)
+**Specs:** 03_neuron_model.md (3.2), 04_connectivity.md (4.2)
 
 ---
 
@@ -440,13 +440,13 @@ CPU-resident state transition cycle following Day Phase (asynchronous):
 Variable per-zone latency enables low-power idle states.
 
 **See also:** Day Phase, GSOP, Pruning, Sprouting  
-**Specs:** 06_distributed.md (§6.3), 07_gpu_runtime.md (§7.4)
+**Specs:** 06_distributed.md (6.3), 07_gpu_runtime.md (7.4)
 
 ---
 
 ### Neuron Model
 
-Mathematical framework for soma dynamics. Genesis supports:
+Mathematical framework for soma dynamics. Axicor supports:
 - **Primary:** GLIF (Generalized Leaky Integrate-and-Fire)
 - **Optional:** Hodgkin-Huxley (reduced parameter set)
 
@@ -464,10 +464,10 @@ Integrated via Euler method in UpdateNeurons kernel.
 
 ### Neuromorphic Computing
 
-Hardware architectures that emulate biological neural structures (e.g., Intel Loihi). Genesis biospecs (GSOP, GLIF) are designed for future mapping onto event-driven, asynchronous neuromorphic silicon.
+Hardware architectures that emulate biological neural structures (e.g., Intel Loihi). Axicor biospecs (GSOP, GLIF) are designed for future mapping onto event-driven, asynchronous neuromorphic silicon.
 
 **See also:** ASIC, GNM  
-**Specs:** 10_hardware_backends.md (§4.1)
+**Specs:** 10_hardware_backends.md (4.1)
 
 ---
 
@@ -485,7 +485,7 @@ Bits    Field      Range       Use
 Stored as u32. Enables coalesced GPU memory access (all positions in same cache line).
 
 **See also:** Columnar Layout, Warp Alignment  
-**Specs:** 03_neuron_model.md (§3.2), 07_gpu_runtime.md (§7.2)
+**Specs:** 03_neuron_model.md (3.2), 07_gpu_runtime.md (7.2)
 
 ---
 
@@ -494,13 +494,13 @@ Stored as u32. Enables coalesced GPU memory access (all positions in same cache 
 Process removing low-strength synapses to reduce memory/compute:
 1. Mark synapses in GSOP Pruning state
 2. Apply inertia curve decay (exponential)
-3. Delete from LTM/WM slots when strength → 0
+3. Delete from LTM/WM slots when strength  0
 4. Update dendritic trees
 
 Triggered by activity patterns during Night Phase.
 
 **See also:** GSOP, Inertia Curves, Active Tail, Night Phase  
-**Specs:** 04_connectivity.md (§4.3), 06_distributed.md (§6.3)
+**Specs:** 04_connectivity.md (4.3), 06_distributed.md (6.3)
 
 ---
 
@@ -518,7 +518,7 @@ __global__ void recordOutputs(
 Copies spike buffers to ExternalIoHeader payload for UDP 8082 transmission.
 
 **See also:** RecordOutputs, GXO, External I/O  
-**Specs:** 05_signal_physics.md (§5.5), 08_io_matrix.md (§8.1)
+**Specs:** 05_signal_physics.md (5.5), 08_io_matrix.md (8.1)
 
 ---
 
@@ -526,14 +526,14 @@ Copies spike buffers to ExternalIoHeader payload for UDP 8082 transmission.
 
 6th CUDA kernel in Day Phase, writes spike records:
 1. Read spike buffer (Output_History) from VRAM
-2. Map to GXO output routing (soma_ids → matrix positions)
+2. Map to GXO output routing (soma_ids  matrix positions)
 3. Fill ExternalIoHeader packet
 4. Signal ExternalIoServer ready
 
 Last computational step before Ghost Sync.
 
 **See also:** Day Phase, GXO, Readout Interface  
-**Specs:** 05_signal_physics.md (§5.5), 07_gpu_runtime.md (§7.3)
+**Specs:** 05_signal_physics.md (5.5), 07_gpu_runtime.md (7.3)
 
 ---
 
@@ -547,7 +547,7 @@ Individual dendritic compartment (synaptic input point):
 Segments are atomic units of connectivity; 128 per neuron max.
 
 **See also:** Dendrite, LTM/WM Slot, Synapse  
-**Specs:** 03_neuron_model.md (§3.2), 04_connectivity.md (§4.1)
+**Specs:** 03_neuron_model.md (3.2), 04_connectivity.md (4.1)
 
 ---
 
@@ -561,7 +561,7 @@ See **Brain Shard**.
 
 Comprehensive model of spike propagation and integration:
 - **Axon dynamics:** Threshold crossing, spike emission, transmission delay
-- **Dendritic integration:** Segment-level synaptic currents → soma voltage
+- **Dendritic integration:** Segment-level synaptic currents  soma voltage
 - **Soma dynamics:** GLIF equation, spike generation, refractoriness
 
 Implemented across 5 Day Phase kernels (PropagateAxons, ApplySpikeBatch, InjectInputs, UpdateNeurons, ApplyGSOP).
@@ -587,7 +587,7 @@ Binary event (all-or-nothing) emitted by soma when voltage exceeds threshold:
 Propagated asynchronously during ApplySpikeBatch kernel.
 
 **See also:** Axon, Signal Physics, Dense Index  
-**Specs:** 05_signal_physics.md (§5.1), 07_gpu_runtime.md (§7.3)
+**Specs:** 05_signal_physics.md (5.1), 07_gpu_runtime.md (7.3)
 
 ---
 
@@ -602,7 +602,7 @@ Biological process generating new axon connections:
 Triggered during Night Phase plasticity if conditions met.
 
 **See also:** Cone Tracing, Night Phase, Growth (GSOP)  
-**Specs:** 04_connectivity.md (§4.2), 09_baking_pipeline.md (§9.2)
+**Specs:** 04_connectivity.md (4.2), 09_baking_pipeline.md (9.2)
 
 ---
 
@@ -617,37 +617,37 @@ Offset  Field         Type      Purpose
 16+     spike_data    [u32]     Spike soma IDs
 ```
 
-Sent by TelemetryServer to genesis-ide every ~100 ms.
+Sent by TelemetryServer to axicor-ide every ~100 ms.
 
-**See also:** TelemetryServer, Genesis-IDE  
-**Specs:** 08_ide.md (§2.3), 07_gpu_runtime.md (§7.4)
+**See also:** TelemetryServer, Axicor-IDE  
+**Specs:** 08_ide.md (2.3), 07_gpu_runtime.md (7.4)
 
 ---
 
 ### TelemetryServer
 
-WebSocket service (genesis-runtime) publishing:
+WebSocket service (axicor-runtime) publishing:
 - Spike events (every Day Phase)
 - Voltage snapshots (per soma, sampled)
 - Weight distributions (plasticity state)
 
-Consumed by genesis-IDE for real-time visualization.
+Consumed by axicor-IDE for real-time visualization.
 
-**See also:** Genesis-IDE, External I/O, WebSocket  
-**Specs:** 08_ide.md (§2.3), 07_gpu_runtime.md (§7.4)
+**See also:** Axicor-IDE, External I/O, WebSocket  
+**Specs:** 08_ide.md (2.3), 07_gpu_runtime.md (7.4)
 
 ---
 
 ### Tick
 
-Atomic unit of simulation time. One tick ≈ 1 ms biological time.
+Atomic unit of simulation time. One tick  1 ms biological time.
 
 - Day Phase: All 6 CUDA kernels execute within 1 tick (~10 ms wall clock on modern GPU)
 - Night Phase: Plasticity updates between ticks
 - Global: Asynchronously projected via AEP across all zones
 
 **See also:** Day Phase, Night Phase, AEP  
-**Specs:** 05_signal_physics.md (§5.4), 07_gpu_runtime.md (§7.1)
+**Specs:** 05_signal_physics.md (5.4), 07_gpu_runtime.md (7.1)
 
 ---
 
@@ -656,14 +656,14 @@ Atomic unit of simulation time. One tick ≈ 1 ms biological time.
 4th CUDA kernel in Day Phase, integrates neuronal dynamics:
 1. Read soma voltage state (v_soma)
 2. Compute input current from dendritic trees (dendritic integration)
-3. Solve GLIF ODE: `dv/dt = -(v - v_rest) / τ + I_in`
-4. Detect threshold crossing → emit spike
+3. Solve GLIF ODE: `dv/dt = -(v - v_rest) /  + I_in`
+4. Detect threshold crossing  emit spike
 5. Apply refractoriness masking
 
 Core of biophysical simulation.
 
 **See also:** GLIF, Day Phase, Signal Physics  
-**Specs:** 05_signal_physics.md (§5.4), 07_gpu_runtime.md (§7.3)
+**Specs:** 05_signal_physics.md (5.4), 07_gpu_runtime.md (7.3)
 
 ---
 
@@ -680,7 +680,7 @@ Bits    Field       Type        Use
 Stored in VRAM columnar array. Enables atomic GSOP transitions.
 
 **See also:** GSOP, Columnar Layout, PackedPosition  
-**Specs:** 07_gpu_runtime.md (§7.2), 05_signal_physics.md (§5.3)
+**Specs:** 07_gpu_runtime.md (7.2), 05_signal_physics.md (5.3)
 
 ---
 
@@ -694,21 +694,21 @@ Conceptual extension of axon output beyond physical shard boundaries:
 Enables neuron-to-neuron connectivity without explicit memory copy.
 
 **See also:** Ghost Axon, Brain Shard, InjectInputs  
-**Specs:** 06_distributed.md (§6.1), 05_signal_physics.md (§5.5)
+**Specs:** 06_distributed.md (6.1), 05_signal_physics.md (5.5)
 
 ---
 
 ### v_seg (Voltage Segment State)
 
 Per-segment voltage variable representing local dendritic compartment potential:
-- Integrated as: `dv_seg/dt = (v_soma - v_seg) / τ_seg + I_synapse`
+- Integrated as: `dv_seg/dt = (v_soma - v_seg) / _seg + I_synapse`
 - Contributes to soma integration window
 - Enables compartmental model richer than single-compartment LIF
 
-Genesis stores 64 v_seg values per neuron in columnar array.
+Axicor stores 64 v_seg values per neuron in columnar array.
 
 **See also:** Compartmental Model, Dendritic Integration  
-**Specs:** 03_neuron_model.md (§3.2), 05_signal_physics.md (§5.1)
+**Specs:** 03_neuron_model.md (3.2), 05_signal_physics.md (5.1)
 
 ---
 
@@ -718,7 +718,7 @@ Complete GPU memory structure for one shard:
 ```c
 struct VramState {
   PackedPosition* soma_positions;      // X,Y,Z grid coords
-  float* v_soma;                        // Soma voltages (64×N)
+  float* v_soma;                        // Soma voltages (64N)
   VariantParameters* gsop_matrix;       // Synapse GSOP state
   u8* input_bitmask;                    // Current tick inputs
   u64* output_history;                  // Last 8 ticks spikes
@@ -729,7 +729,7 @@ struct VramState {
 Allocated once per shard at runtime initialization.
 
 **See also:** Brain Shard, Columnar Layout, Day Phase  
-**Specs:** 07_gpu_runtime.md (§7.2), 09_baking_pipeline.md (§9.1)
+**Specs:** 07_gpu_runtime.md (7.2), 09_baking_pipeline.md (9.1)
 
 ---
 
@@ -743,7 +743,7 @@ GPU memory access pattern optimization where:
 Critical for >90% peak memory bandwidth utilization.
 
 **See also:** Columnar Layout, SoA, PackedPosition  
-**Specs:** 07_gpu_runtime.md (§7.2), 05_signal_physics.md (§5.5)
+**Specs:** 07_gpu_runtime.md (7.2), 05_signal_physics.md (5.5)
 
 ---
 
@@ -754,10 +754,10 @@ Independently-configurable brain region containing one or more shards:
 - **Connectivity:** Intra-zone via dedicated links; inter-zone via ExternalIoServer
 - **Night Phase Latency:** Per-zone variable sleep window (enables power scaling)
 
-E.g., SensoryCortex (1 zone) → HiddenCortex (1-2 zones) → MotorCortex (1 zone).
+E.g., SensoryCortex (1 zone)  HiddenCortex (1-2 zones)  MotorCortex (1 zone).
 
 **See also:** Brain Shard, Night Phase, Distributed Mode  
-**Specs:** 02_configuration.md (§2.2), 06_distributed.md (§6.1)
+**Specs:** 02_configuration.md (2.2), 06_distributed.md (6.1)
 
 ---
 
@@ -773,10 +773,10 @@ E.g., SensoryCortex (1 zone) → HiddenCortex (1-2 zones) → MotorCortex (1 zon
 
 | F | G | H | I | L |
 |---|---|---|---|---|
-| - | Genesis-Baker | Hodgkin-Huxley | I/O Matrix | LTM/WM Slot |
-| - | Genesis-Core | - | - | - |
-| - | Genesis-IDE | - | - | - |
-| - | Genesis-Runtime | - | - | - |
+| - | Axicor-Baker | Hodgkin-Huxley | I/O Matrix | LTM/WM Slot |
+| - | Axicor-Core | - | - | - |
+| - | Axicor-IDE | - | - | - |
+| - | Axicor-Runtime | - | - | - |
 | - | Ghost Axon | - | - | - |
 | - | Ghost Sync Kernel | - | - | - |
 | - | GLIF | - | - | - |
@@ -819,10 +819,10 @@ E.g., SensoryCortex (1 zone) → HiddenCortex (1-2 zones) → MotorCortex (1 zon
 | **Dense Index** | 05_signal_physics | 07_gpu_runtime |
 | **External I/O** | 08_io_matrix | 08_ide, 07_gpu_runtime |
 | **ExternalIoHeader** | 08_io_matrix | 07_gpu_runtime |
-| **Genesis-Baker** | 09_baking_pipeline | 02_configuration |
-| **Genesis-Core** | 05_signal_physics | project_structure |
-| **Genesis-IDE** | 08_ide | 07_gpu_runtime |
-| **Genesis-Runtime** | 07_gpu_runtime | 05_signal_physics |
+| **Axicor-Baker** | 09_baking_pipeline | 02_configuration |
+| **Axicor-Core** | 05_signal_physics | project_structure |
+| **Axicor-IDE** | 08_ide | 07_gpu_runtime |
+| **Axicor-Runtime** | 07_gpu_runtime | 05_signal_physics |
 | **Ghost Axon** | 06_distributed | 05_signal_physics |
 | **Ghost Sync Kernel** | 05_signal_physics | 07_gpu_runtime |
 | **GLIF** | 03_neuron_model | 05_signal_physics |

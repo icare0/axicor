@@ -1,25 +1,25 @@
 # Connectome Viewer (3D)
 
-| Свойство | Значение |
+|  |  |
 | :--- | :--- |
-| **Домен** | `PluginDomain::Viewport3D` |
-| **Роль** | 3D-инспекция геометрии шардов (сомы, аксоны) без просадок FPS |
+| **** | `PluginDomain::Viewport3D` |
+| **** | 3D-   (, )   FPS |
 
-## 1. ECS Контракт (Данные)
-* **ShardGeometry { viewport: Entity }**: Маркерный компонент, привязывающий загруженные меши к конкретному окну плагина. Используется Garbage Collector'ом для автоматической очистки VRAM при закрытии тайла.
+## 1. ECS  ()
+* **ShardGeometry { viewport: Entity }**:  ,       .  Garbage Collector'    VRAM   .
 
-## 2. Шина Событий (Event API)
+## 2.   (Event API)
 * **Listens to:** `ZoneSelectedEvent`.
 > [!IMPORTANT]
-> Система обязана выполнять **early-exit**, если поле `target_window` в событии не совпадает с `Entity` текущего окна плагина.
+>    **early-exit**,   `target_window`      `Entity`   .
 
-## 3. Особенности Исполнения (Execution Paths)
+## 3.   (Execution Paths)
 
-### Холодный путь (Loading)
-* **Zero-Copy Geometry:** Файл `shard.pos` читается как сырой буфер и мгновенно кастуется в `&[u32]` через `bytemuck::cast_slice`.
-* **Dynamic AABB Centering:** Облако точек анализируется для вычисления центра масс, после чего вся геометрия сдвигается в `Vec3::ZERO` для корректного вращения камеры вокруг объекта.
+###   (Loading)
+* **Zero-Copy Geometry:**  `shard.pos`         `&[u32]`  `bytemuck::cast_slice`.
+* **Dynamic AABB Centering:**       ,       `Vec3::ZERO`      .
 
-### Горячий путь (Interaction)
-* **Изоляция Оптики:** Камера игнорирует глобальные события мыши. Чтение данных идет строго из локального компонента `PluginInput`, спроецированного оконным менеджером на RTT-текстуру.
-* **Scroll Quantization:** Дельта колеса мыши нормализуется через `.signum()` и применяется как логарифмический шаг (15%), предотвращая резкие скачки зума.
-* **WGPU Safe-Start:** Рендер через `Camera` заблокирован (`is_active = false`) до момента подтверждения аллокации VRAM-текстуры оконным менеджером.
+###   (Interaction)
+* ** :**     .        `PluginInput`,     RTT-.
+* **Scroll Quantization:**      `.signum()`      (15%),    .
+* **WGPU Safe-Start:**   `Camera`  (`is_active = false`)     VRAM-  .

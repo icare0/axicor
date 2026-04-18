@@ -1,9 +1,9 @@
 /// Deterministic entity hashing based on `master_seed`.
-/// Algorithm: wyhash (01_foundations.md §2.2)
+/// Algorithm: wyhash (01_foundations.md 2.2)
 ///
 /// Rule: the only entropy entry point is `master_seed`.
 /// No `time(NULL)`, `std::random_device`, or `SystemTime::now()`.
-/// Unified entropy entry point for simulation (§2.1).
+/// Unified entropy entry point for simulation (2.1).
 /// Built from a config string via `seed_from_str`, stored as u64.
 /// All derivative seeds are calculated via `entity_seed(self.0, entity_id)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub const fn seed_from_str(s: &str) -> u64 {
     hash
 }
 
-/// `Local_Seed = Hash(Master_Seed_u64 + Entity_ID)` — §2.2
+/// `Local_Seed = Hash(Master_Seed_u64 + Entity_ID)`  2.2
 ///
 /// Deterministic stateless hash for Entity (WyHash-like 64-bit).
 /// Guarantees O(1) computation of soma properties regardless of generation order.

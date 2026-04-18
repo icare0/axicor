@@ -13,17 +13,17 @@ from pathlib import Path
 
 # Virtual environment activation check
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
-    print("❌ ERROR: Virtual environment not active!")
+    print("[ERROR] ERROR: Virtual environment not active!")
     sys.exit(1)
 
-# Add SDK path ( genesis-client/ ) if script is run directly from the example
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
+# Add SDK path ( axicor-client/ ) if script is run directly from the example
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "axicor-client")))
 
-from genesis.utils import fnv1a_32
-from genesis.client import GenesisMultiClient
-from genesis.contract import GenesisIoContract
-from genesis.control import GenesisControl
-from genesis.memory import GenesisMemory
+from axicor.utils import fnv1a_32
+from axicor.client import AxicorMultiClient
+from axicor.contract import AxicorIoContract
+from axicor.control import AxicorControl
+from axicor.memory import AxicorMemory
 
 #============================================================
 #       CLIENT & ENVIRONMENT SETTINGS
@@ -60,21 +60,21 @@ def sanitize_flygym_xmls():
             
             if modified:
                 xml_file.write_text(content, encoding="utf-8")
-                print(f"🔧 [Self-Healing] Patched XML ({'+'.join(problematic_attrs)}): {xml_file.name}")
+                print(f" [Self-Healing] Patched XML ({'+'.join(problematic_attrs)}): {xml_file.name}")
         except Exception as e:
-            print(f"⚠️ [Self-Healing] Failed to patch {xml_file.name}: {e}")
+            print(f"[WARN] [Self-Healing] Failed to patch {xml_file.name}: {e}")
 
 def run_fly():
     # ============================================================
     # 1. Multi-Port Binding (Zero-Copy Contracts)
     # ============================================================
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/FLY_exp/baked"))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Axicor-Models/FLY_exp/baked"))
 
     # Load 4 contracts
-    c_cx = GenesisIoContract(os.path.join(base_dir, "CX"), "CX")
-    c_an = GenesisIoContract(os.path.join(base_dir, "AN"), "AN")
-    c_vp = GenesisIoContract(os.path.join(base_dir, "VP"), "VP")
-    c_desc = GenesisIoContract(os.path.join(base_dir, "DESCENDING"), "DESCENDING")
+    c_cx = AxicorIoContract(os.path.join(base_dir, "CX"), "CX")
+    c_an = AxicorIoContract(os.path.join(base_dir, "AN"), "AN")
+    c_vp = AxicorIoContract(os.path.join(base_dir, "VP"), "VP")
+    c_desc = AxicorIoContract(os.path.join(base_dir, "DESCENDING"), "DESCENDING")
 
     # Assemble a single matrix array for the UDP multiplexer
     # Assembly order is critical: it determines client.payload_views indices
@@ -86,7 +86,7 @@ def run_fly():
     )
     rx_layout = c_desc.get_client_config(BATCH_SIZE)["rx_layout"]
 
-    client = GenesisMultiClient(
+    client = AxicorMultiClient(
         addr=("127.0.0.1", 8081),
         matrices=matrices,
         rx_layout=rx_layout,
@@ -96,7 +96,7 @@ def run_fly():
     try:
         client.sock.bind(("0.0.0.0", 8092))
     except OSError as e:
-        print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
+        print(f"[ERROR] FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
         sys.exit(1)
 
     # ============================================================
@@ -113,8 +113,8 @@ def run_fly():
     # 3. RL REACTOR (EXPLORATION PHASE)
     # Atomic manifest rewriting for aggressive learning
     # ============================================================
-    print("🧬 Initializing RL Reactor (Phase: EXPLORATION)...")
-    ctrl_desc = GenesisControl(os.path.join(base_dir, "DESCENDING", "manifest.toml"))
+    print(" Initializing RL Reactor (Phase: EXPLORATION)...")
+    ctrl_desc = AxicorControl(os.path.join(base_dir, "DESCENDING", "manifest.toml"))
     # Frequent sleep (every 30k ticks) for rapid consolidation
     ctrl_desc.set_night_interval(30_000)
     # Low pruning threshold (allow neurons to make mistakes and keep weak connections)
@@ -125,13 +125,13 @@ def run_fly():
     # ============================================================
     # 4. Environment and Memory Preallocation
     # ============================================================
-    print("🩹 Launching asset preprocessor...")
+    print(" Launching asset preprocessor...")
     sanitize_flygym_xmls()
 
     from flygym.mujoco import NeuroMechFly
     import mujoco.viewer
 
-    print("🪰 Initializing NeuroMechFly (FlyGym)...")
+    print(" Initializing NeuroMechFly (FlyGym)...")
     env = NeuroMechFly()
     state, _ = env.reset()
     viewer = mujoco.viewer.launch_passive(env.physics.model.ptr, env.physics.data.ptr)
@@ -173,7 +173,7 @@ def run_fly():
     action_buffer = np.zeros(42, dtype=np.float32)
 
     episodes = 0
-    print(f"🚀 Starting Axicor DOD FLY Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
+    print(f" Starting Axicor DOD FLY Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
 
     # ============================================================
     # 4. HFT Hot Loop (Explicit Routing)
@@ -249,7 +249,7 @@ def run_fly():
                 state, reward, terminated, info = step_result
                 truncated = False
         except Exception as e:
-            print(f"💥 Simulation Exploded: {e}")
+            print(f" Simulation Exploded: {e}")
             state, _ = env.reset()
             continue
 

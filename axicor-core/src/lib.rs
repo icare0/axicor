@@ -6,10 +6,10 @@
 //!
 //! ## Module Index
 //!
-//! - `[layout]` — GPU-aligned data structures (`BurstHeads8`, `VariantParameters`).
-//! - `[ipc]` — Cross-platform shared memory and Zero-Copy IPC primitives.
-//! - `[physics]` — Integer GLIF neuron model and GSOP plasticity math.
-//! - `[signal]` — Axon propagation math (branchless, zero-float).
+//! - `[layout]`  GPU-aligned data structures (`BurstHeads8`, `VariantParameters`).
+//! - `[ipc]`  Cross-platform shared memory and Zero-Copy IPC primitives.
+//! - `[physics]`  Integer GLIF neuron model and GSOP plasticity math.
+//! - `[signal]`  Axon propagation math (branchless, zero-float).
 
 #![deny(warnings)]
 #![deny(unused_variables)]

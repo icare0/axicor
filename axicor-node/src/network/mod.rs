@@ -16,7 +16,7 @@ pub mod egress;
 
 // Removed bytemuck imports as they are unused here
 
-// Spike contracts now moved to genesis-core::ipc
+// Spike contracts now moved to axicor-core::ipc
 pub use axicor_core::ipc::{SpikeEvent, SpikeBatchHeader};
 
 #[cfg(test)]

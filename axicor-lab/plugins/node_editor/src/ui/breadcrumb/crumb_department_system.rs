@@ -15,13 +15,13 @@ pub fn draw_department_crumb(
             "Select Dept".to_string()
         } else {
             let mut p = path.clone();
-            // Если мы внутри шарда (shard.toml, io.toml и т.д.)
+            //     (shard.toml, io.toml  ..)
             if path_str.contains("shard.toml") || path_str.contains("blueprints.toml") || path_str.contains("io.toml") || path_str.contains("anatomy.toml") {
-                p.pop(); // к папке Shard_M
-                p.pop(); // к папке Zone_N
+                p.pop(); //   Shard_M
+                p.pop(); //   Zone_N
                 p.file_name().map_or("brain".to_string(), |n| n.to_string_lossy().into_owned())
             } else {
-                // Если мы в файле самого департамента (Zone_N.toml)
+                //       (Zone_N.toml)
                 path.file_name().map_or("brain".to_string(), |n| n.to_string_lossy().replace(".toml", ""))
             }
         }
@@ -33,7 +33,7 @@ pub fn draw_department_crumb(
     let color = if is_active { Color32::WHITE } else { Color32::GRAY };
 
     if ui.button(egui::RichText::new(&dept_label).strong().color(color)).clicked() && dept_label != "Select Dept" {
-        let path = std::path::PathBuf::from("Genesis-Models").join(&active_proj).join(format!("{}.toml", dept_label));
+        let path = std::path::PathBuf::from("Axicor-Models").join(&active_proj).join(format!("{}.toml", dept_label));
         send_open(path);
     }
 }

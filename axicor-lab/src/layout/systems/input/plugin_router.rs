@@ -18,14 +18,14 @@ pub fn route_plugin_inputs_system(
 
         let is_hovered = pointer_pos.is_some_and(|p| rect.contains(p));
 
-        // Кнопки: если hovered — прямой статус; если нет — только если уже были зажаты
-        // (drag-out: зажал внутри, вытянул наружу — кнопка остаётся активной)
+        // :  hovered   ;        
+        // (drag-out:  ,      )
         input.is_primary_pressed   = pointer.primary_down()   && (is_hovered || input.is_primary_pressed);
         input.is_secondary_pressed = pointer.secondary_down() && (is_hovered || input.is_secondary_pressed);
         input.is_middle_pressed    = pointer.middle_down()    && (is_hovered || input.is_middle_pressed);
 
         if is_hovered {
-            let pos = pointer_pos.unwrap(); // safe: is_hovered гарантирует Some
+            let pos = pointer_pos.unwrap(); // safe: is_hovered  Some
             input.local_cursor = Vec2::new(pos.x - rect.min.x, pos.y - rect.min.y);
             input.cursor_delta = Vec2::new(pointer.delta().x, pointer.delta().y);
             input.scroll_delta = scroll;

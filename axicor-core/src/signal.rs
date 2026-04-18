@@ -1,18 +1,18 @@
-/// Signal Physics: "Active Tail" (Spec 01 §1.3).
+/// Signal Physics: "Active Tail" (Spec 01 1.3).
 ///
 /// A signal is a "train" sliding over axon segments.
 /// `axon_head` starts at `AXON_SENTINEL - length * V_SEG` and increments by `V_SEG` each tick.
-/// When `axon_head.wrapping_sub(segment_idx) < propagation_length` — the segment "lights up".
+/// When `axon_head.wrapping_sub(segment_idx) < propagation_length`  the segment "lights up".
 ///
 /// Integer arithmetic with u32 overflow guarantees determinism on GPU without floats.
 use crate::constants::{AXON_SENTINEL, V_SEG};
 use crate::types::AxonHead;
 
-/// Branchless Active Tail check for GPU Hot Loop (Spec 03 §1.3).
+/// Branchless Active Tail check for GPU Hot Loop (Spec 03 1.3).
 ///
 /// Checks if a dendritic segment falls within the signal's active tail.
-/// No branching — AXON_SENTINEL (0x80000000) is handled automatically:
-/// `0x80000000.wrapping_sub(any_small_idx)` ≈ 2.1B > any propagation_length.
+/// No branching  AXON_SENTINEL (0x80000000) is handled automatically:
+/// `0x80000000.wrapping_sub(any_small_idx)`  2.1B > any propagation_length.
 ///
 /// # Guarantees
 /// - Zero Warp Divergence on GPU (no `if`)
@@ -28,9 +28,9 @@ pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_leng
 /// Checks if segment `segment_idx` is in the "active tail" for the current tick.
 ///
 /// # Arguments
-/// - `axon_head` — current axon head position (u32, wrapping)
-/// - `segment_idx` — index of the segment being checked
-/// - `propagation_length` — tail length in segments (`signal_propagation_length` from blueprints)
+/// - `axon_head`  current axon head position (u32, wrapping)
+/// - `segment_idx`  index of the segment being checked
+/// - `propagation_length`  tail length in segments (`signal_propagation_length` from blueprints)
 ///
 /// # Returns
 /// `true` if the segment is within the active tail `[head - propagation_length, head]`.
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_sentinel_edge_case() {
-        // AXON_SENTINEL (0x80000000) - 5 = 0x7FFFFFFB ≈ 2.1 billion -> always >= prop
+        // AXON_SENTINEL (0x80000000) - 5 = 0x7FFFFFFB  2.1 billion -> always >= prop
         assert!(!is_in_active_tail(AXON_SENTINEL, 5, 3));
         assert!(!is_in_active_tail(AXON_SENTINEL, 0, 255));
         assert!(!is_in_active_tail(AXON_SENTINEL, 1000, 100));

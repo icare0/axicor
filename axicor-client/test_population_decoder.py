@@ -1,5 +1,5 @@
 import numpy as np
-from genesis.decoders import PopulationDecoder
+from axicor.decoders import PopulationDecoder
 
 class PopulationEncoder:
     """Simple encoder for testing: activates the nearest neuron."""
@@ -60,7 +60,7 @@ def test_population_decoder():
     assert np.allclose(decoded_partial[0], 0.3, atol=0.06)
     assert decoded_partial[1] == 0.5, "Silent variable should default to 0.5"
 
-    print("✅ PopulationDecoder tests passed!")
+    print("[OK] PopulationDecoder tests passed!")
 
 if __name__ == "__main__":
     test_population_decoder()

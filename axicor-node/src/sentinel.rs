@@ -3,11 +3,11 @@ use axicor_compute::memory::VramState;
 use axicor_core::constants::AXON_SENTINEL;
 
 /// Cleanup interval: 1_800_000_000 ticks = 180,000 seconds = 50 hours (at 100us tick).
-/// Sentinel overflows after 2^31 ticks ≈ 59.6 hours. 50 hours provides a conservative margin.
+/// Sentinel overflows after 2^31 ticks  59.6 hours. 50 hours provides a conservative margin.
 pub const SENTINEL_REFRESH_INTERVAL_TICKS: u64 = 1_800_000_000;
 
 /// Overflow tolerance at which axon is considered 'dead' and reset.
-/// 0x80000000 + 1_800_000_000 ≈ 0xEB9F_B000.
+/// 0x80000000 + 1_800_000_000  0xEB9F_B000.
 /// We reset everything greater than 0xE000_0000.
 pub const SENTINEL_OVERFLOW_THRESHOLD: u32 = 0xE000_0000;
 

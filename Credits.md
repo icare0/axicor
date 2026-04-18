@@ -4,7 +4,7 @@ The **GNM-Library** neuron type parameters were derived from the following publi
 
 ---
 
-### 🧠 Allen Cell Types Database
+### [BRAIN] Allen Cell Types Database
 **Provider:** Allen Institute for Brain Science  
 **URL:** [celltypes.brain-map.org](https://celltypes.brain-map.org)  
 **Data used:** Electrophysiology (ephys) recordings and morphological reconstructions (SWC) of neocortical neurons from *Homo sapiens* and *Mus musculus*.  
@@ -16,7 +16,7 @@ The **GNM-Library** neuron type parameters were derived from the following publi
 
 ---
 
-### 🧬 NeuroMorpho.Org
+### [GENE] NeuroMorpho.Org
 **Provider:** George Mason University  
 **URL:** [neuromorpho.org](https://neuromorpho.org)  
 **Data used:** Morphological reconstructions (SWC format) for subcortical structures including hippocampus, thalamus, cerebellum, and striatum. Used to approximate axon length, dendritic radius, and branching parameters.  
@@ -30,12 +30,12 @@ The **GNM-Library** neuron type parameters were derived from the following publi
 
 ---
 
-### 🔬 Note on Heuristic Constants
+### [META] Note on Heuristic Constants
 Biophysical reference values used in approximation formulas (resting potentials, time constants, firing thresholds for specific cell classes such as Purkinje cells and Medium Spiny Neurons) are derived from general neuroscience literature. Factual biophysical constants published in scientific papers are generally not subject to copyright protection.
 
 ---
 
-### 🛠️ How Source Data Was Used
+### [TOOLS] How Source Data Was Used
 Source data was used exclusively during the library generation process (offline, locally). The generation scripts consumed raw JSON/CSV exports from the databases listed above and produced the `.toml` parameter files in this library. 
 
 **No raw database files, SWC reconstructions, or original recordings are included in this repository or any distribution of Axicor Engine.**

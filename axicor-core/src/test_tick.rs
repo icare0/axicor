@@ -3,7 +3,7 @@
 use crate::config::blueprints::NeuronType;
 use crate::constants::{AXON_SENTINEL, V_SEG};
 
-/// PropagateAxons kernel emulator (Spec §1.6)
+/// PropagateAxons kernel emulator (Spec 1.6)
 fn emulate_propagate_axons(heads: &mut [u32], v_seg: u32) {
     for head in heads.iter_mut() {
         if *head != AXON_SENTINEL {
@@ -29,7 +29,7 @@ struct DendriteState {
     pub timer: u8,
 }
 
-/// UpdateNeurons kernel emulator (Spec §1.5)
+/// UpdateNeurons kernel emulator (Spec 1.5)
 /// Simplified to work with a single soma and its list of dendrites for testing
 fn emulate_update_neuron(
     soma: &mut SomaState,
@@ -78,7 +78,7 @@ fn emulate_update_neuron(
 
         println!("DEBUG: checking slot. head={}, seg={}, dist={}, p_len={}", head, seg_idx, dist, p.signal_propagation_length);
 
-        // Invariant §1.6 (exclusive, synced with CUDA in this iteration)
+        // Invariant 1.6 (exclusive, synced with CUDA in this iteration)
         if dist < p.signal_propagation_length as u32 {
             // sign baked in
             v += d.weight as i32;

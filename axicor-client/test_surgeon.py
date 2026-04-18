@@ -2,13 +2,13 @@ import numpy as np
 import os
 import sys
 
-# Add genesis-client to path
+# Add axicor-client to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
-from genesis import GenesisMemory, GenesisSurgeon
+from axicor import AxicorMemory, AxicorSurgeon
 
 def test_surgeon():
-    print("--- Testing GenesisSurgeon ---")
+    print("--- Testing AxicorSurgeon ---")
     
     # 1. Setup mock memory shards
     shard_path = "/dev/shm/genesis_shard_test"
@@ -28,8 +28,8 @@ def test_surgeon():
     zone_hash = int(shards[0].split("_")[-1], 16)
     print(f"Testing on shard: {shards[0]} (Hash: {zone_hash:08X})")
     
-    memory = GenesisMemory(zone_hash)
-    surgeon = GenesisSurgeon(memory)
+    memory = AxicorMemory(zone_hash)
+    surgeon = AxicorSurgeon(memory)
     
     # 1. Test GABA incubation
     print("Testing incubate_gaba...")

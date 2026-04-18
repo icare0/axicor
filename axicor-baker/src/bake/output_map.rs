@@ -1,7 +1,7 @@
-// genesis-baker/src/bake/output_map.rs
+// axicor-baker/src/bake/output_map.rs
 //
 // Phase B: Readout Interface (GXO)
-// Specification: 08_io_matrix.md §3.1 / 09_baking_pipeline.md §2.2
+// Specification: 08_io_matrix.md 3.1 / 09_baking_pipeline.md 2.2
 
 use axicor_core::hash::fnv1a_32;
 use axicor_core::ipc::EMPTY_PIXEL;

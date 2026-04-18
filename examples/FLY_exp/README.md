@@ -1,43 +1,43 @@
-<h1 style="color: red;"> НЕ ЗАВЕРШЕНО </h1>
+<h1 style="color: red;">   </h1>
 
-# 🤖 Genesis HFT: FLY_exp Example
+#  Genesis HFT: FLY_exp Example
 
-## 🚀 Как запустить (Zero-Magic Pipeline)
+##    (Zero-Magic Pipeline)
 
-**Шаг 0. Активируйте виртуальное окружение**
+** 0.   **
 ```bash
 source .venv/bin/activate
 ```
 
-**Шаг 1. Сгенерируйте и запеките мозг (One-Click Build)**
-Скрипт сгенерирует TOML-топологию через Python SDK и автоматически вызовет Rust-компилятор (`genesis-baker`), чтобы нарезать бинарные VRAM-дампы.
+** 1.     (One-Click Build)**
+  TOML-  Python SDK    Rust- (`genesis-baker`),    VRAM-.
 ```bash
 python3 examples/FLY_exp/build_brain.py
 ```
 
-**Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
-Оркестратор мгновенно загрузит VRAM-дампы (Zero-Copy) и заблокируется на барьере ожидания данных от среды.
+** 2.  HFT-  GPU (Dual-Backend)**
+   VRAM- (Zero-Copy)        .
 
-# Для CPU
+#  CPU
 ```bash
-cargo run --release -p genesis-node -- Genesis-Models/FLY_exp.axic --cpu --log
+cargo run --release -p genesis-node -- Axicor-Models/FLY_exp.axic --cpu --log
 ```
 
-# Для NVIDIA (CUDA)
+#  NVIDIA (CUDA)
 ```bash
-cargo run --release -p genesis-node -- Genesis-Models/FLY_exp.axic --cpu-profile balanced --log
+cargo run --release -p genesis-node -- Axicor-Models/FLY_exp.axic --cpu-profile balanced --log
 ```
 
-# Для AMD (ROCm / HIP)
+#  AMD (ROCm / HIP)
 ```bash
-cargo run --release -p genesis-node --features amd -- Genesis-Models/FLY_exp.axic --cpu-profile balanced --log
+cargo run --release -p genesis-node --features amd -- Axicor-Models/FLY_exp.axic --cpu-profile balanced --log
 ```
 
-**Шаг 3. Подключите среду (RL Agent)**
-В новом терминале запустите Python-шлюз. Он начнет слать состояния маятника в виде битовых масок и обучать сеть инъекциями дофамина (-255) при падении и вознаграждать не линейно при успехе.
+** 3.   (RL Agent)**
+    Python-.               (-255)        .
 
 ```bash
 python3 examples/FLY_exp/agent.py
 ```
 
-Смотрите на логи Питона. Вы увидите, как сеть сама выжигает слабые связи и стабилизирует рефлекс.
+   .  ,         .

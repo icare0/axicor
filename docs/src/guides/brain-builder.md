@@ -19,10 +19,10 @@ Instead, we use the **"Brain DNA"** pattern. Using the Python `BrainBuilder` cla
 When operating in a High-Frequency Trading (HFT) loop (100+ Hz) with environments like Gymnasium, baseline plasticity from the biological library will destroy the weights. We must suppress background growth and switch the network into **Reward-Gated Plasticity** mode (growth only upon dopamine injection).
 
 ```python
-from genesis.builder import BrainBuilder
+from axicor.builder import BrainBuilder
 
 # 1. Initialize the architect
-builder = BrainBuilder(project_name="HftAgent", output_dir="Genesis-Models/")
+builder = BrainBuilder(project_name="HftAgent", output_dir="Axicor-Models/")
 
 # Fine-tune physics for the HFT loop (1 ms barrier)
 builder.sim_params["sync_batch_ticks"] = 10

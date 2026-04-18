@@ -1,52 +1,52 @@
-# Архитектура и Структура Плагинов (Axicor Lab)
+#     (Axicor Lab)
 
-**Домен:** Все крейты внутри `axicor-lab/plugins/*`
-**Статус:** Железобетонный инвариант. Нарушение правил ниже ведет к отклонению PR без ревью.
+**:**    `axicor-lab/plugins/*`
+**:**  .       PR  .
 
-Axicor Lab — это не типичное UI-приложение. Это хардкорный оконный менеджер (WM), интегрированный в Bevy ECS. Архитектура построена на Data-Oriented Design (DOD) и абсолютной изоляции. Оконный менеджер (`layout-api`) — это диктатор, плагины — его изолированные песочницы.
+Axicor Lab     UI-.     (WM),   Bevy ECS.    Data-Oriented Design (DOD)   .   (`layout-api`)   ,     .
 
-## 1. Фундаментальные законы плагинов
+## 1.   
 
-| Закон | Описание |
+|  |  |
 | :--- | :--- |
-| **Cross-Plugin Blackboard** | Плагинам запрещено знать о структурах друг друга. Для межплагинового взаимодействия (например, Drag-and-Drop провода из `io_inspector` в `shard_cad`) используется оперативная память `egui` (`ui.memory_mut(|m| m.data.insert_temp(...))`) как глобальный DTO-блэкборд. |
-| **Реестр Плагинов (SSoT)** | Список доступных плагинов, их домены и человекочитаемые имена хранятся СТРОГО в одном месте: `layout_api::AVAILABLE_PLUGINS`. UI-селекторы обязаны читать этот срез, хардкод доменов в UI запрещен. |
-| **RTT-Изоляция** | Плагины **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** рисовать напрямую в экран ОС. Каждый плагин рендерит свой мировую камеру в выделенный VRAM-буфер (`Handle<Image>`), который WM натягивает на тайл `egui`. |
-| **Слепые Инпуты** | Плагин не имеет доступа к глобальным устройствам ввода (`Res<Input<MouseButton>>`). Инпуты проецируются оконным менеджером в локальный компонент `PluginInput` относительно координат окна. |
-| **Сборка мусора (GC)** | Жизнь плагина жестко привязана к его тайлу в `egui_tiles`. При закрытии окна WM вызывает `despawn_recursive()` для корня плагина, мгновенно очищая меши, камеры и VRAM-текстуры. |
-| **Адресная шина событий** | Общение между плагинами идет только через глобальный `EventWriter/Reader`. Каждое событие-намерение (*Intent*) обязано содержать поле `target_window: Entity` для исключения слепого бродкаста. |
-| **Sandbox Overlay FS** | Плагины **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** писать напрямую в холодные файлы проекта. Вся работа идёт строго в RAM (`ProjectSession`). Запись на диск — только через WM в песочницу (`.Sandbox/.tmp.autosave/`). Перенос в холодные файлы — исключительно по явной команде Compile. |
+| **Cross-Plugin Blackboard** |       .    (, Drag-and-Drop   `io_inspector`  `shard_cad`)    `egui` (`ui.memory_mut(|m| m.data.insert_temp(...))`)   DTO-. |
+| **  (SSoT)** |   ,          : `layout_api::AVAILABLE_PLUGINS`. UI-    ,    UI . |
+| **RTT-** |  ** **     .         VRAM- (`Handle<Image>`),  WM    `egui`. |
+| ** ** |         (`Res<Input<MouseButton>>`).        `PluginInput`   . |
+| **  (GC)** |         `egui_tiles`.    WM  `despawn_recursive()`   ,   ,   VRAM-. |
+| **  ** |        `EventWriter/Reader`.  - (*Intent*)    `target_window: Entity`    . |
+| **Sandbox Overlay FS** |  ** **      .      RAM (`ProjectSession`).       WM   (`.Sandbox/.tmp.autosave/`).          Compile. |
 
-## 2. Анатомия плагина (Физическая структура)
+## 2.   ( )
 
-Код нарезается строго по паттернам доступа к памяти (Hardware Sympathy). Монолитные файлы запрещены.
+        (Hardware Sympathy).   .
 
-*   **src/lib.rs (Сборка)**: Только точка входа. Регистрация систем (`app.add_systems`), ресурсов и событий. Бизнес-логика здесь запрещена.
-*   **src/domain.rs (Данные)**: Чистые DOD-данные. Структуры компонентов, ресурсов и событий. Методы `impl` разрешены только для простых геттеров.
-*   **src/systems/ (Логика)**: Разрезана по частоте исполнения:
-    *   `camera.rs`: Управление RTT-камерой и параметрами проекции.
-    *   `geometry.rs` (**Холодный путь**): Тяжелые разовые операции. Чтение VFS, десериализация, сборка 3D-мешей.
-    *   `interaction.rs` (**Горячий путь**): Высокочастотный HFT-код (инпуты, raycasting). Работает каждый кадр, оптимизирован под кэш L1.
-    *   `render.rs`: Финальный слой передачи текстуры из VRAM в UI-контейнер `egui`.
+*   **src/lib.rs ()**:   .   (`app.add_systems`),   . -  .
+*   **src/domain.rs ()**:  DOD-.  ,   .  `impl`     .
+*   **src/systems/ ()**:    :
+    *   `camera.rs`:  RTT-   .
+    *   `geometry.rs` (** **):   .  VFS, ,  3D-.
+    *   `interaction.rs` (** **):  HFT- (, raycasting).   ,    L1.
+    *   `render.rs`:      VRAM  UI- `egui`.
 
-### 2.1. Разделение по частоте вызовов (Частотный Инвариант систем)
-Для предотвращения деградации производительности горячих циклов (Hot Path) и раздувания файлов, плагины обязаны строго соблюдать следующее правило разбиения систем:
-*   **Событийные и I/O системы (Cold Path):** Любая логика, обрабатывающая сохранение, загрузку (VFS), парсинг TOML/JSON, или сложные многошаговые мутации графа, **ОБЯЗАНА** выноситься в отдельные файлы (например, `systems/io.rs`, `systems/sync.rs`).
-*   **Если система разрастается:** Если подмеханики системы становятся слишком большими, система получает собственную директорию (например, `systems/io/mod.rs` с подмодулями `systems/io/save.rs`, `systems/io/compile.rs`).
-*   **`interaction.rs` строго для Hot Path:** Файл `interaction.rs` должен содержать **ТОЛЬКО** высокочастотный код: обработку мыши, инпутов, рейкастинг и генерацию UI-состояний. Смешивание I/O операций и обработки инпутов в одном файле категорически запрещено.
+### 2.1.     (  )
+      (Hot Path)   ,        :
+*   **  I/O  (Cold Path):**  ,  ,  (VFS),  TOML/JSON,     , ****     (, `systems/io.rs`, `systems/sync.rs`).
+*   **  :**      ,     (, `systems/io/mod.rs`   `systems/io/save.rs`, `systems/io/compile.rs`).
+*   **`interaction.rs`   Hot Path:**  `interaction.rs`   ****  :  , ,    UI-.  I/O         .
 
-## 3. Строгие ECS-Контракты (DOD-инварианты)
+## 3.  ECS- (DOD-)
 
-1.  **Изоляция стейта**: Категорический запрет на использование глобальных ресурсов (`ResMut<T>`) для локального состояния. Состояние плагина (выбор, зум, фильтры) живет только в компонентах, привязанных к `Entity` окна. Это позволяет запускать N копий одного плагина без конфликтов.
-2.  **Плоская память (Hot Path)**: Компоненты, обновляемые в `Update`, обязаны реализовывать `#[derive(Copy, Clone)]`. Любые heap-аллокации (`String`, `Vec`, `Box`) внутри систем, работающих каждый кадр, считаются критической ошибкой.
-3.  **Ранний выход (Early-Exit)**: Системы обязаны фильтровать события за O(1). Если `target_window` ивента не совпадает с `Entity` текущего окна — система делает `continue`. Никаких слепых бродкастов, заставляющих все окна обрабатывать один и тот же ивент.
-4.  **Запрет замыканий в UI (No Closures):** Категорически запрещено прокидывать `EventWriter` в функции рендера UI (`ui/`). UI-функции возвращают только плоские сигналы (bool, enum). ECS-системы в `systems/` читают эти сигналы на верхнем уровне и сами отправляют Intent-события.
-5. **Изоляция модальных окон (Z-Index Bleed Protection):** Внутри плагинов КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать `egui::Window`, так как оно ломает границы тайлов (вылезая за них вектором тени) и лезет в глобальный Root. Все модальные окна рисуются строго через `egui::Area` + `egui::Frame::none()` с обязательным вызовом `ui.set_clip_rect(window_rect)`. Логика модалок живет в выделенных ECS-системах (например, `systems/modals.rs`).
-6. **Монолитная маршрутизация CRUD-операций (DTO-Роутеры):** Категорически запрещено плодить файлы и ECS-системы под каждую узкую сущность (например, `create_shard_system`, `create_io_system`). Вместо этого используется единый транспортный DTO (например, `CreateTarget`, `DeleteTarget`) и строго один файл-хирург (например, `create_entity_system.rs`). Система перехватывает Intent и маршрутизирует логику по изолированным чистым функциям. Это защищает оркестратор от комбинаторного взрыва систем и дублирования кода.
-7. **Z-Index Bleed и Focus Theft (Кража фокуса ввода):** Плагины рендерятся внутри `egui::Area` на слое `Order::Middle`, занимая 100% тайла. Системные оверлеи WM (сплиттеры, якоря DND) обязаны рисоваться на слое `Order::Tooltip` или `Order::Foreground`. 
-8. **Абсолютный Hit-Test для WM:** Оконный менеджер не должен использовать стандартный `ui.interact()` для системных триггеров, наложенных поверх плагинов (из-за перехвата фокуса). WM обязан читать сырые координаты мыши (`ui.ctx().input(|i| i.pointer.latest_pos())`) и проверять их через `rect.contains(p)`. Для гарантии рендера без отсечения масками (clipping) используется прямой доступ к VRAM экрана: `ui.ctx().layer_painter(...)`.
+1.  ** **:       (`ResMut<T>`)   .   (, , )    ,   `Entity` .    N     .
+2.  **  (Hot Path)**: ,   `Update`,   `#[derive(Copy, Clone)]`.  heap- (`String`, `Vec`, `Box`)  ,   ,   .
+3.  **  (Early-Exit)**:      O(1).  `target_window`     `Entity`      `continue`.   ,         .
+4.  **   UI (No Closures):**    `EventWriter`    UI (`ui/`). UI-     (bool, enum). ECS-  `systems/`          Intent-.
+5. **   (Z-Index Bleed Protection):**      `egui::Window`,       (    )     Root.       `egui::Area` + `egui::Frame::none()`    `ui.set_clip_rect(window_rect)`.      ECS- (, `systems/modals.rs`).
+6. **  CRUD- (DTO-):**      ECS-     (, `create_shard_system`, `create_io_system`).      DTO (, `CreateTarget`, `DeleteTarget`)    - (, `create_entity_system.rs`).   Intent       .          .
+7. **Z-Index Bleed  Focus Theft (  ):**    `egui::Area`   `Order::Middle`,  100% .   WM (,  DND)     `Order::Tooltip`  `Order::Foreground`. 
+8. ** Hit-Test  WM:**       `ui.interact()`   ,    (-  ). WM      (`ui.ctx().input(|i| i.pointer.latest_pos())`)     `rect.contains(p)`.       (clipping)     VRAM : `ui.ctx().layer_painter(...)`.
 
-## 4. Эталонный пример контракта
+## 4.   
 
 ```rust
 // domain.rs
@@ -59,7 +59,7 @@ pub struct ViewportHotState {
 #[derive(Event)]
 pub struct ZoneSelectedEvent {
     pub zone_hash: u32,
-    pub target_window: Entity, // Жёсткая адресация
+    pub target_window: Entity, //  
 }
 
 // systems/interaction.rs
@@ -68,7 +68,7 @@ pub fn handle_zone_selection(
     mut query: Query<(&PluginWindow, &mut ViewportHotState)>,
 ) {
     for ev in events.read() {
-        // Early-exit без аллокаций: фильтруем чужие ивенты
+        // Early-exit  :   
         let Ok((_window, mut state)) = query.get_mut(ev.target_window) else {
             continue;
         };
@@ -79,95 +79,95 @@ pub fn handle_zone_selection(
 }
 ```
 
-## 5. Sandbox Overlay FS (Конвейер персистенции)
+## 5. Sandbox Overlay FS ( )
 
-> **КРИТИЧЕСКИЙ ИНВАРИАНТ.** Нарушение этого конвейера — самая частая причина багов: данные теряются, перезаписываются при перезагрузке или не доходят до холодных файлов.
+> ** .**        :  ,         .
 
-### 5.1. Три слоя данных
+### 5.1.   
 
-| Слой | Где живёт | Кто пишет | Когда |
+|  |   |   |  |
 |:---|:---|:---|:---|
-| **RAM** | `ProjectSession` (поля `zones`, `connections`, `node_inputs/outputs`, `shard_anatomies`, ...) | Плагин (`mutations.rs`) или WM (`create_entity_system`) | Каждый кадр при UI-взаимодействии |
-| **Sandbox (горячий диск)** | `{project}/.Sandbox/.tmp.autosave/{relative_path}` | **Только WM** через `wm_file_ops::save_document()` | При каждой мутации (автосохранение) |
-| **Cold Files (исходники)** | `{project}/{relative_path}` (оригинальные `.toml`) | **Только Compile** | По явной команде пользователя |
+| **RAM** | `ProjectSession` ( `zones`, `connections`, `node_inputs/outputs`, `shard_anatomies`, ...) |  (`mutations.rs`)  WM (`create_entity_system`) |    UI- |
+| **Sandbox ( )** | `{project}/.Sandbox/.tmp.autosave/{relative_path}` | ** WM**  `wm_file_ops::save_document()` |    () |
+| **Cold Files ()** | `{project}/{relative_path}` ( `.toml`) | ** Compile** |     |
 
-### 5.2. Полный Data Flow
+### 5.2.  Data Flow
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│           1. UI ACTION (click, DND, rename, delete)              │
-│                    → TopologyMutation event                      │
-└──────────────────────────┬───────────────────────────────────────┘
-                           │
-           ┌───────────────┴────────────────┐
-           ▼                                ▼
-┌──────────────────────┐       ┌──────────────────────────────┐
-│ mutations.rs (NE)    │       │ create/delete_entity (WM)    │
-│ Мутация RAM:         │       │ Мутация RAM + DISK:          │
-│ session.zones,       │       │ 1. RAM (session.*)           │
-│ connections, etc.    │       │ 2. wm_file_ops →             │
-│ is_dirty = true      │       │    resolve_sandbox_path() →  │
-└──────────────────────┘       │    .Sandbox/.tmp.autosave/   │
-                               └──────────────────────────────┘
-           │                                │
-           ▼                                ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ 2. ЧТЕНИЕ: overlay_read_to_string(cold_path)                         │
-│    Sandbox существует? → читаем sandbox. Нет? → читаем cold.         │
-│    Гарантирует что все системы видят актуальные данные.              │
-└──────────────────────────────────────────────────────────────────────┘
-                           │
-                           ▼ Пользователь нажимает [⚙ Compile]
-┌──────────────────────────────────────────────────────────────────────┐
-│ 3. COMPILE (транзакционный коммит)                                   │
-│    3.0  rm -rf .tmp.old_backup                                       │
-│    3.1  mv .tmp.last_backup → .tmp.old_backup   (ротация бэкапов)    │
-│    3.2  cp -r .tmp.autosave/* → cold files       (apply overlay)     │
-│    3.3  mv .tmp.autosave → .tmp.last_backup      (очистка sandbox)   │
-│    3.4  session.is_dirty = false                                     │
-└──────────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|           1. UI ACTION (click, DND, rename, delete)              |
+|                     TopologyMutation event                      |
++--------------------------+---------------------------------------+
+                           |
+           +---------------+----------------+
+                                           
++----------------------+       +------------------------------+
+| mutations.rs (NE)    |       | create/delete_entity (WM)    |
+|  RAM:         |       |  RAM + DISK:          |
+| session.zones,       |       | 1. RAM (session.*)           |
+| connections, etc.    |       | 2. wm_file_ops              |
+| is_dirty = true      |       |    resolve_sandbox_path()   |
++----------------------+       |    .Sandbox/.tmp.autosave/   |
+                               +------------------------------+
+           |                                |
+                                           
++----------------------------------------------------------------------+
+| 2. : overlay_read_to_string(cold_path)                         |
+|    Sandbox ?   sandbox. ?   cold.         |
+|          .              |
++----------------------------------------------------------------------+
+                           |
+                              [ Compile]
++----------------------------------------------------------------------+
+| 3. COMPILE ( )                                   |
+|    3.0  rm -rf .tmp.old_backup                                       |
+|    3.1  mv .tmp.last_backup  .tmp.old_backup   ( )    |
+|    3.2  cp -r .tmp.autosave/*  cold files       (apply overlay)     |
+|    3.3  mv .tmp.autosave  .tmp.last_backup      ( sandbox)   |
+|    3.4  session.is_dirty = false                                     |
++----------------------------------------------------------------------+
 ```
 
 ### 5.3. API (layout-api)
 
-| Функция | Назначение |
+|  |  |
 |:---|:---|
-| `resolve_sandbox_path(cold_path)` | `{base}/.Sandbox/.tmp.autosave/{relative}` — адрес файла в песочнице |
-| `overlay_read_to_string(cold_path)` | Чтение с приоритетом sandbox, fallback на cold |
+| `resolve_sandbox_path(cold_path)` | `{base}/.Sandbox/.tmp.autosave/{relative}`      |
+| `overlay_read_to_string(cold_path)` |    sandbox, fallback  cold |
 | `wm_file_ops::load_document(path)` | `overlay_read_to_string` + `parse::<DocumentMut>` |
-| `wm_file_ops::save_document(path, doc)` | `resolve_sandbox_path` + `fs::write` в sandbox |
+| `wm_file_ops::save_document(path, doc)` | `resolve_sandbox_path` + `fs::write`  sandbox |
 
-### 5.4. Структура директорий
+### 5.4.  
 
 ```
-Genesis-Models/MyProject/
-├── simulation.toml              ← COLD (исходник)
-├── Zone_0.toml                  ← COLD
-├── Zone_0/
-│   └── Shard_0/
-│       ├── shard.toml           ← COLD
-│       ├── anatomy.toml         ← COLD
-│       └── io.toml              ← COLD
-└── .Sandbox/
-    ├── .tmp.autosave/           ← ГОРЯЧАЯ ПЕСОЧНИЦА (overlay)
-    │   ├── simulation.toml      ← Изменённая версия
-    │   └── Zone_0/Shard_0/
-    │       └── io.toml           ← Только файлы с мутациями
-    ├── .tmp.last_backup/        ← Предыдущий коммит
-    └── .tmp.old_backup/         ← Позапрошлый коммит
+Axicor-Models/MyProject/
++-- simulation.toml               COLD ()
++-- Zone_0.toml                   COLD
++-- Zone_0/
+|   +-- Shard_0/
+|       +-- shard.toml            COLD
+|       +-- anatomy.toml          COLD
+|       +-- io.toml               COLD
++-- .Sandbox/
+    +-- .tmp.autosave/              (overlay)
+    |   +-- simulation.toml        
+    |   +-- Zone_0/Shard_0/
+    |       +-- io.toml               
+    +-- .tmp.last_backup/          
+    +-- .tmp.old_backup/           
 ```
 
-### 5.5. Запрещённые паттерны
+### 5.5.  
 
-| ❌ Запрещено | ✅ Правильно |
+| [ERROR]  | [OK]  |
 |:---|:---|
-| `fs::write("simulation.toml", ...)` в плагине | `wm_file_ops::save_document()` через WM |
-| `fs::read_to_string(path)` для чтения конфигов | `overlay_read_to_string(path)` |
-| Прямая мутация TOML в UI-функциях | `TopologyMutation` → WM-система → `save_document` |
-| Вызов `compile` автоматически при `is_dirty` | Compile — **только** по явной команде пользователя |
+| `fs::write("simulation.toml", ...)`   | `wm_file_ops::save_document()`  WM |
+| `fs::read_to_string(path)`    | `overlay_read_to_string(path)` |
+|   TOML  UI- | `TopologyMutation`  WM-  `save_document` |
+|  `compile`   `is_dirty` | Compile  ****     |
 
-## 6. Multi-Workspace Layout (Оконный менеджер)
+## 6. Multi-Workspace Layout ( )
 
-Вместо хардкода топологии, WM оперирует концепцией динамических вкладок (Workspaces).
-* **RAM Роутер:** `WorkspaceState` хранит `HashMap<String, egui_tiles::Tree>` и вектор порядка вкладок. Каждый кадр отрисовывается ТОЛЬКО активное дерево. Плагины в неактивных деревьях автоматически скрываются (`is_visible = false`).
-* **Data-Driven Persistence:** Загрузка и сохранение топологии идет через DTO `SavedLayout` в файл `config/default_layout.ron`. WM должен быть "тупым" загрузчиком: прочитал RON, восстановил `Tree`, отдал управление.
+  , WM     (Workspaces).
+* **RAM :** `WorkspaceState`  `HashMap<String, egui_tiles::Tree>`    .      .       (`is_visible = false`).
+* **Data-Driven Persistence:**       DTO `SavedLayout`   `config/default_layout.ron`. WM   "" :  RON,  `Tree`,  .

@@ -3,16 +3,16 @@ use bevy_egui::{egui, EguiContexts};
 use layout_api::{OpenContextMenuEvent, ContextMenuActionTriggeredEvent, MenuAction};
 use crate::layout::ui::context_menu::ContextMenuState;
 
-/// Система отрисовки контекстного меню на стороне Window Manager.
-/// Плагины посылают OpenContextMenuEvent со своими MenuAction,
-/// WM рендерит и роутит триггеры обратно через ContextMenuActionTriggeredEvent.
+///       Window Manager.
+///   OpenContextMenuEvent   MenuAction,
+/// WM       ContextMenuActionTriggeredEvent.
 pub fn render_context_menu_system(
     mut contexts: EguiContexts,
     mut state: ResMut<ContextMenuState>,
     mut open_events: EventReader<OpenContextMenuEvent>,
     mut trigger_writer: EventWriter<ContextMenuActionTriggeredEvent>,
 ) {
-    // 1. Читаем новые события открытия
+    // 1.    
     let mut just_opened = false;
     for ev in open_events.read() {
         state.open = true;
@@ -20,7 +20,7 @@ pub fn render_context_menu_system(
         state.position = ev.position;
         state.actions = ev.actions.clone();
 
-        // WM добавляет свои глобальные инвариантные действия
+        // WM     
         state.actions.push(MenuAction {
             action_id: "wm.create_file".into(),
             label: "Create File (Global)".into(),
@@ -35,7 +35,7 @@ pub fn render_context_menu_system(
     let ctx = contexts.ctx_mut();
     let menu_id = egui::Id::new("wm_context_menu");
 
-    // 2. Рендерим через egui::Area (Strict Tile Isolation — egui::Window запрещён)
+    // 2.   egui::Area (Strict Tile Isolation  egui::Window )
     let actions_snapshot: Vec<_> = state.actions.iter().cloned().collect();
     let mut clicked_action: Option<String> = None;
 
@@ -53,7 +53,7 @@ pub fn render_context_menu_system(
                 });
         });
 
-    // Обработка сигнала клика (вне borrow scope)
+    //    ( borrow scope)
     if let Some(action_id) = clicked_action {
         if let Some(target) = state.target_window {
             trigger_writer.send(ContextMenuActionTriggeredEvent {
@@ -64,7 +64,7 @@ pub fn render_context_menu_system(
         state.open = false;
     }
 
-    // 3. Закрытие при клике мимо (пропускаем кадр открытия)
+    // 3.     (  )
     if !just_opened && ctx.input(|i| i.pointer.any_click()) {
         let menu_rect = area_resp.response.rect;
         if !menu_rect.contains(ctx.input(|i| i.pointer.interact_pos().unwrap_or_default())) {

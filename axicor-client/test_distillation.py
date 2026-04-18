@@ -3,8 +3,8 @@ import struct
 import mmap
 import time
 import numpy as np
-from genesis.memory import GenesisMemory
-from genesis.platform import get_shm_path
+from axicor.memory import AxicorMemory
+from axicor.platform import get_shm_path
 
 def test_distillation():
     ZONE_HASH = 0xDEADBEEF
@@ -52,41 +52,41 @@ def test_distillation():
 
     # 2. Connect Data-Oriented SDK
     # Default is now read_only=False, which is what we need.
-    mem = GenesisMemory(ZONE_HASH)
+    mem = AxicorMemory(ZONE_HASH)
     
     # 3. Inject test data (create 100,000 strong and 100,000 weak connections)
     # Use strict C-ABI Packer (Zero-Index Trap Protection)
-    mem.targets[0, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 4), np.zeros(PADDED_N)) 
+    mem.targets[0, :] = AxicorMemory.pack_targets(np.full(PADDED_N, 4), np.zeros(PADDED_N)) 
     mem.weights[0, :] = 100 << 16 # Strong connection
     
-    mem.targets[1, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 9), np.zeros(PADDED_N))
+    mem.targets[1, :] = AxicorMemory.pack_targets(np.full(PADDED_N, 9), np.zeros(PADDED_N))
     mem.weights[1, :] = 10 << 16 # Weak connection (must be pruned)
     
     # 4. Start distillation
-    print(f"🧠 Starting distillation of {PADDED_N} neurons (Threshold = 15)...")
+    print(f" Starting distillation of {PADDED_N} neurons (Threshold = 15)...")
     start = time.perf_counter()
     
     killed = mem.distill_graph(prune_threshold=15)
     
     duration_ms = (time.perf_counter() - start) * 1000
     
-    print(f"⏱ Distillation time: {duration_ms:.3f} ms")
-    print(f"💀 Connections burned: {killed}")
+    print(f" Distillation time: {duration_ms:.3f} ms")
+    print(f" Connections burned: {killed}")
     
     # Invariant checks
     assert killed == PADDED_N, "All connections in slot 2 should have died!"
     assert np.all(mem.targets[1, :] == 0), "Weak targets were not zeroed out!"
     
     # Verify by unpacking strong targets
-    strong_axon_ids, strong_seg_offsets = GenesisMemory.unpack_targets(mem.targets[0, :])
+    strong_axon_ids, strong_seg_offsets = AxicorMemory.unpack_targets(mem.targets[0, :])
     assert np.all(strong_axon_ids == 4), f"Strong axon_ids were corrupted! Received {strong_axon_ids[0]}"
     assert np.all(strong_seg_offsets == 0), "Strong segment offsets were corrupted!"
     
-    print("✅ Strong connections verified via Unpacker.")
+    print("[OK] Strong connections verified via Unpacker.")
     
     mem.close()
     os.remove(shm_path)
-    print("✅ Zero-Copy distillation completed flawlessly.\n")
+    print("[OK] Zero-Copy distillation completed flawlessly.\n")
 
 if __name__ == '__main__':
     test_distillation()

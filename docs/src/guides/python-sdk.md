@@ -9,7 +9,7 @@ The SDK (`axicor-client`) is not a bloated ML library. It is an ultra-thin bridg
 **[INVARIANT] ARCHITECTURAL LAW:** High-level abstractions like `class Neuron`, `class SynapseGroup`, JSON/Protobuf serialization, or blocking REST/gRPC APIs are **STRICTLY PROHIBITED** in the hot loop. All operations rely on flat `numpy.ndarray`, raw `memoryview`, and `struct.pack`. Python acts merely as a low-level memory dispatcher.
 
 ### 1.1. The 10ms Budget
-The engine operates with a time quantum of 100 µs (1 tick). A standard environment synchronization step (`sync_batch_ticks`) is 100 ticks. This gives your Python agent exactly **10 milliseconds** to complete its cycle:
+The engine operates with a time quantum of 100 s (1 tick). A standard environment synchronization step (`sync_batch_ticks`) is 100 ticks. This gives your Python agent exactly **10 milliseconds** to complete its cycle:
 1. Receive network response (UDP rx).
 2. Compute environment physics (Gymnasium / Mujoco).
 3. Encode new inputs into population codes.
@@ -19,7 +19,7 @@ Allocating objects or serializing data in this loop will trigger the Garbage Col
 
 ### 1.2. Strict BSP & Biological Amnesia
 Interaction with the environment relies on **Bulk Synchronous Parallel (BSP)** synchronization (Lockstep).
-If your Python script stalls and a packet arrives out of its assigned Epoch, the engine applies **Biological Amnesia** — it silently drops the outdated packet. The network will not wait for a slow agent forever.
+If your Python script stalls and a packet arrives out of its assigned Epoch, the engine applies **Biological Amnesia**  it silently drops the outdated packet. The network will not wait for a slow agent forever.
 
 ---
 
@@ -29,14 +29,14 @@ In the hot loop, you must use **Zero-Cost Facades** and pre-allocated buffers.
 
 ```python
 import numpy as np
-from genesis.client import GenesisMultiClient
-from genesis.contract import GenesisIoContract
+from axicor.client import AxicorMultiClient
+from axicor.contract import AxicorIoContract
 
 # 1. Load contracts and pre-allocate (Cold Start)
-contract = GenesisIoContract("Genesis-Models/HftAgent/baked/SensoryCortex", "SensoryCortex")
+contract = AxicorIoContract("Axicor-Models/HftAgent/baked/SensoryCortex", "SensoryCortex")
 cfg_in = contract.get_client_config(BATCH_SIZE=10)
 
-client = GenesisMultiClient(addr=("127.0.0.1", 8081), **cfg_in)
+client = AxicorMultiClient(addr=("127.0.0.1", 8081), **cfg_in)
 
 # Pre-allocate flat arrays (Zero-Garbage)
 obs_padded = np.zeros(64, dtype=np.float16)
@@ -79,7 +79,7 @@ struct alignas(4) ExternalIoHeader {
 };
 ```
 
-**L7-Chunking and MTU:** If an output matrix exceeds the MTU limit (65507 bytes), the Rust orchestrator automatically slices it into L7-chunks aligned to 64 bytes (L2 Cache Line). `GenesisMultiClient` seamlessly reassembles these chunks in Python.
+**L7-Chunking and MTU:** If an output matrix exceeds the MTU limit (65507 bytes), the Rust orchestrator automatically slices it into L7-chunks aligned to 64 bytes (L2 Cache Line). `AxicorMultiClient` seamlessly reassembles these chunks in Python.
 
 ---
 
@@ -120,12 +120,12 @@ The SDK hides byte packing in `client.step()`, but under the hood, the dopamine 
 
 ## 6. The Neurosurgeon (Memory Plane)
 
-The `GenesisSurgeon` module is a Data-Oriented scalpel. It communicates with the network strictly via Zero-Copy mmap of OS files (`/dev/shm/axicor_shard_*`), bypassing the network stack and orchestrator.
+The `AxicorSurgeon` module is a Data-Oriented scalpel. It communicates with the network strictly via Zero-Copy mmap of OS files (`/dev/shm/axicor_shard_*`), bypassing the network stack and orchestrator.
 
-**[SAFETY] ARCHITECTURAL LAW:** `GenesisSurgeon` MUST NOT be called inside the environment's hot loop. Operations on half-gigabyte arrays will break the 10ms Lockstep barrier. Use the surgeon only during initialization or offline distillation.
+**[SAFETY] ARCHITECTURAL LAW:** `AxicorSurgeon` MUST NOT be called inside the environment's hot loop. Operations on half-gigabyte arrays will break the 10ms Lockstep barrier. Use the surgeon only during initialization or offline distillation.
 
 ### 6.1. SDK Telemetry Translation (Mass -> Charge)
-Weights are stored in the Mass Domain (32-bit integers up to 2.14B). However, `GenesisMemory.get_network_stats()` automatically translates this by dividing by 65536.0. Python always displays the Charge Domain (electrical charge in microvolts).
+Weights are stored in the Mass Domain (32-bit integers up to 2.14B). However, `AxicorMemory.get_network_stats()` automatically translates this by dividing by 65536.0. Python always displays the Charge Domain (electrical charge in microvolts).
 
 ### 6.2. GABA Incubation (Storm Protection)
 During a cold start (Tabula Rasa), the network may fall into an epileptic spike storm. We cure this by incubating Inhibitory synapses:

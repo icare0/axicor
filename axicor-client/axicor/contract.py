@@ -8,7 +8,7 @@ from .decoders import PwmDecoder, PopulationDecoder
 from .axic import AxicReader
 from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
 
-class GenesisIoContract:
+class AxicorIoContract:
     def __init__(self, axic_path: str, zone_name: str):
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
         reader = AxicReader(axic_path)
@@ -30,7 +30,7 @@ class GenesisIoContract:
         self.outputs = {out["name"]: out for out in self.data.get("output", [])}
 
     def get_client_config(self, batch_size: int) -> Dict[str, Any]:
-        """Returns kwargs for unpacking into GenesisMultiClient."""
+        """Returns kwargs for unpacking into AxicorMultiClient."""
         matrices = []
         rx_layout = []
 

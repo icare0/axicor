@@ -79,7 +79,7 @@ fn main() {
     // Load blueprints.toml from SRAM folder
     let blueprints = load_blueprints(&cli.baked_dir);
 
-    println!("🧠 Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
+    println!(" Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // Cache configs
@@ -93,13 +93,13 @@ fn main() {
         let _ = std::fs::remove_file(&socket_addr);
         let listener = std::os::unix::net::UnixListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind Unix socket {}", socket_addr));
-        println!("🔌 Listening on {}", socket_addr);
+        println!(" Listening on {}", socket_addr);
         println!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
                     if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
-                        eprintln!("❌ Night Phase error: {}", e);
+                        eprintln!("[ERROR] Night Phase error: {}", e);
                     }
                 }
                 Err(e) => eprintln!("Connection error: {}", e),
@@ -111,13 +111,13 @@ fn main() {
     {
         let listener = std::net::TcpListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind TCP {}", socket_addr));
-        println!("🔌 Listening on {}", socket_addr);
+        println!(" Listening on {}", socket_addr);
         println!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
                     if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
-                        eprintln!("❌ Night Phase error: {}", e);
+                        eprintln!("[ERROR] Night Phase error: {}", e);
                     }
                 }
                 Err(e) => eprintln!("Connection error: {}", e),
@@ -134,10 +134,10 @@ fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
                 println!("   Blueprints loaded from {:?}", bp_path);
                 return Some(bp);
             }
-            Err(e) => eprintln!("⚠️  Failed to load blueprints from {:?}: {}", bp_path, e),
+            Err(e) => eprintln!("[WARN]  Failed to load blueprints from {:?}: {}", bp_path, e),
         }
     } else {
-        eprintln!("⚠️  blueprints.toml not found at {:?}", bp_path);
+        eprintln!("[WARN]  blueprints.toml not found at {:?}", bp_path);
     }
     None
 }
@@ -291,7 +291,7 @@ fn run_night_phase<S: Read + Write>(
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
 
-    println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
+    println!(" Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
 
     // [DOD FIX] Read ghost owner map (Origin Tracking)
     let total_ghosts = ctx.as_ref().map(|c| c._total_ghosts as usize).unwrap_or(0);

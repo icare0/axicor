@@ -25,20 +25,20 @@ The ESP32-S3 has a hard limit of fast memory (520 KB SRAM) and a large volume of
 Flashed and mapped via `spi_flash_mmap` (D-Bus). Data never mutates in the hot loop.
 *[C-ABI] MMU Law:* The file MUST have a size strictly multiple of 65536 bytes (64 KB ESP32 MMU page size), otherwise the mapping will fail.
 Composition (Columnar):
-*   `soma_to_axon` [4 bytes × N]
-*   `dendrite_targets` [4 bytes × 32 × N] (reduced from 128 to 32 slots)
+*   `soma_to_axon` [4 bytes  N]
+*   `dendrite_targets` [4 bytes  32  N] (reduced from 128 to 32 slots)
 
 **2. `shard.sram` (Hot State)**
 Loaded into DRAM (internal chip memory). Contains only mutating arrays.
 Composition (Columnar):
 *   `padded_n` [4 bytes] + `total_axons` [4 bytes] (Header, 8 bytes)
-*   `soma_voltage` [4 bytes × N]
-*   `soma_flags` [1 byte × N]
-*   `threshold_offset` [4 bytes × N]
-*   `refractory_timer` [1 byte × N]
-*   `dendrite_weights` [2 bytes × 32 × N]
-*   `dendrite_timers` [1 byte × 32 × N]
-*   `axon_heads` [32 bytes × A] (BurstHeads8, extracted from `.axons`)
+*   `soma_voltage` [4 bytes  N]
+*   `soma_flags` [1 byte  N]
+*   `threshold_offset` [4 bytes  N]
+*   `refractory_timer` [1 byte  N]
+*   `dendrite_weights` [2 bytes  32  N]
+*   `dendrite_timers` [1 byte  32  N]
+*   `axon_heads` [32 bytes  A] (BurstHeads8, extracted from `.axons`)
 
 ### 2.2. Flash-Mapped DNA (Read-Only)
 Topology that does not change in the Day Phase is mapped directly from Flash memory (via QSPI interface) using `mmap` / `PROGMEM`:
@@ -74,29 +74,29 @@ Core 0 performs all "dirty" work:
 
 ```text
 [ Physical World ]                               [ ESP32-S3 Chip ]
-      │                                                │
-      ▼                                                ▼
-  Sensors (I2C)     ──(float)──>  [ Core 0 ] Population Encoder (float -> 8-bit SpikeEvent)
-(Gyroscope, Lidar)                    │
-                                      ▼
+      |                                                |
+                                                      
+  Sensors (I2C)     --(float)-->  [ Core 0 ] Population Encoder (float -> 8-bit SpikeEvent)
+(Gyroscope, Lidar)                    |
+                                      
                              [ SRAM: Lock-Free Ring Buffer ] (alignas 32, std::atomic)
-                                      │
-                                      ▼
+                                      |
+                                      
                               [ Core 1 ] Hot Loop (Day Phase)
                               1. Inject: Reset axon heads (h0 = 0)
                               2. Propagate: Vector shift (hX += v_seg)
                               3. GLIF: Current integration, thresholds, soma spikes
                               4. GSOP: Dendrite weight mutation
                               5. Readout: ++ to motor neuron counters
-                                      │
-                                      ▼
+                                      |
+                                      
                            [ SRAM: MotorOut Struct ] (std::atomic)
-                                      │
-                                      ▼
-   Servo drives      <──(Duty Cycle)──┘
+                                      |
+                                      
+   Servo drives      <--(Duty Cycle)--+
   (Motors, LEDs)                      
-      │                               
-      └───────────────────────────────┘
+      |                               
+      +-------------------------------+
           (Environment / Angle Change)
 ```
 
@@ -115,4 +115,4 @@ The standard LwIP UDP Profile is used for cluster communication.
 - **AEP Integration:** Due to the cluster transitioning to Asynchronous Epoch Projection (AEP), ESP32 is no longer required to send empty "heartbeat" packets (`is_last = 1` for an empty batch) to unblock PC nodes. The MCU sends spike packets only when they physically occur. This critically saves CPU cycles and battery life by eliminating idle network traffic.
 
 ### 4.2. Direct Hardware I/O
-Instead of virtual `Input_Bitmask` matrices over the network, Genesis-Lite can bind sensory axons directly to interrupts or DMA buffers of sensors (I2C gyroscopes, SPI cameras, PWM servos).
+Instead of virtual `Input_Bitmask` matrices over the network, Axicor-Lite can bind sensory axons directly to interrupts or DMA buffers of sensors (I2C gyroscopes, SPI cameras, PWM servos).

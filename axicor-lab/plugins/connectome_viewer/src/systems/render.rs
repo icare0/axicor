@@ -6,8 +6,8 @@ pub fn render_connectome_viewer_system(
     mut contexts: EguiContexts,
     window_query: Query<&PluginWindow>,
 ) {
-    // 1. Сначала собираем данные для отрисовки (и регистрируем текстуры), 
-    // чтобы не конфликтовать с заимствованием ctx_mut()
+    // 1.      (  ), 
+    //      ctx_mut()
     let mut render_items = Vec::new();
     for window in window_query.iter() {
         if !window.is_visible { continue; }
@@ -19,7 +19,7 @@ pub fn render_connectome_viewer_system(
 
     if render_items.is_empty() { return; }
 
-    // 2. Только теперь берем контекст egui
+    // 2.     egui
     let Some(ctx) = contexts.try_ctx_mut() else { return; };
 
     for (id, rect, texture_id) in render_items {

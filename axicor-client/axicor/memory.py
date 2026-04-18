@@ -5,7 +5,7 @@ import numpy as np
 
 from .platform import get_shm_path
 
-class GenesisMemory:
+class AxicorMemory:
     # Strict C-ABI v3 (128 bytes) -> genesis-core/src/ipc.rs
     SHM_HEADER_FMT = "<IBBHIIIIQIIIIIIIIIII13I"
     SHM_HEADER_SIZE = 128
@@ -95,7 +95,7 @@ class GenesisMemory:
         In-Place state loading from checkpoint directly into Shared Memory.
         Strictly adheres to C-ABI offsets, maintaining mmap integrity.
         """
-        # data — dictionary of objects from the archive
+        # data  dictionary of objects from the archive
         with np.load(filepath) as data:
             # Shape Safety: Protection against Silent Data Corruption on connectome mismatch
             assert data['weights'].shape == self.weights.shape, f"Weights shape mismatch: {data['weights'].shape} vs {self.weights.shape}"

@@ -6,7 +6,7 @@ const ZOOM_MIN:   f32 = 0.5;
 const ZOOM_MAX:   f32 = 1.5;
 const ZOOM_SPEED: f32 = 0.002;
 
-// --- Стиль канваса ---
+// ---   ---
 const CLR_BG:         Color32 = Color32::from_rgb(9, 9, 10);
 
 const GRID_STEP:       f32 = 40.0;
@@ -78,7 +78,7 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
     let cols = (rect.width()  / step).ceil() as i32 + 1;
     let rows = (rect.height() / step).ceil() as i32 + 1;
 
-    // Вертикальные линии
+    //  
     for col in 0..cols {
         let x = rect.min.x + offset_x + col as f32 * step;
         if x < rect.min.x || x > rect.max.x { continue; }
@@ -92,7 +92,7 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
         );
     }
 
-    // Горизонтальные линии
+    //  
     for row in 0..rows {
         let y = rect.min.y + offset_y + row as f32 * step;
         if y < rect.min.y || y > rect.max.y { continue; }

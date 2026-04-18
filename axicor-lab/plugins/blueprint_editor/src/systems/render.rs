@@ -8,7 +8,7 @@ pub fn render_blueprint_editor_system(
     mut contexts: EguiContexts,
     windows: Query<(Entity, &PluginWindow)>,
     mut states: Query<&mut BlueprintEditorState>,
-    mut graph: ResMut<BrainTopologyGraph>, // [DOD FIX] Mut access для прямого In-Place редактирования
+    mut graph: ResMut<BrainTopologyGraph>, // [DOD FIX] Mut access   In-Place 
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
@@ -42,12 +42,12 @@ pub fn render_blueprint_editor_system(
                                     return;
                                 }
 
-                                // Защита от OOB при удалении типов
+                                //   OOB   
                                 if state.selected_type_idx >= blueprint.neuron_type.len() {
                                     state.selected_type_idx = 0;
                                 }
 
-                                // Обработка CRUD интентов от селектора
+                                //  CRUD   
                                 let action = crate::ui::type_selector::draw_type_selector(ui, &blueprint.neuron_type, &mut state.selected_type_idx);
                                 match action {
                                     crate::ui::type_selector::TypeAction::Add => {
@@ -58,7 +58,7 @@ pub fn render_blueprint_editor_system(
                                             new_name = format!("Type_{}", new_id);
                                         }
                                         
-                                        // [DOD FIX] Инициализация критических параметров (иначе 0 порог вызовет эпилепсию)
+                                        // [DOD FIX]    ( 0   )
                                         let mut new_type = node_editor::domain::NeuronType {
                                             name: new_name,
                                             ..Default::default()
@@ -91,7 +91,7 @@ pub fn render_blueprint_editor_system(
 
                                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                     let mut changed = false; 
-                                    // DOD: Извлекаем имена типов заранее для Whitelist, чтобы не держать ссылку на весь blueprint
+                                    // DOD:      Whitelist,       blueprint
                                     let all_type_names: Vec<String> = blueprint.neuron_type.iter().map(|t| t.name.clone()).collect();
                                     let nt = &mut blueprint.neuron_type[selected_idx];
 
@@ -104,7 +104,7 @@ pub fn render_blueprint_editor_system(
                                     changed |= crate::ui::sections::inertia::draw_inertia_section(ui, nt);
                                     changed |= crate::ui::sections::dendrite_filter::draw_dendrite_filter_section(ui, nt, &all_type_names);
 
-                                    // [DOD FIX] Активируем таймер Debounce-сохранения при любой мутации
+                                    // [DOD FIX]   Debounce-   
                                     if changed {
                                         state.is_dirty = true;
                                         state.debounce_timer = 0.0;
@@ -114,12 +114,12 @@ pub fn render_blueprint_editor_system(
                             } else {
                                 ui.centered_and_justified(|ui| { ui.label(egui::RichText::new("No Blueprint Data").color(egui::Color32::DARK_GRAY)); });
                             }
-                        }); // Закрытие Frame::show
+                        }); //  Frame::show
 
-                    // [DOD FIX] Отрисовка модалки удаления СТРОГО в конце (поверх всего контента тайла)
+                    // [DOD FIX]       (   )
                     if state.show_delete_modal {
                         if let Some(del_idx) = state.type_to_delete {
-                            // Опять берем blueprint через активный путь, так как мы уже вышли из скоупа borrow checker'a
+                            //   blueprint   ,        borrow checker'a
                             let active_path = graph.active_path.clone().unwrap();
                             let session = graph.sessions.get_mut(&active_path).unwrap();
                             let blueprint = session.shard_blueprints.get_mut(state.active_zone.as_ref().unwrap()).unwrap();
@@ -128,16 +128,16 @@ pub fn render_blueprint_editor_system(
                             let (confirmed, closed) = crate::ui::modals::draw_delete_type_modal(ctx, window.rect, &type_name);
                             
                             if confirmed {
-                                // 1. Каскадная зачистка: убираем это имя из whitelist'ов других типов
+                                // 1.  :     whitelist'  
                                 for (i, t) in blueprint.neuron_type.iter_mut().enumerate() {
                                     if i != del_idx {
                                         t.dendrite_whitelist.retain(|name| name != &type_name);
                                     }
                                 }
-                                // 2. Физическое удаление
+                                // 2.  
                                 blueprint.neuron_type.remove(del_idx);
                                 
-                                // 3. Корректировка индекса (если удалили последний)
+                                // 3.   (  )
                                 if state.selected_type_idx >= blueprint.neuron_type.len() {
                                     state.selected_type_idx = blueprint.neuron_type.len().saturating_sub(1);
                                 }
@@ -154,7 +154,7 @@ pub fn render_blueprint_editor_system(
                             state.show_delete_modal = false;
                         }
                     }
-                }); // Закрытие ui.allocate_ui_at_rect
+                }); //  ui.allocate_ui_at_rect
             });
     }
 }

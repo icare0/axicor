@@ -1,37 +1,37 @@
-/// Physics constants recalculation pipeline at startup (Spec 01 §1.5).
+/// Physics constants recalculation pipeline at startup (Spec 01 1.5).
 ///
 /// At startup, the engine takes human-readable values from the config and calculates
-/// "raw" GPU constants. The hot loop does not perform multiplications — it operates
+/// "raw" GPU constants. The hot loop does not perform multiplications  it operates
 /// on pre-calculated numbers from Constant Memory.
 ///
-/// Invariant §1.6: `signal_speed_um_tick % segment_length_um == 0`.
-/// Violation → return Err before any GPU-upload.
+/// Invariant 1.6: `signal_speed_um_tick % segment_length_um == 0`.
+/// Violation  return Err before any GPU-upload.
 
 /// Derived physical constants ready for loading into GPU Constant Memory.
 ///
 /// Calculated once at startup via `compute_derived_physics`.
-/// Fields are intentionally flat — direct mapping to C-structure for `cudaMemcpyToSymbol`.
+/// Fields are intentionally flat  direct mapping to C-structure for `cudaMemcpyToSymbol`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedPhysics {
-    /// Signal speed in µm/tick (§1.5 p.1).
+    /// Signal speed in m/tick (1.5 p.1).
     /// GPU adds this to the head position every tick.
     pub signal_speed_um_tick: u32,
-    /// Length of one segment in µm = voxel_size_um × segment_length_voxels.
+    /// Length of one segment in m = voxel_size_um  segment_length_voxels.
     pub segment_length_um: u32,
-    /// Discrete speed: segments/tick (§1.5 p.2).
-    /// `v_seg = signal_speed_um_tick / segment_length_um` — guaranteed integer.
+    /// Discrete speed: segments/tick (1.5 p.2).
+    /// `v_seg = signal_speed_um_tick / segment_length_um`  guaranteed integer.
     /// GPU: `axon_head += v_seg` per tick. No floats, no interpolation.
     pub v_seg: u32,
 }
 
-/// Calculates `DerivedPhysics` from config values — recalculation pipeline §1.5.
+/// Calculates `DerivedPhysics` from config values  recalculation pipeline 1.5.
 ///
-/// Returns `Err` if invariant §1.6 is violated (`v_seg` is fractional).
+/// Returns `Err` if invariant 1.6 is violated (`v_seg` is fractional).
 ///
 /// # Arguments
-/// - `signal_speed_um_tick` — from `simulation.signal_speed_um_tick`
-/// - `voxel_size_um`        — from `simulation.voxel_size_um`
-/// - `segment_length_vox`   — from `simulation.segment_length_voxels`
+/// - `signal_speed_um_tick`  from `simulation.signal_speed_um_tick`
+/// - `voxel_size_um`         from `simulation.voxel_size_um`
+/// - `segment_length_vox`    from `simulation.segment_length_voxels`
 ///
 /// # Example (config from spec)
 /// ```
@@ -60,7 +60,7 @@ pub fn compute_derived_physics(
     let diff = (v_seg_f32 - v_seg as f32).abs();
     if diff > 1e-5 {
         return Err(format!(
-            "§1.6 violation: v_seg ({v_seg_f32:.4}) is not an integer. \
+            "1.6 violation: v_seg ({v_seg_f32:.4}) is not an integer. \
              Physically impossible for Integer Physics engine. \
              Check simulation.signal_speed_m_s ({} m/s) and simulation.voxel_size_um ({} um).",
              signal_speed_m_s, voxel_size_um
@@ -75,14 +75,14 @@ pub fn compute_derived_physics(
 }
 
 // ---------------------------------------------------------------------------
-// GLIF Dynamics (Spec 03 §2, §3)
+// GLIF Dynamics (Spec 03 2, 3)
 // ---------------------------------------------------------------------------
 
 /// Calculates new membrane voltage (Integer GLIF).
 ///
 /// `dV = -(V - V_rest) / leak_rate + I_input`
 ///
-/// Integer division (truncation toward zero) — determinism on CPU and GPU.
+/// Integer division (truncation toward zero)  determinism on CPU and GPU.
 #[inline(always)]
 pub const fn compute_glif(
     voltage: i32,
@@ -96,7 +96,7 @@ pub const fn compute_glif(
 }
 
 // ---------------------------------------------------------------------------
-// Homeostasis (Spec 03 §3.2 — Adaptive Threshold)
+// Homeostasis (Spec 03 3.2  Adaptive Threshold)
 // ---------------------------------------------------------------------------
 
 /// Branchless update of adaptive threshold.
@@ -125,7 +125,7 @@ pub const fn update_homeostasis(
 }
 
 // ---------------------------------------------------------------------------
-// GSOP Plasticity (Spec 04 §2.4, §2.5)
+// GSOP Plasticity (Spec 04 2.4, 2.5)
 // ---------------------------------------------------------------------------
 
 /// Inertia Rank: split |weight| range (0..2.14B) into 16 ranks.

@@ -27,8 +27,8 @@ impl Material for NeuronInstanceMaterial {
         layout: &MeshVertexBufferLayout,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        // Жестко диктуем видеокарте: только позиция и наш u32 ID.
-        // Никаких нормалей или UV.
+        //   :     u32 ID.
+        //    UV.
         let vertex_layout = layout.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             ATTRIBUTE_SPHERE_ID.at_shader_location(1),

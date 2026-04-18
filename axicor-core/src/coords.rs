@@ -1,9 +1,9 @@
-/// Spatial coordinates, converters, and packing (Spec 01 §1.1–1.3).
+/// Spatial coordinates, converters, and packing (Spec 01 1.11.3).
 ///
-/// Three coordinate systems (§1.1):
-///   Microns    — absolute (1.0 = 1 µm), for physics and geometry
-///   Fraction   — normalized [0.0, 1.0], for layer boundaries
-///   VoxelCoord — discrete, for GPU and spatial hashing
+/// Three coordinate systems (1.1):
+///   Microns     absolute (1.0 = 1 m), for physics and geometry
+///   Fraction    normalized [0.0, 1.0], for layer boundaries
+///   VoxelCoord  discrete, for GPU and spatial hashing
 ///
 /// PackedPosition layout: [Type(4b) | Z(8b) | Y(10b) | X(10b)]
 /// Bit layout: type << 28 | z << 20 | y << 10 | x
@@ -16,25 +16,25 @@
 use crate::types::{Fraction, Microns, PackedPosition, VoxelCoord};
 
 // ---------------------------------------------------------------------------
-// §1.1 Converters between coordinate systems
+// 1.1 Converters between coordinate systems
 // ---------------------------------------------------------------------------
 
-/// Absolute µm → voxels (spatial discretization).
+/// Absolute m  voxels (spatial discretization).
 /// `voxel_size_um` is taken from `constants::VOXEL_SIZE_UM` or from config.
 #[inline]
 pub fn um_to_voxel(um: Microns, voxel_size_um: u32) -> VoxelCoord {
     (um / voxel_size_um as Microns) as VoxelCoord
 }
 
-/// Normalized fraction [0.0, 1.0] → voxels.
+/// Normalized fraction [0.0, 1.0]  voxels.
 /// Used for translating layer `height_pct` / `population_pct` into voxel boundaries.
-/// `world_dim_vox` — dimension size in voxels (e.g., world_h_vox).
+/// `world_dim_vox`  dimension size in voxels (e.g., world_h_vox).
 #[inline]
 pub fn pct_to_voxel(pct: Fraction, world_dim_vox: u32) -> VoxelCoord {
     (pct * world_dim_vox as Fraction) as VoxelCoord
 }
 
-/// Voxels → absolute µm.
+/// Voxels  absolute m.
 #[inline]
 pub fn voxel_to_um(vox: VoxelCoord, voxel_size_um: u32) -> Microns {
     vox as Microns * voxel_size_um as Microns
@@ -51,7 +51,7 @@ pub fn unpack_position(p: PackedPosition) -> (u32, u32, u32, u32) {
 }
 
 // ---------------------------------------------------------------------------
-// §1.2 PackedTarget — identifier (Axon_ID, Segment_Index)
+// 1.2 PackedTarget  identifier (Axon_ID, Segment_Index)
 // ---------------------------------------------------------------------------
 
 use crate::layout::{pack_dendrite_target, unpack_axon_id, unpack_segment_offset};

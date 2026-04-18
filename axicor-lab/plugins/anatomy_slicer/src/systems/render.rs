@@ -31,7 +31,7 @@ pub fn render_anatomy_slicer_system(
                 ui.allocate_ui_at_rect(content_rect, |ui| {
                     let full_rect = ui.available_rect_before_wrap();
                     
-                    // 1. Отрисовка 3D вьюпорта (Задний план)
+                    // 1.  3D  ( )
                     if let Some(tex_id) = rtt_id {
                         ui.painter().image(tex_id, full_rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                     } else {
@@ -41,7 +41,7 @@ pub fn render_anatomy_slicer_system(
                     state.cad_viewport_size = full_rect.size();
                     state.cad_viewport_rect = Some(full_rect);
 
-                    // 2. Оверлей со списком слоев (Правая панель)
+                    // 2.     ( )
                     let panel_width = 220.0;
                     let panel_rect = egui::Rect::from_min_max(
                         egui::pos2(full_rect.max.x - panel_width - 12.0, full_rect.min.y + 12.0),

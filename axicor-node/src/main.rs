@@ -29,8 +29,8 @@ pub enum CpuProfile {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "genesis-node",
-    about = "Distributed Genesis Brain Node Daemon",
+    name = "axicor-node",
+    about = "Distributed Axicor Brain Node Daemon",
     version
 )]
 struct Cli {
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
-        println!("📦 Opening Axic Archive: {:?}", cli.archive);
+        println!(" Opening Axic Archive: {:?}", cli.archive);
         let archive = Arc::new(axicor_core::vfs::AxicArchive::open(&cli.archive)
             .context("Failed to open AXIC archive")?);
 
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
             }
         }
 
-        println!("[Node] Starting Genesis Distributed Daemon...");
+        println!("[Node] Starting Axicor Distributed Daemon...");
         
         let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
         
@@ -121,7 +121,7 @@ fn main() -> Result<()> {
         // [DOD FIX] Immediate Cluster Join
         for &local_hash in boot_result.node_runtime.compute_dispatchers.keys() {
             boot_result.node_runtime.broadcast_route_update(local_hash).await;
-            println!("📡 [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
+            println!(" [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
         }
 
         println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
@@ -139,7 +139,7 @@ fn main() -> Result<()> {
         let worker_pool = boot_result.egress_pool.clone();
         let profile = cli.cpu_profile;
         std::thread::Builder::new()
-            .name("genesis-egress-tx".into())
+            .name("axicor-egress-tx".into())
             .spawn(move || {
                 let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
                 loop {
@@ -160,7 +160,7 @@ fn main() -> Result<()> {
         // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
         let mut node = boot_result.node_runtime;
         std::thread::Builder::new()
-            .name("genesis-orchestrator".into())
+            .name("axicor-orchestrator".into())
             .spawn(move || {
                 #[cfg(target_os = "linux")]
                 {
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
                     unsafe { libc::CPU_SET(0, &mut cpuset) };
                     let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
                     if res == 0 {
-                        println!("🚀 [Core] Orchestrator locked to OS Thread Core 0");
+                        println!(" [Core] Orchestrator locked to OS Thread Core 0");
                     }
                 }
                 node.run_node_loop();

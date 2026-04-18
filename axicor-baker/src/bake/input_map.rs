@@ -1,7 +1,7 @@
-// genesis-baker/src/bake/input_map.rs
+// axicor-baker/src/bake/input_map.rs
 //
 // Phase A: Input Matrix / Virtual Axons (GXI)
-// Specification: 08_io_matrix.md §2.1 / 09_baking_pipeline.md §2.1
+// Specification: 08_io_matrix.md 2.1 / 09_baking_pipeline.md 2.1
 
 use axicor_core::hash::fnv1a_32;
 use axicor_core::constants::GXI_MAGIC;

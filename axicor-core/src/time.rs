@@ -1,12 +1,12 @@
-/// Temporal metric (Spec 01 §1.4).
+/// Temporal metric (Spec 01 1.4).
 ///
-/// Time quantum: 1 Tick = `TICK_DURATION_US` µs = 0.1 ms.
+/// Time quantum: 1 Tick = `TICK_DURATION_US` s = 0.1 ms.
 /// All timers (refractoriness, decay, night intervals) are specified in ticks.
 /// Example: 5 ms refractoriness = 50 ticks.
 use crate::constants::TICK_DURATION_US;
 use crate::types::Tick;
 
-/// Milliseconds → ticks.
+/// Milliseconds  ticks.
 /// Example: `ms_to_ticks(5.0)` = 50 (at TICK_DURATION_US=100).
 #[inline]
 pub fn ms_to_ticks(ms: f32) -> Tick {
@@ -14,14 +14,14 @@ pub fn ms_to_ticks(ms: f32) -> Tick {
     (us / TICK_DURATION_US as f32).round() as Tick
 }
 
-/// Microseconds → ticks.
+/// Microseconds  ticks.
 /// Example: `us_to_ticks(500)` = 5.
 #[inline]
 pub fn us_to_ticks(us: u32) -> Tick {
     (us / TICK_DURATION_US) as Tick
 }
 
-/// Ticks → milliseconds (for logs and debugging).
+/// Ticks  milliseconds (for logs and debugging).
 #[inline]
 pub fn ticks_to_ms(ticks: Tick) -> f32 {
     ticks as f32 * TICK_DURATION_US as f32 / 1000.0

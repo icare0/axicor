@@ -4,7 +4,7 @@ import numpy as np
 from flygym.mujoco import NeuroMechFly
 
 def inspect():
-    print("🪰 Initializing NeuroMechFly for inspection...")
+    print(" Initializing NeuroMechFly for inspection...")
     env = NeuroMechFly()
     obs_space = env.observation_space
     act_space = env.action_space
@@ -26,7 +26,7 @@ def inspect():
         # Search for potential dead zones (where min == max)
         dead_zones = np.where(_min == _max)
         if len(dead_zones) > 0:
-            print(f"    ⚠️ DEAD ZONES FOUND at indices: {dead_zones}")
+            print(f"    [WARN] DEAD ZONES FOUND at indices: {dead_zones}")
 
     print(f"\n[TOTAL SENSORS]: {total_obs} float variables")
 

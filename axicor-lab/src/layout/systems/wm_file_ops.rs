@@ -3,7 +3,7 @@ use layout_api::ContextMenuActionTriggeredEvent;
 use toml_edit::{DocumentMut, value, ArrayOfTables, Item, Table, InlineTable};
 use std::path::Path;
 
-/// Глобальная система обработки файловых операций WM (Строгая зона ответственности)
+///      WM (  )
 pub fn wm_file_ops_context_menu_system(
     mut trigger_events: EventReader<ContextMenuActionTriggeredEvent>,
 ) {
@@ -15,7 +15,7 @@ pub fn wm_file_ops_context_menu_system(
         match ev.action_id.as_str() {
             "wm.create_file" => {
                 info!("WM: Executing 'Create File' for window {:?}", ev.target_window);
-                // Здесь будет вызов VFS (genesis-core)
+                //    VFS (axicor-core)
             }
             "wm.delete_file" => {
                 info!("WM: Executing 'Delete File' for window {:?}", ev.target_window);
@@ -25,8 +25,8 @@ pub fn wm_file_ops_context_menu_system(
     }
 }
 
-/// Загружает TOML документ с сохранением оригинального форматирования.
-/// [Sandbox] Использует Overlay FS из layout_api.
+///  TOML     .
+/// [Sandbox]  Overlay FS  layout_api.
 pub fn load_document(path: &Path) -> Result<DocumentMut, String> {
     let content = layout_api::overlay_read_to_string(path)
         .map_err(|e| format!("FS Error: {}", e))?;
@@ -34,7 +34,7 @@ pub fn load_document(path: &Path) -> Result<DocumentMut, String> {
         .map_err(|e| format!("Parse Error: {}", e))
 }
 
-/// Сохраняет мутированный TOML документ строго в песочницу.
+///   TOML    .
 pub fn save_document(path: &Path, doc: &DocumentMut) -> Result<(), String> {
     let sandbox_path = layout_api::resolve_sandbox_path(path);
     if let Some(parent) = sandbox_path.parent() {
@@ -44,8 +44,8 @@ pub fn save_document(path: &Path, doc: &DocumentMut) -> Result<(), String> {
         .map_err(|e| format!("FS Error: {}", e))
 }
 
-/// Семантическое удаление элемента из `ArrayOfTables` (например, `[[department]]`)
-/// Ищет совпадение target_id внутри вложенной таблицы id_table_name.
+///     `ArrayOfTables` (, `[[department]]`)
+///   target_id    id_table_name.
 pub fn remove_array_of_tables_item(
     doc: &mut DocumentMut,
     array_name: &str,
@@ -56,8 +56,8 @@ pub fn remove_array_of_tables_item(
     
     if let Some(arr) = doc.get_mut(array_name).and_then(|item| item.as_array_of_tables_mut()) {
         for (i, table) in arr.iter().enumerate() {
-            // Пытаемся извлечь id. Работает как для инлайн таблиц { id = "..." }, 
-            // так и для стандартных блоков
+            //   id.      { id = "..." }, 
+            //     
             if let Some(id_val) = table.get(id_table_name)
                 .and_then(|t| t.get("id"))
                 .and_then(|v| v.as_str()) 
@@ -78,7 +78,7 @@ pub fn remove_array_of_tables_item(
     false
 }
 
-/// Семантическое добавление I/O записи в `io.toml` шарда с поддержкой Lineage ID (Matrix -> Pin).
+///   I/O   `io.toml`    Lineage ID (Matrix -> Pin).
 pub fn add_io_record(doc: &mut DocumentMut, section: &str, port_name: &str, _io_id: &str, zone_name: &str, width: u32, height: u32, voxel_z: Option<u32>) {
     // 1. Generate Matrix ID: {zone_suffix}_{uuid8}
     let z_suffix = if zone_name.len() >= 4 { &zone_name[zone_name.len()-4..] } else { zone_name };
@@ -135,8 +135,8 @@ pub fn add_io_record(doc: &mut DocumentMut, section: &str, port_name: &str, _io_
     }
 }
 
-/// Семантическое удаление I/O записи из io.toml по имени порта.
-/// [DOD FIX] Удаляет ПИН, и если матрица стала пустой — удаляет МАТРИЦУ.
+///   I/O   io.toml   .
+/// [DOD FIX]  ,        .
 pub fn remove_io_record_by_name(doc: &mut DocumentMut, section: &str, target_name: &str) -> bool {
     let mut matrix_to_remove = None;
     let mut pin_removed = false;
@@ -156,7 +156,7 @@ pub fn remove_io_record_by_name(doc: &mut DocumentMut, section: &str, target_nam
                 if let Some(idx) = pin_to_remove {
                     pins.remove(idx);
                     pin_removed = true;
-                    // Если пинов больше нет — планируем удаление всей матрицы
+                    //         
                     if pins.is_empty() {
                         matrix_to_remove = Some(m_idx);
                     }
@@ -172,7 +172,7 @@ pub fn remove_io_record_by_name(doc: &mut DocumentMut, section: &str, target_nam
     pin_removed
 }
 
-/// Семантическое удаление межшардовой связи из родительского конфига.
+///       .
 pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out_matrix: &str, in_matrix: &str) -> bool {
     let mut index_to_remove = None;
     if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
@@ -195,7 +195,7 @@ pub fn remove_connection_record(doc: &mut DocumentMut, from: &str, to: &str, out
     false
 }
 
-/// Обновление Z-координаты входа в io.toml
+///  Z-   io.toml
 pub fn update_io_input_z(doc: &mut DocumentMut, target_name: &str, voxel_z: u32) -> bool {
     if let Some(arr) = doc.get_mut("input").and_then(|i| i.as_array_of_tables_mut()) {
         for table in arr.iter_mut() {
@@ -208,7 +208,7 @@ pub fn update_io_input_z(doc: &mut DocumentMut, target_name: &str, voxel_z: u32)
     false
 }
 
-/// Обновление Z-координаты связи в brain.toml (или simulation.toml)
+///  Z-   brain.toml ( simulation.toml)
 pub fn update_connection_z(doc: &mut DocumentMut, from: &str, from_port: &str, to: &str, voxel_z: u32) -> bool {
     if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
         for table in arr.iter_mut() {
@@ -225,7 +225,7 @@ pub fn update_connection_z(doc: &mut DocumentMut, from: &str, from_port: &str, t
     false
 }
 
-/// Добавление слоя анатомии
+///   
 pub fn add_anatomy_layer_record(doc: &mut DocumentMut, name: &str, height_pct: f32) {
     if !doc.contains_key("layer") {
         doc.insert("layer", Item::ArrayOfTables(ArrayOfTables::new()));
@@ -248,7 +248,7 @@ pub fn add_anatomy_layer_record(doc: &mut DocumentMut, name: &str, height_pct: f
     }
 }
 
-/// Удаление слоя анатомии
+///   
 pub fn remove_anatomy_layer_record(doc: &mut DocumentMut, target_name: &str) -> bool {
     let mut index_to_remove = None;
     let mut removed_pct = 0.0;

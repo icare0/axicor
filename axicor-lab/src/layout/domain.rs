@@ -3,16 +3,16 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// §0. ГЛОБАЛЬНЫЕ КОНСТАНТЫ ПЕРЕНЕСЕНЫ В layout_api
+// 0.     layout_api
 
 // ============================================================================
-// §1. ИНТЕНТЫ И СОБЫТИЯ (Intents & Events)
+// 1.    (Intents & Events)
 // ============================================================================
 
 #[derive(Event, Debug, Clone)]
 pub struct SaveDefaultLayoutEvent;
 
-// DOD FIX: Комплексный интент для управления системным окном (WM -> OS)
+// DOD FIX:       (WM -> OS)
 #[derive(Event, Debug, Clone)]
 pub enum OsWindowCommand {
     Drag,
@@ -21,7 +21,7 @@ pub enum OsWindowCommand {
 }
 
 // ============================================================================
-// §2. ОСНОВНЫЕ СТРУКТУРЫ ОКОН (Topology)
+// 2.    (Topology)
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,9 +47,9 @@ pub struct SavedLayout {
 }
 
 
-// §3. ПАМЯТЬ ОКОННОГО МЕНЕДЖЕРА ПЕРЕНЕСЕНА В layout_api
+// 3.      layout_api
 
-/// Внутреннее состояние State Machine для Drag-and-Drop
+///   State Machine  Drag-and-Drop
 #[derive(Resource, Default)]
 pub struct WindowDragState {
     pub is_dragging: bool,
@@ -61,7 +61,7 @@ pub struct WindowDragState {
     pub drag_normal: Option<f32>,
 }
 
-/// Очередь команд на мутацию дерева egui_tiles (разрешается в systems::window)
+///      egui_tiles (  systems::window)
 #[derive(Resource, Default)]
 pub struct TreeCommands {
     pub queue: Vec<layout_api::TreeCommand>,

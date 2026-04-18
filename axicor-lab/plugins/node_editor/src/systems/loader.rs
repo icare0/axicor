@@ -51,7 +51,7 @@ pub fn spawn_load_task_system(
 
     for ev in load_events.read() {
         let name = clean_proj_name(&ev.project_name);
-        let path = PathBuf::from("Genesis-Models").join(&name).join("simulation.toml");
+        let path = PathBuf::from("Axicor-Models").join(&name).join("simulation.toml");
         if graph.sessions.get(&path).map_or(false, |s| s.is_dirty) {
             info!("[NodeEditor] Session '{:?}' is dirty. Skipping reload.", path);
             continue;
@@ -59,7 +59,7 @@ pub fn spawn_load_task_system(
         target_path = Some(path);
     }
     for ev in topo_events.read() {
-        target_path = Some(PathBuf::from("Genesis-Models").join(clean_proj_name(&ev.project_name)).join("brain.toml"));
+        target_path = Some(PathBuf::from("Axicor-Models").join(clean_proj_name(&ev.project_name)).join("brain.toml"));
     }
     for ev in open_events.read() {
         target_path = Some(ev.path.clone());
@@ -227,7 +227,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
 
                  let blueprints_path = shard_path.parent().unwrap_or(Path::new(".")).join("blueprints.toml");
                  if let Ok(content) = layout_api::overlay_read_to_string(&blueprints_path) {
-                     // [DOD FIX] Восстановлен синтаксис Turbofish
+                     // [DOD FIX]   Turbofish
                      if let Ok(doc_bp) = content.parse::<toml::Value>() {
                          if let Ok(bp) = doc_bp.try_into::<crate::domain::ShardBlueprint>() {
                              shard_blueprints.insert(zone.clone(), bp);
@@ -237,7 +237,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
 
                  let io_path = shard_path.parent().unwrap_or(Path::new(".")).join("io.toml");
                  if let Ok(content) = layout_api::overlay_read_to_string(&io_path) {
-                     // [DOD FIX] Восстановлен синтаксис Turbofish
+                     // [DOD FIX]   Turbofish
                      match content.parse::<toml::Value>() {
                          Ok(doc_io) => {
                              if let Ok(io_data) = doc_io.try_into::<crate::domain::ShardIoData>() {
@@ -283,5 +283,5 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
 }
 
 fn clean_proj_name(name: &str) -> String {
-    name.replace("Genesis-Models/", "").replace("/", "")
+    name.replace("Axicor-Models/", "").replace("/", "")
 }

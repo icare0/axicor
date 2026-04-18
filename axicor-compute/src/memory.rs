@@ -4,30 +4,30 @@ use crate::ffi;
 use crate::ffi::ShardVramPtrs;
 
 // =============================================================================
-// § SoA Layout Calculator
+//  SoA Layout Calculator
 //
-// Единственный источник правды для размеров массивов .state-блоба.
-// baker использует эти цифры для сериализации.
-// compute использует их для валидации перед DMA.
+//       .state-.
+// baker     .
+// compute      DMA.
 // =============================================================================
 
-/// Максимальное число дендритных слотов на нейрон (Hard Constraint §8).
+///       (Hard Constraint 8).
 pub const MAX_DENDRITES: usize = 128;
 
-/// Возвращает (padded_n, total_state_bytes) для шарда с данным числом нейронов.
+///  (padded_n, total_state_bytes)      .
 ///
-/// **Порядок байт в .state блобе** (должен совпадать с ShardVramPtrs):
+/// **   .state ** (   ShardVramPtrs):
 /// ```text
-/// soma_voltage      [padded_n]            × 4 B
-/// soma_flags        [padded_n]            × 1 B
-/// threshold_offset  [padded_n]            × 4 B
-/// timers            [padded_n]            × 1 B
-/// soma_to_axon      [padded_n]            × 4 B
-/// dendrite_targets  [padded_n × 128]      × 4 B
-/// dendrite_weights  [padded_n × 128]      × 2 B
-/// dendrite_timers   [padded_n × 128]      × 1 B
+/// soma_voltage      [padded_n]             4 B
+/// soma_flags        [padded_n]             1 B
+/// threshold_offset  [padded_n]             4 B
+/// timers            [padded_n]             1 B
+/// soma_to_axon      [padded_n]             4 B
+/// dendrite_targets  [padded_n  128]       4 B
+/// dendrite_weights  [padded_n  128]       2 B
+/// dendrite_timers   [padded_n  128]       1 B
 /// ```
-/// Массив `axon_heads` хранится в отдельном `.axons`-файле.
+///  `axon_heads`    `.axons`-.
 #[inline]
 pub fn calculate_state_blob_size(neuron_count: usize) -> (usize, usize) {
     let padded_n = align_to_warp(neuron_count);
@@ -53,8 +53,8 @@ pub fn calculate_state_blob_size(neuron_count: usize) -> (usize, usize) {
     (padded_n, total)
 }
 
-/// Точные байтовые смещения каждого поля внутри .state блоба.
-/// **Используется baker'ом для сериализации и compute для DMA pointer arithmetic.**
+///       .state .
+/// ** baker'    compute  DMA pointer arithmetic.**
 #[derive(Debug, Clone, Copy)]
 pub struct StateOffsets {
     pub soma_voltage:     usize,
@@ -86,13 +86,13 @@ pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
 }
 
 // =============================================================================
-// § VramState — Владелец VRAM для одного шарда
+//  VramState   VRAM   
 //
-// Единственный источник правды для GPU-ресурсов.
-// Правила:
-//  • allocate() → один cu_allocate_shard (внутри CUDA один BatchAlloc)
-//  • upload()   → один cu_upload_state_blob (Zero-Copy DMA)
-//  • Drop       → cu_free_shard
+//     GPU-.
+// :
+//   allocate()   cu_allocate_shard ( CUDA  BatchAlloc)
+//   upload()     cu_upload_state_blob (Zero-Copy DMA)
+//   Drop        cu_free_shard
 // =============================================================================
 
 pub struct VramState {
@@ -107,7 +107,7 @@ unsafe impl Send for VramState {}
 unsafe impl Sync for VramState {}
 
 impl VramState {
-    /// Аллоцирует память для шарда.
+    ///    .
     pub fn allocate(padded_n: u32, total_axons: u32, total_ghosts: u32, use_gpu: bool) -> Self {
         let mut ptrs = ShardVramPtrs {
             soma_voltage:     std::ptr::null_mut(),
@@ -137,7 +137,7 @@ impl VramState {
         self.padded_n + self.total_ghosts 
     }
 
-    /// Zero-Copy DMA: заливает плоский .state блоб в VRAM.
+    /// Zero-Copy DMA:   .state   VRAM.
     pub fn upload_state(&self, flat_blob: &[u8]) {
         let (_, expected) = calculate_state_blob_size(self.padded_n as usize);
         assert_eq!(
@@ -216,10 +216,10 @@ impl Drop for VramState {
 }
 
 // =============================================================================
-// § PinnedBuffer — DMA-ready Memory (Pinned RAM)
+//  PinnedBuffer  DMA-ready Memory (Pinned RAM)
 //
-// Используется для входных масок и истории выходов, чтобы cudaMemcpyAsync
-// работал на максимальной скорости PCIe.
+//       ,  cudaMemcpyAsync
+//     PCIe.
 // =============================================================================
 
 pub struct PinnedBuffer<T> {

@@ -20,8 +20,8 @@ pub fn load_zone_geometry_system(
     mut neuron_instances: ResMut<NeuronInstances>,
 ) {
     for ev in events.read() {
-        // DOD FIX: Читаем архив напрямую из Genesis-Models (сырые бинарники удаляются после сборки)
-        let axic_path = std::path::PathBuf::from("Genesis-Models")
+        // DOD FIX:     Axicor-Models (    )
+        let axic_path = std::path::PathBuf::from("Axicor-Models")
             .join(format!("{}.axic", ev.project_name));
 
         let Some(archive) = axicor_core::vfs::AxicArchive::open(&axic_path) else {
@@ -49,7 +49,7 @@ pub fn load_zone_geometry_system(
             instances: soma_result.instances.clone(),
         });
 
-        // Загружаем state_bytes заранее для маппинга корневых аксонов
+        //  state_bytes     
         let state_path = format!("baked/{}/shard.state", ev.shard_name);
         let state_bytes = archive.get_file(&state_path);
 
@@ -60,7 +60,7 @@ pub fn load_zone_geometry_system(
         let mut segment_lookup = Vec::new();
 
         if let Some(paths_bytes) = archive.get_file(&paths_path) {
-            // DOD FIX: Передаем pos_data и center внутрь, убирая зависимость от instances
+            // DOD FIX:  pos_data  center ,    instances
             if let Some(axon_result) = axons::build_axon_lines(paths_bytes, pos_data, soma_result.center, state_bytes.as_deref()) {
                 axon_mesh_handle = Some(meshes.add(axon_result.mesh));
                 axon_mat_handle = Some(standard_materials.add(StandardMaterial {
@@ -83,11 +83,11 @@ pub fn load_zone_geometry_system(
             }
         }
 
-        // DOD FIX: Сохраняем Handle материала для O(1) мутаций прозрачности
+        // DOD FIX:  Handle   O(1)  
         if let Some(mat) = &axon_mat_handle {
             topology_graph.global_axon_mat = mat.clone();
         }
-        // ДОБАВЛЕНО: Кэшируем материал сом
+        // :   
         topology_graph.soma_mat = soma_mat_handle.clone();
 
         commands.insert_resource(topology_graph);

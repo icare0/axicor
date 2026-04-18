@@ -33,9 +33,9 @@ pub fn handle_explorer_menu_triggers_system(
         match parts[0] {
             "explorer.delete_model" => {
                 let model_name = parts[1];
-                // Находим проект в кэше
+                //    
                 if let Some(project) = cache.projects.iter().find(|p| p.name == model_name) {
-                    // Ищем путь к simulation.toml через root_nodes
+                    //    simulation.toml  root_nodes
                     let sim_path = project.root_nodes.iter()
                         .find(|n| n.node_type == crate::domain::ProjectNodeType::Simulation)
                         .map(|n| n.path.clone());

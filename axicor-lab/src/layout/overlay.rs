@@ -10,7 +10,7 @@ pub fn draw_drag_intent_overlay(
 ) {
     let overlay_color = egui::Color32::from_white_alpha(15);
     
-    // [DOD FIX] Tooltip LayerPainter гарантированно рисует поверх всех окон без сжатия маской
+    // [DOD FIX] Tooltip LayerPainter        
     let fg_painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, ui.id().with("drag_preview")));
 
     match &drag_state.intent {

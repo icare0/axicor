@@ -3,7 +3,7 @@ use std::path::Path;
 use node_editor::domain::{BrainTopologyGraph, TopologyMutation, DeleteTarget};
 use crate::layout::systems::wm_file_ops::{load_document, save_document, remove_array_of_tables_item, remove_io_record_by_name, remove_connection_record};
 
-/// Система-роутер: делегирует физическое удаление сущностей изолированным функциям.
+/// -:      .
 pub fn delete_entity_system(
     mut events: EventReader<TopologyMutation>,
     mut graph: ResMut<BrainTopologyGraph>,
@@ -43,10 +43,10 @@ pub fn delete_entity_system(
                     if let Ok(mut doc) = crate::layout::systems::wm_file_ops::load_document(&io_path) {
                         if crate::layout::systems::wm_file_ops::remove_io_record_by_name(&mut doc, section, name) {
                             let _ = crate::layout::systems::wm_file_ops::save_document(&io_path, &doc);
-                            info!("✅ [IO] Deleted pin {} from {:?}", name, io_path);
+                            info!("[OK] [IO] Deleted pin {} from {:?}", name, io_path);
 
                             if let Some(session) = graph.sessions.get_mut(active_path) {
-                                // 1. Чистим Node Editor RAM
+                                // 1.  Node Editor RAM
                                 if *is_input {
                                     if let Some(inputs) = session.node_inputs.get_mut(zone) {
                                         inputs.retain(|n| n != name);
@@ -57,7 +57,7 @@ pub fn delete_entity_system(
                                     }
                                 }
 
-                                // 2. Обновляем ShardIoData для Matrix Editor
+                                // 2.  ShardIoData  Matrix Editor
                                 if let Some(io_data) = session.shard_io.get_mut(zone) {
                                     if let Ok(new_io) = toml::from_str::<node_editor::domain::ShardIoData>(&doc.to_string()) {
                                         *io_data = new_io;
@@ -92,13 +92,13 @@ pub fn delete_entity_system(
 
                                 if !connections_to_remove.is_empty() {
                                     let mut macro_changed = false;
-                                    // Удаляем с конца, чтобы индексы не плыли
+                                    //   ,    
                                     for (idx, target_zone, w, h) in connections_to_remove.into_iter().rev() {
                                         if let Some(arr) = macro_doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
                                             arr.remove(idx);
                                             macro_changed = true;
                                             
-                                            // Освобождаем ghost_capacity на целевом шарде
+                                            //  ghost_capacity   
                                             let dst_shard_path = if is_sim { project_dir.join(&target_zone).join("shard.toml") } else { project_dir.join(&dept_name).join(&target_zone).join("shard.toml") };
                                             if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
                                                 let capacity_sub = w * h * 2;
@@ -107,7 +107,7 @@ pub fn delete_entity_system(
                                                 if let Some(settings) = dst_doc.get_mut("settings").and_then(|s| s.as_table_mut()) {
                                                     settings.insert("ghost_capacity", toml_edit::value(new_cap));
                                                     let _ = save_document(&dst_shard_path, &dst_doc);
-                                                    info!("✅ [DCR] Freed ghost_capacity for {}. New capacity: {}", target_zone, new_cap);
+                                                    info!("[OK] [DCR] Freed ghost_capacity for {}. New capacity: {}", target_zone, new_cap);
                                                 }
                                             }
                                         }
@@ -126,7 +126,7 @@ pub fn delete_entity_system(
 }
 
 fn delete_shard(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &layout_api::ProjectFsCache) {
-    info!("🗑 [Orchestrator] Starting physical deletion of Shard: {} (ID: {})", name, id);
+    info!(" [Orchestrator] Starting physical deletion of Shard: {} (ID: {})", name, id);
     if let Ok(mut doc) = load_document(active_path) {
         if remove_array_of_tables_item(&mut doc, "zone", "shard_id_v1", id) {
             if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
@@ -141,11 +141,11 @@ fn delete_shard(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut Even
             let _ = save_document(active_path, &doc);
         }
     }
-    info!("🗑 [Sandbox] Shard {} removed from AST. Physical deletion deferred to Compile phase.", name);
+    info!(" [Sandbox] Shard {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
 fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut EventWriter<layout_api::EntityDeletedEvent>, _fs_cache: &layout_api::ProjectFsCache) {
-    info!("🗑 [Orchestrator] Deleting Department: {} (ID: {})", name, id);
+    info!(" [Orchestrator] Deleting Department: {} (ID: {})", name, id);
     if let Ok(mut doc) = load_document(active_path) {
         if remove_array_of_tables_item(&mut doc, "department", "depart_id_v1", id) {
             if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
@@ -160,7 +160,7 @@ fn delete_department(active_path: &Path, name: &str, id: &str, _deleted_ev: &mut
             let _ = save_document(active_path, &doc);
         }
     }
-    info!("🗑 [Sandbox] Department {} removed from AST. Physical deletion deferred to Compile phase.", name);
+    info!(" [Sandbox] Department {} removed from AST. Physical deletion deferred to Compile phase.", name);
 }
 
 fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, to_port: &str, graph: &BrainTopologyGraph, fs_cache: &layout_api::ProjectFsCache) {
@@ -197,7 +197,7 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
         };
 
         if let Ok(mut doc) = load_document(&macro_path) {
-            // [DCR] 1. Извлекаем габариты удаляемой связи
+            // [DCR] 1.    
             let mut proj_w: i64 = 0;
             let mut proj_h: i64 = 0;
             if let Some(arr) = doc.get("connection").and_then(|i| i.as_array_of_tables()) {
@@ -213,11 +213,11 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
                 }
             }
 
-            // 2. Физическое удаление
+            // 2.  
             if remove_connection_record(&mut doc, from, to, from_port, to_port) { 
                 let _ = save_document(&macro_path, &doc); 
                 
-                // [DCR] 3. Освобождение VRAM на целевом шарде
+                // [DCR] 3.  VRAM   
                 if proj_w > 0 && proj_h > 0 {
                     if let Ok(mut dst_doc) = load_document(&dst_shard_path) {
                         let capacity_sub = proj_w * proj_h * 2;
@@ -227,7 +227,7 @@ fn delete_connection(active_path: &Path, from: &str, from_port: &str, to: &str, 
                             settings.insert("ghost_capacity", toml_edit::value(new_cap));
                         }
                         let _ = save_document(&dst_shard_path, &dst_doc);
-                        info!("✅ [DCR] Freed ghost_capacity for {}. New capacity: {}", to, new_cap);
+                        info!("[OK] [DCR] Freed ghost_capacity for {}. New capacity: {}", to, new_cap);
                     }
                 }
             }
@@ -250,7 +250,7 @@ fn delete_anatomy_layer(active_path: &Path, zone: &str, name: &str, _graph: &Bra
     if let Ok(mut doc) = crate::layout::systems::wm_file_ops::load_document(&anatomy_path) {
         if crate::layout::systems::wm_file_ops::remove_anatomy_layer_record(&mut doc, name) {
             let _ = crate::layout::systems::wm_file_ops::save_document(&anatomy_path, &doc);
-            info!("✅ [Anatomy] Deleted layer {} from {:?}", name, anatomy_path);
+            info!("[OK] [Anatomy] Deleted layer {} from {:?}", name, anatomy_path);
         }
     }
 }

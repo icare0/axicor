@@ -1,4 +1,4 @@
-/// genesis-runtime IPC client — communicates with genesis-baker-daemon.
+/// axicor-runtime IPC client  communicates with axicor-baker-daemon.
 ///
 /// Transport:
 ///   - Data:    File-backed mmap (cross-platform)
@@ -25,7 +25,7 @@ pub struct BakerClient {
 }
 
 // SAFETY: BakerClient is not Send/Sync by default due to raw pointer.
-// We implement them manually — the mmap region is only accessed from the
+// We implement them manually  the mmap region is only accessed from the
 // Night Phase (single-threaded path in runtime main loop).
 unsafe impl Send for BakerClient {}
 unsafe impl Sync for BakerClient {}
@@ -86,7 +86,7 @@ impl BakerClient {
             bail!("Too many handovers: {} > {}", handovers.len(), axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT);
         }
 
-        // ── 1. Zero-Copy Write Handovers into Shared Memory ──
+        // -- 1. Zero-Copy Write Handovers into Shared Memory --
         unsafe {
             let hdr_ptr = self.shm_ptr as *mut ShmHeader;
             let dest = self.shm_ptr.add((*hdr_ptr).handovers_offset as usize) as *mut axicor_core::ipc::AxonHandoverEvent;
@@ -95,7 +95,7 @@ impl BakerClient {
             (*hdr_ptr).handovers_count = handovers.len() as u32;
         }
 
-        // ── 2. Binary Trigger (16 bytes) - Fast Path ──
+        // -- 2. Binary Trigger (16 bytes) - Fast Path --
         let mut stream = self.connect_stream()?;
         stream.set_read_timeout(Some(timeout))?;
 
@@ -122,7 +122,7 @@ impl BakerClient {
         }
         stream.flush()?;
 
-        // ── 3. Wait for Binary Ack (4 bytes) ──
+        // -- 3. Wait for Binary Ack (4 bytes) --
         let mut ack = [0u8; 4];
         stream.read_exact(&mut ack).context("Waiting for baker BKOK")?;
         let magic_resp = u32::from_le_bytes(ack);

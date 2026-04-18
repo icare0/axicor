@@ -1,43 +1,43 @@
-# 🤖 Genesis HFT: Ant-v4 Example
+#  Genesis HFT: Ant-v4 Example
 
-Высокопроизводительный Embodied AI агент для среды Ant-v4, построенный на базе Spiking Neural Networks (SNN) с использованием 3-зонной архитектуры (DOD/WTA) и обучения через инъекции дофамина (R-STDP).
+ Embodied AI    Ant-v4,    Spiking Neural Networks (SNN)   3-  (DOD/WTA)      (R-STDP).
 
-## 🚀 Как запустить (Zero-Magic Pipeline)
+##    (Zero-Magic Pipeline)
 
-**Шаг 0. Активируйте виртуальное окружение**
+** 0.   **
 ```bash
 source .venv/bin/activate
 ```
 
-**Шаг 1. Сгенерируйте и запеките мозг (WTA Architecture)**
-Скрипт создаст 3-зонную топологию (Sensory, Thoracic, Motor) с 60% плотностью тормозных нейронов в моторной коре для реализации Winner-Takes-All динамики.
+** 1.     (WTA Architecture)**
+  3-  (Sensory, Thoracic, Motor)  60%         Winner-Takes-All .
 ```bash
 python3 examples/ant_exp/build_brain.py
 ```
 
-**Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
-Оркестратор загрузит бинарные дампы VRAM и перейдет в режим ожидания тиков от агента.
+** 2.  HFT-  GPU (Dual-Backend)**
+    VRAM        .
 
-# Для CPU
+#  CPU
 ```bash
-cargo run --release -p genesis-node -- Genesis-Models/ant_exp.axic --cpu --log
+cargo run --release -p genesis-node -- Axicor-Models/ant_exp.axic --cpu --log
 ```
 
-# Для NVIDIA (CUDA)
+#  NVIDIA (CUDA)
 ```bash
-cargo run --release -p genesis-node -- Genesis-Models/ant_exp.axic --log
+cargo run --release -p genesis-node -- Axicor-Models/ant_exp.axic --log
 ```
 
-# Для AMD (ROCm / HIP)
+#  AMD (ROCm / HIP)
 ```bash
-cargo run --release -p genesis-node --features amd -- Genesis-Models/ant_exp.axic --log
+cargo run --release -p genesis-node --features amd -- Axicor-Models/ant_exp.axic --log
 ```
 
-**Шаг 3. Подключите среду (DOD Hot Loop)**
-Запустите Python-шлюз. Он работает в бесконечном цикле без аллокаций, передавая состояния среды и управляя обучением через `TARGET_TIME` и `TARGET_SCORE`.
+** 3.   (DOD Hot Loop)**
+ Python-.       ,        `TARGET_TIME`  `TARGET_SCORE`.
 
 ```bash
 python3 examples/ant_exp/ant_agent.py
 ```
 
-Муравей никогда не падает с нулевой эпохи.
+      .

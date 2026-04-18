@@ -21,7 +21,7 @@ pub fn build_axon_lines(
     let lengths_slice = &paths_bytes[std::mem::size_of::<PathsFileHeader>() .. std::mem::size_of::<PathsFileHeader>() + total_axons];
     let matrix_offset = calculate_paths_matrix_offset(total_axons);
     
-    // DOD FIX: Безопасное чтение невыровненной матрицы путей
+    // DOD FIX:     
     let matrix_vec: Vec<u32> = paths_bytes[matrix_offset..].chunks_exact(4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
         .collect();
@@ -34,13 +34,13 @@ pub fn build_axon_lines(
 
     for axon_id in 0..total_axons {
         let len = lengths_slice[axon_id] as usize;
-        if len == 0 { continue; } // Пропускаем только полностью пустые слоты
+        if len == 0 { continue; } //     
 
         let offset = axon_id * MAX_SEGMENTS_PER_AXON;
         if offset + len > matrix_slice.len() { continue; }
         let axon_path = &matrix_slice[offset .. offset + len];
 
-        // 1. Сохраняем ВСЕ валидные точки в лукап (Гарантирует 1:1 маппинг с seg_idx)
+        // 1.       ( 1:1   seg_idx)
         for i in 0..len {
             let p = PackedPosition(axon_path[i]);
             if p.0 == 0 { continue; }
@@ -53,15 +53,15 @@ pub fn build_axon_lines(
             axon_segments_lookup[axon_id].push(v);
         }
 
-        // 2. Строим 3D-линии сегментов (только если точек >= 2)
+        // 2.  3D-  (   >= 2)
         let points = &axon_segments_lookup[axon_id];
         if points.len() >= 2 {
-            // Извлекаем Type ID из первой точки для Закона Дейла
+            //  Type ID      
             let type_id = (axon_path[0] >> 28) & 0xF;
             let axon_color = if type_id % 2 != 0 {
-                [0.9, 0.2, 0.2, 0.15]  // Inh: Красный
+                [0.9, 0.2, 0.2, 0.15]  // Inh: 
             } else {
-                [1.0, 0.53, 0.0, 0.15] // Exc: Оранжевый
+                [1.0, 0.53, 0.0, 0.15] // Exc: 
             };
 
             for i in 0..(points.len() - 1) {
@@ -73,7 +73,7 @@ pub fn build_axon_lines(
         }
     }
 
-    // DOD FIX: ДОБАВЛЯЕМ КОРНЕВЫЕ СЕГМЕНТЫ (От сомы к первому излому)
+    // DOD FIX:    (    )
     if let Some(state_data) = state_bytes {
         // DOD FIX: shard.state is a headerless raw dump. 
         // 1166 bytes per neuron invariant (14 bytes soma + 1152 bytes dendrites)
@@ -88,7 +88,7 @@ pub fn build_axon_lines(
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
             .collect();
 
-        // Парсим сырые позиции для прямого маппинга по Dense ID
+        //        Dense ID
         let packed_positions: Vec<u32> = pos_data.chunks_exact(4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
             .collect();
@@ -96,13 +96,13 @@ pub fn build_axon_lines(
         for dense_id in 0..padded_n {
             if dense_id >= packed_positions.len() { break; }
             let packed = packed_positions[dense_id];
-            if packed == 0 { continue; } // Пропускаем пустышки
+            if packed == 0 { continue; } //  
 
             let local_axon_id = s2a_vec[dense_id] as usize;
 
-            // Проверяем валидность аксона (отсекаем пустышки 0xFFFFFFFF)
+            //    (  0xFFFFFFFF)
             if local_axon_id < total_axons && !axon_segments_lookup[local_axon_id].is_empty() {
-                // Вычисляем позицию сомы на лету из Dense ID
+                //       Dense ID
                 let x = (packed & 0x3FF) as f32 * 0.025;
                 let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
                 let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
@@ -110,12 +110,12 @@ pub fn build_axon_lines(
 
                 let first_segment_pos = axon_segments_lookup[local_axon_id][0];
 
-                // Восстанавливаем Закон Дейла из упакованного типа
+                //      
                 let type_id = (packed >> 28) & 0xF;
                 let root_color = if type_id % 2 != 0 {
-                    [0.9, 0.2, 0.2, 0.15]  // Inh: Красный
+                    [0.9, 0.2, 0.2, 0.15]  // Inh: 
                 } else {
-                    [1.0, 0.53, 0.0, 0.15] // Exc: Оранжевый
+                    [1.0, 0.53, 0.0, 0.15] // Exc: 
                 };
 
                 line_positions.push(soma_pos);

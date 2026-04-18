@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Axicor Brain State Debugger — parses binary .state blobs and outputs
+Axicor Brain State Debugger  parses binary .state blobs and outputs
 full soma + dendritic weight statistics.
 
 .state binary layout (Zero-Copy SoA, Little-Endian):
-  soma_voltage      [padded_n]       × i32  (4B)
-  soma_flags        [padded_n]       × u8   (1B)
-  threshold_offset  [padded_n]       × i32  (4B)
-  timers            [padded_n]       × u8   (1B)
-  soma_to_axon      [padded_n]       × u32  (4B)
-  dendrite_targets  [padded_n × 128] × u32  (4B)
-  dendrite_weights  [padded_n × 128] × i16  (2B)
-  dendrite_timers   [padded_n × 128] × u8   (1B)
+  soma_voltage      [padded_n]        i32  (4B)
+  soma_flags        [padded_n]        u8   (1B)
+  threshold_offset  [padded_n]        i32  (4B)
+  timers            [padded_n]        u8   (1B)
+  soma_to_axon      [padded_n]        u32  (4B)
+  dendrite_targets  [padded_n  128]  u32  (4B)
+  dendrite_weights  [padded_n  128]  i16  (2B)
+  dendrite_timers   [padded_n  128]  u8   (1B)
 
 Usage:
   python3 scripts/brain_debugger.py {name_model}
@@ -74,7 +74,7 @@ def report_soma(s, name):
     thresh = s['threshold_offset']
     timers = s['timers']
     
-    # Variant ID — upper 4 bits of flags
+    # Variant ID  upper 4 bits of flags
     variant_ids = (flags >> 4) & 0x0F
     is_spiking = flags & 0x01
     
@@ -83,11 +83,11 @@ def report_soma(s, name):
     alive = np.sum(alive_mask)
     
     print(f"\n{'='*70}")
-    print(f"  🧠 ZONE: {name}")
+    print(f"   ZONE: {name}")
     print(f"  Padded N: {n} | Alive: {alive} | Padding: {n - alive}")
     print(f"{'='*70}")
     
-    print(f"\n  📊 SOMA VOLTAGE (i32)")
+    print(f"\n   SOMA VOLTAGE (i32)")
     print(f"    Min:    {v.min():>10}")
     print(f"    Max:    {v.max():>10}")
     print(f"    Mean:   {v[alive_mask].mean():>10.1f}")
@@ -98,20 +98,20 @@ def report_soma(s, name):
     hist, _ = np.histogram(v[alive_mask], bins=hist_edges)
     print(f"    Voltage Distribution:")
     for i in range(len(hist)):
-        bar = '█' * min(50, int(hist[i] / max(alive,1) * 50))
+        bar = '#' * min(50, int(hist[i] / max(alive,1) * 50))
         print(f"      [{hist_edges[i]:>6}..{hist_edges[i+1]:>6}) {hist[i]:>5}  {bar}")
     
-    print(f"\n  🔥 SPIKING & REFRACTORY")
+    print(f"\n   SPIKING & REFRACTORY")
     print(f"    Currently spiking: {np.sum(is_spiking)}")
     print(f"    In refractory:     {np.sum(timers > 0)}")
     
-    print(f"\n  🎯 THRESHOLD OFFSET (Homeostasis)")
+    print(f"\n   THRESHOLD OFFSET (Homeostasis)")
     print(f"    Min:    {thresh.min():>10}")
     print(f"    Max:    {thresh.max():>10}")
     print(f"    Mean:   {thresh[alive_mask].mean():>10.1f}")
     print(f"    Non-zero: {np.sum(thresh != 0)}")
     
-    print(f"\n  🏷️  VARIANT DISTRIBUTION")
+    print(f"\n    VARIANT DISTRIBUTION")
     for vid in sorted(set(variant_ids)):
         cnt = np.sum(variant_ids == vid)
         if cnt > 0:
@@ -134,9 +134,9 @@ def report_dendrites(s, name):
     # All active weights
     active_weights = w[connected]
     
-    print(f"\n  🔗 DENDRITE WEIGHTS (i32)")
+    print(f"\n   DENDRITE WEIGHTS (i32)")
     if len(active_weights) == 0:
-        print(f"    ⚠ NO CONNECTED SYNAPSES")
+        print(f"    [WARN] NO CONNECTED SYNAPSES")
         return
     
     print(f"    Total synapses:  {len(active_weights):>10}")
@@ -172,7 +172,7 @@ def report_dendrites(s, name):
     hist, _ = np.histogram(abs_w, bins=hist_edges)
     print(f"\n    |Weight| Distribution:")
     for i in range(len(hist)):
-        bar = '█' * min(50, int(hist[i] / max(len(active_weights),1) * 50))
+        bar = '#' * min(50, int(hist[i] / max(len(active_weights),1) * 50))
         print(f"      [{hist_edges[i]:>6}..{hist_edges[i+1]:>6}) {hist[i]:>8}  {bar}")
 
 
@@ -186,23 +186,23 @@ def main():
     paths_to_check = []
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
-    models_dir = project_root / "Genesis-Models"
+    models_dir = project_root / "Axicor-Models"
     
     potential_model_dir = models_dir / sys.argv[1]
     
-    # If a single argument is passed and it matches a folder in Genesis-Models
+    # If a single argument is passed and it matches a folder in Axicor-Models
     if len(sys.argv) == 2 and potential_model_dir.is_dir():
-        print(f"🔍 Auto-discovering shards for model: {sys.argv[1]}")
+        print(f" Auto-discovering shards for model: {sys.argv[1]}")
         baked_dir = potential_model_dir / "baked"
         if not baked_dir.exists():
-            print(f"❌ Error: 'baked' directory not found in {potential_model_dir}")
+            print(f"[ERROR] Error: 'baked' directory not found in {potential_model_dir}")
             sys.exit(1)
             
         for shard_file in baked_dir.rglob("shard.state"):
             paths_to_check.append(shard_file)
             
         if not paths_to_check:
-            print(f"❌ Error: No shard.state files found in {baked_dir}")
+            print(f"[ERROR] Error: No shard.state files found in {baked_dir}")
             sys.exit(1)
             
         paths_to_check.sort()
@@ -211,17 +211,17 @@ def main():
         
     for path in paths_to_check:
         if not path.exists():
-            print(f"❌ File not found: {path}")
+            print(f"[ERROR] File not found: {path}")
             continue
         
         zone_name = path.parent.name
-        print(f"🔍 Analyzing: {path}")
+        print(f" Analyzing: {path}")
         s = parse_state(str(path))
         report_soma(s, zone_name)
         report_dendrites(s, zone_name)
     
     print(f"\n{'='*70}")
-    print(f"  ✅ Debug complete")
+    print(f"  [OK] Debug complete")
     print(f"{'='*70}")
 
 

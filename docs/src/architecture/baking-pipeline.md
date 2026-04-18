@@ -7,7 +7,7 @@
 
 Baker compiles text configurations into binary files. The execution order is strict: zones first, then outputs, then inputs, then connections.
 
-### 1.1. Phase A: Input matrices → `.gxi`
+### 1.1. Phase A: Input matrices  `.gxi`
 
 For each `[[input]]` in `io.toml`:
 
@@ -56,7 +56,7 @@ def bake_inputs(zone, io_config) -> GxiFile:
 
 **[INVARIANT]** Pixel order is strictly row-major (`pixel_id = py * width + px`). Matrix order matches the declaration order in `io.toml`.
 
-### 1.2. Phase B: Output matrices → `.gxo`
+### 1.2. Phase B: Output matrices  `.gxo`
 
 For each `[[output]]` in `io.toml`:
 
@@ -92,7 +92,7 @@ def bake_outputs(zone, io_config) -> GxoFile:
     return GxoFile(matrix_headers, all_pixels)
 ```
 
-### 1.3. Phase C: Inter-zone links → `.ghosts`
+### 1.3. Phase C: Inter-zone links  `.ghosts`
 
 **[INVARIANT]** Phase C MUST be executed after Phases A and B because it depends on the `.gxo` of the source zone.
 
@@ -107,7 +107,7 @@ def bake_connection(conn, src_zone, dst_zone) -> GhostFile:
     ghosts = []
     for gy in range(conn.height):
         for gx in range(conn.width):
-            # Scaling: ghost pixel → src pixel
+            # Scaling: ghost pixel  src pixel
             src_px = gx * src_gxo.width / conn.width
             src_py = gy * src_gxo.height / conn.height
             paired_src_soma = src_gxo.pixel_to_soma[src_py * src_gxo.width + src_px]
@@ -164,19 +164,19 @@ All files are strictly little-endian, uncompressed. Loading equals one `read()` 
 [C-ABI] (synced with `axicor-core/src/ipc.rs`):
 
 ```text
-┌──────────────────────────────────────┐
-│ Header (32 bytes)                    │
-│   magic:         u32 = 0x47584900    │  "GXI\0"
-│   zone_hash:     u32                 │  FNV-1a of zone name
-│   matrix_hash:   u32                 │  FNV-1a of matrix name
-│   input_count:   u32                 │  Number of virtual axons
-│   total_pixels:  u32                 │  W × H
-│   _padding:      u32[1]              │  Reserved; always zero
-├──────────────────────────────────────┤
-│ Axon Array (u32 per pixel)           │
-│ total_pixels × 4 bytes               │
-│   axon_local_id: u32                 │  index in axon_heads[] GPU array
-└──────────────────────────────────────┘
++--------------------------------------+
+| Header (32 bytes)                    |
+|   magic:         u32 = 0x47584900    |  "GXI\0"
+|   zone_hash:     u32                 |  FNV-1a of zone name
+|   matrix_hash:   u32                 |  FNV-1a of matrix name
+|   input_count:   u32                 |  Number of virtual axons
+|   total_pixels:  u32                 |  W  H
+|   _padding:      u32[1]              |  Reserved; always zero
++--------------------------------------+
+| Axon Array (u32 per pixel)           |
+| total_pixels  4 bytes               |
+|   axon_local_id: u32                 |  index in axon_heads[] GPU array
++--------------------------------------+
 ```
 
 ### 2.2. `.gxo` (Output Mapping)
@@ -184,18 +184,18 @@ All files are strictly little-endian, uncompressed. Loading equals one `read()` 
 [C-ABI] (synced with `axicor-core/src/ipc.rs`):
 
 ```text
-┌──────────────────────────────────────┐
-│ Header (32 bytes)                    │
-│   magic:         u32 = 0x47584F00    │  "GXO\0"
-│   zone_hash:     u32                 │  FNV-1a of zone name
-│   matrix_hash:   u32                 │  FNV-1a of matrix name
-│   output_count:  u32                 │  Number of mapped somas
-│   _padding:      u32[2]              │  Reserved; always zero
-├──────────────────────────────────────┤
-│ Soma Array (u32 per pixel)           │
-│ total_pixels × 4 bytes               │
-│   soma_id:       u32                 │  index in flags[] / voltage[] GPU
-└──────────────────────────────────────┘
++--------------------------------------+
+| Header (32 bytes)                    |
+|   magic:         u32 = 0x47584F00    |  "GXO\0"
+|   zone_hash:     u32                 |  FNV-1a of zone name
+|   matrix_hash:   u32                 |  FNV-1a of matrix name
+|   output_count:  u32                 |  Number of mapped somas
+|   _padding:      u32[2]              |  Reserved; always zero
++--------------------------------------+
+| Soma Array (u32 per pixel)           |
+| total_pixels  4 bytes               |
+|   soma_id:       u32                 |  index in flags[] / voltage[] GPU
++--------------------------------------+
 ```
 
 ### 2.3. `.ghosts` (Inter-zone Links)
@@ -203,21 +203,21 @@ All files are strictly little-endian, uncompressed. Loading equals one `read()` 
 [C-ABI]
 
 ```text
-┌─────────────────────────────────────────┐
-│ Header (20 bytes)                       │
-│   magic:           u32 = 0x47485354     │  "GHST"
-│   version:         u8  = 1              │
-│   _padding:        u8[1]                │
-│   width:           u16                  │
-│   height:          u16                  │
-│   _padding:        u8[2]                │
-│   src_zone_hash:   u32                  │
-│   dst_zone_hash:   u32                  │
-├─────────────────────────────────────────┤
-│ Ghost Array (width×height × 8 bytes)    │
-│   local_axon_id:   u32                  │  index in axon_heads[] of destination
-│   paired_src_soma: u32                  │  soma index in the source zone
-└─────────────────────────────────────────┘
++-----------------------------------------+
+| Header (20 bytes)                       |
+|   magic:           u32 = 0x47485354     |  "GHST"
+|   version:         u8  = 1              |
+|   _padding:        u8[1]                |
+|   width:           u16                  |
+|   height:          u16                  |
+|   _padding:        u8[2]                |
+|   src_zone_hash:   u32                  |
+|   dst_zone_hash:   u32                  |
++-----------------------------------------+
+| Ghost Array (widthheight  8 bytes)    |
+|   local_axon_id:   u32                  |  index in axon_heads[] of destination
+|   paired_src_soma: u32                  |  soma index in the source zone
++-----------------------------------------+
 ```
 
 ### 2.4. `.paths` (Axon Full Geometry)
@@ -227,21 +227,21 @@ Stores the full geometry of axons as a flat 2D matrix. The axon length is hardwa
 [C-ABI] (Little-Endian, Zero-Copy Mmap Ready):
 
 ```text
-┌──────────────────────────────────────┐
-│ Header (16 bytes)                    │
-│   magic:         u32 = 0x50415448    │ "PATH"
-│   version:       u32 = 1             │
-│   total_axons:   u32                 │
-│   max_segments:  u32 = 256           │ Hardcoded limit
-├──────────────────────────────────────┤
-│ Lengths Array                        │
-│   lengths:       u8[total_axons]     │ Current length of each axon
-│   *padding:      align up to 64B     │ L2 Cache Line alignment
-├──────────────────────────────────────┤
-│ Segments Matrix (Flat SoA)           │
-│ total_axons × 256 × 4 bytes          │
-│   positions:     u32[A * 256]        │ PackedPosition (X|Y|Z|Type)
-└──────────────────────────────────────┘
++--------------------------------------+
+| Header (16 bytes)                    |
+|   magic:         u32 = 0x50415448    | "PATH"
+|   version:       u32 = 1             |
+|   total_axons:   u32                 |
+|   max_segments:  u32 = 256           | Hardcoded limit
++--------------------------------------+
+| Lengths Array                        |
+|   lengths:       u8[total_axons]     | Current length of each axon
+|   *padding:      align up to 64B     | L2 Cache Line alignment
++--------------------------------------+
+| Segments Matrix (Flat SoA)           |
+| total_axons  256  4 bytes          |
+|   positions:     u32[A * 256]        | PackedPosition (X|Y|Z|Type)
++--------------------------------------+
 ```
 
 **[INVARIANT] The 64-Byte Alignment Rule:** Global alignment of the length array up to a multiple of 64 mathematically guarantees that the lengths of all internal SoA arrays perfectly align with the L2 cache line without dirty padding bytes inside the blob. This is critical for Coalesced Access on AMD Wavefronts (64 threads) and eliminating cache thrashing.
@@ -253,7 +253,7 @@ Stores the full geometry of axons as a flat 2D matrix. The axon length is hardwa
 To deploy compiled brains onto severely memory-constrained devices (like the ESP32-S3 with 520 KB SRAM), the engine uses WTA (Winner-Takes-All) Distillation.
 
 - **Pruning:** The 128 slots are reduced to 32 slots.
-- **Repacking:** The remaining 32 slots are repacked into new flat SoA arrays (`32 * padded_n`). Empty slots **MUST** be filled with zeros (`target = 0` — hardware Early Exit trigger).
+- **Repacking:** The remaining 32 slots are repacked into new flat SoA arrays (`32 * padded_n`). Empty slots **MUST** be filled with zeros (`target = 0`  hardware Early Exit trigger).
 - **Dual-Memory Split:** The data is split into two separate binaries:
   - `shard.sram` (Hot State): `voltage`, `flags`, `threshold_offset`, `timers`, `dendrite_weights` (32 slots), `dendrite_timers` (32 slots), `axon_heads`. Mapped/loaded strictly into fast SRAM.
   - `shard.flash` (Read-Only): `dendrite_targets` (32 slots) and `soma_to_axon`. Mapped via MMU directly from SPI Flash memory (XIP).
@@ -266,13 +266,13 @@ To deploy compiled brains onto severely memory-constrained devices (like the ESP
 
 The protocol for transmitting structural graph changes (Night Phase) between nodes. Operates over TCP (default port 8010). Data is serialized via `bincode`.
 
-**`GeometryRequest`** (Client → Server) Enum describing the intent:
+**`GeometryRequest`** (Client  Server) Enum describing the intent:
 
 - `BulkHandover(Vec<AxonHandoverEvent>)`: Transfers a batch of sprouted axons that crossed the shard boundary.
 - `BulkAck(Vec<AxonHandoverAck>)`: Confirms the creation of Ghost Axons on the destination side (returns the allocated `dst_ghost_id` back to the source).
 - `Prune(u32)`: Notification of connection deletion (passes `dst_ghost_id` for cleanup on the destination shard).
 
-**`GeometryResponse`** (Server → Client) Enum, server response:
+**`GeometryResponse`** (Server  Client) Enum, server response:
 
 - `Ack(AxonHandoverAck)`: Returns a confirmation with the reserved slot (for single packets).
 - `Ok`: Universal confirmation of successful processing (for `BulkHandover` and `Prune`).

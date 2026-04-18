@@ -9,7 +9,7 @@ try:
 except ImportError:
     raise ImportError("Telemetry requires the websockets package (pip install websockets)")
 
-# Contract from genesis-core/src/ipc.rs and genesis-ide/src/telemetry.rs
+# Contract from axicor-core/src/ipc.rs and genesis-ide/src/telemetry.rs
 # 0..4: Magic "SPIK" (0x4B495053)
 # 4..12: Tick (u64)
 # 12..16: Spikes Count (u32)
@@ -45,7 +45,7 @@ class TelemetryListener:
         while not self._stop_event.is_set():
             try:
                 async with websockets.connect(self.ws_url) as ws:
-                    print(f"🔌 [Telemetry] Connected to {self.ws_url}")
+                    print(f" [Telemetry] Connected to {self.ws_url}")
                     async for message in ws:
                         if self._stop_event.is_set():
                             break

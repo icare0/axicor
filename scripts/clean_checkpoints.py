@@ -5,7 +5,7 @@ from pathlib import Path
 def clean_checkpoints(target_path):
     target = Path(target_path)
     if not target.exists():
-        print(f"❌ Path not found: {target}")
+        print(f"[ERROR] Path not found: {target}")
         return
 
     # Specific checkpoint filenames
@@ -19,7 +19,7 @@ def clean_checkpoints(target_path):
     deleted_count = 0
     total_freed = 0
 
-    print(f"🔍 Deep cleaning in: {target.absolute()}")
+    print(f" Deep cleaning in: {target.absolute()}")
 
     for root, dirs, files in os.walk(target):
         for filename in files:
@@ -34,27 +34,27 @@ def clean_checkpoints(target_path):
                     file_path.unlink()
                     deleted_count += 1
                     total_freed += size
-                    print(f"  🗑️ Deleted: {file_path.relative_to(target)}")
+                    print(f"   Deleted: {file_path.relative_to(target)}")
                 except Exception as e:
-                    print(f"  ⚠️ Failed to delete {filename} in {root}: {e}")
+                    print(f"  [WARN] Failed to delete {filename} in {root}: {e}")
 
     if deleted_count > 0:
-        print(f"\n✅ Clean-up complete! Deleted {deleted_count} files.")
-        print(f"📊 Total space freed: {total_freed / (1024*1024):.2f} MB")
+        print(f"\n[OK] Clean-up complete! Deleted {deleted_count} files.")
+        print(f" Total space freed: {total_freed / (1024*1024):.2f} MB")
     else:
-        print("\n✨ No temporary or checkpoint files found. System is clean.")
+        print("\n No temporary or checkpoint files found. System is clean.")
 
 if __name__ == "__main__":
-    # If no argument is provided, search in Genesis-Models at the project root
+    # If no argument is provided, search in Axicor-Models at the project root
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        # Attempting to locate Genesis-Models relative to the project root
+        # Attempting to locate Axicor-Models relative to the project root
         script_dir = Path(__file__).parent
         project_root = script_dir.parent
-        path = project_root / "Genesis-Models"
+        path = project_root / "Axicor-Models"
         
         if not path.exists():
-            path = Path("Genesis-Models")
+            path = Path("Axicor-Models")
         
     clean_checkpoints(path)

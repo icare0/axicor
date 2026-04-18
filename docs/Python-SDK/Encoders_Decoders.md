@@ -1,138 +1,138 @@
 # High-Performance Encoders & Decoders (Python SDK)
 
-В Axicor мы работаем с тысячами сенсоров и моторных выходов на частотах 100+ Гц. Классический подход с циклами `for` и созданием ООП-объектов `Spike` - это смертный приговор для производительности (GIL и сборщик мусора убьют бюджет в 10 мс).
+ Axicor           100+ .     `for`   - `Spike` -      (GIL       10 ).
 
-Секрет HFT-интеграции - **Data-Oriented Design (DOD)**. Мы конвертируем float-состояния среды в сырые битовые маски через плоские операции NumPy и пересылаем их через `memoryview` без единой аллокации в Hot Loop.
+ HFT- - **Data-Oriented Design (DOD)**.   float-         NumPy     `memoryview`     Hot Loop.
 
-SDK предоставляет готовые Zero-Copy кодировщики.
+SDK   Zero-Copy .
 
-## 1. Входящие сигналы (Encoders)
+## 1.   (Encoders)
 
-Сенсорные данные (`float16`) преобразуются в спайки на стороне Python-клиента и отправляются на порт ноды (`8081`).
+  (`float16`)      Python-      (`8081`).
 
-### 1.1. PopulationEncoder (Пространственное кодирование)
-Разворачивает одну `float` переменную в популяцию из `M` рецепторов (Gaussian Receptive Fields). Идеально для координат, углов и скоростей (например, в CartPole).
+### 1.1. PopulationEncoder ( )
+  `float`     `M`  (Gaussian Receptive Fields).   ,    (,  CartPole).
 
 ```python
-from genesis.encoders import PopulationEncoder
+from axicor.encoders import PopulationEncoder
 
-# 4 переменные среды по 16 нейронов на каждую, батч = 10 тиков
+# 4    16   ,  = 10 
 encoder = PopulationEncoder(variables_count=4, neurons_per_var=16, batch_size=10)
 
-# В Hot Loop:
-# 1. Векторизованная нормализация в [0.0, 1.0] (In-place)
+#  Hot Loop:
+# 1.    [0.0, 1.0] (In-place)
 norm_state = np.clip(state / max_bounds, 0.0, 1.0)
 
-# 2. Кодирование прямо в сетевой буфер сокета!
-# offset=20 оставляет место под C-ABI заголовок ExternalIoHeader
+# 2.      !
+# offset=20    C-ABI  ExternalIoHeader
 encoder.encode_into(norm_state, client.payload_views, offset=20)
 ```
 
-**DOD-магия:** Метод `encode_into` использует `broadcast_to` и векторизованный расчет дистанций прямо в преаллоцированный массив `self._expanded_buffer`. Ни одного объекта в куче не создается.
+**DOD-:**  `encode_into`  `broadcast_to`         `self._expanded_buffer`.       .
 
-### 1.2. PwmEncoder (Частотное кодирование / Rate Coding)
-Для плотных аналоговых потоков (RGB-камеры, аудио). Значение f16 (0.0 - 1.0) кодируется в частоту спайков одного виртуального аксона.
+### 1.2. PwmEncoder (  / Rate Coding)
+    (RGB-, ).  f16 (0.0 - 1.0)       .
 
 > [!IMPORTANT]
-> **Защита от Burst Gating:** `PwmEncoder` аппаратно смещает фазу (Golden Ratio Dither), чтобы сенсоры не выстрелили одновременно. Это предотвращает блокировку дендритов через `synapse_refractory_period`.
+> **  Burst Gating:** `PwmEncoder`    (Golden Ratio Dither),     .      `synapse_refractory_period`.
 
 ```python
-from genesis.encoders import PwmEncoder
+from axicor.encoders import PwmEncoder
 
-# 1024 пикселя, глубина батча = 100 тиков
+# 1024 ,   = 100 
 pwm = PwmEncoder(num_sensors=1024, batch_size=100)
 
-# В Hot Loop:
+#  Hot Loop:
 pwm.encode_into(camera_frame_f16, client.payload_views, offset=20)
 ```
 
 ### 1.3. RetinaEncoder (Event-Driven Vision Pipeline)
 
-Биологическая сетчатка не передает сырые пиксели. Она реагирует исключительно на пространственные градиенты (контуры) и движение через механизм латерального торможения (Center-Surround Antagonism). `RetinaEncoder` реализует этот механизм аппаратно-эффективным способом, конвертируя тяжелый RGB/Depth видеопоток в разреженные битовые маски.
+     .       ()       (Center-Surround Antagonism). `RetinaEncoder`    - ,   RGB/Depth     .
 
-**Инварианты Механической Симпатии (DOD):**
-1. **Zero-Garbage OpenCV:** Использование `cv2` разрешено, но строго через параметр `dst=`. Все промежуточные матрицы (`_gray`, `_center`, `_surround`, `_dog`) преаллоцируются в конструкторе. Создание новых массивов кадров в горячем цикле вызовет блокировку GC и сорвет 10-мс барьер HFT.
-2. **Single-Tick Pulse (Биологическая тишина):** Кадр с камеры приходит один раз за батч. Мы генерируем спайки строго в `tick 0` текущего батча. Остальные тики батча заполняются нулями. Это предотвращает перегрузку VRAM (Burst Gating) и дает сомам время на интеграцию заряда.
-3. **C-ABI Warp Alignment:** Как и все входы, плоский массив пикселей добивается паддингом до кратного 32 битам (`math.ceil(N / 32) * 32`), чтобы избежать смещения байтов при загрузке маски в GPU.
+**   (DOD):**
+1. **Zero-Garbage OpenCV:**  `cv2` ,     `dst=`.    (`_gray`, `_center`, `_surround`, `_dog`)   .          GC   10-  HFT.
+2. **Single-Tick Pulse ( ):**        .      `tick 0`  .     .    VRAM (Burst Gating)       .
+3. **C-ABI Warp Alignment:**    ,        32  (`math.ceil(N / 32) * 32`),         GPU.
 
 ```python
-from genesis.retina import RetinaEncoder
+from axicor.retina import RetinaEncoder
 import cv2
 
-# Инициализация (вне Hot Loop). Преаллокация буферов.
-# 256x256 пикселей, батч 20 тиков.
+#  ( Hot Loop).  .
+# 256x256 ,  20 .
 retina = RetinaEncoder(width=256, height=256, batch_size=20, threshold=15.0)
 
 while True:
-    # 1. Получаем сырой BGR-кадр (например, из симулятора или камеры)
+    # 1.   BGR- (,    )
     frame_bgr = env.render() 
     
-    # 2. In-Place кодирование: BGR -> Grayscale -> DoG (Difference of Gaussians) -> Спайки
-    # Записывает Little-Endian битовую маску строго в преаллоцированный сокетный буфер
+    # 2. In-Place : BGR -> Grayscale -> DoG (Difference of Gaussians) -> 
+    #  Little-Endian       
     retina.encode_into(frame_bgr, client.payload_views, offset=20)
 ```
 
-**Математика под капотом (DoG):** Светлое пятно на темном фоне дает спайк. Равномерный фон (любого цвета) спайка не дает. Это достигается in-place вычитанием сильно размытого кадра (Surround) из слабо размытого (Center) через `np.subtract(..., out=...)` и пороговой активацией `np.greater(..., out=...)`.
+**   (DoG):**       .   ( )   .   in-place     (Surround)    (Center)  `np.subtract(..., out=...)`    `np.greater(..., out=...)`.
 
-### 1.4. Инварианты Интеграции Сетчатки (C-ABI & Routing)
+### 1.4.    (C-ABI & Routing)
 
-Для обеспечения Zero-Copy передачи данных от камеры до VRAM видеокарты, `RetinaEncoder` подчиняется жестким низкоуровневым правилам движка Genesis.
-**1. Feature Pyramid Batching (Спецификация 05 §2.3):**
-Кадры с камеры не передаются монолитно. Кадр расслаивается на признаки (Features), распределяемые по временнýй оси сетевого батча. Это размазывает трафик и предотвращает Burst Gating в VRAM.
-*   **Tick 0**: Маска контуров (Difference of Gaussians).
-*   **Tick 1**: Маска движения (Frame Delta).
-*   **Tick 2**: Канал R-G (Opponent Red-Green).
-*   **Tick 3**: Канал B-Y (Opponent Blue-Yellow).
-*   **Tick 4..N**: Биологическая тишина (нули).
+  Zero-Copy      VRAM , `RetinaEncoder`      Axicor.
+**1. Feature Pyramid Batching ( 05 2.3):**
+     .     (Features),      .      Burst Gating  VRAM.
+*   **Tick 0**:   (Difference of Gaussians).
+*   **Tick 1**:   (Frame Delta).
+*   **Tick 2**:  R-G (Opponent Red-Green).
+*   **Tick 3**:  B-Y (Opponent Blue-Yellow).
+*   **Tick 4..N**:   ().
 
-**2. Adaptive Global Inhibition (Джиттер освещенности):**
-Сетчатка адаптируется к свету без изменения экспозиции кадра или сетевого протокола.
-*   **Механизм**: `RetinaEncoder` вычисляет среднюю яркость кадра (через векторизованный `cv2.mean`) и динамически смещает порог `threshold` прямо на хосте. 
-*   **Инвариант**: Заголовок `ExternalIoHeader` остается строго 20 байт. Сеть получает уже адаптированную битовую маску. Это предотвращает «ослепление» системы при сохранении стабильного FPS.
+**2. Adaptive Global Inhibition ( ):**
+          .
+*   ****: `RetinaEncoder`     (  `cv2.mean`)     `threshold`   . 
+*   ****:  `ExternalIoHeader`   20 .      .        FPS.
 
 **3. Active Vision (Roaming Fovea):**
-Архитектура поддерживает истинное активное зрение (Window of Attention) на уровне Python-маршрутизатора без нарушения статической топологии GPU.
-*   **Fovea Matrix**: В `BrainBuilder` создается сенсорная матрица фиксированного размера (напр. 64x64).
-*   **Gaze Control**: Выходная матрица `fovea_motors` управляет указателями (X, Y) внутри Python-агента.
-*   **Dynamic Slicing**: `RetinaEncoder` делает In-Place срез источника высокого разрешения (напр. 8K) по текущим координатам и кодирует только этот фрагмент. Это позволяет обрабатывать огромные видеопотоки, не превышая лимитов UDP и VRAM.
+     (Window of Attention)   Python-     GPU.
+*   **Fovea Matrix**:  `BrainBuilder`      (. 64x64).
+*   **Gaze Control**:   `fovea_motors`   (X, Y)  Python-.
+*   **Dynamic Slicing**: `RetinaEncoder`  In-Place     (. 8K)        .     ,    UDP  VRAM.
 
-**4. Warp Alignment (Выравнивание маски):**
-Для обеспечения 100% Coalesced Access в ядре `InjectInputs`, длина битовой строки каждого тика аппаратно выравнивается до 32 бит (4 байта).
-*   **Формула**: `bytes_per_tick = ceil((W * H) / 32) * 4`.
-`RetinaEncoder` производит этот паддинг автоматически. Попытка передать невыровненный массив приведет к Out-Of-Bounds чтению на GPU.
+**4. Warp Alignment ( ):**
+  100% Coalesced Access   `InjectInputs`,         32  (4 ).
+*   ****: `bytes_per_tick = ceil((W * H) / 32) * 4`.
+`RetinaEncoder`    .       Out-Of-Bounds   GPU.
 
-**5. L7-Chunking и MTU:**
+**5. L7-Chunking  MTU:**
 ...
-Сетчатка генерирует гигантские матрицы (например, 256x256 = 65 536 виртуальных аксонов). `BrainBuilder` применяет к ним прозрачную пространственную фрагментацию.
-Логическая сетчатка автоматически нарезается на L7-чанки, каждому из которых назначается свой `uv_rect` (нормализованный сдвиг от 0.0 до 1.0). UDP-пакеты собираются `genesis-baker` в единую геометрию без швов. `RetinaEncoder` пишет данные напрямую в memoryview этих фрагментированных сокетных буферов.
+    (, 256x256 = 65 536  ). `BrainBuilder`      .
+     L7-,      `uv_rect` (   0.0  1.0). UDP-  `axicor-baker`     . `RetinaEncoder`     memoryview    .
 
 ---
 
-## 2. Исходящие команды (Decoders)
-Когда нода завершает расчет батча, она возвращает `Output_History` (Матрица Тики × Моторы). Ядро `RecordReadout` пишет 1 байт (u8) на каждый спайк.
+## 2.   (Decoders)
+    ,   `Output_History` (   ).  `RecordReadout`  1  (u8)   .
 
 ### PwmDecoder (Rate Decoding)
-Сжимает временную развертку батча обратно в плотные float-значения усилий (Duty Cycle) для моторов среды.
+       float-  (Duty Cycle)   .
 
 ```python
-from genesis.decoders import PwmDecoder
+from axicor.decoders import PwmDecoder
 
-# 128 моторных каналов, батч = 10 тиков
+# 128  ,  = 10 
 decoder = PwmDecoder(num_outputs=128, batch_size=10)
 
-# В Hot Loop (после sock.recvfrom_into в преаллоцированный буфер):
-# Декодер читает сырые байты, делает виртуальный reshape(10, 128) 
-# и суммирует спайки по оси времени (axis=0) без копирования!
+#  Hot Loop ( sock.recvfrom_into   ):
+#    ,   reshape(10, 128) 
+#       (axis=0)  !
 motor_forces = decoder.decode_from(rx_view, offset=20)
 
-# Использование (Winner-Takes-All)
+#  (Winner-Takes-All)
 left_force = np.sum(motor_forces[:64])
 right_force = np.sum(motor_forces[64:])
 action = 0 if left_force > right_force else 1
 ```
 
-### Золотые правила HFT-Скриптинга (Pro Tips)
+###   HFT- (Pro Tips)
 
-1. Zero-Copy Sockets: Никогда не используйте sock.recv(65535). Это выделяет новый bytes объект ОС. Используйте sock.recvfrom_into(rx_buf) с предварительно выделенным bytearray и работайте через memoryview. (Класс GenesisMultiClient делает это под капотом).
-2. C-ABI Offset: Всегда помните, что первый 20 байт любого пакета Data Plane - это ExternalIoHeader (<IIIIhH). Данные масок и выходов начинаются строго со смещения 20.
-3. In-Place Math: Если нужно нормализовать массив, используйте аргумент out= в функциях NumPy: np.multiply(raw, 0.5, out=preallocated_array).
+1. Zero-Copy Sockets:    sock.recv(65535).    bytes  .  sock.recvfrom_into(rx_buf)    bytearray    memoryview. ( AxicorMultiClient    ).
+2. C-ABI Offset:  ,   20    Data Plane -  ExternalIoHeader (<IIIIhH).         20.
+3. In-Place Math:    ,   out=   NumPy: np.multiply(raw, 0.5, out=preallocated_array).

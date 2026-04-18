@@ -4,7 +4,7 @@ use crate::bake::spatial_grid::SpatialGrid;
 
 pub struct ConeParams {
     pub radius_um: f32,
-    pub fov_cos: f32,       // cos(FOV / 2.0). If FOV = 60°, then cos(30°) ≈ 0.866
+    pub fov_cos: f32,       // cos(FOV / 2.0). If FOV = 60, then cos(30)  0.866
     pub owner_type: u8,     // [DOD] Raw 4-bit axon owner type
     pub type_affinity: f32, // [DOD] 0.0=attracted to others, 0.5=neutral, 1.0=attracted to own type
 }
@@ -29,7 +29,7 @@ pub fn calculate_v_attract(
 ) -> Vec3 {
     let origin_vec = unpack_to_vec3(origin_pos, voxel_size_um);
 
-    // Convert search radius from µm to chunks for SpatialGrid
+    // Convert search radius from m to chunks for SpatialGrid
     let radius_cells = (params.radius_um / (grid.cell_size as f32 * voxel_size_um)).ceil() as i32;
 
     let mut v_attract = Vec3::ZERO;
@@ -45,7 +45,7 @@ pub fn calculate_v_attract(
         let diff = target_vec - origin_vec;
         let dist_sq = diff.length_squared();
 
-        // Fast sphere culling (Squared — no sqrt!)
+        // Fast sphere culling (Squared  no sqrt!)
         if dist_sq > params.radius_um * params.radius_um || dist_sq == 0.0 {
             return;
         }
@@ -60,9 +60,9 @@ pub fn calculate_v_attract(
             // is_same = 1.0 if types match, 0.0 if different
             let is_same = (neighbor_pos.type_id() == params.owner_type) as i32 as f32;
 
-            // When is_same=1.0 → use affinity
-            // When is_same=0.0 → use (1.0 - affinity)
-            // ×2.0: with affinity=0.5 the multiplier becomes 1.0 for all
+            // When is_same=1.0  use affinity
+            // When is_same=0.0  use (1.0 - affinity)
+            // 2.0: with affinity=0.5 the multiplier becomes 1.0 for all
             let affinity_mod = (is_same * params.type_affinity
                 + (1.0 - is_same) * (1.0 - params.type_affinity)) * 2.0;
 

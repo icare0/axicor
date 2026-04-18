@@ -4,7 +4,7 @@ use std::path::Path;
 use node_editor::domain::{BrainTopologyGraph, TopologyMutation, RenameTarget};
 use crate::layout::systems::wm_file_ops::{load_document, save_document};
 
-/// Система-роутер: делегирует физическое переименование сущностей изолированным функциям.
+/// -:      .
 pub fn rename_zone_system(
     mut events: EventReader<TopologyMutation>,
     graph: Res<BrainTopologyGraph>,
@@ -38,7 +38,7 @@ pub fn rename_zone_system(
                         }
                         if renamed {
                             let _ = save_document(&io_path, &doc);
-                            info!("✅ [IO] Renamed pin {} -> {} in {:?}", old_name, new_name, io_path);
+                            info!("[OK] [IO] Renamed pin {} -> {} in {:?}", old_name, new_name, io_path);
                         }
                     }
                 }
@@ -48,7 +48,7 @@ pub fn rename_zone_system(
 }
 
 fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
-    info!("📝 [Orchestrator] Renaming entity: {} -> {} (ID: {})", old_name, new_name, id);
+    info!(" [Orchestrator] Renaming entity: {} -> {} (ID: {})", old_name, new_name, id);
     
     let is_sim = active_path.to_string_lossy().contains("simulation.toml");
     let table_name = if is_sim { "department" } else { "zone" };
@@ -56,14 +56,14 @@ fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
     let mut doc = match load_document(active_path) {
         Ok(d) => d,
         Err(_) => {
-            error!("❌ [Orchestrator] Could not read config for renaming");
+            error!("[ERROR] [Orchestrator] Could not read config for renaming");
             return;
         }
     };
 
     let mut renamed = false;
     
-    // 1. Переименовываем саму сущность
+    // 1.   
     if let Some(arr) = doc.get_mut(table_name).and_then(|i| i.as_array_of_tables_mut()) {
         for table in arr.iter_mut() {
             if table.get("name").and_then(|v| v.as_str()) == Some(old_name) {
@@ -73,7 +73,7 @@ fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
         }
     }
 
-    // 2. [DOD FIX] Каскадное переименование всех связей (Connections)
+    // 2. [DOD FIX]     (Connections)
     if let Some(arr) = doc.get_mut("connection").and_then(|i| i.as_array_of_tables_mut()) {
         for table in arr.iter_mut() {
             if table.get("from").and_then(|v| v.as_str()) == Some(old_name) {
@@ -87,13 +87,13 @@ fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
         }
     }
 
-    // Сохраняем в песочницу
+    //   
     if renamed {
         let _ = save_document(active_path, &doc);
-        info!("✅ [Orchestrator] Config updated with new name and connections.");
+        info!("[OK] [Orchestrator] Config updated with new name and connections.");
     }
 
-    // 3. Переименовываем физические директории (Cold Files)
+    // 3.    (Cold Files)
     let project_dir = active_path.parent().unwrap_or(Path::new("."));
     if is_sim {
         let old_file = project_dir.join(format!("{}.toml", old_name));
@@ -102,14 +102,14 @@ fn rename_shard(active_path: &Path, old_name: &str, new_name: &str, id: &str) {
         let new_dir = project_dir.join(new_name);
         if old_file.exists() { let _ = fs::rename(old_file, new_file); }
         if old_dir.exists() && old_dir.is_dir() { let _ = fs::rename(old_dir, new_dir); }
-        info!("✅ [Orchestrator] Department files and directories renamed.");
+        info!("[OK] [Orchestrator] Department files and directories renamed.");
     } else {
         let dept_name = active_path.file_name().unwrap().to_string_lossy().replace(".toml", "");
         let old_shard_dir = project_dir.join(&dept_name).join(old_name);
         let new_shard_dir = project_dir.join(&dept_name).join(new_name);
         if old_shard_dir.exists() && old_shard_dir.is_dir() {
             let _ = fs::rename(old_shard_dir, new_shard_dir);
-            info!("✅ [Orchestrator] Shard directory renamed.");
+            info!("[OK] [Orchestrator] Shard directory renamed.");
         }
     }
 }

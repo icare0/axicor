@@ -1,5 +1,5 @@
 fn main() {
-    // §1.3. Отсечка для Mock-GPU
+    // 1.3.   Mock-GPU
     if std::env::var("CARGO_FEATURE_MOCK_GPU").is_ok() {
         return;
     }

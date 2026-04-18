@@ -8,17 +8,17 @@ import sys
 import subprocess
 
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
-    print("❌ ERROR: Virtual environment not active!")
+    print("[ERROR] ERROR: Virtual environment not active!")
     sys.exit(1)
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
-from genesis.builder import BrainBuilder
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "axicor-client")))
+from axicor.builder import BrainBuilder
 
 def build_ant_connectome():
-    print("🧠 Initializing architect (3-Zone Feedforward WTA)...")
+    print(" Initializing architect (3-Zone Feedforward WTA)...")
     base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     gnm_path = os.path.join(base_path, "GNM-Library")
-    out_dir = os.path.join(base_path, "Genesis-Models/AntConnectome")
+    out_dir = os.path.join(base_path, "Axicor-Models/AntConnectome")
 
     builder = BrainBuilder(project_name="AntConnectome", output_dir=out_dir, gnm_lib_path=gnm_path)
     
@@ -93,7 +93,7 @@ def build_ant_connectome():
 
     builder.build()
 
-    print("\n🔥 Launching Axicor Baker (CPU Compiler)...")
+    print("\n Launching Axicor Baker (CPU Compiler)...")
     brain_toml_path = os.path.join(out_dir, "brain.toml")
 
     result = subprocess.run([
@@ -102,7 +102,7 @@ def build_ant_connectome():
     ], cwd=base_path)
 
     if result.returncode != 0:
-        print("\n❌ Connectome compilation failed.")
+        print("\n[ERROR] Connectome compilation failed.")
         sys.exit(1)
 
 if __name__ == '__main__':

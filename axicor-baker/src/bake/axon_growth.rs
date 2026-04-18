@@ -13,7 +13,7 @@ pub struct GrownAxon {
     pub soma_idx: usize,
     /// Neuron type (copied for dendritic filtering without lookup)
     pub type_idx: usize,
-    /// Tip position — axon endpoint (where dendrites are sought)
+    /// Tip position  axon endpoint (where dendrites are sought)
     pub tip_x: u32,
     pub tip_y: u32,
     pub tip_z: u32,
@@ -193,7 +193,7 @@ pub struct LayerZRange {
 
 /// Shard boundaries in world coordinates (voxels).
 /// Axons crossing this boundary become Ghost Axons in a neighboring shard.
-/// In mono-mode (single shard), pass `ShardBounds::full_world(&sim)` —
+/// In mono-mode (single shard), pass `ShardBounds::full_world(&sim)` 
 /// crossing will never occur and behavior remains identical.
 #[derive(Debug, Clone)]
 pub struct ShardBounds {
@@ -246,7 +246,7 @@ impl ShardBounds {
 pub struct GhostPacket {
     /// Source shard ID (for routing in multi-shard topologies)
     pub origin_shard_id: u32,
-    /// Axon without local soma → usize::MAX
+    /// Axon without local soma  usize::MAX
     pub soma_idx: usize,
     /// Neuron type (for whitelist, affinity, etc.)
     pub type_idx: usize,
@@ -282,14 +282,14 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
 
 /// Cone Tracing: calculates the axon endpoint for each neuron.
 ///
-/// Algorithm (04_connectivity.md §1.3):
+/// Algorithm (04_connectivity.md 1.3):
 /// 1. Find home layer by soma Z-coordinate.
 /// 2. `Soma_Rel_Z = (soma_z - layer_z_start) / layer_height`
 /// 3. Target layer = next layer up (Z+), unless in the topmost layer.
-///    (For initial Baking — each neuron seeks the nearest layer above)
-/// 4. `Target_Z = target_z_start + Soma_Rel_Z × target_height`
+///    (For initial Baking  each neuron seeks the nearest layer above)
+/// 4. `Target_Z = target_z_start + Soma_Rel_Z  target_height`
 /// 5. XY: small cone drift (FOV) relative to original XY position.
-///    `tip_x = soma_x + Δx`, where `|Δx| ≤ cone_radius`
+///    `tip_x = soma_x + x`, where `|x|  cone_radius`
 /// 6. Axon length = |target_z - soma_z| + 1 (in segments/voxels)
 use crate::bake::cone_tracing::calculate_v_attract;
 use crate::bake::spatial_grid::SpatialGrid;
@@ -369,11 +369,11 @@ pub fn grow_single_axon(
         None => (soma_z, soma_z + 1), // fallback, if soma is outside defined layers
     };
 
-    // 2. Soma_Rel_Z — relative position in home layer [0.0, 1.0)
+    // 2. Soma_Rel_Z  relative position in home layer [0.0, 1.0)
     let layer_h = (home_z_end - home_z_start).max(1) as f32;
     let soma_rel_z = (soma_z.saturating_sub(home_z_start) as f32) / layer_h;
 
-    // 3. Target layer — next one up along Z (index + 1)
+    // 3. Target layer  next one up along Z (index + 1)
     let target_layer = layer_ranges.iter().find(|l| l.z_start_vox > soma_z);
     let (target_z_start, target_z_end) = match target_layer {
         Some(l) => (l.z_start_vox, l.z_end_vox),
@@ -386,7 +386,7 @@ pub fn grow_single_axon(
                     (0, 1)
                 }
             } else {
-                // If multiple layers and we're in the topmost — pull down to the very first
+                // If multiple layers and we're in the topmost  pull down to the very first
                 layer_ranges
                     .first()
                     .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox))
@@ -394,7 +394,7 @@ pub fn grow_single_axon(
         }
     };
 
-    // 4. Target_Z = target_z_start + Soma_Rel_Z × target_height
+    // 4. Target_Z = target_z_start + Soma_Rel_Z  target_height
     let target_h = (target_z_end - target_z_start).max(1) as f32;
     let tip_z = (target_z_start as f32 + (soma_rel_z * target_h).round()) as u32; // Use round to avoid truncation
     let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
@@ -426,7 +426,7 @@ pub fn grow_single_axon(
     let (forward_dir, target_pos) = if is_horizontal {
         // Random radial vector in XY
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
-        let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
+        let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2
         let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
         
         // target_pos is not used to stop H-neurons, but is used
@@ -518,8 +518,8 @@ pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
 /// Ghost Axon continues growth while maintaining inertia (`entry_dir`) and
 /// attraction to neurons of the current shard.
 ///
-/// - `soma_idx = usize::MAX` — no local soma, GSOP is not applied
-/// - If Ghost Axon crosses a boundary again → a new GhostPacket is generated
+/// - `soma_idx = usize::MAX`  no local soma, GSOP is not applied
+/// - If Ghost Axon crosses a boundary again  a new GhostPacket is generated
 ///
 /// Returns: `(grown_ghosts, outgoing_packets)`
 pub fn inject_ghost_axons(
@@ -608,7 +608,7 @@ pub fn inject_ghost_axons(
         };
 
         grown.push(GrownAxon {
-            soma_idx: usize::MAX, // Ghost — no local soma
+            soma_idx: usize::MAX, // Ghost  no local soma
             type_idx: packet.type_idx,
             tip_x: final_x,
             tip_y: final_y,
@@ -628,7 +628,7 @@ pub fn inject_ghost_axons(
 /// They aren't attached to any local soma, so `soma_idx` is set to `usize::MAX`.
 // NOTE: grow_external_axons and grow_mock_retina have been removed.
 // They will be replaced by the new Input Map Builder in `input_map.rs`
-// as per Spec 05 §2.1.
+// as per Spec 05 2.1.
 
 
 #[cfg(test)]
@@ -720,7 +720,7 @@ mod tests {
 }
 
 // =============================================================================
-// § Half-Duplex SHM Bridge: Incoming inter-zone axons
+//  Half-Duplex SHM Bridge: Incoming inter-zone axons
 // =============================================================================
 
 /// Converts network `AxonHandoverEvent`s (from SHM) into physical `GhostPacket`s

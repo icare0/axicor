@@ -11,9 +11,9 @@
 //!
 //! ## Module Index
 //!
-//! - `[cuda]` — NVIDIA execution backend (nvcc). Enforces 32-thread Warp alignment and Warp-Aggregated Telemetry.
-//! - `[amd]` — AMD execution backend (hipcc). Enforces 64-thread Wavefront alignment.
-//! - `[ffi]` — Zero-cost C-ABI bindings for cross-boundary DMA transactions.
+//! - `[cuda]`  NVIDIA execution backend (nvcc). Enforces 32-thread Warp alignment and Warp-Aggregated Telemetry.
+//! - `[amd]`  AMD execution backend (hipcc). Enforces 64-thread Wavefront alignment.
+//! - `[ffi]`  Zero-cost C-ABI bindings for cross-boundary DMA transactions.
 
 #![deny(warnings)]
 #![deny(unused_variables)]

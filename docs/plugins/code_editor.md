@@ -1,32 +1,32 @@
 # Code Editor (Text & TOML IDE)
 
-| Свойство | Значение |
+|  |  |
 | :--- | :--- |
-| **Домен** | `PluginDomain::CodeEditor` |
-| **Роль** | Редактирование исходного кода моделей (TOML). Линейная O(N) подсветка синтаксиса и генерация событий мутации топологии. |
+| **** | `PluginDomain::CodeEditor` |
+| **** |     (TOML).  O(N)       . |
 
-## 1. ECS Контракт (Данные)
-* **`CodeEditorState` (Компонент)**: Хранит абсолютный путь к открытому файлу (`current_file`) и его сырое текстовое содержимое (`content` в виде `String`). Вешается на `Entity` окна при инициализации плагина.
+## 1. ECS  ()
+* **`CodeEditorState` ()**:       (`current_file`)      (`content`   `String`).   `Entity`    .
 
-## 2. Шина Событий (Event API)
-Плагин работает как приемник намерений чтения и источник намерений записи:
+## 2.   (Event API)
+         :
 
-* **Listens to:** `OpenFileEvent` (из `layout_api`). 
-  * При получении события считывает файл с диска и загружает его в свой локальный `CodeEditorState`.
-* **Listens to:** `EntityDeletedEvent` (из `layout_api`).
-  * Мгновенно очищает `current_file` и буфер `content`, если редактируемый файл или его родительская папка были физически удалены с диска, защищая систему от сохранения призрачных состояний.
-* **Emits:** `TopologyChangedEvent` (в `layout_api`). 
-  * Генерируется **только** при явном сохранении файла пользователем (кнопка `Apply`). Передает имя проекта в глобальную шину, чтобы уведомить `Node Editor` и `Connectome Viewer` о необходимости асинхронно перестроить кэши графов.
+* **Listens to:** `OpenFileEvent` ( `layout_api`). 
+  *              `CodeEditorState`.
+* **Listens to:** `EntityDeletedEvent` ( `layout_api`).
+  *   `current_file`   `content`,            ,      .
+* **Emits:** `TopologyChangedEvent` ( `layout_api`). 
+  *  ****      ( `Apply`).      ,   `Node Editor`  `Connectome Viewer`      .
 
-## 3. Особенности Исполнения (Execution Paths)
+## 3.   (Execution Paths)
 
-### Горячий путь (Rendering & Syntax Highlighting)
-В отличие от классических IDE, где подсветка синтаксиса строит тяжелые AST-деревья или использует медленные регулярные выражения (Regex), `code_editor` применяет Data-Oriented подход:
-* **O(N) Linear Layouter:** Синтаксический парсер интегрирован напрямую в механизм генерации `egui::text::LayoutJob`. Он выполняет строго один линейный проход по строкам (`.split('\n')`), проверяя первые символы на совпадение с паттернами TOML (секции `[ ]`, комментарии `#`, ключи `=`).
-* **Zero-Garbage Background:** Это позволяет выполнять подсветку синтаксиса со скоростью 60 FPS прямо в горячем цикле отрисовки без аллокаций тяжелых структур данных в куче и без падения производительности UI-потока.
+###   (Rendering & Syntax Highlighting)
+    IDE,      AST-      (Regex), `code_editor`  Data-Oriented :
+* **O(N) Linear Layouter:**        `egui::text::LayoutJob`.         (`.split('\n')`),        TOML ( `[ ]`,  `#`,  `=`).
+* **Zero-Garbage Background:**        60 FPS                 UI-.
 
-### Холодный путь (I/O)
-* **Explicit Apply:** Плагин намеренно не использует Debounced Auto-Save. Сохранение файла и отправка `TopologyChangedEvent` требуют явного действия пользователя. Это защищает парсеры `genesis_core` от попыток скомпилировать невалидный или недописанный код во время печати текста.
+###   (I/O)
+* **Explicit Apply:**     Debounced Auto-Save.     `TopologyChangedEvent`    .    `axicor_core`           .
 
-## 4. DND Контракт (Drag-and-Drop)
-* Плагин выступает как **Drop Target**. Если пользователь перетаскивает файл (сохраненный в `egui::Memory` под ID `dnd_path`) и отпускает курсор над `content_rect` конкретного тайла `Code Editor`, этот тайл перехватывает путь и загружает файл, изолируя загрузку от других открытых вкладок редактора кода.
+## 4. DND  (Drag-and-Drop)
+*    **Drop Target**.     (  `egui::Memory`  ID `dnd_path`)     `content_rect`   `Code Editor`,       ,        .

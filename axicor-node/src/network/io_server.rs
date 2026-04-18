@@ -132,20 +132,20 @@ impl ExternalIoServer {
         }
     }
 
-    /// Processes a raw UDP payload according to Spec §12.
+    /// Processes a raw UDP payload according to Spec 12.
     pub fn process_incoming_udp(&self, payload: &[u8]) {
-        // [Contract §12.3] Biological Drop
+        // [Contract 12.3] Biological Drop
         if self.is_sleeping.load(Ordering::Acquire) {
             return;
         }
 
-        // [Contract §12.2] EMSGSIZE Protection
+        // [Contract 12.2] EMSGSIZE Protection
         if payload.len() > axicor_core::constants::MAX_UDP_PAYLOAD {
             self.oversized_skips.fetch_add(1, Ordering::Relaxed);
             return;
         }
 
-        // [Contract §12.1] Header Validation
+        // [Contract 12.1] Header Validation
         if payload.len() < std::mem::size_of::<ExternalIoHeader>() {
             return;
         }
@@ -159,7 +159,7 @@ impl ExternalIoServer {
                 
                 // [DOD FIX] O(1) Zero-Cost Auth
                 if update.cluster_secret != self.cluster_secret {
-                    tracing::warn!("⚠️ [Security] Unauthorized ROUT_MAGIC from unknown source");
+                    tracing::warn!("[WARN] [Security] Unauthorized ROUT_MAGIC from unknown source");
                     return;
                 }
                 
@@ -173,7 +173,7 @@ impl ExternalIoServer {
                 
                 // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }
-                tracing::info!("📡 [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                tracing::info!(" [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
             }
             return;
         }
@@ -187,7 +187,7 @@ impl ExternalIoServer {
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
             None => {
-                tracing::warn!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                tracing::warn!("[WARN] [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
                 return;
             }
         };
@@ -195,7 +195,7 @@ impl ExternalIoServer {
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
             None => {
-                tracing::warn!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                tracing::warn!("[WARN] [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
                 return;
             }
         };
@@ -204,11 +204,11 @@ impl ExternalIoServer {
         let payload_data = &payload[payload_start..];
 
         if payload_data.len() != header.payload_size as usize {
-            tracing::warn!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            tracing::warn!("[WARN] [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
             return;
         }
 
-        // [Contract §12.3] Lock-Free Zero-Copy Transfer
+        // [Contract 12.3] Lock-Free Zero-Copy Transfer
         ctx.swapchain.write_incoming_at(offset, payload_data);
 
         // Update global dopamine reward for R-STDP
@@ -216,7 +216,7 @@ impl ExternalIoServer {
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
-                tracing::info!("💉 [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
+                tracing::info!(" [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
             }
         }
     }
@@ -238,7 +238,7 @@ impl ExternalIoServer {
 
         unsafe {
             let header = tx_buffer.as_mut_ptr() as *mut ExternalIoHeader;
-            (*header).magic = GSOO_MAGIC; // Contract §12
+            (*header).magic = GSOO_MAGIC; // Contract 12
             (*header).zone_hash = zone_hash;
             (*header).matrix_hash = matrix_hash;
             (*header).payload_size = output_bytes as u32;

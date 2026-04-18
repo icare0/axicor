@@ -16,10 +16,10 @@ pub fn clear_graph_modal_system(
             continue;
         }
 
-        // 1. Вызов чистого слоя отрисовки
+        // 1.    
         let confirmed = draw_clear_graph_modal(ctx, window.rect, &mut state);
 
-        // 2. Оркестрация намерений (Строго вне замыканий egui)
+        // 2.   (   egui)
         if confirmed {
             if let Some(active_path) = &graph.active_path {
                 if let Some(session) = graph.sessions.get(active_path) {
@@ -31,7 +31,7 @@ pub fn clear_graph_modal_system(
                             Some(active_path.clone()),
                         ));
                     }
-                    info!("✅ Node Editor: Triggered Clear Graph cascade.");
+                    info!("[OK] Node Editor: Triggered Clear Graph cascade.");
                 }
             }
         }

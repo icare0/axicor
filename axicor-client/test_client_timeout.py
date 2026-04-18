@@ -1,9 +1,9 @@
 import time
 import socket
-from genesis.client import GenesisMultiClient
+from axicor.client import AxicorMultiClient
 
 def test_client_timeout():
-    print("Testing GenesisMultiClient Timeout (Biological Amnesia)...")
+    print("Testing AxicorMultiClient Timeout (Biological Amnesia)...")
     
     # Configuration: dead address and port
     dead_addr = ("127.0.0.1", 9999)
@@ -11,7 +11,7 @@ def test_client_timeout():
     matrices = [{'zone_hash': 0x1, 'matrix_hash': 0x2, 'payload_size': 128}]
     
     # Set timeout to 0.5 seconds
-    client = GenesisMultiClient(dead_addr, matrices, timeout=0.5)
+    client = AxicorMultiClient(dead_addr, matrices, timeout=0.5)
     
     start_time = time.perf_counter()
     
@@ -31,7 +31,7 @@ def test_client_timeout():
     # 2. Verify execution time (should be around 0.5s)
     assert 0.4 <= elapsed <= 0.7, f"Timeout duration out of range: {elapsed:.4f}s"
     
-    print("✅ Biological Amnesia test passed successfully.")
+    print("[OK] Biological Amnesia test passed successfully.")
 
 if __name__ == "__main__":
     test_client_timeout()

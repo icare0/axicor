@@ -116,7 +116,7 @@ pub fn check_single_spike_in_flight(const_mem: &GenesisConstantMemory) -> anyhow
 
         if (variant.signal_propagation_length as u32) < (variant.refractory_period as u32) {
             bail!(
-                "Validation failed for type_idx '{}': §1.6 violation: signal_propagation_length ({}) cannot be less than refractory_period ({}).",
+                "Validation failed for type_idx '{}': 1.6 violation: signal_propagation_length ({}) cannot be less than refractory_period ({}).",
                 type_idx, variant.signal_propagation_length, variant.refractory_period
             );
         }
@@ -125,14 +125,14 @@ pub fn check_single_spike_in_flight(const_mem: &GenesisConstantMemory) -> anyhow
 }
 
 // ---------------------------------------------------------------------------
-// anatomy.toml — height_pct and population_pct sums
+// anatomy.toml  height_pct and population_pct sums
 // ---------------------------------------------------------------------------
 
 pub fn check_layer_heights(anatomy: &Anatomy) -> anyhow::Result<()> {
     let sum: f32 = anatomy.layers.iter().map(|l| l.height_pct).sum();
     if (sum - 1.0).abs() > 1e-4 {
         bail!(
-            "anatomy.toml: Σ(layer.height_pct) = {:.4} ≠ 1.0 (±1e-4).\n\
+            "anatomy.toml: (layer.height_pct) = {:.4}  1.0 (1e-4).\n\
              Layers must cover the entire zone height without overlaps or gaps.",
             sum
         );
@@ -145,7 +145,7 @@ pub fn check_composition_quotas(anatomy: &Anatomy) -> anyhow::Result<()> {
         let sum: f32 = layer.composition.values().sum();
         if (sum - 1.0).abs() > 1e-4 {
             bail!(
-                "anatomy.toml: Layer '{}' Σ(composition) = {:.4} ≠ 1.0 (±1e-4).\n\
+                "anatomy.toml: Layer '{}' (composition) = {:.4}  1.0 (1e-4).\n\
                  Neuron type quotas in a layer must sum to 1.0.",
                 layer.name,
                 sum

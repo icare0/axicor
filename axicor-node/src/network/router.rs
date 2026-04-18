@@ -221,9 +221,9 @@ impl InterNodeRouter {
                                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                                 new_map.insert(update.zone_hash, (new_addr, update.mtu));
                                 unsafe { routing_table.update_routes(new_map); }
-                                println!("📡 [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                                println!(" [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
                             } else {
-                                eprintln!("⚠️ [Security] Unauthorized ROUT_MAGIC on Fast-Path");
+                                eprintln!("[WARN] [Security] Unauthorized ROUT_MAGIC on Fast-Path");
                             }
                         }
                         continue;
@@ -237,11 +237,11 @@ impl InterNodeRouter {
                         continue;
                     }
 
-                    // 2. Self-Healing: Jump to the future (§2.8.1 distributed.md)
+                    // 2. Self-Healing: Jump to the future (2.8.1 distributed.md)
                     if header.epoch > current_epoch {
                         let n = bsp_barrier.self_heal_log_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if n % 100 == 0 {
-                            println!("⚠️ [BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
+                            println!("[WARN] [BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
                         }
                         bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
                         bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
@@ -281,7 +281,7 @@ impl InterNodeRouter {
                         }
                     }
 
-                    // If reached here — it's a unique Data-Driven packet.
+                    // If reached here  it's a unique Data-Driven packet.
                     if header.total_chunks > 0 {
                         let mask_idx = (header.chunk_idx / 64) as usize;
                         let bit_idx = header.chunk_idx % 64;

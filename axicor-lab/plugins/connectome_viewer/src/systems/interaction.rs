@@ -8,8 +8,8 @@ pub fn soma_picking_system(
     mut gizmos: Gizmos,
     viewports: Query<(&PluginInput, &Camera, &GlobalTransform), With<ViewportCamera>>,
 ) {
-    // DOD FIX: Абсолютный ранний выход. 
-    // Защищает CPU от O(N) математики лучей при простом движении мыши.
+    // DOD FIX:   . 
+    //  CPU  O(N)      .
     if !mouse_btn.just_pressed(MouseButton::Left) {
         return;
     }
@@ -69,13 +69,13 @@ pub fn trace_active_connections_system(
     mut soma_materials: ResMut<Assets<crate::systems::material::NeuronInstanceMaterial>>,
     viewports: Query<(Entity, &layout_api::PluginWindow)>,
 ) {
-    // Реагируем только на изменение выделения
+    //     
     if graph.last_selected == instances.selected {
         return;
     }
     graph.last_selected = instances.selected;
 
-    // 0. DOD FIX: X-Ray Mode (Focus) для глобальных аксонов
+    // 0. DOD FIX: X-Ray Mode (Focus)   
     if let Some(global_mat) = materials.get_mut(&graph.global_axon_mat) {
         if instances.selected.is_some() {
             global_mat.base_color.set_a(0.05);
@@ -90,7 +90,7 @@ pub fn trace_active_connections_system(
     }
 
     let Some(selected_compact) = instances.selected else { 
-        // СБРОС: Если кликнули в пустоту, возвращаем всем сомам 100% видимость
+        // :    ,    100% 
         if let Some(soma_mat) = soma_materials.get_mut(&graph.soma_mat) {
             for inst in soma_mat.instances.iter_mut() {
                 inst.color[3] = 1.0;
@@ -103,22 +103,22 @@ pub fn trace_active_connections_system(
     let selected_soma = graph.compact_to_dense[selected_compact];
     if selected_soma >= graph.padded_n { return; }
 
-    // DOD FIX: Собираем все Dense ID сом, которые должны остаться видимыми
+    // DOD FIX:   Dense ID ,    
     let mut visible_dense_somas = std::collections::HashSet::new();
     visible_dense_somas.insert(selected_soma);
 
     let mut lines_pos = Vec::new();
     let mut lines_col = Vec::new();
 
-    let afferent_col = [0.0, 0.8, 1.0, 0.8]; // Входящие дендриты (Cyan)
-    let efferent_col = [1.0, 0.2, 0.8, 0.8]; // Исходящие дендриты (Magenta)
-    let target_axon_col = [0.0, 1.0, 0.5, 0.6]; // Зеленоватые аксоны-источники
-    let my_axon_col = [1.0, 0.5, 0.0, 0.8];     // Мой оранжевый аксон
+    let afferent_col = [0.0, 0.8, 1.0, 0.8]; //   (Cyan)
+    let efferent_col = [1.0, 0.2, 0.8, 0.8]; //   (Magenta)
+    let target_axon_col = [0.0, 1.0, 0.5, 0.6]; //  -
+    let my_axon_col = [1.0, 0.5, 0.0, 0.8];     //   
     let mut drawn_axons = std::collections::HashSet::new();
 
     let my_pos = graph.soma_positions[selected_soma];
 
-    // 1. АФФЕРЕНТНЫЕ (Откуда я получаю сигналы)
+    // 1.  (   )
     for slot in 0..128 {
         let idx = slot * graph.padded_n + selected_soma;
         if idx >= graph.targets.len() { break; }
@@ -138,7 +138,7 @@ pub fn trace_active_connections_system(
                 lines_col.push(afferent_col);
                 lines_col.push(afferent_col);
 
-                // Оставляем видимым владельца этого входящего аксона
+                //      
                 if axon_id < graph.axon_to_soma.len() {
                     let src_soma = graph.axon_to_soma[axon_id];
                     if src_soma != usize::MAX {
@@ -159,7 +159,7 @@ pub fn trace_active_connections_system(
         }
     }
 
-    // 2. ЭФФЕРЕНТНЫЕ (Кто подключен к моему аксону)
+    // 2.  (    )
     let my_axon = graph.soma_to_axon[selected_soma];
     if my_axon != 0xFFFFFFFF && (my_axon as usize) < graph.axon_segments.len() {
         let my_axon_idx = my_axon as usize;
@@ -196,7 +196,7 @@ pub fn trace_active_connections_system(
                         lines_col.push(efferent_col);
                         lines_col.push(efferent_col);
                         
-                        // Оставляем видимым того, кто подключен к нашему аксону
+                        //   ,     
                         visible_dense_somas.insert(other_soma);
                     }
                 }
@@ -204,19 +204,19 @@ pub fn trace_active_connections_system(
         }
     }
 
-    // 3. DOD FIX: X-Ray Mode для Сом (Применяем собранную маску)
+    // 3. DOD FIX: X-Ray Mode   (  )
     if let Some(soma_mat) = soma_materials.get_mut(&graph.soma_mat) {
         for (i, inst) in soma_mat.instances.iter_mut().enumerate() {
             let dense_id = graph.compact_to_dense.get(i).copied().unwrap_or(usize::MAX);
             if visible_dense_somas.contains(&dense_id) {
-                inst.color[3] = 1.0; // В потоке данных - не прозрачный
+                inst.color[3] = 1.0; //    -  
             } else {
-                inst.color[3] = 0.05; // Левый фон - призрачный
+                inst.color[3] = 0.05; //   - 
             }
         }
     }
 
-    // 4. Спавним линии...
+    // 4.  ...
     if lines_pos.is_empty() { return; }
 
     let mut mesh = Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);

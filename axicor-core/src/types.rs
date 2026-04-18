@@ -1,4 +1,4 @@
-/// Absolute spatial unit: 1.0 = 1 µm.
+/// Absolute spatial unit: 1.0 = 1 m.
 pub type Microns = f32;
 
 /// Normalized coordinate [0.0, 1.0].
@@ -67,7 +67,7 @@ pub type AxonHead = u32;
 /// Dendrite target: [31..24] segment_offset (8 bits) | [23..0] axon_id + 1 (24 bits).
 pub type PackedTarget = u32;
 
-/// Segment index within an axon. 10 bits → 0..=1023.
+/// Segment index within an axon. 10 bits  0..=1023.
 pub type SegmentIndex = u32;
 
 /// Variant ID (0..15)
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn test_variant_parameters_layout() {
         use crate::layout::VariantParameters;
-        // 64B per spec: 16 variants × 64B = 1024B = exactly one CUDA __constant__ block
+        // 64B per spec: 16 variants  64B = 1024B = exactly one CUDA __constant__ block
         assert_eq!(std::mem::size_of::<VariantParameters>(),  64);
         assert_eq!(std::mem::align_of::<VariantParameters>(), 64);
     }

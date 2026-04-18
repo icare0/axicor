@@ -2,8 +2,8 @@ import os
 import struct
 import mmap
 import numpy as np
-from genesis.memory import GenesisMemory
-from genesis.platform import get_shm_path
+from axicor.memory import AxicorMemory
+from axicor.platform import get_shm_path
 
 def test_checkpointing():
     ZONE_HASH = 0xCAFEBABE
@@ -16,7 +16,7 @@ def test_checkpointing():
     
     # 64 (Header) + Weights + Targets + Axons + Handovers + Prunes + Incoming + Flags
     # Flags offset: 64 + W + T + Axons(N*4) + Handovers(10000*20) + Prunes(10000*8) + Incoming(10000*4)
-    # According to GenesisMemory.SHM_HEADER_FMT, flags_offset is the 17th element (index 16)
+    # According to AxicorMemory.SHM_HEADER_FMT, flags_offset is the 17th element (index 16)
     
     axons_off = 64 + WEIGHTS_SIZE + TARGETS_SIZE
     handovers_off = axons_off + (PADDED_N * 4)
@@ -44,7 +44,7 @@ def test_checkpointing():
         mm.close()
 
     # 2. Initialize memory
-    mem = GenesisMemory(ZONE_HASH)
+    mem = AxicorMemory(ZONE_HASH)
     
     # 3. Write marker values
     print("Writing marker values to memory...")
@@ -82,7 +82,7 @@ def test_checkpointing():
     assert mem.flags[0] == 123
     assert mem.flags[PADDED_N-1] == 255
     
-    print("✅ Zero-Copy Checkpointing confirmed!")
+    print("[OK] Zero-Copy Checkpointing confirmed!")
     
     # Cleanup
     mem.close()

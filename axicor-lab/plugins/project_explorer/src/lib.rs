@@ -12,7 +12,7 @@ impl Plugin for ProjectExplorerPlugin {
            .add_event::<layout_api::OpenContextMenuEvent>()
            .add_event::<layout_api::ContextMenuActionTriggeredEvent>()
            .add_event::<node_editor::domain::TopologyMutation>()
-           // Сканер файловой системы крутится в Update параллельно со всем остальным
+           //      Update    
            .add_systems(Update, (
                systems::scanner::fs_scanner_system,
                systems::render::render_project_explorer_system,

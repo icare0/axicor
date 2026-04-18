@@ -23,23 +23,23 @@ In `anatomy.toml` and `blueprints.toml`, axons are explicitly divided into three
 | **Horizontal** | Connections in the XY plane | Full physics constrained to the plane |
 | **Projectors** (White Matter) | Long-range / Inter-zone links | Port Out + Port In + `Delay_Counter` only |
 
-- **Projectors Optimization:** We simulate only the entry point (into the cable) and the exit point. The axon trunk **does not exist** in collision physics (saving VRAM and ALU cycles) — it exists solely as a `Delay_Counter`.
+- **Projectors Optimization:** We simulate only the entry point (into the cable) and the exit point. The axon trunk **does not exist** in collision physics (saving VRAM and ALU cycles)  it exists solely as a `Delay_Counter`.
 
 ### 1.3. Terminal Arborization
 
 Axon growth is a two-phase process. This biologically accurate branching mechanics radically increases the chances of dendritic contact without any GPU overhead during the Day Phase.
 
 **Phase A: Trunk (Projection)**
-The axon grows from the soma toward the target layer (`Target_Z`) strictly directionally. The `V_global` vector dominates — the axon flies to the target with minimal deviation (Cone Tracing).
+The axon grows from the soma toward the target layer (`Target_Z`) strictly directionally. The `V_global` vector dominates  the axon flies to the target with minimal deviation (Cone Tracing).
 
 **Phase B: Crown (Terminal Arborization)**
 Upon reaching `Target_Z`, the behavior changes drastically:
-- **`V_global` is disabled** — the global target is reached.
-- **`V_noise` (jitter) is maximized** — the axon enters a chaotic looping mode.
-- The axon tip wanders within `arborization_radius_um`, creating a dense cloud of 50–100 segments inside the target layer.
+- **`V_global` is disabled**  the global target is reached.
+- **`V_noise` (jitter) is maximized**  the axon enters a chaotic looping mode.
+- The axon tip wanders within `arborization_radius_um`, creating a dense cloud of 50100 segments inside the target layer.
 
 **Zero-Cost for GPU:** 
-3D voxel geometry exists **exclusively on the CPU** — during Baking and the Night Phase. In the Day Phase, the GPU sees the axon simply as a **flat 1D shift register (`BurstHeads8`)**. All arborization work is done by `axicor-baker` at night and baked into `shard.paths`. The runtime cost is exactly 0.
+3D voxel geometry exists **exclusively on the CPU**  during Baking and the Night Phase. In the Day Phase, the GPU sees the axon simply as a **flat 1D shift register (`BurstHeads8`)**. All arborization work is done by `axicor-baker` at night and baked into `shard.paths`. The runtime cost is exactly 0.
 
 ### 1.4. Dendrites & En Passant Synapses
 
@@ -77,11 +77,11 @@ The graph is not static after Baking. During the Night Phase, axons continue to 
 
 Learning is triggered **only** when the soma generates a spike (`is_spiking == true`). Instead of analyzing timestamps ("who fired 5 ms ago?"), we analyze the **current spatial state** of the Active Tail.
 
-- **Causality:** The signal physically arrived → the soma fired → GSOP is triggered. Causality is verified through spatial overlap, not temporal tracking.
+- **Causality:** The signal physically arrived  the soma fired  GSOP is triggered. Causality is verified through spatial overlap, not temporal tracking.
 - **Rules:**
-  - Soma spikes, dendrite contributed voltage (overlaps Active Tail) → `Weight += potentiation`.
-  - Soma spikes, dendrite did NOT contribute → `Weight -= depression`.
-  - Weight drops below 1 → Synapse is removed (Pruning).
+  - Soma spikes, dendrite contributed voltage (overlaps Active Tail)  `Weight += potentiation`.
+  - Soma spikes, dendrite did NOT contribute  `Weight -= depression`.
+  - Weight drops below 1  Synapse is removed (Pruning).
 
 ### 2.2. GSOP via LUT (Variant-Dependent Learning)
 
@@ -101,10 +101,10 @@ Instead of a binary "permanence bit", we use nonlinear resistance to change.
 
 | Rank | abs(weight) Range | Multiplier | Behavior |
 | :--- | :--- | :--- | :--- |
-| 0–3 | 0 – 8,191 | High | Fast learning, fast death |
-| 4–7 | 8,192 – 16,383 | Medium | Stabilization |
-| 8–11 | 16,384 – 24,575 | Low | Hard to change |
-| 12–15 | 24,576 – 32,767 | Minimal | Almost monumental synapse |
+| 03 | 0  8,191 | High | Fast learning, fast death |
+| 47 | 8,192  16,383 | Medium | Stabilization |
+| 811 | 16,384  24,575 | Low | Hard to change |
+| 1215 | 24,576  32,767 | Minimal | Almost monumental synapse |
 
 ```cpp
 // GPU (Integer Physics)

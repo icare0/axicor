@@ -1,11 +1,11 @@
 use bevy_egui::egui;
 
-/// DOD модалка: рисуется строго внутри тайла плагина (без egui::Window)
+/// DOD :      ( egui::Window)
 pub fn draw_delete_type_modal(
     ctx: &egui::Context,
     window_rect: egui::Rect,
     type_name: &str,
-) -> (bool, bool) { // Возвращает (confirmed, closed)
+) -> (bool, bool) { //  (confirmed, closed)
     let mut confirmed = false;
     let mut closed = false;
 
@@ -16,7 +16,7 @@ pub fn draw_delete_type_modal(
         .show(ctx, |ui| {
             ui.set_clip_rect(window_rect);
 
-            // Перехват кликов мимо модалки (закрытие)
+            //     ()
             let (bg_rect, bg_resp) = ui.allocate_exact_size(window_rect.size(), egui::Sense::click());
             if bg_resp.clicked() { closed = true; }
             ui.painter().rect_filled(bg_rect, 0.0, egui::Color32::from_black_alpha(200));
@@ -27,7 +27,7 @@ pub fn draw_delete_type_modal(
             ui.allocate_ui_at_rect(frame_rect, |ui| {
                 frame.show(ui, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new("⚠️ Delete Neuron Type").color(egui::Color32::RED).strong().size(16.0));
+                        ui.label(egui::RichText::new("[WARN] Delete Neuron Type").color(egui::Color32::RED).strong().size(16.0));
                         ui.add_space(8.0);
                         ui.label(format!("Delete '{}'?\nAll related dendrite filters will be cleared.", type_name));
                         ui.add_space(16.0);

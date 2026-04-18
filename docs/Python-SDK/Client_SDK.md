@@ -1,182 +1,182 @@
 # Axicor Client SDK: Architecture & Internal Contracts
 
-Спецификация интеграционного Data-Oriented слоя Axicor. Определяет жесткие контракты взаимодействия внешних сред (Python, RL-фреймворки, визуализаторы) с HFT-ядром симуляции (Rust + CUDA/HIP).
+  Data-Oriented  Axicor.       (Python, RL-, )  HFT-  (Rust + CUDA/HIP).
 
-## 1. Архитектура и Философия (Смерть ООП)
+## 1.    ( )
 
-SDK (`genesis-client`) - это не раздутая ML-библиотека с тысячей классов. Это предельно тонкий мост, цель которого - прокидывать биты в VRAM и обратно за микросекунды, обходя GIL и не создавая мусора в куче.
+SDK (`axicor-client`) -    ML-   .    ,   -    VRAM    ,  GIL      .
 
 > [!IMPORTANT]
-> **АРХИТЕКТУРНЫЙ ЗАКОН:** Любые высокоуровневые абстракции вроде `class Neuron`, `class SynapseGroup`, сериализация состояний в JSON/Protobuf или использование блокирующих REST/gRPC API - категорически запрещены.
+> ** :**     `class Neuron`, `class SynapseGroup`,    JSON/Protobuf    REST/gRPC API -  .
 
-Вся работа строится строго на плоских `numpy.ndarray`, сырых `memoryview` и `struct.pack`. Python выступает лишь низкоуровневым диспетчером памяти.
+      `numpy.ndarray`,  `memoryview`  `struct.pack`. Python     .
 
-### 1.1. Бюджет задержек (The 10ms Rule)
+### 1.1.   (The 10ms Rule)
 
-Движок работает с квантом времени 100 микросекунд (1 тик). Стандартный шаг среды (`sync_batch_ticks`) составляет 100 тиков. Это означает, что у вашего Python-агента есть ровно **10 миллисекунд** на полный цикл:
+     100  (1 ).    (`sync_batch_ticks`)  100 .  ,    Python-   **10 **   :
 
-1.  Прочитать ответ сети (UDP rx).
-2.  Просчитать физику (Gymnasium / Mujoco).
-3.  Закодировать новые входы в популяционный код (NumPy `packbits`).
-4.  Отправить импульс обратно (UDP tx).
+1.     (UDP rx).
+2.    (Gymnasium / Mujoco).
+3.        (NumPy `packbits`).
+4.     (UDP tx).
 
-Создание временных ООП-объектов или сериализация в JSON в этом цикле разбудит сборщик мусора (GC), вызовет спайк задержки в 15-20 мс и сорвет барьер синхронизации кластера. Выделение памяти должно происходить заранее (Pre-allocation).
+  -    JSON       (GC),     15-20      .      (Pre-allocation).
 
-### 1.2. Смена Парадигмы (PyTorch vs Axicor)
+### 1.2.   (PyTorch vs Axicor)
 
-Вы больше не обучаете статические графы вычислений вызовами `loss.backward()`. Вы общаетесь с непрерывно живущим биологическим реактором.
+        `loss.backward()`.       .
 
-| Классический ML / RL | Axicor DOD Парадигма | Как это работает под капотом |
+|  ML / RL | Axicor DOD  |      |
 | :--- | :--- | :--- |
-| `env.step(action)` | **UDP Fast-Path** | Конвертация float в битовую маску (Population Coding) и отправка сырого UDP-пакета на порт ноды. Никакого HTTP. |
-| `loss.backward()` | **R-STDP (Dopamine)** | Глобальный сигнал награды пакуется в 20-байтовый C-ABI заголовок каждого входящего пакета (поле `global_reward`). Обучение идет непрерывно. |
-| `model.parameters()` | **Zero-Copy Introspection** | Прямой маппинг файлов `/dev/shm/genesis_shard_*`. Чтение весов синапсов за O(1) прямо из памяти ОС, минуя оркестратор Rust. |
-| TensorBoard / Логи | **WS Telemetry Stream** | Бинарный push-поток сработавших ID нейронов через WebSocket прямо в 3D-движок или matplotlib без JSON-парсинга. |
+| `env.step(action)` | **UDP Fast-Path** |  float    (Population Coding)    UDP-   .  HTTP. |
+| `loss.backward()` | **R-STDP (Dopamine)** |      20- C-ABI     ( `global_reward`).   . |
+| `model.parameters()` | **Zero-Copy Introspection** |    `/dev/shm/axicor_shard_*`.     O(1)    ,   Rust. |
+| TensorBoard /  | **WS Telemetry Stream** |  push-  ID   WebSocket   3D-  matplotlib  JSON-. |
 
-Медлительность из-за GIL (Global Interpreter Lock) и динамической типизации - вот почему мы выбрали Python для написания управляющего SDK. Потому что при подходе Data-Oriented Design (DOD) Python используется не как исполнитель математики, а как низкоуровневый дирижер, который просто передает указатели на память в C-библиотеки и манипулирует массивами байтов через NumPy. Встречайте Axicor SDK.
+ - GIL (Global Interpreter Lock)    -     Python    SDK.     Data-Oriented Design (DOD) Python     ,    ,        C-      NumPy.  Axicor SDK.
 
-**Анатомия 10-миллисекундного бюджета:** Движок Axicor работает с квантом времени (тиком) равным 100 микросекунд. Стандартный шаг синхронизации со средой (`sync_batch_ticks`) составляет 100 тиков. Это значит, что у вашего Python-скрипта есть ровно **10 миллисекунд**, чтобы:
+** 10- :**  Axicor     ()  100 .      (`sync_batch_ticks`)  100 .  ,    Python-   **10 **, :
 
-1.  Получить реакцию сети.
-2.  Просчитать физику среды (например, гравитацию в CartPole).
-3.  Закодировать новые входы в популяционный код.
-4.  Отправить ответ обратно.
+1.    .
+2.     (,   CartPole).
+3.       .
+4.    .
 
-**Что убивает бюджет (Запрещенные практики):**
+**   ( ):**
 
-*   **Сериализация 100 000 спайков в JSON** занимает ~15–20 мс. Это мгновенно срывает барьер синхронизации, вызывает лаги и падение TPS всей симуляции.
-*   **Создание ООП-объектов** (например, `class Spike`) в цикле вызывает сборщик мусора (GC), который замораживает процесс на непредсказуемое время.
+*   ** 100 000   JSON**  ~1520 .     ,     TPS  .
+*   ** -** (, `class Spike`)      (GC),      .
 
-**DOD-подход Axicor SDK:**
+**DOD- Axicor SDK:**
 
-*   Использование векторизованных операций `np.packbits` и кастов памяти `np.frombuffer`.
-*   Zero-Copy `struct.pack_into` в предварительно выделенные массивы байтов (Pre-allocation).
-*   **Итог:** Обработка пакета занимает ~0.05 мс, оставляя 9.95 мс на логику вашей RL-среды.
+*      `np.packbits`    `np.frombuffer`.
+*   Zero-Copy `struct.pack_into`      (Pre-allocation).
+*   **:**    ~0.05 ,  9.95     RL-.
 
-### 1.3. Модель Исполнения: Строгий Lockstep (Strict BSP)
+### 1.3.  :  Lockstep (Strict BSP)
 
-В отличие от классического инференса (где вызов `model.forward()` локально блокирует поток), архитектура Axicor физически разделена на независимые узлы. Взаимодействие со средой строится на строгой синхронизации **BSP (Bulk Synchronous Parallel)**, реализованной через концепцию **Lockstep**.
+     (  `model.forward()`   ),  Axicor     .        **BSP (Bulk Synchronous Parallel)**,    **Lockstep**.
 
-Это механизм жесткого пинг-понга, который гарантирует, что сеть и среда не разъедутся во времени, даже если работают на разных серверах.
+   -,  ,        ,      .
 
-**Цикл барьерной синхронизации:**
-1.  **Tx (Send):** Среда формирует батч входов (битовую маску + дофамин) и отправляет его плоским UDP-пакетом.
-2.  **Barrier (Wait):** Среда вызывает `sock.recvfrom_into()` и блокируется ОС, замирая в ожидании ответа.
-3.  **Autonomous GPU Compute:** Оркестратор Axicor получает батч, загружает его в VRAM (Zero-Copy DMA) and автономно прокручивает физику на GPU (Day Phase) без единого обращения к сети.
-4.  **Rx (Receive):** По завершении батча, ядро `RecordReadout` выплевывает собранную историю выходов (`Output_History`) обратно по UDP. Среда просыпается и делает следующий шаг.
+**  :**
+1.  **Tx (Send):**     (  + )     UDP-.
+2.  **Barrier (Wait):**   `sock.recvfrom_into()`   ,    .
+3.  **Autonomous GPU Compute:**  Axicor  ,    VRAM (Zero-Copy DMA) and     GPU (Day Phase)     .
+4.  **Rx (Receive):**   ,  `RecordReadout`     (`Output_History`)   UDP.      .
 
 > [!CAUTION]
-> **Аварийные ситуации (Biological Amnesia):**
-> Если ваш Python-скрипт "завис" (например, GC Gen2 или тяжелый `env.step()`) и пакет пришел не в свою Эпоху, движок применит механизм Biological Amnesia - молча отбросит устаревшие пакеты. Сеть не будет ждать медленного агента вечно. Это стандартное поведение Axicor.
+> **  (Biological Amnesia):**
+>   Python- "" (, GC Gen2   `env.step()`)       ,    Biological Amnesia -    .       .    Axicor.
 
 ---
 
 ## 2. Data Plane: UDP Fast-Path & C-ABI
 
-Сетевой обмен идет через UDP. Данные передаются плоскими чанками. Каждый чанк предваряется строгим 20-байтовым заголовком Little-Endian. Никакого HTTP, gRPC или сериализации словарей.
+    UDP.    .     20-  Little-Endian.  HTTP, gRPC   .
 
-### 2.1. Структура `ExternalIoHeader` (20 байт)
+### 2.1.  `ExternalIoHeader` (20 )
 
-Для интеграции на C++ или нестандартных языках используйте следующий struct. Он обязан быть идеально выровнен.
+   C++      struct.     .
 
 ```c
 struct alignas(4) ExternalIoHeader {
-    uint32_t magic;         // 0x4F495347 ("GSIO") для входа, 0x4F4F5347 ("GSOO") для выхода
-    uint32_t zone_hash;     // FNV-1a хэш имени зоны (например, "SensoryCortex")
-    uint32_t matrix_hash;   // FNV-1a хэш имени I/O матрицы (например, "cartpole_sensors")
-    uint32_t payload_size;  // Размер битовой маски в байтах (БЕЗ учета самого заголовка)
-    int16_t  global_reward; // Инъекция дофамина для R-STDP (-32768..32767)
-    uint16_t _padding;      // Выравнивание структуры до 20 байт
+    uint32_t magic;         // 0x4F495347 ("GSIO")  , 0x4F4F5347 ("GSOO")  
+    uint32_t zone_hash;     // FNV-1a    (, "SensoryCortex")
+    uint32_t matrix_hash;   // FNV-1a   I/O  (, "cartpole_sensors")
+    uint32_t payload_size;  //      (   )
+    int16_t  global_reward; //    R-STDP (-32768..32767)
+    uint16_t _padding;      //    20 
 };
 ```
 
-**Упаковка в Python SDK (struct format):** `<IIIIhH`
+**  Python SDK (struct format):** `<IIIIhH`
 
-### 2.2. Инициализация (Cold Start Auto-Wiring)
+### 2.2.  (Cold Start Auto-Wiring)
 
-Ручной расчет размеров матриц и хэшей запрещен. Движок использует паттерн **Auto-Wiring**: SDK парсит запеченный манифест `io.toml` на холодном старте и автоматически вычисляет C-ABI выравнивание и L7-фрагментацию для клиента и декодеров.
+      .    **Auto-Wiring**: SDK    `io.toml`       C-ABI   L7-    .
 
 ```python
-from genesis.contract import GenesisIoContract
-from genesis.client import GenesisMultiClient
+from axicor.contract import AxicorIoContract
+from axicor.client import AxicorMultiClient
 
-# 1. Чтение I/O Контрактов (до входа в Hot Loop)
-zone_dir = "Genesis-Models/MyAgent/baked/SensoryCortex"
-contract = GenesisIoContract(zone_dir, "SensoryCortex")
+# 1.  I/O  (   Hot Loop)
+zone_dir = "Axicor-Models/MyAgent/baked/SensoryCortex"
+contract = AxicorIoContract(zone_dir, "SensoryCortex")
 client_cfg = contract.get_client_config(BATCH_SIZE)
 
-# 2. Инициализация HFT Транспорта
-# SDK автоматически преаллоцирует нужные bytearray буферы для входов и выходов
-client = GenesisMultiClient(
+# 2.  HFT 
+# SDK    bytearray     
+client = AxicorMultiClient(
     addr=("127.0.0.1", 8081),
     **client_cfg
 )
 ```
 
-### 2.3. Zero-Copy L7 Assembler (Сборка фрагментов)
+### 2.3. Zero-Copy L7 Assembler ( )
 
-Если выходная матрица превышает лимит MTU (65507 байт), оркестратор на Rust автоматически режет её на L7-чанки с выравниванием по 64 байта (L2 Cache Line). 
-Клиент `GenesisMultiClient` прозрачно склеивает эти чанки на лету внутри метода `step()`.
+     MTU (65507 ),   Rust     L7-    64  (L2 Cache Line). 
+ `AxicorMultiClient`         `step()`.
 
-**Архитектурный инвариант:**
-*   **Аппаратный буфер ОС:** При инициализации сокета клиент устанавливает `SO_RCVBUF` в **8 МБ**. Это необходимо, чтобы ядро Linux могло принять "пулеметную очередь" L7-чанков без потерь до того, как Python успеет их прочитать.
-*   Клиент преаллоцирует единый плоский `_rx_arena` буфер.
-*   В горячем цикле используется связка `recvfrom_into` и `memoryview`.
-*   Байты копируются напрямую из буфера сокета в итоговую арену по O(1) смещениям без аллокаций.
+** :**
+*   **  :**      `SO_RCVBUF`  **8 **.  ,   Linux   " " L7-    ,  Python   .
+*       `_rx_arena` .
+*        `recvfrom_into`  `memoryview`.
+*             O(1)   .
 
 > [!WARNING]
-> **Receive Buffer Overflow:** Если вы видите ошибку `[GenesisClient] UDP Timeout`, убедитесь, что лимит `net.core.rmem_max` в вашей ОС позволяет раздуть буфер до 8 МБ.
+> **Receive Buffer Overflow:**     `[AxicorClient] UDP Timeout`, ,   `net.core.rmem_max`        8 .
 
 ---
 
 ## 3. Memory Plane: Zero-Copy mmap (Telemetry & Surgery)
 
-Модули `GenesisMemory` и `GenesisSurgeon` работают с VRAM-дампами напрямую, минуя сетевой стек. 
+ `AxicorMemory`  `AxicorSurgeon`   VRAM- ,   . 
 
 ### 3.1. SDK Telemetry Translation (Mass -> Charge)
 
-Система хранит веса в **Mass Domain** (32-битные целые числа до 2.1 млрд). Однако для удобства разработчика `GenesisMemory` выполняет автоматическую трансляцию при чтении метрик.
+    **Mass Domain** (32-    2.1 ).     `AxicorMemory`      .
 
-*   Метод `get_network_stats()` возвращает `avg_weight` и `max_weight`, уже разделенные на **65536.0**.
-*   Это означает, что Python всегда показывает **Charge Domain** (электрический заряд в микровольтах), соответствующий биологической силе синапса, скрывая внутреннюю "массу" обучения.
+*    `get_network_stats()`  `avg_weight`  `max_weight`,    **65536.0**.
+*    ,  Python   **Charge Domain** (   ),    ,   "" .
 
-#### Структура `ShmHeader` (64 bytes)
-// Строго 128 байт (L2 Cache Line x2)
+####  `ShmHeader` (64 bytes)
+//  128  (L2 Cache Line x2)
 struct alignas(128) ShmHeader {
     uint32_t magic;             // 0x00: 0x47454E53 ("GENS")
     uint8_t  version;           // 0x04: 3
     uint8_t  state;             // 0x05: ShmState enum
     uint16_t _pad;              // 0x06: Padding
-    uint32_t padded_n;          // 0x08: Нейроны (Кратно 32 для Warp Alignment!)
-    uint32_t dendrite_slots;    // 0x0C: Всегда 128
-    uint32_t weights_offset;    // 0x10: Смещение до i32[128 * padded_n]
-    uint32_t targets_offset;    // 0x14: Смещение до u32[128 * padded_n]
-    uint64_t epoch;             // 0x18: Глобальный такт
+    uint32_t padded_n;          // 0x08:  ( 32  Warp Alignment!)
+    uint32_t dendrite_slots;    // 0x0C:  128
+    uint32_t weights_offset;    // 0x10:   i32[128 * padded_n]
+    uint32_t targets_offset;    // 0x14:   u32[128 * padded_n]
+    uint64_t epoch;             // 0x18:  
     uint32_t total_axons;       // 0x20: Local + Ghost + Virtual
-    uint32_t handovers_offset;  // 0x24: Очередь структурной пластичности
-    uint32_t handovers_count;   // 0x28: Элементов в очереди
-    uint32_t zone_hash;         // 0x2C: FNV-1a зоны
-    uint32_t prunes_offset;     // 0x30: Очередь удаления связей
-    uint32_t prunes_count;      // 0x34: Исходящие удаления
-    uint32_t incoming_prunes;   // 0x38: Входящие удаления
-    uint32_t flags_offset;      // 0x3C: Смещение до u8[padded_n]
+    uint32_t handovers_offset;  // 0x24:   
+    uint32_t handovers_count;   // 0x28:   
+    uint32_t zone_hash;         // 0x2C: FNV-1a 
+    uint32_t prunes_offset;     // 0x30:   
+    uint32_t prunes_count;      // 0x34:  
+    uint32_t incoming_prunes;   // 0x38:  
+    uint32_t flags_offset;      // 0x3C:   u8[padded_n]
 
     // --- Extended Header (v3) ---
-    uint32_t voltage_offset;          // 0x40: Смещение до i32[padded_n]
-    uint32_t threshold_offset_offset; // 0x44: Смещение до i32[padded_n]
-    uint32_t timers_offset;           // 0x48: Смещение до u8[padded_n]
-    uint32_t _reserved[1];           // 0x4C..0x80: Выравнивание до 128 байт
+    uint32_t voltage_offset;          // 0x40:   i32[padded_n]
+    uint32_t threshold_offset_offset; // 0x44:   i32[padded_n]
+    uint32_t timers_offset;           // 0x48:   u8[padded_n]
+    uint32_t _reserved[1];           // 0x4C..0x80:   128 
 };
 ```
 
 > [!CAUTION]
-> **АРХИТЕКТУРНЫЙ ЗАКОН:** Никогда не хардкодьте смещения массивов через `sizeof`! Размеры меняются из-за L2-паддингов. Всегда читайте `weights_offset` и `targets_offset` напрямую из 64-байтного заголовка.
+> ** :**       `sizeof`!   - L2-.   `weights_offset`  `targets_offset`   64- .
 
-### 3.2. Аппаратная ловушка: Zero-Index Trap
+### 3.2.  : Zero-Index Trap
 
-В архитектуре Genesis значение `target_packed == 0` — это аппаратный триггер **Early Exit** для GPU и MCU. Если ядро видит 0, оно мгновенно прерывает цикл обхода дендритов для данного нейрона, не дожидаясь проверки остальных 127 слотов. Это критическая оптимизация производительности (Branchless Early Exit).
+  Axicor  `target_packed == 0`     **Early Exit**  GPU  MCU.    0,         ,     127 .     (Branchless Early Exit).
 
-Из-за этого реальный `axon_id` аппаратно смещен на `+1`. 
+-   `axon_id`    `+1`. 
 
 **=== PACKED TARGET C-ABI (32-bit) ===**
 ```text
@@ -184,37 +184,37 @@ struct alignas(128) ShmHeader {
       Segment Offset (8-bit)           Axon ID + 1 (24-bit)
 ```
 
-При чтении и записи топологии напрямую через `mmap` (например, в скриптах дистилляции `distill_esp32.py` или в `GenesisSurgeon`), вы обязаны декодировать и кодировать индекс строго по битовой маске `0x00FFFFFF` (24 бита).
+       `mmap` (,    `distill_esp32.py`   `AxicorSurgeon`),           `0x00FFFFFF` (24 ).
 
-**Zero-Cost Распаковка (Python):**
+**Zero-Cost  (Python):**
 ```python
-# Извлечение из 32-битного упакованного таргета
+#   32-  
 axon_id = (target_packed & 0x00FFFFFF) - 1
 segment_offset = target_packed >> 24
 ```
 
-**Zero-Cost Упаковка (Python):**
+**Zero-Cost  (Python):**
 ```python
-# Запись таргета в VRAM
-# КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать axon_id напрямую без +1!
-# Значение 0 зарезервировано под аппаратный Early Exit.
+#    VRAM
+#    axon_id   +1!
+#  0    Early Exit.
 target_packed = (segment_offset << 24) | ((axon_id + 1) & 0x00FFFFFF)
 ```
 
-Запись сырого нуля в качестве `axon_id` без сдвига (`+1`) заставит процессор при распаковке обратиться к индексу -1 (`0xFFFFFFFF`). На GPU это **CUDA Illegal Memory Access**, на ESP32 — перезагрузка всего чипа из-за **LoadStoreError**.
+     `axon_id`   (`+1`)        -1 (`0xFFFFFFFF`).  GPU  **CUDA Illegal Memory Access**,  ESP32     - **LoadStoreError**.
 
 ---
 
-## 4. Порт-Маппинг (Multiple Instances)
+## 4. - (Multiple Instances)
 
-Если на одной машине запускается кластер из нескольких независимых агентов (шлюзов), порты смещаются по формуле `Base_Port + N * 10`, где N - порядковый номер агента.
+          (),     `Base_Port + N * 10`,  N -   .
 
-| Сервис | Протокол | Базовый Порт (N=0) | Формула сдвига | Описание |
+|  |  |   (N=0) |   |  |
 | :--- | :--- | :--- | :--- | :--- |
-| External In | UDP | 8081 | 8081 + N * 10 | Вход сенсоров (Сюда шлет SDK) |
-| External Out | UDP | 8082 | 8082 + N * 10 | Выход моторов (Слушает SDK) |
-| Geometry | TCP | 9002 | 9002 + N * 10 | Дамп 3D-координат (IDE/Viz) |
-| Telemetry | WS | 9003 | 9003 + N * 10 | Стрим спайков (IDE/Dashboards) |
+| External In | UDP | 8081 | 8081 + N * 10 |   (  SDK) |
+| External Out | UDP | 8082 | 8082 + N * 10 |   ( SDK) |
+| Geometry | TCP | 9002 | 9002 + N * 10 |  3D- (IDE/Viz) |
+| Telemetry | WS | 9003 | 9003 + N * 10 |   (IDE/Dashboards) |
 
 > [!IMPORTANT]
-> **Изоляция потоков (Thread Isolation):** Обработка Телеметрии (WebSocket на 9003) и Геометрии (TCP на 9002) обязана жить в отдельном фоновом asyncio потоке. Горячий RL-цикл агента (UDP Fast-Path) никогда не должен блокироваться рендерингом, ожиданием логов или дисковым I/O.
+> **  (Thread Isolation):**   (WebSocket  9003)   (TCP  9002)      asyncio .  RL-  (UDP Fast-Path)     ,     I/O.

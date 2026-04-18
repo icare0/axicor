@@ -1,4 +1,4 @@
-/// All signal.rs tests (§1.3 Active Tail).
+/// All signal.rs tests (1.3 Active Tail).
 /// Included via: `#[path = "test_signal.rs"] mod test_signal;` in signal.rs
 use super::*;
 use crate::constants::{AXON_SENTINEL, V_SEG};
@@ -14,7 +14,7 @@ fn segment_in_tail_is_active() {
     let head = 10u32;
     assert!(is_segment_active(head, 8, 3));
     assert!(is_segment_active(head, 9, 3));
-    assert!(is_segment_active(head, 10, 3)); // dist=0 < 3 → active
+    assert!(is_segment_active(head, 10, 3)); // dist=0 < 3  active
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn axon_fires_after_length_ticks() {
         head = head.wrapping_add(V_SEG);
     }
 
-    // Now dist to initial segment < propagation → it must be active
+    // Now dist to initial segment < propagation  it must be active
     let starting_segment = AXON_SENTINEL.wrapping_sub(length * V_SEG);
     assert!(
         is_segment_active(head, starting_segment, propagation),
@@ -78,7 +78,7 @@ fn is_segment_active_is_pure() {
     assert_eq!(is_segment_active(head, seg, p), is_segment_active(head, seg, p));
 }
 
-/// Edge case: propagation_length = 0 → no segment is ever active.
+/// Edge case: propagation_length = 0  no segment is ever active.
 #[test]
 fn zero_propagation_length_never_active() {
     let head = 100u32;

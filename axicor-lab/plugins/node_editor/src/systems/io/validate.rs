@@ -9,17 +9,17 @@ pub struct ValidationReport {
     pub deduped_ports: usize,
 }
 
-/// Стандартные порты — неуязвимы к pruning
+///      pruning
 const PROTECTED_PORTS: &[&str] = &["in", "out"];
 
-/// Точка входа: валидирует холодные io.toml на двух уровнях.
+///  :   io.toml   .
 pub fn validate_project(
     base_dir: &Path,
     sessions: &std::collections::HashMap<std::path::PathBuf, ProjectSession>,
 ) -> ValidationReport {
     let mut report = ValidationReport { pruned_ports: 0, deduped_ports: 0 };
 
-    bevy::log::info!("🔍 [Validator] Scanning {} sessions, base_dir={}", sessions.len(), base_dir.display());
+    bevy::log::info!(" [Validator] Scanning {} sessions, base_dir={}", sessions.len(), base_dir.display());
 
     for (session_path, session) in sessions {
         let file_name = session_path.file_name()
@@ -27,7 +27,7 @@ pub fn validate_project(
             .to_string_lossy()
             .to_string();
 
-        bevy::log::info!("🔍 [Validator] Session: {} | zones: {:?} | connections: {}", 
+        bevy::log::info!(" [Validator] Session: {} | zones: {:?} | connections: {}", 
             file_name, session.zones, session.connections.len());
 
         if file_name == "simulation.toml" {
@@ -50,12 +50,12 @@ pub fn validate_project(
     report
 }
 
-/// Model-level: department io.toml файлы (`{dept_name}/io.toml`)
-/// На model-level connections теперь хранят и `output_matrix` и `input_matrix`.
-/// Поэтому на model-level:
-///   - Пользовательские output-порты: prune если не в output_matrix ни одного connection
-///   - Пользовательские input-порты: prune если не в input_matrix ни одного connection
-///   - Стандартные "in"/"out": неуязвимы
+/// Model-level: department io.toml  (`{dept_name}/io.toml`)
+///  model-level connections    `output_matrix`  `input_matrix`.
+///   model-level:
+///   -  output-: prune    output_matrix   connection
+///   -  input-: prune    input_matrix   connection
+///   -  "in"/"out": 
 fn validate_model_level(
     base_dir: &Path,
     session: &ProjectSession,
@@ -64,14 +64,14 @@ fn validate_model_level(
     for zone_name in &session.zones {
         let io_path = base_dir.join(zone_name).join("io.toml");
 
-        bevy::log::info!("🔍 [Validator/Model] Zone '{}' → checking {}", zone_name, io_path.display());
+        bevy::log::info!(" [Validator/Model] Zone '{}'  checking {}", zone_name, io_path.display());
 
         if !io_path.exists() {
-            bevy::log::info!("🔍 [Validator/Model] Not found, skipping.");
+            bevy::log::info!(" [Validator/Model] Not found, skipping.");
             continue;
         }
 
-        // Собираем используемые порты из connections
+        //     connections
         let mut used_outputs: HashSet<String> = HashSet::new();
         let mut used_inputs: HashSet<String> = HashSet::new();
         
@@ -98,15 +98,15 @@ fn validate_model_level(
 
         if changed {
             if let Err(e) = fs::write(&io_path, doc.to_string()) {
-                bevy::log::error!("❌ [Validator] Failed to write {}: {}", io_path.display(), e);
+                bevy::log::error!("[ERROR] [Validator] Failed to write {}: {}", io_path.display(), e);
             } else {
-                bevy::log::info!("🧹 [Validator] Sanitized dept io: {}", io_path.display());
+                bevy::log::info!(" [Validator] Sanitized dept io: {}", io_path.display());
             }
         }
     }
 }
 
-/// Department-level: shard io.toml файлы (`{dept}/{zone}/io.toml`)
+/// Department-level: shard io.toml  (`{dept}/{zone}/io.toml`)
 fn validate_department_level(
     base_dir: &Path,
     dept_name: &str,
@@ -137,15 +137,15 @@ fn validate_department_level(
 
         if changed {
             if let Err(e) = fs::write(&io_path, doc.to_string()) {
-                bevy::log::error!("❌ [Validator] Failed to write {}: {}", io_path.display(), e);
+                bevy::log::error!("[ERROR] [Validator] Failed to write {}: {}", io_path.display(), e);
             } else {
-                bevy::log::info!("🧹 [Validator] Sanitized shard io: {}", io_path.display());
+                bevy::log::info!(" [Validator] Sanitized shard io: {}", io_path.display());
             }
         }
     }
 }
 
-/// Полная санитизация: dedup + orphan pruning (Hierarchical Matrix -> Pins)
+///  : dedup + orphan pruning (Hierarchical Matrix -> Pins)
 fn sanitize_port_table(
     doc: &mut DocumentMut,
     array_key: &str,
@@ -186,7 +186,7 @@ fn sanitize_port_table(
                     matrices_to_remove.push(m_idx);
                 }
             } else {
-                // Матрица без пинов — нелегальна
+                //     
                 matrices_to_remove.push(m_idx);
             }
         }

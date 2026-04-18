@@ -13,7 +13,7 @@ pub struct NodeGraphUiState {
     pub zoom: f32,
     pub level: EditorLevel,
     pub node_positions: HashMap<String, bevy_egui::egui::Pos2>,
-    pub selected_node_id: Option<String>, // Паспорт выбранной ноды
+    pub selected_node_id: Option<String>, //   
     pub dragging_pin: Option<(String, String, bevy_egui::egui::Pos2, bool)>, 
     pub pending_connection: Option<(String, String, String, String)>,
     pub new_node_buffer: String,
@@ -82,7 +82,7 @@ pub struct ProjectSession {
     pub layout_cache: HashMap<String, (f32, f32)>, 
     pub shard_anatomies: HashMap<String, ShardAnatomy>,
     pub shard_blueprints: HashMap<String, ShardBlueprint>,
-    pub shard_io: HashMap<String, ShardIoData>, // [DOD FIX] Кэш данных I/O матриц
+    pub shard_io: HashMap<String, ShardIoData>, // [DOD FIX]   I/O 
     pub voxel_size_um: f32,
     pub is_dirty: bool,
 }
@@ -168,7 +168,7 @@ pub enum TopologyMutation {
         zone: String,
         context_path: Option<std::path::PathBuf>,
     },
-    UpdateIo { zone: String, context_path: Option<std::path::PathBuf> }, // [DOD FIX] Интент сохранения матриц
+    UpdateIo { zone: String, context_path: Option<std::path::PathBuf> }, // [DOD FIX]   
 }
 
 #[derive(Event, Clone, Debug)]

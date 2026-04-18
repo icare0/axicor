@@ -1,4 +1,4 @@
-/// Master Seed and wyhash tests (§2).
+/// Master Seed and wyhash tests (2).
 use super::*;
 
 #[test]
@@ -18,7 +18,7 @@ fn different_strings_different_seeds() {
 #[test]
 fn messy_string_test() {
     // Random garbage, spaces, Chinese (and others) characters, emojis
-    let messy = "  🚀 GENESIS   __ 2026   你好โลก   \n\t_!!   $#@%   ";
+    let messy = "   GENESIS   __ 2026      \n\t_!!   $#@%   ";
     let s = MasterSeed::from_str(messy);
     assert_ne!(s.raw(), 0, "Seed should not be 0 even for messy input");
     

@@ -1,102 +1,102 @@
-# Dopamine Injection & The GenesisSurgeon (Python SDK)
+# Dopamine Injection & The AxicorSurgeon (Python SDK)
 
-В Axicor обучение происходит не через расчет градиентов (backpropagation), а через **биологически правдоподобные механизмы модуляции (R-STDP)** и прямое хирургическое вмешательство в дамп памяти (VRAM).
+ Axicor       (backpropagation),   **    (R-STDP)**        (VRAM).
 
-## 1. Инъекция Дофамина (Time-Scaled R-STDP)
+## 1.   (Time-Scaled R-STDP)
 
-Сигнал вознаграждения (Дофамин) - это глобальный модулятор, который отправляется в заголовке каждого UDP-пакета Data Plane. Движок не имеет стадий `model.train()` или `model.eval()`. Обучение идет непрерывно.
+  () -   ,      UDP- Data Plane.     `model.train()`  `model.eval()`.   .
 
-Чтобы избежать цементирования весов (когда синапсы упираются в потолок `32767`), мы применяем стратегию **Time-Scaled R-STDP**:
+    (     `32767`),    **Time-Scaled R-STDP**:
 
-1. **Background Erosion (Фоновая эрозия):** Отрицательный тонус для медленного разрушения неиспользуемых связей (LTD).
-2. **Phasic Reward (Редкий пульс):** Положительный всплеск за успешное действие (LTP).
-3. **Pain Shock (Болевой шок):** Пролонгированный максимальный штраф при критической ошибке. Удерживается несколько батчей для выжигания виновных путей.
+1. **Background Erosion ( ):**        (LTD).
+2. **Phasic Reward ( ):**      (LTP).
+3. **Pain Shock ( ):**      .       .
 
-### Пример реализации в Hot Loop
+###    Hot Loop
 
 ```python
-# Константы модуляции
-DOPAMINE_PULSE = -25         # Фоновая эрозия (компенсирует базовую потенциацию)
-DOPAMINE_REWARD = 30         # Сильный пульс за правильные действия
-DOPAMINE_PUNISHMENT = -255   # Death Signal (Максимальное наказание)
+#  
+DOPAMINE_PULSE = -25         #   (  )
+DOPAMINE_REWARD = 30         #     
+DOPAMINE_PUNISHMENT = -255   # Death Signal ( )
 
 while True:
-    # ... получение state и энкодинг входов ...
+    # ...  state    ...
 
     if terminated or truncated:
-        # THE DEATH SIGNAL: Пролонгированный шок
-        # Удерживаем сигнал на 15 батчей, чтобы C++ ядро GSOP успело 
-        # обнулить активные виновные синапсы
+        # THE DEATH SIGNAL:  
+        #    15 ,  C++  GSOP  
+        #    
         for _ in range(15):
             client.step(DOPAMINE_PUNISHMENT)
         
         env.reset()
         continue
 
-    # Разреженный дофамин (Phasic)
+    #   (Phasic)
     if score > 0 and score % 10 == 0:
         dopamine_signal = DOPAMINE_REWARD
     else:
         dopamine_signal = DOPAMINE_PULSE
 
-    # Инъекция прямо в пинг-понг барьер Lockstep
+    #    -  Lockstep
     rx_view = client.step(dopamine_signal)
 ```
 
-### Как это работает под капотом (C-ABI)
-SDK скрывает от вас упаковку байт в вызове `client.step()`, но под капотом значение дофамина (i16) пишется напрямую в 20-байтовый заголовок `ExternalIoHeader` ровно по смещению 16 байт через `struct.pack_into("<IIIIhH", ...)`. Никаких JSON - чистый C-структурный оверхед в микросекундах.
+###      (C-ABI)
+SDK        `client.step()`,      (i16)    20-  `ExternalIoHeader`    16   `struct.pack_into("<IIIIhH", ...)`.  JSON -  C-   .
 
 ---
 
-## 2. GenesisSurgeon: Прямая Хирургия Графа
-Модуль `GenesisSurgeon` - это Data-Oriented скальпель. Он общается с сетью строго через Zero-Copy mmap файлов `/dev/shm/genesis_shard_*`, минуя сетевой стек и Rust-оркестратор.
+## 2. AxicorSurgeon:   
+ `AxicorSurgeon` -  Data-Oriented .       Zero-Copy mmap  `/dev/shm/axicor_shard_*`,     Rust-.
 
 > [!WARNING]
-> ЗАКОН АРХИТЕКТУРЫ: `GenesisSurgeon` запрещено вызывать внутри горячего цикла (Hot Loop) среды. Операции с массивами на полгигабайта создадут просадки FPS и сломают 10мс барьер Lockstep. Используйте хирурга только при инициализации или для оффлайн-дистилляции.
+>  : `AxicorSurgeon`      (Hot Loop) .        FPS   10  Lockstep.        -.
 
-### 2.1. GABA Incubation (Защита от штормов)
-При холодном старте (Tabula Rasa) или резком сбросе весов, сеть может впасть в эпилептический спайк-шторм (Sensory Flooding). Мы лечим это инкубацией тормозных (Inhibitory) синапсов:
+### 2.1. GABA Incubation (  )
+   (Tabula Rasa)    ,      - (Sensory Flooding).      (Inhibitory) :
 
 ```python
-from genesis.memory import GenesisMemory
-from genesis.surgeon import GenesisSurgeon
+from axicor.memory import AxicorMemory
+from axicor.surgeon import AxicorSurgeon
 
-# Подключаемся к VRAM-дампу ОС
-mem = GenesisMemory(zone_hash=0xDEADBEEF, read_only=False)
-surgeon = GenesisSurgeon(mem)
+#   VRAM- 
+mem = AxicorMemory(zone_hash=0xDEADBEEF, read_only=False)
+surgeon = AxicorSurgeon(mem)
 
-# Находим все тормозные синапсы (знак веса == тип источника)
-# и устанавливаем им жесткий базовый вес.
-# Выполняется векторизованно через NumPy за миллисекунды.
+#     (  ==  )
+#      .
+#    NumPy  .
 surgeon.incubate_gaba(baseline_weight=-30000)
 ```
 
-### 2.2. Дистилляция Топологии (Path-Based Extraction)
+### 2.2.   (Path-Based Extraction)
 
-Слепой срез по порогу веса захватывает весь мозг целиком. Для изоляции конкретного рефлекса (например, балансировки маятника) применяется **Vectorized Back-Tracing**.
+        .     (,  )  **Vectorized Back-Tracing**.
 
-Мы начинаем с выходных (моторных) нейронов и разматываем граф в обратную сторону. Поскольку C-ABI структура VRAM оптимизирована для прямого прохода (Forward Pass) и не хранит обратных связей `axon_to_soma`, хирург строит инвертированный индекс за O(1) прямо в Python через векторизованные операции над mmap. Никаких циклов `for` — только массивы NumPy, чтобы не сбрасывать L1/L2 кэши хост-процессора.
+    ()       .  C-ABI  VRAM     (Forward Pass)      `axon_to_soma`,      O(1)   Python     mmap.   `for`    NumPy,    L1/L2  -.
 
-**Закон Дейла и GABA-интернейроны:**
-При обратном обходе мы отсекаем слабые связи (`abs(weight) > threshold`). Поскольку в Genesis знак веса определяется исключительно типом пресинаптического нейрона (Закон Дейла), использование модуля `abs()` автоматически и безусловно захватывает сильные **тормозные (Inhibitory)** связи. Это гарантирует, что вырезанный рефлекс заберет с собой свой балансировочный контур и сеть реципиента не сгорит от эпилепсии.
+**   GABA-:**
+       (`abs(weight) > threshold`).   Axicor        ( ),   `abs()`      ** (Inhibitory)** .  ,                .
 
 ```python
-# 1. Извлекаем "Картридж Навыка" (Графт) у Донора
-# Передаем ID моторных нейронов, отвечающих за конкретное действие (узнаем из .gxo)
+# 1.  " " ()  
+#  ID  ,     (  .gxo)
 motor_soma_ids = np.array([1, 2])
 payload = source_surgeon.extract_reflex_path(motor_soma_ids, prune_threshold=15000)
 ```
 
-### 2.3. Хирургическая Инъекция и Монументализация (Surgical Grafting)
+### 2.3.     (Surgical Grafting)
 
-Трансплантация навыка в новую сеть брутальна: она физически стирает текущее состояние целевых нейронов и синапсов в шарде-реципиенте (чтобы избежать коллизий), заменяя их имплантом.
+     :           - (  ),   .
 
-**Монументализация:** Чтобы новая (необученная) сеть реципиента не выжгла имплант в первые же тики R-STDP из-за отсутствия контекста, веса импланта искусственно максимизируются. Мы загоняем их в 15-й ранг инерции (`abs(w) = 32767`). Согласно кривым инерции GSOP, такие синапсы становятся "монументальными" — их крайне сложно ослабить фоновой депрессией.
+**:**   ()          R-STDP -  ,    .     15-   (`abs(w) = 32767`).    GSOP,    ""       .
 
 ```python
-# 2. Мгновенная инъекция Реципиенту
+# 2.   
 target_surgeon.inject_subgraph(payload)
 ```
 
 > [!CAUTION]
-> **Аппаратный нюанс (Zero-Index Trap):** При работе с `dendrite_targets` хирург обязан учитывать, что `target == 0` — это аппаратный триггер Early Exit для GPU. Реальный `axon_id` всегда смещен на `+1` (`axon_id = (target & 0x00FFFFFF) - 1`). Любая попытка прочитать `axon_id` напрямую без сдвига и битовой маски приведет к чтению памяти по смещению `0xFFFFFFFF` и Segmentation Fault.
+> **  (Zero-Index Trap):**    `dendrite_targets`   ,  `target == 0`     Early Exit  GPU.  `axon_id`    `+1` (`axon_id = (target & 0x00FFFFFF) - 1`).    `axon_id`             `0xFFFFFFFF`  Segmentation Fault.

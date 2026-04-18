@@ -13,7 +13,7 @@ pub fn init_node_editor_windows_system(
     }
 }
 
-/// Обработка триггеров меню
+///   
 pub fn handle_node_editor_menu_triggers_system(
     mut events: EventReader<ContextMenuActionTriggeredEvent>,
     mut query: Query<(Entity, &mut NodeGraphUiState)>,
@@ -131,7 +131,7 @@ pub fn handle_node_editor_menu_triggers_system(
                 ));
                 
                 info!("Node Editor: DND matrix connected: {}.{} -> {}.{} (Z-Voxel: {:?})", from, from_port, to, to_port, voxel_z);
-                // В будущем здесь будет вызов мутатора AST для io.toml
+                //       AST  io.toml
             }
         } else if ev.action_id.starts_with("node_editor.connect_global|") {
             let parts: Vec<&str> = ev.action_id.split('|').collect();
@@ -140,7 +140,7 @@ pub fn handle_node_editor_menu_triggers_system(
                 let from = parts[1].to_string();
                 let from_port = parts[2].to_string();
                 let to = parts[3].to_string();
-                let to_port = "in".to_string(); // Стандартный входной порт для глобальной маршрутизации
+                let to_port = "in".to_string(); //      
 
                 topo_events.send(crate::domain::TopologyMutation::Create(
                     crate::domain::CreateTarget::Connection {
@@ -156,7 +156,7 @@ pub fn handle_node_editor_menu_triggers_system(
                 info!("Node Editor: Global Atlas connection created: {}.{} -> {}", from, from_port, to);
             }
         } else if ev.action_id == "node_editor.clear_graph" {
-            // Используем state, который уже был безопасно захвачен в начале цикла
+            //  state,        
             state.show_clear_modal = true;
             info!("Node Editor: Opening Clear Graph modal");
         } else if !ev.action_id.starts_with("node_editor.delete_node|") && !ev.action_id.starts_with("node_editor.start_rename|") {

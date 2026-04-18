@@ -41,7 +41,7 @@ pub enum ComputeFeedback {
     },
 }
 
-/// [Phase 23] Network channel topology — raw pointers, inter/intra GPU channels.
+/// [Phase 23] Network channel topology  raw pointers, inter/intra GPU channels.
 pub struct NetworkTopology {
     pub intra_gpu_channels: Vec<(*mut axicor_core::layout::BurstHeads8, *mut axicor_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
     pub inter_node_channels: Vec<(*mut axicor_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
@@ -210,7 +210,7 @@ impl NodeRuntime {
             if let Ok(attr) = std::fs::metadata(&metadata.manifest_path) {
                 if let Ok(modified) = attr.modified() {
                     if modified > metadata.last_modified {
-                        println!("♻️ [Hot-Reload] Manifest changed for zone 0x{:08X}", hash);
+                        println!(" [Hot-Reload] Manifest changed for zone 0x{:08X}", hash);
                         metadata.last_modified = modified;
                         
                         if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
@@ -286,9 +286,9 @@ impl NodeRuntime {
         let exe_path = env::current_exe().expect("FATAL: Failed to get current exe path");
         
         #[cfg(target_os = "windows")]
-        let daemon_path = exe_path.with_file_name("genesis-baker-daemon.exe");
+        let daemon_path = exe_path.with_file_name("axicor-baker-daemon.exe");
         #[cfg(not(target_os = "windows"))]
-        let daemon_path = exe_path.with_file_name("genesis-baker-daemon");
+        let daemon_path = exe_path.with_file_name("axicor-baker-daemon");
 
         for desc in shards {
             let socket_addr = axicor_core::ipc::default_socket_path(desc.hash);
@@ -309,7 +309,7 @@ impl NodeRuntime {
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .spawn()
-                .expect("FATAL: Failed to spawn genesis-baker-daemon. Was it compiled?");
+                .expect("FATAL: Failed to spawn axicor-baker-daemon. Was it compiled?");
             
             daemons.push(child);
         }
@@ -385,7 +385,7 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] GPU Hardware Barrier — wait for all streams to finish
+            // [DOD] GPU Hardware Barrier  wait for all streams to finish
             unsafe { axicor_compute::ffi::gpu_device_synchronize(); }
 
             // Ship outputs to network targets ONLY POST SYNC!
@@ -478,7 +478,7 @@ impl NodeRuntime {
             if let Err(actual_epoch) = self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32) {
                 let delta = actual_epoch.saturating_sub((batch_counter & 0xFFFFFFFF) as u32);
                 if delta > 0 {
-                    tracing::warn!("⚠️ [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
+                    tracing::warn!("[WARN] [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
                     
                     // Hardware Fast-Forward
                     batch_counter += delta as u64;

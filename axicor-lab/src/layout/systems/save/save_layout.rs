@@ -9,7 +9,7 @@ pub fn save_layout_system(
 ) {
     for _ in events.read() {
         if let Err(e) = std::fs::create_dir_all("config") {
-            error!("[WM] ❌ Failed to create config directory: {}", e);
+            error!("[WM] [ERROR] Failed to create config directory: {}", e);
             continue;
         }
 
@@ -25,9 +25,9 @@ pub fn save_layout_system(
         ).expect("FATAL: Failed to serialize window topology");
 
         if let Err(e) = std::fs::write(LAYOUT_FILE, serialized) {
-            error!("[WM] ❌ Failed to write layout to disk: {}", e);
+            error!("[WM] [ERROR] Failed to write layout to disk: {}", e);
         } else {
-            info!("[WM] 💾 Default layout saved to {}", LAYOUT_FILE);
+            info!("[WM]  Default layout saved to {}", LAYOUT_FILE);
         }
     }
 }

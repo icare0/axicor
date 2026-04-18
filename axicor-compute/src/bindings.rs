@@ -5,7 +5,7 @@ use std::ffi::c_void;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 
 // =============================================================================
-// § Size-Prefixed Allocator (DOD workaround for Layout loss)
+//  Size-Prefixed Allocator (DOD workaround for Layout loss)
 // =============================================================================
 unsafe fn alloc_aligned_with_prefix(size: usize, align: usize) -> *mut u8 {
     let layout = Layout::from_size_align_unchecked(size + align, align);
@@ -28,7 +28,7 @@ unsafe fn free_aligned_with_prefix(ptr: *mut u8, align: usize) {
 }
 
 // =============================================================================
-// §1.1 Constant Memory Emulation (LUT)
+// 1.1 Constant Memory Emulation (LUT)
 // =============================================================================
 
 #[repr(C, align(64))]
@@ -44,7 +44,7 @@ pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
 }
 
 // =============================================================================
-// §1.2 VRAM Allocation via std::alloc
+// 1.2 VRAM Allocation via std::alloc
 // =============================================================================
 
 pub unsafe fn cpu_allocate_shard(
@@ -88,7 +88,7 @@ pub unsafe fn cpu_allocate_shard(
 }
 
 // =============================================================================
-// §1.4 Zero-Copy DMA and Free
+// 1.4 Zero-Copy DMA and Free
 // =============================================================================
 
 pub unsafe fn cpu_upload_state_blob(
@@ -126,7 +126,7 @@ pub unsafe fn cpu_free_shard(vram: *mut ShardVramPtrs) {
 }
 
 // =============================================================================
-// §1.5 Testing Logic
+// 1.5 Testing Logic
 // =============================================================================
 
 #[cfg(test)]

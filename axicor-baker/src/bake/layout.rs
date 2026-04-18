@@ -46,7 +46,7 @@ pub struct ShardSoA {
     pub axon_lengths: Vec<u8>, // size: total_axons
     pub axon_paths: Vec<u32>,  // size: total_axons * 256
 
-    // Mapping: soma_idx → axon_idx
+    // Mapping: soma_idx  axon_idx
     pub soma_to_axon: Vec<u32>,
 
     /// Packed soma positions (u32: 11-bit X, 11-bit Y, 6-bit Z, 4-bit Type)

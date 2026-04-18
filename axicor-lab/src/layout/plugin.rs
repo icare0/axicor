@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-// DOD FIX: Внутренняя память оконного менеджера (Изолировано)
+// DOD FIX:     ()
 use crate::layout::domain::{
     SaveDefaultLayoutEvent, WindowDragState,
     TreeCommands, OsWindowCommand
 };
 
-// DOD FIX: Междоменная шина (Доступна плагинам)
+// DOD FIX:   ( )
 use layout_api::{
     AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent,
     OpenContextMenuEvent, ContextMenuActionTriggeredEvent

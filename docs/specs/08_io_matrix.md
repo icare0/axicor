@@ -1,210 +1,210 @@
-# 08. Матричный I/O Интерфейс
+# 08.  I/O 
 
-> Часть архитектуры [Genesis](../../README.md). Единая абстракция ввода/вывода и межзональных связей.
-
----
-
-## 1. Концепция
-
-Внешний мир и соседние зоны взаимодействуют с зоной мозга через **матрицы** - 2D-сетки фиксированного размера W×H.
-
-- **Входная матрица** - каждый пиксель = виртуальный аксон внутри зоны
-- **Выходная матрица** - каждый пиксель = привязанная сома внутри зоны
-- **Межзональная связь** - выходная матрица зоны A → входная матрица (ghost axons) зоны B
-
-Снаружи все интерфейсы выглядят одинаково: плоский массив ID, адресуемый как `matrix[y * W + x]`.
-
-> **Инвариант: Baking Freeze.** Топология I/O (какие матрицы, какие аксоны, какие сомы) **статична после Baking**. Нельзя добавить, убрать или изменить матрицу в runtime. Перекомпиляция = повторный Baking.
-
-1.1. Визуальная и Аппаратная Асимметрия Узлов (EnvRX / EnvTX)
-В графическом интерфейсе (Node Editor) матрицы среды жестко дифференцированы визуально и аппаратно для защиты макро-роутинга:
-*   **EnvRX (Сенсоры / World Input):** Являются абсолютными источниками спайков. Цветовой код — темно-зеленый. Аппаратный инвариант: **физическое отсутствие входных портов** (левой колонки).
-*   **EnvTX (Моторы / World Output):** Являются абсолютными приемниками спайков. Цветовой код — темно-красный. Аппаратный инвариант: **физическое отсутствие выходных портов** (правой колонки).
-*   **Shard (Вычислитель):** Сине-серый узел. Имеет порты с обеих сторон.
-
-1.2. Аппаратные контракты выравнивания (C-ABI Alignment)
-Для обеспечения 100% Coalesced Access в GPU и предотвращения крашей на шине PCIe, I/O матрицы обязаны подчиняться строгим правилам выравнивания (Padding):
-*   **Входы (Input_Bitmask):** Строгое **64-битное выравнивание (8 байт)**. Битовые маски виртуальных аксонов добиваются нулями, чтобы размер полезной нагрузки в байтах был кратен 8. Это гарантирует, что CPU и GPU читают маску машинными словами без смещений.
-*   **Выходы (Output_History):** Строгое **64-байтовое выравнивание (L2 Cache Line)**. Сырые массивы спайков (`u8`, где 1 байт = 1 спайк) добиваются пустышками, чтобы размер матрицы был кратен 64 байтам. Это позволяет ядру ОС и сетевой карте отправлять данные монолитными транзакциями, не разрывая кэш-линии процессора.
+>   [Axicor](../../README.md).   /   .
 
 ---
 
-## 2. Входная Матрица (Virtual Axons)
+## 1. 
 
-### 2.1. Размещение
+          **** - 2D-   WH.
 
-Матрица W×H **растягивается** на X-Y плоскость зоны. Каждый пиксель отображается в пространственный регион зоны:
+- ** ** -   =    
+- ** ** -   =    
+- ** ** -    A    (ghost axons)  B
+
+    :   ID,   `matrix[y * W + x]`.
+
+> **: Baking Freeze.**  I/O ( ,  ,  ) **  Baking**.  ,      runtime.  =  Baking.
+
+1.1.      (EnvRX / EnvTX)
+   (Node Editor)          -:
+*   **EnvRX ( / World Input):**    .    -.  : **   ** ( ).
+*   **EnvTX ( / World Output):**    .    -.  : **   ** ( ).
+*   **Shard ():** - .     .
+
+1.2.    (C-ABI Alignment)
+  100% Coalesced Access  GPU      PCIe, I/O       (Padding):
+*   ** (Input_Bitmask):**  **64-  (8 )**.      ,         8.  ,  CPU  GPU      .
+*   ** (Output_History):**  **64-  (L2 Cache Line)**.    (`u8`,  1  = 1 )  ,      64 .           ,   - .
+
+---
+
+## 2.   (Virtual Axons)
+
+### 2.1. 
+
+ WH ****  X-Y  .       :
 
 ```
 region_x = pixel_x * (zone_width  / W)
 region_y = pixel_y * (zone_depth  / H)
 ```
 
-Один пиксель = один кластер нейронов. Сколько сом попадает в один пиксель - вопрос планирования архитектуры зоны (размер зоны, плотность нейронов, резолюция матрицы).
+  =   .       -     ( ,  ,  ).
 
-### 2.2. Spawning по Z
+### 2.2. Spawning  Z
 
-Виртуальный аксон **спавнится** в вычисленной (x, y) позиции на конфигурируемой высоте Z:
+  ****   (x, y)     Z:
 
 ```toml
 # io.toml
-[[input]]                 # входная матрица
-name = "retina"           # имя входа
-zone = "SensoryCortex"    # зона, в которую спавнится вход
-width = 64                # ширина матрицы в пикселях
-height = 64               # высота матрицы в пикселях
-entry_z = "top"           # "top" | "mid" | "bottom" | конкретное значение в um
-target_type = "All"       # "All" | конкретный тип нейрона
-growth_steps = 1500       # максимальная длина роста аксона (шаги Cone Tracing)
-empty_pixel = "skip"      # "skip" | "nearest" - что делать если в регионе пикселя нет нейронов target_type
-stride = 1                # каждый N-й тик: 0 = снимок (тик 0 только), 1 = каждый тик, 2 = каждый 2-й, ...
+[[input]]                 #  
+name = "retina"           #  
+zone = "SensoryCortex"    # ,    
+width = 64                #    
+height = 64               #    
+entry_z = "top"           # "top" | "mid" | "bottom" |    um
+target_type = "All"       # "All" |   
+growth_steps = 1500       #     ( Cone Tracing)
+empty_pixel = "skip"      # "skip" | "nearest" -         target_type
+stride = 1                #  N- : 0 =  ( 0 ), 1 =  , 2 =  2-, ...
 ```
 
-Варианты `entry_z`:
-- `"top"` - Z_max (вход сверху, как thalamo-cortical)
-- `"mid"` - Z_mid (вход в среднюю часть столба)
+ `entry_z`:
+- `"top"` - Z_max ( ,  thalamo-cortical)
+- `"mid"` - Z_mid (    )
 - `"bottom"` - Z_min
-- Число - конкретная координата в микрометрах (um)
+-  -     (um)
 
-Варианты `empty_pixel`:
-- `"skip"` - пиксель без кандидатов не создаёт аксон (потеря ID в матрице)
-- `"nearest"` - назначается ближайшая сома target_type из соседнего региона
+ `empty_pixel`:
+- `"skip"` -       ( ID  )
+- `"nearest"` -    target_type   
 
-### 2.3. Рост
+### 2.3. 
 
-От точки спавна виртуальный аксон **растёт на общих основаниях** - используя тот же механизм Cone Tracing что и локальные аксоны:
+     **   ** -     Cone Tracing    :
 
-- Длина роста задаётся параметром `growth_steps` в блоке `[[input]]` (io.toml)
-- Cone Tracing придаёт органичность - аксон не идёт строго прямо, а «бродит». Параметры брожения (cone angle, steering weight, и т.д.) берутся из `blueprints.toml`, блок `[virtual_axon_growth]`. Этот блок переопределяет глобальные настройки `[cone_tracing]`, позволяя задавать отдельное поведение для виртуальных аксонов
-- Аффинитет к `target_type` работает штатно (steering к указанному типу нейронов)
-- По пути создаются дендритные контакты - стандартная механика
+-     `growth_steps`   `[[input]]` (io.toml)
+- Cone Tracing   -     ,  .   (cone angle, steering weight,  ..)   `blueprints.toml`,  `[virtual_axon_growth]`.      `[cone_tracing]`,       
+-   `target_type`   (steering    )
+-      -  
 
-> **Стоимость:** Виртуальный аксон = одна запись в `axon_heads[]` (4 байта). `PropagateAxons` = один `IADD` на аксон - микросекунды даже для миллионов. Количество дендритных контактов ограничено числом `сом × 128`, а не числом аксонов. Лишние аксоны-«изгои» не стоят ничего кроме 4 байт на голову.
+> **:**   =    `axon_heads[]` (4 ). `PropagateAxons` =  `IADD`   -    .      `  128`,    .  -     4   .
 
-> **Night Phase:** Виртуальные аксоны **не подлежат pruning**. Они вечная инфраструктура. Дендриты, подписанные на виртуальный аксон, могут отмереть штатно (pruning по весу), но сам аксон никогда не удаляется и не перерастает. Baker помечает их специальным флагом (`is_virtual = true`), Night Phase их пропускает.
+> **Night Phase:**   **  pruning**.   . ,    ,    (pruning  ),         . Baker     (`is_virtual = true`), Night Phase  .
 
-Результат: внутри зоны пиксель = аксон, который **физически проросший** и имеет реальные синаптические контакты с окружающими нейронами.
+:    = ,  ** **        .
 
-### 2.4. Spatial Mapping (UV-проекция)
-Маппинг матриц поддерживает нормализованную UV-проекцию на физическое пространство зоны (в вокселях). Это позволяет направлять входы/выходы не на весь шард, а на конкретные анатомические сегменты (например, разделение моторной коры на левое и правое полушария).
+### 2.4. Spatial Mapping (UV-)
+    UV-     ( ).    /    ,      (,        ).
 
-Параметр: `uv_rect = [u_offset, v_offset, u_width, v_height]`
-Значения нормализованы в диапазоне `[0.0, 1.0]`. Дефолт: `[0.0, 0.0, 1.0, 1.0]` (полное покрытие).
+: `uv_rect = [u_offset, v_offset, u_width, v_height]`
+    `[0.0, 1.0]`. : `[0.0, 0.0, 1.0, 1.0]` ( ).
 
-**Алгоритм Inverse UV Projection (в Baker):**
-1. При сборке графа вычисляется физическая позиция сомы: `u_vox = vx / zone_width_vox`.
-2. Сома отсекается (Early Exit), если `u_vox < u_offset` или `u_vox >= u_offset + u_width`.
-3. Локальные координаты пикселя вычисляются как `local_u = (u_vox - u_offset) / u_width`.
+** Inverse UV Projection ( Baker):**
+1.       : `u_vox = vx / zone_width_vox`.
+2.   (Early Exit),  `u_vox < u_offset`  `u_vox >= u_offset + u_width`.
+3.      `local_u = (u_vox - u_offset) / u_width`.
 
-**Изоляция в Runtime:**
-Поскольку UV-проекция вычисляется **только на этапе компиляции** (Baking Phase), HFT-цикл (Day Phase) работает со сгенерированным плоским массивом `mapped_soma_ids` и вообще не знает о геометрии. Zero-Cost абстракция в действии.
+**  Runtime:**
+ UV-  **   ** (Baking Phase), HFT- (Day Phase)      `mapped_soma_ids`      . Zero-Cost   .
 
-### 2.5. Внешний интерфейс
+### 2.5.  
 
-Снаружи входные матрицы - один плоский массив бит:
+   -    :
 
 ```
-Input_Bitmask[tick][pixel_id / 64] - 64-битные блоки (передаются как 2x u32 слова)
+Input_Bitmask[tick][pixel_id / 64] - 64-  (  2x u32 )
 pixel_id = matrix_offset + y * W + x
 ```
 
-*Размер маски одного тика в байтах математически зафиксирован: `((W * H + 63) / 64) * 8`.*
+*       : `((W * H + 63) / 64) * 8`.*
 
-Установка бита = сброс `axon_heads[virtual_offset + pixel_id] = 0` (рождение сигнала). Далее всё по штатной физике - сигнал распространяется, дендриты реагируют, GSOP обучает.
+  =  `axon_heads[virtual_offset + pixel_id] = 0` ( ).      -  ,  , GSOP .
 
 ### 2.6. Bulk DMA & Stride (Autonomous Batch Execution)
 
-**Bulk DMA Архитектура (см. [06_distributed.md §2.9](./06_distributed.md)):**
+**Bulk DMA  (. [06_distributed.md 2.9](./06_distributed.md)):**
 
-Входная маска **не потокируется** каждый тик. **Весь батч** загружается в VRAM **одной асинхронной операцией** `cudaMemcpyAsync` перед началом вычислений (<1 мс на PCIe 4.0 x16). GPU крутит **6-ядерный Autonomous Loop** полностью независимо от хоста, используя смещённые указатели (`tick_input_ptr`) внутри батча за **O(1)** без обращения к хосту или выхода из цикла.
+  ** **  . ** **   VRAM **  ** `cudaMemcpyAsync`    (<1   PCIe 4.0 x16). GPU  **6- Autonomous Loop**    ,    (`tick_input_ptr`)    **O(1)**        .
 
 **Stride Parameter (Intra-Batch Frequency):**
 
-Параметр `stride` определяет частоту обновления входа в батче:
+ `stride`      :
 
 ```
-stride = 0   → тик 0 только (Снимок, Single-Tick Pulse)
-stride = 1   → каждый тик (Поток)
-stride = 2   → каждый 2-й тик
-stride = N   → каждый N-й тик
+stride = 0     0  (, Single-Tick Pulse)
+stride = 1      ()
+stride = 2     2- 
+stride = N     N- 
 ```
 
-При `stride = S`, ядро `InjectInputs` получает смещённый указатель на маску каждый S-й тик. Эффективное количество инъекций в батче:
+ `stride = S`,  `InjectInputs`       S- .     :
 $$\text{effective\_ticks} = \lceil \text{sync\_batch\_ticks} / S \rceil$$
 
-Размер `input_bitmask_buffer`:
+ `input_bitmask_buffer`:
 $$\text{size} = \lceil \text{total\_virtual\_axons} / 32 \rceil \times 4 \times \text{effective\_ticks}$$
 
-**Примеры:**
-- `stride = 0, sync_batch_ticks = 100`: 1 снимок (t=0), buffer = `N/32 × 4 × 1` байт - вход **замораживается** на весь батч
-- `stride = 1, sync_batch_ticks = 100`: 100 инъекций (поток), buffer = `N/32 × 4 × 100` байт - sensor data каждый тик
-- `stride = 2, sync_batch_ticks = 100`: 50 инъекций, buffer = `N/32 × 4 × 50` байт - downsampling каждый 2-й тик
+**:**
+- `stride = 0, sync_batch_ticks = 100`: 1  (t=0), buffer = `N/32  4  1`  -  ****   
+- `stride = 1, sync_batch_ticks = 100`: 100  (), buffer = `N/32  4  100`  - sensor data  
+- `stride = 2, sync_batch_ticks = 100`: 50 , buffer = `N/32  4  50`  - downsampling  2- 
 
-**Early Exit:** Нулевая маска на тике → `InjectInputs` пропускает все 128 потоков варпа. Ноль FLOPS. Ноль работы.
+**Early Exit:**      `InjectInputs`   128  .  FLOPS.  .
 
-**Инвариант Bulk:** Четыре DMA за батч (100 ms): H2D input, H2D schedule, D2H output, D2H activity. Ноль микротранзакций в горячем цикле. Хост полностью деспотичен.
+** Bulk:**  DMA   (100 ms): H2D input, H2D schedule, D2H output, D2H activity.     .   .
 
-### 2.7. Сетевой Контракт (C-ABI)
+### 2.7.   (C-ABI)
 
-Обмен данными между средой (хостом) и нодой идет строго через UDP. Каждый пакет обязан предваряться 20-байтовым Little-Endian заголовком `ExternalIoHeader`. Никаких JSON или Protobuf.
+    ()      UDP.     20- Little-Endian  `ExternalIoHeader`.  JSON  Protobuf.
 
 ```cpp
-// Строго 20 байт. C-ABI совместимость.
+//  20 . C-ABI .
 #[repr(C)]
 pub struct ExternalIoHeader {
-    pub magic: u32,         // 0x4F495347 ("GSIO") для входа, 0x4F4F5347 ("GSOO") для выхода
-    pub zone_hash: u32,     // FNV-1a хэш имени зоны (например, "SensoryCortex")
-    pub matrix_hash: u32,   // FNV-1a хэш I/O матрицы (например, "cartpole_sensors")
-    pub payload_size: u32,  // Размер битовой маски в байтах (БЕЗ учета самого заголовка)
+    pub magic: u32,         // 0x4F495347 ("GSIO")  , 0x4F4F5347 ("GSOO")  
+    pub zone_hash: u32,     // FNV-1a    (, "SensoryCortex")
+    pub matrix_hash: u32,   // FNV-1a  I/O  (, "cartpole_sensors")
+    pub payload_size: u32,  //      (   )
     pub global_reward: i16, // [DOD] R-STDP Dopamine Modulator (-32768..32767)
-    pub _padding: u16,      // Выравнивание структуры до 20 байт
+    pub _padding: u16,      //    20 
 }
 ```
 
-Дисфрагментация: UDP пакеты больше 65507 байт (MTU) автоматически дропятся (отсутствует EMSGSIZE отравление сокета).
+: UDP   65507  (MTU)   ( EMSGSIZE  ).
 
-### 2.8. Асимметрия и Feature Pyramid Batching (Абстракция)
+### 2.8.   Feature Pyramid Batching ()
 
-Клиент формирует входы асимметрично относительно частоты среды. Рекомендуемый паттерн - **Feature Pyramid**, где многослойная матрица признаков (токены, цвета, грани) разворачивается по оси времени (тикам).
+      .   - **Feature Pyramid**,     (, , )     ().
 
-**Концепция:**
-- **Тик 0:** Активация матрицы фильтров "краев" (Edges).
-- **Тик 1:** Активация цветовых признаков (Color).
-- **Тик 2:** Семантические токены.
-- **Тики 3..N:** Пауза (Propagation Tail).
+**:**
+- ** 0:**    "" (Edges).
+- ** 1:**    (Color).
+- ** 2:**  .
+- ** 3..N:**  (Propagation Tail).
 
-Ноде всё равно на семантическое разделение - она видит только битовый поток виртуальных аксонов. GSOP (пластичность) самостоятельно обучит дендриты различать слои на основе задержек прилета сигнала.
+      -       . GSOP ()          .
 
-### 2.9. Реальный пример: CartPole
+### 2.9.  : CartPole
 
-Стандартная тестовая среда `CartPole-v0` (OpenAI Gym): балансировка палки на тележке. 4 входных переменных, 2 дискретных действия.
+   `CartPole-v0` (OpenAI Gym):    . 4  , 2  .
 
-**Входная сторона (SensoryCortex):**
+**  (SensoryCortex):**
 
-4 физических переменных → **населённое кодирование** (Gaussian population code):
-- `cart_position` ∈ [-2.4, 2.4]
-- `cart_velocity` ∈ [-3.0, 3.0]
-- `pole_angle` ∈ [-0.41, 0.41] (≈ ±12°)
-- `pole_angular_velocity` ∈ [-2.0, 2.0]
+4    ** ** (Gaussian population code):
+- `cart_position`  [-2.4, 2.4]
+- `cart_velocity`  [-3.0, 3.0]
+- `pole_angle`  [-0.41, 0.41] ( 12)
+- `pole_angular_velocity`  [-2.0, 2.0]
 
-Каждая переменная кодируется **16 нейронами** (tuning width σ = 0.15):
+   **16 ** (tuning width  = 0.15):
 
 ```python
-# Encoding (хост)
+# Encoding ()
 def encode_variable(val: float, bounds: list, num_neurons: int) -> list:
-    """Gaussian receptive fields, центры в равномерной сетке."""
-    val_norm = (val - bounds[0]) / (bounds[1] - bounds[0])  # нормализация в [0, 1]
+    """Gaussian receptive fields,    ."""
+    val_norm = (val - bounds[0]) / (bounds[1] - bounds[0])  #   [0, 1]
     centers = [i / (num_neurons - 1) for i in range(num_neurons)]
     sigma = 0.15
     spikes = []
     for center in centers:
         distance_sq = (val_norm - center) ** 2
         prob = math.exp(-distance_sq / (2 * sigma ** 2))
-        spike = 1 if prob > 0.5 else 0  # пороговый
+        spike = 1 if prob > 0.5 else 0  # 
         spikes.append(spike)
     return spikes
 
-# Итого: 4 переменных × 16 нейронов = 64 входных аксона
+# : 4   16  = 64  
 ```
 
 `io.toml`:
@@ -214,22 +214,22 @@ name = "cartpole_sensors"
 zone = "SensoryCortex"
 width = 4
 height = 4
-# Интерпретация: матрица 4×4 = 16 пикселов,
-# каждый пиксель связан с 4 нейронами (все переменные, 1 центр)
-# Или: линейно - пиксели 0-15 от уменьшенной топологии
+# :  44 = 16 ,
+#     4  ( , 1 )
+# :  -  0-15   
 virtual_axon_count = 64
 ```
 
-**Выходная сторона (MotorCortex):**
+**  (MotorCortex):**
 
-2 действия (левый/правый толчок) → **population decoding**:
+2  (/ )  **population decoding**:
 
 ```python
-# Decoding (хост)
+# Decoding ()
 def decode_action(output_history: bytes, batch_ticks: int) -> int:
-    """Winner-takes-all из последних спайков."""
-    # output_history - concat выходов, размер = sum(W×H) / 8 × batch_ticks
-    # для 2 действий 8×8 = 64 нейрона per action
+    """Winner-takes-all   ."""
+    # output_history - concat ,  = sum(WH) / 8  batch_ticks
+    #  2  88 = 64  per action
     
     total_spikes = sum(output_history)
     left_spikes = sum(output_history[:len(output_history)//2])
@@ -255,7 +255,7 @@ height = 8
 target_type = "Excitatory"
 ```
 
-**Синхронизация (хост):**
+** ():**
 
 ```python
 INPUT_PORT = 8081
@@ -263,10 +263,10 @@ OUTPUT_PORT = 8082
 SYNC_BATCH_TICKS = 100
 
 while True:
-    # 1. Получить сенсоры из CartPole
+    # 1.    CartPole
     cart_x, cart_v, pole_a, pole_av = env.step(action)
     
-    # 2. Кодировать в спайки
+    # 2.   
     spikes = (
         encode_variable(cart_x, [-2.4, 2.4], 16) +
         encode_variable(cart_v, [-3.0, 3.0], 16) +
@@ -274,30 +274,30 @@ while True:
         encode_variable(pole_av, [-2.0, 2.0], 16)
     )
     
-    # 3. Отправить батч (100 тиков)
+    # 3.   (100 )
     bitmask = pack_ticks(spikes, sync_batch_ticks=100)
     send_to_runtime(INPUT_PORT, bitmask)
     
-    # 4. Получить выходы
+    # 4.  
     output_history = receive_from_runtime(OUTPUT_PORT)
     
-    # 5. Декодировать действие
+    # 5.  
     action = decode_action(output_history, batch_ticks=100)
 ```
 
-Цизнь менструального цикла у подопытного мозга: **100 ms вычисления ≈ 10 логических шагов**. Реальная скорость зависит от CUDA-конфигурации и задержки сети.
+     : **100 ms   10  **.     CUDA-   .
 
 ---
 
-## 3. Выходная Матрица (Soma Readout)
+## 3.   (Soma Readout)
 
-### 3.1. Размещение
+### 3.1. 
 
-Аналогично входу: матрица W×H растягивается на X-Y плоскость зоны. Каждый пиксель покрывает пространственный регион.
+ :  WH   X-Y  .     .
 
-### 3.2. Множественные выходные матрицы
+### 3.2.   
 
-На одну зону может быть подключено **M выходных матриц** разных размеров:
+      **M  **  :
 
 ```toml
 [[output]]
@@ -322,135 +322,135 @@ height = 32
 target_type = "All"
 ```
 
-> **Инвариант: Порядок конкатенации = порядок объявления** блоков `[[output]]` в `io.toml`. Baker записывает offset'ы в `.gxo` файл.
+> **:   =  **  `[[output]]`  `io.toml`. Baker  offset'  `.gxo` .
 
-### 3.3. Захват сомы
+### 3.3.  
 
-В каждом пикселе (регионе) обычно находится **больше одной сомы**. Выбор - **детерминированно-случайный** (master_seed + output_name + pixel_index):
+   ()   **  **.  - **-** (master_seed + output_name + pixel_index):
 
 ```
-candidates = сомы target_type в регионе пикселя
+candidates =  target_type   
 seed = master_seed ^ fnv1a(output_name) ^ pixel_index
 chosen_soma = candidates[hash(seed) % len(candidates)]
 ```
 
-Маппинг 1 пиксель → 1 сома. Статический, вычисляется при Baking.
+ 1   1 . ,   Baking.
 
-### 3.4. Выходные данные
+### 3.4.  
 
-Выход = **глубокий батч спайков** выбранных сом. Каждый спайк занимает ровно 1 байт (`u8`).
+ = **  **  .     1  (`u8`).
 
 **VRAM Layout (GPU):**
-Внутри видеопамяти ядро `RecordReadout` пишет данные в формате `[Tick][Pixel]`:
+   `RecordReadout`     `[Tick][Pixel]`:
 ```cpp
 Output_History[tick][pixel_id] = is_spiking;
 ```
 
 **Network Layout (Zero-Copy Transpose):**
-Если отправить массив `[Tick][Pixel]` по сети напрямую, клиенту (Python) придется делать цикл `for`, чтобы собрать историю каждого отдельного мотора. Это уничтожит производительность (Cache Miss). Поэтому перед отправкой UDP-пакета Rust-оркестратор выполняет сверхбыстрое транспонирование в кэше процессора: **[Tick][Pixel] → [Pixel][Tick]**.
+   `[Tick][Pixel]`   ,  (Python)    `for`,      .    (Cache Miss).    UDP- Rust-      : **[Tick][Pixel]  [Pixel][Tick]**.
 
-Благодаря транспонированию, Python-клиент получает данные едиными непрерывными блоками для каждого пикселя. Это позволяет декодерам применять `memoryview.reshape((N, Batch))` за **O(1)** без единой аллокации памяти в куче.
+ , Python-        .     `memoryview.reshape((N, Batch))`  **O(1)**      .
 
-Размер: `total_output_pixels × sync_batch_ticks` байт.
+: `total_output_pixels  sync_batch_ticks` .
 
-Каждый тик ядро `RecordOutputs` проверяет `flags[soma_id] & 0x01` для каждого привязанного пикселя и пишет результат.
+   `RecordOutputs`  `flags[soma_id] & 0x01`       .
 
-### 3.5. Внешняя интерпретация
+### 3.5.  
 
-Снаружи `Output_History` - это просто 2D-матрица активности с временной глубиной. Как её интерпретировать - **ответственность внешнего Hub'а**:
+ `Output_History` -   2D-    .    - **  Hub'**:
 
-- **Population Coding**: `popcount(pixels_group)` → сила действия
-- **Rate Coding**: среднее количество спайков на пиксель за N тиков
-- **Spatial Pattern**: паттерн активности как карта значимости
+- **Population Coding**: `popcount(pixels_group)`   
+- **Rate Coding**:       N 
+- **Spatial Pattern**:     
 
-Genesis не навязывает интерпретацию. Он отдаёт сырую матрицу спайков.
+Axicor   .     .
 
 ---
 
-## 4. Межзональные Связи (Ghost Axon Matrix)
+## 4.   (Ghost Axon Matrix)
 
-### 4.1. Унификация
+### 4.1. 
 
-Межзональная связь - это **тот же матричный интерфейс**: выходная матрица зоны-источника проецируется как входная матрица (ghost axons) в зону-приёмник.
+  -  **   **:   -     (ghost axons)  -.
 
 ```toml
 # brain.toml
 [[connection]]
 from = "SensoryCortex"
 to = "HiddenCortex"
-output_matrix = "sensory_out"    # имя выходной матрицы зоны-источника
-width = 16                       # резолюция проекции в зоне-приёмнике
+output_matrix = "sensory_out"    #    -
+width = 16                       #    -
 height = 16
 entry_z = "top"
 target_type = "All"
 growth_steps = 750
 ```
 
-Это означает:
-1. Зона `SensoryCortex` имеет `[[output]]` с `name = "sensory_out"` (например 32×32)
-2. Connection **проецирует** эту выходную матрицу на зону `HiddenCortex` как ghost-матрицу 16×16
-3. Baker создаёт 256 ghost axons в `HiddenCortex`, каждый проросший Cone Tracing
-4. Runtime синхронизирует: `output_pixel[i]` из SensoryCortex → `ghost_axon_head[i]` в HiddenCortex
+ :
+1.  `SensoryCortex`  `[[output]]`  `name = "sensory_out"` ( 3232)
+2. Connection ****      `HiddenCortex`  ghost- 1616
+3. Baker  256 ghost axons  `HiddenCortex`,   Cone Tracing
+4. Runtime : `output_pixel[i]`  SensoryCortex  `ghost_axon_head[i]`  HiddenCortex
 
-> **Масштабирование:** Если выходная матрица (32×32) больше проекции (16×16), каждый ghost-пиксель захватывает **группу** выходных пикселей (pooling). Если меньше - upsampling. Маппинг = детерминированный.
+> **:**    (3232)   (1616),  ghost-  ****   (pooling).   - upsampling.  = .
 
-### 4.2. Чем ghost axons отличаются от virtual axons
+### 4.2.  ghost axons   virtual axons
 
-| Свойство | Virtual Axon (вход) | Ghost Axon (межзональный) |
+|  | Virtual Axon () | Ghost Axon () |
 |----------|---------------------|---------------------------|
-| Управление | Хост (Input_Bitmask) | Runtime (sync axon_heads) |
-| Источник сигнала | Внешний мир (UDP) | Выходная матрица другой зоны |
-| Синхронизация | `cudaMemcpyAsync` маски | D2H + H2D (4 байта × N) |
-| Night Phase | Не pruning | Не pruning |
-| `soma_idx` | `usize::MAX` (нет сомы) | `usize::MAX` (нет сомы) |
+|  |  (Input_Bitmask) | Runtime (sync axon_heads) |
+|   |   (UDP) |     |
+|  | `cudaMemcpyAsync`  | D2H + H2D (4   N) |
+| Night Phase |  pruning |  pruning |
+| `soma_idx` | `usize::MAX` ( ) | `usize::MAX` ( ) |
 
-Концептуально идентичны. Различие только в **источнике управления головой аксона**.
-
----
-
-## 5. Коллизии
-
-Один и тот же регион зоны может быть одновременно входом и выходом (как сенсомоторная кора в биологии). Виртуальные аксоны и привязанные сомы сосуществуют штатно - конфликтов архитектуры нет.
+ .    **   **.
 
 ---
 
-## 6. Симметрия
+## 5. 
 
-| Свойство | Вход (GXI) | Выход (GXO) | Ghost |
+            (    ).        -   .
+
+---
+
+## 6. 
+
+|  |  (GXI) |  (GXO) | Ghost |
 |----------|------------|-------------|-------|
-| Абстракция | 2D матрица W×H | 2D матрица W×H | 2D матрица W×H |
-| Мульти-резолюция | Да | Да | Да (проекция) |
-| Внутри зоны | Виртуальный аксон | Привязанная сома | Ghost аксон |
-| Размещение | Cone Tracing | Seeded хеш | Cone Tracing |
-| Стоимость | 4 байта/голову | 0 (сома есть) | 4 байта/голову |
-| Night Phase | Не pruning | N/A | Не pruning |
-| Данные | Бит/пиксель (in) | u8/пиксель (out) | Sync axon_head |
-| Формат файла | `.gxi` | `.gxo` | `.ghosts` |
+|  | 2D  WH | 2D  WH | 2D  WH |
+| - |  |  |  () |
+|   |   |   | Ghost  |
+|  | Cone Tracing | Seeded  | Cone Tracing |
+|  | 4 / | 0 ( ) | 4 / |
+| Night Phase |  pruning | N/A |  pruning |
+|  | / (in) | u8/ (out) | Sync axon_head |
+|   | `.gxi` | `.gxo` | `.ghosts` |
 
-Единая модель. Один механизм Baking. Симметричный протокол.
+ .   Baking.  .
 
 ---
 
-## 7. Ограничения (UDP && VRAM)
+## 7.  (UDP && VRAM)
 
-Размеры батчей и матриц ограничены физикой сети и памяти. Квоты мягкие (warning) и жёсткие (drop).
+        .   (warning)   (drop).
 
-| Параметр | Формула | Номинал | Природа | Решение |
+|  |  |  |  |  |
 |----------|---------|---------|---------|---------|
-| **Max UDP Input** | `⌈total_virtual_axons / 32⌉ × 4 × effective_ticks` | < 65507 | IP/UDP MTU | Фрагментация на хосте или TCP/SHM |
-| **Max UDP Output** | `∑(W×H для всех [[output]]) × sync_batch_ticks` | < 65507 | IP/UDP MTU | Разбить выходы на разные зоны |
-| **Input Bitmask Buffer** | `virtual_axon_count / 32 × 4` (per tick) | 256 КБ типично | VRAM (input_bitmask) | Снизить total_virtual_axons |
-| **Output History Buffer** | `∑ mapped_soma_ids × sync_batch_ticks` | 256 КБ типично | VRAM (output_history) | Снизить цель пикселей или batch_ticks |
-| **Ghost Schedule Buffers** | 2 × (max spike_events за 1 батч) | ~4 МБ | Ring Buffer pinned | Снизить количество зон или ghost_density |
+| **Max UDP Input** | `total_virtual_axons / 32  4  effective_ticks` | < 65507 | IP/UDP MTU |     TCP/SHM |
+| **Max UDP Output** | `(WH   [[output]])  sync_batch_ticks` | < 65507 | IP/UDP MTU |      |
+| **Input Bitmask Buffer** | `virtual_axon_count / 32  4` (per tick) | 256   | VRAM (input_bitmask) |  total_virtual_axons |
+| **Output History Buffer** | ` mapped_soma_ids  sync_batch_ticks` | 256   | VRAM (output_history) |     batch_ticks |
+| **Ghost Schedule Buffers** | 2  (max spike_events  1 ) | ~4  | Ring Buffer pinned |     ghost_density |
 
-**Примеры:**
+**:**
 
-- **CartPole (4 inputs 64 neurons)**: Input size = 8 bytes/tick × 100 ticks = 800 B ✅ OK
-- **Retina (1920×1080)**: Input size = 64 КБ/tick (если все 8M пикселей) ✅ OK (64 КБ < 65.5 КБ)
-- **4 zones × 64М ghost spikes/batch**: Schedule buffer ~256 МБ в ring ⚠️ Требует дополнительного конфигурирования
-- **Output: 8 matrice × 256×256**: Output size = 128 КБ/batch ❌ Overflow - разбить или снизить resolution
+- **CartPole (4 inputs 64 neurons)**: Input size = 8 bytes/tick  100 ticks = 800 B [OK] OK
+- **Retina (19201080)**: Input size = 64 /tick (  8M ) [OK] OK (64  < 65.5 )
+- **4 zones  64 ghost spikes/batch**: Schedule buffer ~256   ring [WARN]   
+- **Output: 8 matrice  256256**: Output size = 128 /batch [ERROR] Overflow -    resolution
 
-Все лимиты **конфигурируемы** в `simulation.toml` (VRAM params) и `brain.toml` (virtual_axon_count, ghost_density).
+  ****  `simulation.toml` (VRAM params)  `brain.toml` (virtual_axon_count, ghost_density).
 
 ---
 
@@ -458,12 +458,12 @@ growth_steps = 750
 
 | Document | Purpose | Status |
 |----------|---------|--------|
-| [05_signal_physics.md](05_signal_physics.md) | RecordReadout kernel, Input spike injection, Output readout kernels | ✅ MVP |
-| [06_distributed.md](06_distributed.md) | BSP sync, output_history aggregation across shards | ⏳ MVP |
-| [07_gpu_runtime.md](07_gpu_runtime.md) | VramState I/O fields, ExternalIoServer UDP | ✅ MVP |
-| [02_configuration.md](02_configuration.md) | io.toml [[input]] / [[output]] schema | ⏳ TODO |
-| [04_connectivity.md](04_connectivity.md) | Ghost axon placement via Cone Tracing | ⏳ TODO |
-| [09_baking_pipeline.md](09_baking_pipeline.md) | .gxi / .gxo / .ghosts file format | ⏳ TODO |
+| [05_signal_physics.md](05_signal_physics.md) | RecordReadout kernel, Input spike injection, Output readout kernels | [OK] MVP |
+| [06_distributed.md](06_distributed.md) | BSP sync, output_history aggregation across shards |  MVP |
+| [07_gpu_runtime.md](07_gpu_runtime.md) | VramState I/O fields, ExternalIoServer UDP | [OK] MVP |
+| [02_configuration.md](02_configuration.md) | io.toml [[input]] / [[output]] schema |  TODO |
+| [04_connectivity.md](04_connectivity.md) | Ghost axon placement via Cone Tracing |  TODO |
+| [09_baking_pipeline.md](09_baking_pipeline.md) | .gxi / .gxo / .ghosts file format |  TODO |
 
 ---
 
@@ -471,10 +471,10 @@ growth_steps = 750
 
 **v1.0 (2026-02-28)**
 
-- Added UDP protocol details (**§2.7**): ExternalIoHeader struct, zone_hash/matrix_hash computation (FNV-1a), port conventions, fragmentation behavior
-- Added CartPole real example (**§2.9**): 4-input Gaussian population coding (16 neurons per variable), 2-output population decoding, TOML config, host synchronization pattern
-- Added Constraints table (**§7**): UDP payload limits (65507 B), VRAM buffer examples (CartPole, Retina, 8-output), configuration paths
-- Clarified stride formula impact on bitmask size (**previous §2.6**): effective_ticks = ⌈sync_batch_ticks / stride⌉
+- Added UDP protocol details (**2.7**): ExternalIoHeader struct, zone_hash/matrix_hash computation (FNV-1a), port conventions, fragmentation behavior
+- Added CartPole real example (**2.9**): 4-input Gaussian population coding (16 neurons per variable), 2-output population decoding, TOML config, host synchronization pattern
+- Added Constraints table (**7**): UDP payload limits (65507 B), VRAM buffer examples (CartPole, Retina, 8-output), configuration paths
+- Clarified stride formula impact on bitmask size (**previous 2.6**): effective_ticks = sync_batch_ticks / stride
 - Verified all sections against 07_gpu_runtime.md ExternalIoServer, CartPole client reference
 
 **Known Issues**

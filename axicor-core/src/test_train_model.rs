@@ -1,4 +1,4 @@
-/// The Train Model (§1.1) tests with various `v_seg` and `propagation_length`.
+/// The Train Model (1.1) tests with various `v_seg` and `propagation_length`.
 /// Ensures no "gaps" during head jumps if `prop_len >= v_seg`.
 
 use super::*;

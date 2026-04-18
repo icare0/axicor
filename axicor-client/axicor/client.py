@@ -10,7 +10,7 @@ HEADER_FMT = "<IIIIhH"  # 20 bytes: magic, zone_hash, matrix_hash, size, reward,
 GSIO_MAGIC = 0x4F495347
 GSOO_MAGIC = 0x4F4F5347  # Genesis Standard Output
 
-class GenesisMultiClient:
+class AxicorMultiClient:
     def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0):
         """
         :param addr: Node address (ip, port) (External UDP In)
@@ -27,7 +27,7 @@ class GenesisMultiClient:
         total_tx_size = sum(HEADER_SIZE + m['payload_size'] for m in matrices)
         self._tx_arena = bytearray(total_tx_size)
         
-        # 2. Response Arena (RX) — Zero-Copy Assembler
+        # 2. Response Arena (RX)  Zero-Copy Assembler
         # Total size pre-calculated from rx_layout
         total_rx_size = sum(m['size'] for m in self.rx_layout)
         self._rx_arena = bytearray(total_rx_size)
@@ -111,6 +111,6 @@ class GenesisMultiClient:
             return self._rx_view
             
         except (socket.timeout, TimeoutError):
-            print(f"⚠️ [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
+            print(f"[WARN] [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
             return self._rx_view[0:0]
 

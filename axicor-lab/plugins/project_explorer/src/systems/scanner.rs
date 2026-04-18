@@ -7,7 +7,7 @@ use crate::domain::{ProjectModel, ProjectNode, ProjectNodeType, ProjectStatus, G
 pub fn fs_scanner_system(
     mut cache: ResMut<crate::domain::ProjectFsCache>,
 ) {
-    let models_dir = Path::new("Genesis-Models");
+    let models_dir = Path::new("Axicor-Models");
     if !models_dir.exists() { return; }
 
     let mut new_projects = Vec::new();
@@ -36,8 +36,8 @@ pub fn fs_scanner_system(
                         children: scan_departments(&entry.path(), false),
                     };
 
-                    // Для Hot дерева всегда сканируем с использованием Overlay FS.
-                    // Если изменений нет, overlay вернет те же сырые файлы, и AST совпадет (Unmodified).
+                    //  Hot      Overlay FS.
+                    //   , overlay     ,  AST  (Unmodified).
                     let sim_node_hot = ProjectNode {
                         id: extract_id_overlay(&sim_path, "model_id_v1").unwrap_or_else(|| name.clone()),
                         name: "simulation.toml".to_string(),
@@ -63,7 +63,7 @@ fn scan_departments(model_path: &Path, is_hot: bool) -> Vec<ProjectNode> {
     let mut children = Vec::new();
     let sim_path = model_path.join("simulation.toml");
     
-    // Если Hot — читаем через Overlay FS (fallback на cold). Иначе — строго cold.
+    //  Hot    Overlay FS (fallback  cold).    cold.
     let content = if is_hot {
         layout_api::overlay_read_to_string(&sim_path).unwrap_or_default()
     } else {
@@ -71,7 +71,7 @@ fn scan_departments(model_path: &Path, is_hot: bool) -> Vec<ProjectNode> {
     };
     if content.is_empty() { return children; }
     
-    // Парсим деда, чтобы найти батю
+    //  ,   
     if let Ok(toml_val) = content.parse::<toml::Value>() {
         if let Some(depts) = toml_val.get("department").and_then(|v| v.as_array()) {
             for d in depts {
@@ -91,8 +91,8 @@ fn scan_departments(model_path: &Path, is_hot: bool) -> Vec<ProjectNode> {
                     children: Vec::new(),
                 };
 
-                // Сканируем шарды внутри бати
-                // Для Hot проверки достаточно использовать overlay_read_to_string внутри scan_shards
+                //    
+                //  Hot    overlay_read_to_string  scan_shards
                 if is_hot || brain_path.exists() {
                     dept_node.children = scan_shards(model_path, &brain_path, is_hot);
                 }
@@ -142,7 +142,7 @@ fn scan_shards(model_path: &Path, brain_path: &Path, is_hot: bool) -> Vec<Projec
                     });
                 }
 
-                // Шард - это папка, где лежит shard.toml
+                //  -  ,   shard.toml
                 let shard_toml_path = base_shard_dir.join("shard.toml");
 
                 children.push(ProjectNode {
@@ -156,7 +156,7 @@ fn scan_shards(model_path: &Path, brain_path: &Path, is_hot: bool) -> Vec<Projec
             }
         }
     } else {
-        error!("❌ [Scanner] Failed to parse TOML at {:?}. Check for syntax errors.", brain_path);
+        error!("[ERROR] [Scanner] Failed to parse TOML at {:?}. Check for syntax errors.", brain_path);
     }
     children
 }
@@ -181,26 +181,26 @@ fn merge_nodes(cold: Vec<ProjectNode>, hot: Vec<ProjectNode>) -> Vec<ProjectNode
 
     for mut c_node in cold {
         if let Some(h_node) = hot_map.remove(&c_node.id) {
-            // Присутствует и там и там -> Unmodified, мержим детей
+            //      -> Unmodified,  
             c_node.git_status = GitStatus::Unmodified;
             c_node.children = merge_nodes(c_node.children, h_node.children);
             merged.push(c_node);
         } else {
-            // Есть в Cold, но нет в Hot -> удален в Sandbox!
+            //   Cold,    Hot ->   Sandbox!
             c_node.git_status = GitStatus::Deleted;
             c_node.children = mark_all_deleted(c_node.children);
             merged.push(c_node);
         }
     }
 
-    // Все что осталось в Hot, но чего не было в Cold -> Added!
+    //     Hot,      Cold -> Added!
     for (_, mut h_node) in hot_map {
         h_node.git_status = GitStatus::Added;
         h_node.children = mark_all_added(h_node.children);
         merged.push(h_node);
     }
 
-    // Сортировка для порядка: сначала добавленные, затем обычные, затем удаленные (внутри групп по алфавиту)
+    //   :  ,  ,   (   )
     merged.sort_by(|a, b| {
         let type_ord = |status: &GitStatus| match status {
             GitStatus::Added => 0,

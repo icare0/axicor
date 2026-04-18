@@ -1,135 +1,135 @@
-# 08. Axicor Lab: Оконный Менеджер и IDE (Window Manager)
+# 08. Axicor Lab:    IDE (Window Manager)
 
-> Часть архитектуры Genesis. Спецификация Blender-подобного интерфейса Axicor Lab, построенного на базе Bevy 0.13, `bevy_egui` и `egui_tiles`.
-
----
-
-## 1. Фундаментальные принципы (DOD)
-
-Axicor Lab — это **тайловый оконный менеджер**, в котором плагины (3D-вьюпорты, нодовые редакторы) живут как изолированные домены.
-
-1. **Render-To-Texture (RTT) Изоляция:** Окна не имеют реальных координат в оконной системе ОС. Камера каждого плагина рендерит свой мир в выделенный `Handle<Image>` (VRAM-буфер). `egui` только отрисовывает эти текстуры.
-2. **Нулевой Overlap:** Окна не могут перекрывать друг друга (Z-index всегда плоский). Пространство делится строгими разделителями (сплиттерами).
-3. **Изоляция Инпутов:** Глобальный курсор проецируется в локальные координаты RTT-буфера. Плагин ничего не знает о других окнах.
+>   Axicor.  Blender-  Axicor Lab,    Bevy 0.13, `bevy_egui`  `egui_tiles`.
 
 ---
 
-## 2. Архитектура Конвейера (ECS Pipeline)
+## 1.   (DOD)
 
-Монолитная логика UI распилена на 4 изолированные стадии в планировщике Bevy. Это исключает гонки данных и позволяет Rayon параллелить независимые задачи.
+Axicor Lab   **  **,    (3D-,  )    .
 
-### 2.1. `render_workspace_system` (Построение UI)
-Оборачивает `egui::CentralPanel` и вызывает отрисовку тайлов. 
-* **Контракт:** Не имеет права мутировать ECS (никаких `Commands`).
-* **Кэширование:** Собирает геометрию всех отрисованных окон (`HashMap<TileId, egui::Rect>`) в кэш для последующего математического анализа.
-* **Хитбоксы:** Размещает 10-пиксельные невидимые зоны по периметру каждого окна для регистрации намерений (Drag-and-Drop).
-
-2.2. evaluate_drag_intents_system (Математика Коллизий)
-Отделена от сиюминутных фреймов egui. Читает ресурс `WindowDragState` и кэш геометрии `TopologyCache`, собранный на предыдущем этапе.
-*   **Alignment Check:** Строго проверяет выравнивание граней соседних тайлов (допуск 2.0 пикселя). Слияние разрешено только при идеальном совпадении длин общих границ (Blender-way).
-*   **Clamp Protection:** Предотвращает попытки разделить окно так, чтобы одна из частей стала меньше 100 пикселей.
-*   **Генерация Команд:** Формирует очередь `TreeCommands` (Split/Merge) для отложенного исполнения. Сама система ничего не мутирует.
-
-2.3. execute_window_commands_system (Мутатор Графа)
-Единственный узел конвейера, имеющий право вызывать `Commands` Bevy для оконной системы.
-*   **VRAM Allocation:** Вычисляет точные пиксельные габариты нового окна на основе родительского `rect` и `fraction` ДО аллокации текстуры. Создает `Handle<Image>` один раз точного размера, предотвращая лавину реаллокаций.
-*   **Pure Absorption:** При слиянии окон (Merge) переносит 100% веса (`share`) жертвы к выжившему окну, гарантируя, что остальные соседи по контейнеру не сдвинутся ни на пиксель.
-
-2.4. window_garbage_collector_system (Чистильщик)
-Сборщик мусора, отвязанный от инпутов. Вызывается по событию `primary_released`.
-*   Сканирует `TopologyCache`. Если `width < 100.0` или `height < 100.0`, окно признается мертвым.
-*   Уничтожает ECS-домен (`despawn_recursive`) для освобождения VRAM.
-*   Удаляет узел из `egui_tiles::Tree` и вызывает `simplify()`.
-*   Имеет защиту от удаления последнего (корневого) окна.
+1. **Render-To-Texture (RTT) :**         .         `Handle<Image>` (VRAM-). `egui`    .
+2. ** Overlap:**       (Z-index  ).     ().
+3. ** :**       RTT-.       .
 
 ---
 
-3. Механика Окон (Blender-way Topology)
+## 2.   (ECS Pipeline)
 
-3.1. Action Zones и Намерения
-Интерфейс не имеет классических заголовков вкладок (`tab_bar_height = 0`). Управление окнами осуществляется через 10-пиксельные невидимые зоны (`Sense::drag()`) по всему периметру каждого тайла.
-*   **Сплит (Внутрь):** Вектор перетаскивания направлен внутрь окна (>20px). Рисуется белая превью-линия.
-*   **Слияние (Наружу):** Вектор направлен на соседнее окно (>20px). Рисуется темный оверлей на жертве.
-*   **Hover:** При наведении мыши зоны подсвечиваются (белый цвет, 5% opacity).
+  UI   4     Bevy.       Rayon   .
 
-3.2. DOD Зазоры и Скругления
-Окна не прилегают друг к другу вплотную. В `pane_ui` рабочая область искусственно сжимается на 5 пикселей (`shrink(5.0)`), что дает 10px зазора, сквозь который виден системный фон.
-Скругления (`rounding(10.0)`) применяются аппаратно при натягивании RTT-текстуры на `egui::Image`.
+### 2.1. `render_workspace_system` ( UI)
+ `egui::CentralPanel`    . 
+* **:**     ECS ( `Commands`).
+* **:**      (`HashMap<TileId, egui::Rect>`)      .
+* **:**  10-          (Drag-and-Drop).
+
+2.2. evaluate_drag_intents_system ( )
+    egui.   `WindowDragState`    `TopologyCache`,    .
+*   **Alignment Check:**       ( 2.0 ).          (Blender-way).
+*   **Clamp Protection:**     ,       100 .
+*   ** :**   `TreeCommands` (Split/Merge)   .     .
+
+2.3. execute_window_commands_system ( )
+  ,    `Commands` Bevy   .
+*   **VRAM Allocation:**          `rect`  `fraction`   .  `Handle<Image>`    ,   .
+*   **Pure Absorption:**    (Merge)  100%  (`share`)    , ,          .
+
+2.4. window_garbage_collector_system ()
+ ,   .    `primary_released`.
+*    `TopologyCache`.  `width < 100.0`  `height < 100.0`,   .
+*    ECS- (`despawn_recursive`)   VRAM.
+*      `egui_tiles::Tree`   `simplify()`.
+*        () .
 
 ---
 
-4. Изоляция Памяти и Защита WGPU
+3.   (Blender-way Topology)
 
-4.1. Debounce Ресайза VRAM
-Изменение размеров окон через перетаскивание системных сплиттеров генерирует сотни событий в секунду.
-*   **Закон:** Система `sync_plugin_geometry_system` обязана блокировать вызов `image.resize()`, пока зажата левая кнопка мыши.
-*   Во время перетаскивания `egui` аппаратно скейлит существующий бэкбуфер. Реаллокация VRAM происходит строго в состоянии покоя.
+3.1. Action Zones  
+      (`tab_bar_height = 0`).     10-   (`Sense::drag()`)     .
+*   ** ():**      (>20px).   -.
+*   ** ():**      (>20px).     .
+*   **Hover:**      ( , 5% opacity).
+
+3.2. DOD   
+      .  `pane_ui`      5  (`shrink(5.0)`),   10px ,     .
+ (`rounding(10.0)`)     RTT-  `egui::Image`.
+
+---
+
+4.     WGPU
+
+4.1. Debounce  VRAM
+           .
+*   **:**  `sync_plugin_geometry_system`    `image.resize()`,     .
+*      `egui`    .  VRAM     .
 
 4.2. WGPU Panic Prevention
-Движок WGPU паникует при попытке создать текстуру размером <= 0.
-Механизм `Clamp Protection` в `evaluate_drag_intents_system` и `window_garbage_collector_system` гарантирует, что 3D-камера никогда не получит команду отрендерить кадр в текстуру меньше 100x100 пикселей.
+ WGPU       <= 0.
+ `Clamp Protection`  `evaluate_drag_intents_system`  `window_garbage_collector_system` ,  3D-          100x100 .
 
 ---
 
-## 5. Системные Инварианты Оконного Менеджера (Axicor WM)
+## 5.     (Axicor WM)
 
-1. **Borderless & System Drag:** Системная рамка ОС отключена (`decorations: false`). Перетаскивание всего приложения захватывается через `Sense::drag()` в Top Bar и передается в ОС через микро-систему на главном потоке (NonSend `WinitWindows`), чтобы не вырывать UI-конвейер из тред-пула Rayon.
-2. **O(1) Data-Oriented Swap:** При перетаскивании заголовка плагина в другое окно происходит O(1) swap ECS-сущностей внутри узлов `egui_tiles`. Размеры сплиттеров и VRAM текстур остаются на месте, меняется только привязка логики.
-3. **Debounce VRAM Allocations:** Во время перетаскивания сплиттеров WGPU буферы не реаллоцируются (защита от фрагментации). `egui` просто растягивает старую текстуру. Чистый `image.resize()` вызывается только после отпускания кнопки мыши (состояние покоя).
-4. **Domain Switcher:** Иконка плагина в хедере работает как Blender-свитчер. Смена домена жестко убивает старую ECS-сущность со всеми мешами и камерами (`despawn_recursive`), и спавнит новую пустышку, предотвращая утечки контекста.ы
-5. **Garbage Collector:** Сборщик мусора на каждом кадре сверяет дерево `egui_tiles` с реальными сущностями `PluginWindow` in ECS. Если окно закрыто пользователем, но сущность зависла в мире — она уничтожается принудительно.
+1. **Borderless & System Drag:**     (`decorations: false`).      `Sense::drag()`  Top Bar      -    (NonSend `WinitWindows`),    UI-  - Rayon.
+2. **O(1) Data-Oriented Swap:**         O(1) swap ECS-   `egui_tiles`.    VRAM    ,    .
+3. **Debounce VRAM Allocations:**     WGPU    (  ). `egui`    .  `image.resize()`       ( ).
+4. **Domain Switcher:**       Blender-.      ECS-      (`despawn_recursive`),    ,   .
+5. **Garbage Collector:**        `egui_tiles`    `PluginWindow` in ECS.    ,         .
 
 ## 6. WebSocket Telemetry Protocol
-Axicor Lab получает данные о спайках в реальном времени (HFT) через бинарный WebSocket стрим (порт по умолчанию 9003).
+Axicor Lab        (HFT)   WebSocket  (   9003).
 
 **Binary Frame Packing (Little-Endian):**
-Каждый кадр содержит точный снимок активности за один глобальный тик:
+         :
 - `[0..4]` **Magic:** `0x4B495053` (`"SPIK"`)
-- `[4..12]` **Tick:** `u64` (Глобальный такт симуляции)
-- `[12..16]` **Count:** `u32` (Количество спайков `N` в этом кадре)
-- `[16..16 + N*4]` **Payload:** Плоский массив `u32` (Dense ID нейронов, которые сгенерировали спайк).
+- `[4..12]` **Tick:** `u64` (  )
+- `[12..16]` **Count:** `u32` (  `N`   )
+- `[16..16 + N*4]` **Payload:**   `u32` (Dense ID ,   ).
 
-Парсер IDE обязан читать заголовок, валидировать Magic, и извлекать срез `&[u32]` для передачи в систему инстансинга сфер (через кастомный Shader Material).
+ IDE   ,  Magic,    `&[u32]`       (  Shader Material).
 
 ---
 
-## 7. Глобальные Системы WM (Global WM Systems)
+## 7.   WM (Global WM Systems)
 
 7.1. Unified Context Menu
-Оконный менеджер предоставляет унифицированную систему контекстных меню (`OpenContextMenuEvent` -> `ContextMenuActionTriggeredEvent`), решающую проблему перекрытия слоев (Z-fighting) между плагинами.
-* **Механика**: Плагин отправляет список `MenuAction` и экранную координату клика. Система WM (`context_menu_ui_system`) рендерит `egui::Area` с `Order::Foreground` поверх всех тайлов.
-* **Global Injection**: Оконный менеджер имеет право принудительно инжектить глобальные действия (например, "wm.create_file") в меню любого плагина.
-* **Intent Routing**: При клике на пункт меню WM отправляет `ContextMenuActionTriggeredEvent` с точным указанием `target_window`, возвращая управление целевому плагину.
+       (`OpenContextMenuEvent` -> `ContextMenuActionTriggeredEvent`),     (Z-fighting)  .
+* ****:    `MenuAction`    .  WM (`context_menu_ui_system`)  `egui::Area`  `Order::Foreground`   .
+* **Global Injection**:         (, "wm.create_file")    .
+* **Intent Routing**:      WM  `ContextMenuActionTriggeredEvent`    `target_window`,    .
 
 7.2. Global Cache Invalidation
-Оркестраторы WM диктуют состояние диска. При удалении сущности (Департамент, Шард, Файл) оркестратор физически сносит данные и отправляет `layout_api::EntityDeletedEvent { path }`.
-* Все плагины (project_explorer, node_editor, code_editor) имеют системы-чистильщики (например, evict_deleted_entities_system).
-* Системы читают шину и выполняют операцию .starts_with(deleted_path) над своими кэшами, мгновенно сбрасывая зомби-сессии и фокусы в UI.
+ WM   .    (, , )       `layout_api::EntityDeletedEvent { path }`.
+*   (project_explorer, node_editor, code_editor)  - (, evict_deleted_entities_system).
+*       .starts_with(deleted_path)   ,   -    UI.
 
 ---
 
-8. DOD Паттерны UI (Anti-Footguns)
+8. DOD  UI (Anti-Footguns)
 
-При разработке интерфейсов внутри оконного менеджера применяются два жестких паттерна для обхода архитектурных ограничений фреймворка `egui`:
+               `egui`:
 
 8.1. String DTO Routing (Context Menu)
-Запрещено передавать сложные структуры, замыкания или `Pos2` координаты через шину событий между UI и оркестраторами.
-*   **Паттерн:** Локальные экранные координаты клика зашиваются прямо в плоский строковый ID интента: `action_id: format!("node_editor.add_env_rx|{}|{}", local_pos.x, local_pos.y)`.
-*   **Обоснование:** Оркестратор на стороне систем (`interaction.rs`) парсит строку. Это полностью отвязывает вызов меню от сложной математики матриц смещения канваса и сохраняет плоскую (Copy/Clone) природу DTO-событий.
+   ,   `Pos2`      UI  .
+*   **:**          ID : `action_id: format!("node_editor.add_env_rx|{}|{}", local_pos.x, local_pos.y)`.
+*   **:**     (`interaction.rs`)  .               (Copy/Clone)  DTO-.
 
 8.2. Focus Trap Prevention (Inline Editing)
-Виджет `egui::TextEdit` аппаратно поглощает нажатия `Enter` и `Escape`, делая ручной перехват через `ui.input()` невозможным во время активного редактирования.
-*   **Паттерн:** Строгий конечный автомат управления фокусом:
+ `egui::TextEdit`    `Enter`  `Escape`,     `ui.input()`     .
+*   **:**     :
     ```rust
     if edit.lost_focus() {
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            state.editing = None; // Отмена строго по Escape
+            state.editing = None; //    Escape
         } else {
-            send_mutation(...);   // Подтверждение (Enter или клик мимо)
+            send_mutation(...);   //  (Enter   )
             state.editing = None;
         }
     } else if !edit.has_focus() {
-        edit.request_focus();     // Захват фокуса СТРОГО один раз
+        edit.request_focus();     //     
     }
     ```
-*   **Обоснование:** Безусловный вызов `edit.request_focus()` каждый кадр создает «ловушку фокуса» (событие `lost_focus` никогда не наступает, UI виснет). Вышеописанный паттерн гарантирует стабильную работу любых inline-редакторов и модалок ввода.
+*   **:**   `edit.request_focus()`      ( `lost_focus`   , UI ).       inline-   .

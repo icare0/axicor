@@ -23,7 +23,7 @@ impl Material for CadGlassMaterial {
         AlphaMode::Blend
     }
 
-    // [DOD FIX] Отключаем отсечение задних граней для объемного стекла
+    // [DOD FIX]       
     fn specialize(
         _pipeline: &MaterialPipeline<Self>,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,

@@ -4,9 +4,9 @@
 [![Documentation](https://docs.rs/axicor-core/badge.svg)](https://docs.rs/axicor-core)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://opensource.org/licenses/GPL-3.0)
 
-**A living brain for embodied AI. Learns in seconds. Runs everywhere — from ESP32 to GPU clusters.**
+**A living brain for embodied AI. Learns in seconds. Runs everywhere - from ESP32 to GPU clusters.**
 
-Axicor (formerly Genesis) is a High-Frequency Trading (HFT) Spiking Neural Network engine designed for biological realism and absolute determinism. It does not use backpropagation or static computation graphs. Neurons fire spikes, axons physically grow through 3D space, weak synapses are pruned, and strong ones are fortified — all in real-time, without halting the simulation.
+Axicor (formerly Axicor) is a High-Frequency Trading (HFT) Spiking Neural Network engine designed for biological realism and absolute determinism. It does not use backpropagation or static computation graphs. Neurons fire spikes, axons physically grow through 3D space, weak synapses are pruned, and strong ones are fortified - all in real-time, without halting the simulation.
 
 ## Core Architecture
 
@@ -21,7 +21,7 @@ Axicor is built on three Data-Oriented Design (DOD) pillars:
 **1. Bake the Connectome (CPU)**
 Compile the TOML DNA into binary C-ABI memory dumps:
 ```bash
-cargo run --release -p axicor-baker -- --brain Genesis-Models/AntAgent
+cargo run --release -p axicor-baker -- --brain Axicor-Models/AntAgent
 ```
 
 **2. Start the Reactor (GPU)**
@@ -33,10 +33,10 @@ cargo run --release -p axicor-node -- --brain AntAgent
 **3. Inject Dopamine (Python SDK)**
 Connect your Gymnasium environment via the Zero-Garbage UDP Fast-Path:
 ```python
-from genesis.client import GenesisMultiClient
+from axicor.client import AxicorMultiClient
 
 # The client runs in a strict 10ms lockstep budget
-client = GenesisMultiClient(addr=("127.0.0.1", 8081), ...)
+client = AxicorMultiClient(addr=("127.0.0.1", 8081), ...)
 ```
 
 ## Ecosystem

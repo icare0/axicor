@@ -1,30 +1,30 @@
-| Свойство | Значение |
+|  |  |
 | :--- | :--- |
-| **Домен** | `PluginDomain::ProjectExplorer` |
-| **Роль** | Файловый навигатор, генератор намерений (Intents) для других плагинов и источник Drag-and-Drop (DND). |
+| **** | `PluginDomain::ProjectExplorer` |
+| **** |  ,   (Intents)      Drag-and-Drop (DND). |
 
-## 1. ECS Контракт (Данные)
-* **`ProjectFsCache` (Ресурс)**: Глобальный кэш структуры файлов воркспейса. **Категорически запрещено** вызывать `std::fs::read_dir` в горячем цикле отрисовки.
-* **`ProjectExplorerState` (Компонент)**: Локальное состояние окна. Содержит `active_file: Option<PathBuf>` для реализации "Умного Фокуса" (Smart Focus) — сквозной подсветки текущего открытого файла и его родительской директории. Защищает UI от потери контекста.
+## 1. ECS  ()
+* **`ProjectFsCache` ()**:     . ** **  `std::fs::read_dir`    .
+* **`ProjectExplorerState` ()**:   .  `active_file: Option<PathBuf>`   " " (Smart Focus)          .  UI   .
 
-## 2. Шина Событий (Event API)
-Плагин работает как глобальный диспетчер намерений (Intent Emitter), генерируя события для активации других доменов:
+## 2.   (Event API)
+      (Intent Emitter),      :
 
-| Событие | Триггер | Полезная нагрузка | Целевой плагин |
+|  |  |   |   |
 | :--- | :--- | :--- | :--- |
-| `ZoneSelectedEvent` | Клик по .pos / .state | `zone_hash`, `target_window` | Connectome Viewer (3D) |
-| `LoadGraphEvent` | Клик по .axic архиву | `project_name` | Node Editor |
-| `OpenFileEvent` | Клик по .toml файлу | `path: PathBuf` | Code Editor (Чтение) & Node Editor (Синхронизация) |
-| `EntityDeletedEvent` | Удаление из WM | `path` (Listens) | Сбрасывает выделение `active_file`, если сущность исчезла. |
-| `OpenContextMenuEvent` | ПКМ по узлу/корню | `actions`, `target_window` | Делегирует команды удаления/переименования в WM. |
+| `ZoneSelectedEvent` |   .pos / .state | `zone_hash`, `target_window` | Connectome Viewer (3D) |
+| `LoadGraphEvent` |   .axic  | `project_name` | Node Editor |
+| `OpenFileEvent` |   .toml  | `path: PathBuf` | Code Editor () & Node Editor () |
+| `EntityDeletedEvent` |   WM | `path` (Listens) |   `active_file`,   . |
+| `OpenContextMenuEvent` |   / | `actions`, `target_window` |   /  WM. |
 
-> **[DOD Invariant]**: Событие `OpenFileEvent` использует паттерн **Multi-Cast**. Оно перехватывается Редактором Кода для визуализации текста и одновременно прослушивается Нодовым Редактором для автоматической (фоновой) подгрузки графа `brain.toml`.
+> **[DOD Invariant]**:  `OpenFileEvent`   **Multi-Cast**.               ()   `brain.toml`.
 
-## 3. DND Контракт (Drag-and-Drop)
-* Плагин выступает как **Drag Source**.
-* При начале перетаскивания файла (drag), плагин помещает его абсолютный путь в глобальную временную память UI: `ui.memory_mut(|m| m.data.insert_temp(Id::new("dnd_path"), file_path))`.
-* **Zero-Leak Guarantee**: При отпускании мыши (`any_released`) в любом месте экрана плагин обязан удалить эти данные из `memory`, чтобы предотвратить зависание стейта (Dangling Payloads) в оконном менеджере.
+## 3. DND  (Drag-and-Drop)
+*    **Drag Source**.
+*     (drag),          UI: `ui.memory_mut(|m| m.data.insert_temp(Id::new("dnd_path"), file_path))`.
+* **Zero-Leak Guarantee**:    (`any_released`)           `memory`,     (Dangling Payloads)   .
 
-## 4. Особенности Исполнения (Execution Paths)
-* **Cold Path:** Первичная индексация файлов воркспейса и разделение сущностей на скомпилированные архивы (Bundles) и исходные папки (Sources).
-* **UI Path:** Отрисовка дерева с использованием `egui::ScrollArea`. Ширина контента жестко зажимается (200-300px) математически внутри Layout-контейнеров, защищая верстку от неконтролируемого растяжения тайла оконным менеджером
+## 4.   (Execution Paths)
+* **Cold Path:**           (Bundles)    (Sources).
+* **UI Path:**     `egui::ScrollArea`.     (200-300px)   Layout-,        

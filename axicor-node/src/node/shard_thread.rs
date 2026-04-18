@@ -11,7 +11,7 @@ use crate::network::bsp::BspBarrier;
 use crate::network::io_server::InputSwapchain;
 use super::{ComputeCommand, ComputeFeedback};
 
-/// [Phase 23] Static shard geometry/physics — owns all per-shard data.
+/// [Phase 23] Static shard geometry/physics  owns all per-shard data.
 pub struct ShardDescriptor {
     pub hash: u32,
     pub engine: ShardEngine,
@@ -36,7 +36,7 @@ pub struct ShardAtomicSettings {
     pub max_sprouts: AtomicU16,
 }
 
-/// [Phase 23] Shared orchestrator resources — cheap Clone via Arc.
+/// [Phase 23] Shared orchestrator resources  cheap Clone via Arc.
 #[derive(Clone)]
 pub struct NodeContext {
     pub bsp_barrier: Arc<BspBarrier>,
@@ -108,7 +108,7 @@ impl ThreadWorkspace {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        panic!("SHM file {:?} not ready after 3s (is genesis-baker-daemon running?)", path);
+        panic!("SHM file {:?} not ready after 3s (is axicor-baker-daemon running?)", path);
     }
 
     pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i32] { // [DOD FIX] i32
@@ -211,11 +211,11 @@ fn execute_day_phase(
 
     /* 
     if batch_counter % 100 == 0 {
-        println!("🔍 [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
+        println!(" [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
         if let Some(slice) = input_slice {
             let active = slice.iter().any(|&w| w != 0);
             if active {
-                println!("🔥 [Shard I/O] Input active!");
+                println!(" [Shard I/O] Input active!");
             }
         }
     }
@@ -315,7 +315,7 @@ fn save_hot_checkpoint(
     if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {
         let _ = std::fs::rename(&tmp_state, &chk_state);
         let _ = std::fs::rename(&tmp_axons, &chk_axons);
-        // println!("💾 [Shard {:08X}] State & Axons checkpoint saved", hash);
+        // println!(" [Shard {:08X}] State & Axons checkpoint saved", hash);
     }
 }
 
@@ -457,15 +457,15 @@ fn execute_night_phase(
                 // [DOD FIX] Read GC cleans from SHM and route deaths
                 dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
 
-                tracing::info!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
+                tracing::info!(" [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
             Err(e) => {
-                tracing::error!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
+                tracing::error!("[ERROR] [Shard {:08X}] Sprouting failed: {}", hash, e);
                 *baker_client = None;
             }
         }
     } else {
-        tracing::warn!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
+        tracing::warn!("[WARN] [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
     }
 }
 
@@ -703,12 +703,12 @@ pub fn spawn_shard_thread(
                 if res != 0 {
                     eprintln!("Warning: Failed to set thread affinity to core {}", _core_id);
                 } else {
-                    println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, _core_id);
+                    println!(" [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, _core_id);
                 }
             }
             #[cfg(not(target_os = "linux"))]
             {
-                println!("🚀 [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
+                println!(" [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
             }
 
             // 1. Hardware context initialization
@@ -811,7 +811,7 @@ pub fn spawn_shard_thread(
                                 current_prune_threshold, current_max_sprouts, &ctx.routing_table
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
-                            tracing::info!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
+                            tracing::info!(" [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
                         }
 
                         // Send feedback to orchestrator

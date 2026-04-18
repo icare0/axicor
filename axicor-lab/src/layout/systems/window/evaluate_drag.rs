@@ -5,7 +5,7 @@ use egui_tiles::{LinearDir, Tile};
 use crate::layout::domain::{WorkspaceState, WindowDragState, TreeCommands, Pane};
 use layout_api::{DragIntent, TreeCommand, WindowDragRequest, DragSource, TopologyCache};
 
-// --- Пороги ---
+// ---  ---
 const AXIS_LOCK_DIST_SQ: f32 = 100.0;  // 10px
 const SPLIT_THRESHOLD:   f32 = 100.0;
 const MERGE_THRESHOLD:   f32 = 50.0;
@@ -22,7 +22,7 @@ pub fn evaluate_drag_intents_system(
     mut commands_queue: ResMut<TreeCommands>,
     workspace: Option<Res<WorkspaceState>>,
 ) {
-    // --- Завершение драга ---
+    // ---   ---
     if !drag_request.active {
         if drag_state.is_dragging {
             flush_drag_command(&drag_state, &mut commands_queue);
@@ -31,7 +31,7 @@ pub fn evaluate_drag_intents_system(
         return;
     }
 
-    // --- Начало драга ---
+    // ---   ---
     if !drag_state.is_dragging {
         let Some(src_tile) = drag_request.target_tile else { return };
         drag_state.is_dragging = true;
@@ -40,7 +40,7 @@ pub fn evaluate_drag_intents_system(
         return;
     }
 
-    // --- Активный драг ---
+    // ---   ---
     let Some(workspace) = workspace else { return };
     let ctx = contexts.ctx_mut();
 
@@ -55,7 +55,7 @@ pub fn evaluate_drag_intents_system(
     let current_pos = drag_request.current_pos;
     let delta = current_pos - start_pos;
 
-    // [DOD FIX] Фиксация оси ТОЛЬКО для угловых триггеров (Split/Merge)
+    // [DOD FIX]       (Split/Merge)
     if drag_request.source == DragSource::EdgeTrigger && drag_state.drag_axis.is_none() && delta.length_sq() > AXIS_LOCK_DIST_SQ {
         let horizontal = delta.x.abs() > delta.y.abs();
         drag_state.drag_axis   = Some(if horizontal { LinearDir::Horizontal } else { LinearDir::Vertical });
@@ -67,11 +67,11 @@ pub fn evaluate_drag_intents_system(
 
     drag_state.intent = match drag_request.source {
         DragSource::Header => {
-            // Swap не требует фиксации оси!
+            // Swap    !
             compute_swap_intent(current_pos, src_tile, &topology)
         }
         DragSource::EdgeTrigger => {
-            // Split/Merge требуют прохождения мертвой зоны в 10px для вычисления оси
+            // Split/Merge      10px   
             if let (Some(axis), Some(normal)) = (drag_state.drag_axis, drag_state.drag_normal) {
                 if src_rect.contains(current_pos) {
                     compute_split_intent(delta, axis, normal, current_pos, src_rect, src_tile, tree)
@@ -158,7 +158,7 @@ fn compute_merge_intent(
     let victim = topology.tiles.iter().find(|(&id, r)| {
         if id == src_tile { return false; }
         if !r.expand(MERGE_HIT_EXPAND).contains(current_pos) { return false; }
-        // Жертва должна быть выровнена по перпендикулярной оси
+        //       
         if axis == LinearDir::Horizontal {
             (src_rect.min.y - r.min.y).abs() < ALIGN_EPS &&
             (src_rect.max.y - r.max.y).abs() < ALIGN_EPS

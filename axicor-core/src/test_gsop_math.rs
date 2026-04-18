@@ -1,4 +1,4 @@
-/// CPU emulation and tests for ApplyGSOP kernel math (Spec §1.3)
+/// CPU emulation and tests for ApplyGSOP kernel math (Spec 1.3)
 /// Verifies formulas for potentiation, depression, clamp, spatial cooling, and inertia rank.
 
 use crate::config::blueprints::NeuronType;

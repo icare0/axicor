@@ -32,7 +32,7 @@ impl Drop for IoBuffers {
     fn drop(&mut self) {
         match &mut self.backend {
             IoBackend::Gpu(b) => unsafe {
-                // Жесткая очистка VRAM-буферов. Никаких висячих указателей.
+                //   VRAM-.   .
                 crate::ffi::cu_free_io_buffers(
                     b.d_input_bitmask,
                     b.d_incoming_spikes,
@@ -40,7 +40,7 @@ impl Drop for IoBuffers {
                 );
             },
             IoBackend::Cpu(_) => {
-                // Для CPU вектора очистятся автоматически (Rust Drop)
+                //  CPU    (Rust Drop)
             }
         }
     }
@@ -156,8 +156,8 @@ impl ShardEngine {
             Self::Cpu(ref mut cpu) => {
                 if let IoBackend::Cpu(ref mut b) = io_buffers.backend {
                     // 1. STRICT BSP INVARIANTS (Pre-loop validation)
-                    // Математически доказываем размеры до входа в цикл. Если тут ошибка - это краш сети (Data-Oriented контракт нарушен),
-                    // маскировать такие ошибки нельзя.
+                    //       .    -    (Data-Oriented  ),
+                    //    .
                     if let Some(mask) = h_input_bitmask {
                         let expected_mask_len = (io_buffers.input_words_per_tick * sync_batch_ticks) as usize;
                         assert_eq!(mask.len(), expected_mask_len, "FATAL: Input bitmask size violation");
@@ -168,7 +168,7 @@ impl ShardEngine {
                     }
                     assert_eq!(h_spike_counts.len(), sync_batch_ticks as usize, "FATAL: Spike counts size violation");
 
-                    // 1.5. Hardware Integrity Check: Гарантируем, что ни один счетчик не пробьет capacity
+                    // 1.5. Hardware Integrity Check: ,       capacity
                     let max_spikes = io_buffers.max_spikes_per_tick;
                     for &c in h_spike_counts {
                         assert!(c <= max_spikes, "FATAL: Network provided spike count exceeding tick capacity");
@@ -183,7 +183,7 @@ impl ShardEngine {
                             let start = tick_idx * io_buffers.input_words_per_tick as usize;
                             let len = io_buffers.input_words_per_tick as usize;
                             unsafe {
-                                // bounds уже доказаны пре-валидацией, используем raw pointer math
+                                // bounds   -,  raw pointer math
                                 let tick_mask = std::slice::from_raw_parts(mask.as_ptr().add(start), len);
                                 let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
                                 crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
@@ -194,7 +194,7 @@ impl ShardEngine {
                         if let Some(spikes) = h_incoming_spikes {
                             let start = tick_idx * io_buffers.max_spikes_per_tick as usize;
                             unsafe {
-                                // get_unchecked избавляет от ветвлений
+                                // get_unchecked   
                                 let count = *h_spike_counts.get_unchecked(tick_idx) as usize;
                                 debug_assert!(count <= io_buffers.max_spikes_per_tick as usize);
                                 
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_shard_allocation() {
-        // Простейшая проверка аллокации (CPU)
+        //    (CPU)
         let vram = VramState {
             padded_n: 32,
             total_axons: 64,
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_io_buffers_allocation_mock_gpu() {
-        // Тест аллокации через Mock GPU C-ABI
+        //    Mock GPU C-ABI
         let mut d_input = std::ptr::null_mut();
         let mut d_spikes = std::ptr::null_mut();
         let mut d_output = std::ptr::null_mut();

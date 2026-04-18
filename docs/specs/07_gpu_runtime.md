@@ -1,128 +1,128 @@
 # 07. GPU Runtime (GPU & Storage)
 
-> Часть архитектуры [Genesis](../../README.md). Как данные лежат в VRAM, как грузятся, как переключаются фазы работы.
+>   [Axicor](../../README.md).     VRAM,  ,    .
 
 ---
 
-## 1. Архитектура Памяти и Данных (GPU & Storage)
+## 1.     (GPU & Storage)
 
-**Инвариант:** Полный отказ от объектов (AoS) в горячей памяти. Данные лежат плоскими векторами (SoA) для обеспечения 100% Coalesced Memory Access на GPU и векторизации на CPU/MCU. 
+**:**     (AoS)   .     (SoA)   100% Coalesced Memory Access  GPU    CPU/MCU. 
 
-Движок поддерживает **Dual-Backend** архитектуру: нативный CUDA и нативный HIP. Все вычисления — исключительно в целых числах (Integer Physics).
+  **Dual-Backend** :  CUDA   HIP.        (Integer Physics).
 
-### 1.1. Строгий FFI-Контракт VRAM (Headerless SoA)
+### 1.1.  FFI- VRAM (Headerless SoA)
 
-Движок не парсит данные при старте. Бинарные файлы `.state` и `.axons` — это чистые дампы памяти (Headerless), готовые к `cudaMemcpyAsync` или `spi_flash_mmap` (ESP32).
+     .   `.state`  `.axons`      (Headerless),   `cudaMemcpyAsync`  `spi_flash_mmap` (ESP32).
 
-**Аппаратное выравнивание (The 64-Byte Alignment Rule):**
-Глобальное выравнивание `padded_n` до числа, кратного 64, математически гарантирует, что длины всех внутренних SoA-массивов (4N, 2N, 1N байт) будут кратны 64 байтам. Это обеспечивает идеальное начало каждого следующего массива с новой L2 кэш-линии без использования грязных padding bytes внутри блоба. Это критично для Coalesced Access на AMD Wavefront (64 потока) и исключения cache thrashing на L2.
+**  (The 64-Byte Alignment Rule):**
+  `padded_n`  ,  64,  ,     SoA- (4N, 2N, 1N )   64 .          L2 -    padding bytes  .    Coalesced Access  AMD Wavefront (64 )   cache thrashing  L2.
 
-**Раскладка ShardVramPtrs (строгий побайтовый порядок в .state блобе):**
+** ShardVramPtrs (    .state ):**
 
-Размеры массивов зависят от `N` (`padded_n`, выровненного по 64).
-*   `soma_voltage`       [N] × `i32`   (4N bytes)
-*   `soma_flags`         [N] × `u8`    (1N bytes)
-*   `threshold_offset`   [N] × `i32`   (4N bytes)
-*   `timers`             [N] × `u8`    (1N bytes)
-*   `soma_to_axon`       [N] × `u32`   (4N bytes)
-*   `dendrite_targets`   [128 × N] × `u32` (512N bytes)
-*   `dendrite_weights`   [128 × N] × `i32` (512N bytes)
-*   `dendrite_timers`    [128 × N] × `u8`  (128N bytes)
+    `N` (`padded_n`,   64).
+*   `soma_voltage`       [N]  `i32`   (4N bytes)
+*   `soma_flags`         [N]  `u8`    (1N bytes)
+*   `threshold_offset`   [N]  `i32`   (4N bytes)
+*   `timers`             [N]  `u8`    (1N bytes)
+*   `soma_to_axon`       [N]  `u32`   (4N bytes)
+*   `dendrite_targets`   [128  N]  `u32` (512N bytes)
+*   `dendrite_weights`   [128  N]  `i32` (512N bytes)
+*   `dendrite_timers`    [128  N]  `u8`  (128N bytes)
 
-**The 1166-Byte Invariant:** Soma (14) + 128 * (Targets:4 + Weights:4 + Timers:1) = 1166 байт на нейрон.
+**The 1166-Byte Invariant:** Soma (14) + 128 * (Targets:4 + Weights:4 + Timers:1) = 1166   .
 
-*Примечание для Edge (ESP32): При дистилляции 128 слотов урезаются до 32 (WTA Distillation).*
+*  Edge (ESP32):   128    32 (WTA Distillation).*
 
-**Аксоны (.axons блоб):**
-Вынесены в отдельный файл, так как количество аксонов `A` (`total_axons` = Local + Ghost + Virtual) не равно `N`.
-*   `axon_heads`         [A] × `BurstHeads8` (32A bytes)
+** (.axons ):**
+   ,     `A` (`total_axons` = Local + Ghost + Virtual)   `N`.
+*   `axon_heads`         [A]  `BurstHeads8` (32A bytes)
 
-**Инвариант 32-байтного Выравнивания Аксонов:** 
-Структура `BurstHeads8` обязана быть выровнена по 32 байтам. 8 голов по 4 байта = ровно 32 байта. Это гарантирует загрузку всех голов за одну транзакцию L1 кэша и идеальное попадание в 32-байтный сектор памяти. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение. 32-байтовое выравнивание гарантирует идеальную работу кэша.
+** 32-  :** 
+ `BurstHeads8`     32 . 8   4  =  32 .         L1      32-  .  Xtensa LX7 (ESP32)   32-       . 32-     .
 
 ```cpp
-// 32-byte alignment гарантирует идеальное попадание в 32-байтный сектор L1 кэша (1 транзакция).
-// alignas(64) привел бы к потере 50% VRAM (32 байта мусора на каждый аксон).
+// 32-byte alignment     32-  L1  (1 ).
+// alignas(64)     50% VRAM (32     ).
 struct alignas(32) BurstHeads8 {
     uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
 ```
 
-Битовая семантика `soma_flags` (1 байт): Запрещено перезаписывать байт целиком. Чтение и запись строго через битовые маски.
+  `soma_flags` (1 ):    .       .
 
-*   `[7:4]` type_mask (u4): Индекс типа нейрона (0..15). Прямой индекс в VARIANT_LUT.
-*   `[3:1]` burst_count (u3): Счетчик серийных спайков для Burst-Dependent Plasticity (BDP).
-*   `[0:0]` is_spiking (u1): Флаг спайка в текущем тике (1 = fired).
+*   `[7:4]` type_mask (u4):    (0..15).    VARIANT_LUT.
+*   `[3:1]` burst_count (u3):     Burst-Dependent Plasticity (BDP).
+*   `[0:0]` is_spiking (u1):      (1 = fired).
 
-Очистка флага спайка без уничтожения BDP-аккумулятора: `flags[tid] &= ~0x01;`.
+     BDP-: `flags[tid] &= ~0x01;`.
 
-### 1.2. Константная Память (VariantParameters)
-Параметры мембраны и пластичности загружаются в constant память GPU (или лежат во Flash-памяти MCU) один раз при старте.
-Размер структуры строго 64 байта для идеального попадания в L1 Cache. Любое смещение убьет Coalesced Access.
+### 1.2.   (VariantParameters)
+      constant  GPU (   Flash- MCU)    .
+   64      L1 Cache.    Coalesced Access.
 
 ```cpp
-// Строго 64 байта (1 кэш-линия L1)
+//  64  (1 - L1)
 struct alignas(64) VariantParameters {
-    // === Блок 1: 32-bit (Смещения 0..20) ===
+    // ===  1: 32-bit ( 0..20) ===
     int32_t threshold;                        // 0..4
     int32_t rest_potential;                   // 4..8
     int32_t leak_rate;                        // 8..12
     int32_t homeostasis_penalty;              // 12..16
     uint32_t spontaneous_firing_period_ticks; // 16..20
 
-    // === Блок 2: 16-bit (Смещения 20..28) ===
+    // ===  2: 16-bit ( 20..28) ===
     uint16_t initial_synapse_weight;          // 20..22
     uint16_t gsop_potentiation;               // 22..24
     uint16_t gsop_depression;                 // 24..26
     uint16_t homeostasis_decay;               // 26..28
 
-    // === Блок 3: 8-bit (Смещения 28..32) ===
+    // ===  3: 8-bit ( 28..32) ===
     uint8_t refractory_period;                // 28..29
     uint8_t synapse_refractory_period;        // 29..30
     uint8_t signal_propagation_length;        // 30..31
     uint8_t is_inhibitory;                    // 31..32
 
-    // === Блок 4: Массивы (Смещения 32..48) ===
-    uint8_t inertia_curve[16];                // 32..48 (ранги: abs(w) >> 11)
+    // ===  4:  ( 32..48) ===
+    uint8_t inertia_curve[16];                // 32..48 (: abs(w) >> 11)
 
-    // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+    // ===  5: Adaptive Leak Hardware ( 48..58) ===
     int32_t adaptive_leak_max;                // 48..52
     uint16_t adaptive_leak_gain;              // 52..54
     uint8_t adaptive_mode;                    // 54..55
     uint8_t _leak_pad[3];                     // 55..58
 
-    // === Блок 6: Neuromodulation & Pad (Смещения 58..64) ===
-    uint8_t d1_affinity;                      // 58..59 (Чувствительность к LTP)
-    uint8_t d2_affinity;                      // 59..60 (Чувствительность к подавлению LTD)
-    uint8_t _pad[4];                          // 60..64 (Выравнивание)
+    // ===  6: Neuromodulation & Pad ( 58..64) ===
+    uint8_t d1_affinity;                      // 58..59 (  LTP)
+    uint8_t d2_affinity;                      // 59..60 (   LTD)
+    uint8_t _pad[4];                          // 60..64 ()
 };
 
-// Контейнер для 16 вариантов (Ровно 1024 байта)
-struct GenesisConstantMemory {
+//   16  ( 1024 )
+struct AxicorConstantMemory {
     VariantParameters variants[16];
 };
 ```
 
-Доступ из горячего цикла: Variant ID извлекается из `soma_flags` за 1 такт ALU: `u8 var_id = (flags[tid] >> 4) & 0xF;` Далее — прямое чтение параметров из памяти без ветвлений `const_mem.variants[var_id].threshold;`.
+   : Variant ID   `soma_flags`  1  ALU: `u8 var_id = (flags[tid] >> 4) & 0xF;`          `const_mem.variants[var_id].threshold;`.
 
 ### 1.6. Cross-Platform IPC & Zero-Copy Mmap
 
-**Инвариант:** Идеал Zero-Copy Загрузки (§1.4) реализуется одинаково эффективно на всех платформах. Отказ от Linux-exclusive конструкций (`/dev/shm`, Unix Sockets).
+**:**  Zero-Copy  (1.4)      .   Linux-exclusive  (`/dev/shm`, Unix Sockets).
 
-**Инвариант:** Идеал Zero-Copy Загрузки (§1.4) реализуется через Dual-Backend компиляцию: `nvcc` для NVIDIA и `hipcc` для AMD. Система автоматически выбирает реализацию на этапе сборки через feature-флаг `amd`.
+**:**  Zero-Copy  (1.4)   Dual-Backend : `nvcc`  NVIDIA  `hipcc`  AMD.         feature- `amd`.
 
-#### 1.6.1. Архитектура: Платформа-Специфичные Фолбэки
+#### 1.6.1. : - 
 
-| Платформа | Память (Night Phase) | Синхронизация (Network) |
+|  |  (Night Phase) |  (Network) |
 |---|---|---|
-| **Linux** | POSIX `shm_open()` → `/dev/shm/*.state.shm` | Unix Domain Sockets (**UDS**); Fast-Path UDP для Data Plane |
-| **Windows** | File-backed mmap в `%TEMP%` → файлы `*.state.bin.mmap` | TCP/IP на портах `19000 + (hash % 1000)` для Control & Data Plane |
-| **Darwin (macOS)** | POSIX `shm_open()` (аналог Linux) | UDS + TCP fallback для Legacy Systems |
+| **Linux** | POSIX `shm_open()`  `/dev/shm/*.state.shm` | Unix Domain Sockets (**UDS**); Fast-Path UDP  Data Plane |
+| **Windows** | File-backed mmap  `%TEMP%`   `*.state.bin.mmap` | TCP/IP   `19000 + (hash % 1000)`  Control & Data Plane |
+| **Darwin (macOS)** | POSIX `shm_open()` ( Linux) | UDS + TCP fallback  Legacy Systems |
 
 #### 1.6.2. Page-Aligned Memory Guarantee (4096 bytes)
 
-**Жёсткий C-ABI контракт:** Всегда `mmap` выравнивается по границе **4096 байт** (минимальный page size современных ОС).
+** C-ABI :**  `mmap`    **4096 ** ( page size  ).
 
 ```rust
 // generic_ipc.rs
@@ -159,24 +159,24 @@ pub fn allocate_shared_memory(size: usize) -> Result<SharedMemoryRegion, CAbiBou
 }
 ```
 
-**Гарантия:** Все `.state` и `.axons` блобы лежат **целиком в выровненной по 4096 памяти**.
+**:**  `.state`  `.axons`   **    4096 **.
 
 ```
 Mmap:   [0x10000000 aligned to 4096]
-         ┌─────────────────────────────────┐
-         │ SoA Payload (782B × N)          │
-         │ + Burst Architecture (32B × A)  │ ← All @ offset % 4096 == 0
-         └─────────────────────────────────┘ ← Also @ offset % 4096 == 0
-         [страница 4096 байт, no gaps]
+         +---------------------------------+
+         | SoA Payload (782B  N)          |
+         | + Burst Architecture (32B  A)  |  All @ offset % 4096 == 0
+         +---------------------------------+  Also @ offset % 4096 == 0
+         [ 4096 , no gaps]
 ```
 
 #### 1.6.3. Legalized bytemuck::cast_slice (Zero-Copy)
 
-**Почему это работает:**
+**  :**
 
-1. **Mmap гарантирует выравнивание:** Любой указатель внутри mmap-региона = `base_addr + offset`. Если `base_addr % 4096 == 0` и `offset % align_of::<T>() == 0`, то полученный указатель гарантированно выровнен.
+1. **Mmap  :**    mmap- = `base_addr + offset`.  `base_addr % 4096 == 0`  `offset % align_of::<T>() == 0`,     .
 
-2. **Baking Tool Determinism (Compile-Time):** Baker гарантирует, что SoA-массивы начинаются ровно на границе требуемого выравнивания (`align_of::<T>()`). Для типов как `VariantParameters` (align 64) это означает: `offset % 64 == 0`.
+2. **Baking Tool Determinism (Compile-Time):** Baker ,  SoA-       (`align_of::<T>()`).    `VariantParameters` (align 64)  : `offset % 64 == 0`.
 
 3. **Host-Side Zero-Copy:**
 
@@ -210,9 +210,9 @@ __global__ void example_kernel(CudaShardVramPtrs ptrs) {
 }
 ```
 
-#### 1.6.4. Паника FATAL C-ABI BOUNDARY (Нарушение Контракта)
+#### 1.6.4.  FATAL C-ABI BOUNDARY ( )
 
-При любом нарушении выравнивания **во время загрузки** мотор обязан паниковать с сообщением `FATAL C-ABI BOUNDARY`:
+    **  **      `FATAL C-ABI BOUNDARY`:
 
 ```rust
 // validation.rs (baking_tool output check)
@@ -242,228 +242,228 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 }
 ```
 
-**Взаимодействие с Node Runtime:**
+**  Node Runtime:**
 
-- При `load_shard(shard_id)` хост проверяет контракт перед `cudaMemcpy`.
-- Если контракт нарушен → **сразу паника**, ноль попыток работать с невыровненными данными.
-- Это **legalization** логики аппаратуры в коде: нет хаков, нет `__pack__`, нет скрытых аллокаций.
+-  `load_shard(shard_id)`     `cudaMemcpy`.
+-     ** **,      .
+-  **legalization**    :  ,  `__pack__`,   .
 
 ---
 
 ### 1.7. SHM Binary Contract (Night Phase IPC v4)
 
-Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory. 
-Нулевой оффсет файла всегда содержит 128-байтный `ShmHeader` (Little-Endian, C-ABI). 
-Каждый массив данных начинается строго по границе **64 байт**.
+  `axicor-runtime`  `axicor-baker-daemon`   Shared Memory. 
+     128- `ShmHeader` (Little-Endian, C-ABI). 
+       **64 **.
 
-**The 1025-Byte SHM Invariant:** Header(128) + Weights(N*512) + Targets(N*512) + Flags(N*1). Итого 1025 байт на нейрон в SHM.
+**The 1025-Byte SHM Invariant:** Header(128) + Weights(N*512) + Targets(N*512) + Flags(N*1).  1025     SHM.
 
-| Смещение | Поле | Тип | Описание |
+|  |  |  |  |
 | :--- | :--- | :--- | :--- |
 | `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
-| `0x04` | `version` | `u8` | Текущая версия = **3** |
+| `0x04` | `version` | `u8` |   = **3** |
 | `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
-| `0x06` | `_pad` | `u16` | Выравнивание |
-| `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 64) |
-| `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
-| `0x10` | `weights_offset` | `u32` | Смещение до i32 массива весов (кратно 64) |
-| `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей (кратно 64) |
-| `0x18` | `epoch` | `u64` | Глобальный счетчик батчей (BSP Epoch) |
-| `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual аксоны |
-| `0x24` | `handovers_offset` | `u32` | Смещение до очереди `AxonHandoverEvent` (кратно 64) |
-| `0x28` | `handovers_count` | `u32` | Количество событий в очереди |
-| `0x2C` | `zone_hash` | `u32` | FNV-1a хэш имени зоны |
-| `0x30` | `prunes_offset` | `u32` | Смещение до очереди `AxonHandoverPrune` (кратно 64) |
-| `0x34` | `prunes_count` | `u32` | Количество исходящих прунов |
-| `0x38` | `incoming_prunes_count`| `u32` | Количество входящих прунов от соседей |
-| `0x3C` | `flags_offset` | `u32` | Смещение до `soma_flags` (кратно 64) |
-| `0x40` | `voltage_offset` | `u32` | Смещение до i32 потенциала нейронов |
-| `0x44` | `threshold_offset_offset` | `u32` | Смещение до i32 порогов гомеостаза |
-| `0x48` | `timers_offset` | `u32` | Смещение до u8 таймеров рефрактерности |
+| `0x06` | `_pad` | `u16` |  |
+| `0x08` | `padded_n` | `u32` |   ( 64) |
+| `0x0C` | `dendrite_slots` | `u32` |  128 |
+| `0x10` | `weights_offset` | `u32` |   i32   ( 64) |
+| `0x14` | `targets_offset` | `u32` |   u32   ( 64) |
+| `0x18` | `epoch` | `u64` |    (BSP Epoch) |
+| `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual  |
+| `0x24` | `handovers_offset` | `u32` |    `AxonHandoverEvent` ( 64) |
+| `0x28` | `handovers_count` | `u32` |     |
+| `0x2C` | `zone_hash` | `u32` | FNV-1a    |
+| `0x30` | `prunes_offset` | `u32` |    `AxonHandoverPrune` ( 64) |
+| `0x34` | `prunes_count` | `u32` |    |
+| `0x38` | `incoming_prunes_count`| `u32` |      |
+| `0x3C` | `flags_offset` | `u32` |   `soma_flags` ( 64) |
+| `0x40` | `voltage_offset` | `u32` |   i32   |
+| `0x44` | `threshold_offset_offset` | `u32` |   i32   |
+| `0x48` | `timers_offset` | `u32` |   u8   |
 
-**Общий размер: ровно 128 байт. Любое расширение потребует использования _reserved-полей.**
+** :  128 .     _reserved-.**
 
-#### Семантика Полей v3
+####   v3
 
-- **`version = 3`:** Поддежка полной синхронизации состояния нейронов (`voltage`, `threshold`, `timers`) для реализации Biological Amnesia (Tabula Rasa).
-- **`voltage_offset` / `threshold_offset_offset`:** Позволяют внешним агентам (Optuna) полностью сбрасывать электрическое состояние зоны между триалами.
+- **`version = 3`:**      (`voltage`, `threshold`, `timers`)   Biological Amnesia (Tabula Rasa).
+- **`voltage_offset` / `threshold_offset_offset`:**    (Optuna)       .
 
 
-**Инвариант:** Все смещения (offset) должны быть кратны 64 байтам. Baker гарантирует это выравнивание при формировании блобов.
+**:**   (offset)    64 . Baker      .
 
-## 2. Архитектура Цикла: День и Ночь (Day/Night Cycle)
+## 2.  :    (Day/Night Cycle)
 
-Фундаментальное решение: разделение вычислений во времени. Разрешает конфликт между жёсткой статической памятью (Coalesced Access на GPU) и структурной пластичностью графа (динамические аллокации).
+ :    .       (Coalesced Access  GPU)     ( ).
 
-**Инвариант:** Night Phase - **локальная операция на уровне зоны**. Замораживается только конкретная зона - остальные продолжают работать. Глобального останова нет.
+**:** Night Phase - **    **.     -   .   .
 
-### 2.1. Фаза «День» (Online / Hot Loop)
+### 2.1.   (Online / Hot Loop)
 
-Выполняется **исключительно на GPU**. Максимальная пропускная способность, полностью лишена структурной логики.
+ **  GPU**.   ,    .
 
-- **Read-Only Топология:** Геометрия аксонов и массив подписок дендритов заморожены. Никаких `malloc`/`free` внутри ядра.
-- **Изменяемое Состояние:** Веса синапсов (GSOP), `axon_heads[]`, таймеры, вольтаж, флаги.
+- **Read-Only :**       .  `malloc`/`free`  .
+- ** :**   (GSOP), `axon_heads[]`, , , .
 
-**Порядок запуска ядер (каждый тик):**
+**   ( ):**
 
-| # | Kernel | Описание | Оисточник |
+| # | Kernel |  |  |
 |---|---|----|----|
-| 1 | `InjectInputs` | Bitmask Injection для виртуальных аксонов (single-tick pulse) | [05_signal_physics.md §2.4](./05_signal_physics.md) |
-| 2 | `ApplySpikeBatch` | Чтение Ghost indices из Schedule, сброс `axon_heads[ghost_id] = 0` | [05_signal_physics.md §1.2.1](./05_signal_physics.md) |
-| 3 | `PropagateAxons` | Безусловный `axon_heads[tid] += v_seg` для **всех** аксонов (Local + Ghost + Virtual) | [05_signal_physics.md §1.6](./05_signal_physics.md) |
-| 4 | `UpdateNeurons` | GLIF + дендритный цикл + проверка порога + срыв спайка | [05_signal_physics.md §1.5](./05_signal_physics.md) |
-| 5 | `ApplyGSOP` | Пластичность: Timer-as-Contact-Flag режим STDP | [05_signal_physics.md §1.3](./05_signal_physics.md) |
-| 6 | `RecordReadout` | Чтение spike flags из mapped_soma_ids, запись в output_history | [05_signal_physics.md §3.2](./05_signal_physics.md) |
-| 7 | ExtractTelemetry | Warp-Aggregated Atomics сбор статистики активности | 07_gpu_runtime.md §2.1.1 |
+| 1 | `InjectInputs` | Bitmask Injection    (single-tick pulse) | [05_signal_physics.md 2.4](./05_signal_physics.md) |
+| 2 | `ApplySpikeBatch` |  Ghost indices  Schedule,  `axon_heads[ghost_id] = 0` | [05_signal_physics.md 1.2.1](./05_signal_physics.md) |
+| 3 | `PropagateAxons` |  `axon_heads[tid] += v_seg`  ****  (Local + Ghost + Virtual) | [05_signal_physics.md 1.6](./05_signal_physics.md) |
+| 4 | `UpdateNeurons` | GLIF +   +   +   | [05_signal_physics.md 1.5](./05_signal_physics.md) |
+| 5 | `ApplyGSOP` | : Timer-as-Contact-Flag  STDP | [05_signal_physics.md 1.3](./05_signal_physics.md) |
+| 6 | `RecordReadout` |  spike flags  mapped_soma_ids,   output_history | [05_signal_physics.md 3.2](./05_signal_physics.md) |
+| 7 | ExtractTelemetry | Warp-Aggregated Atomics    | 07_gpu_runtime.md 2.1.1 |
 
 #### 2.1.1. Warp-Aggregated Telemetry (Zero-Cost Observer)
 
-Сбор статистики спайков для дашбордов и IDE выполняется без прерывания горячего цикла и без скачивания массивов на хост.
+      IDE           .
 
-- **Механика:** Ядро `cu_extract_telemetry_kernel` сканирует массив `soma_flags`. Используется аппаратная инструкция `__ballot_sync` (или `__ballot` на AMD), чтобы за 1 такт собрать маску стреляющих нейронов со всего варпа (32 потока).
-- **Сжатие транзакций:** Лидер варпа делает ровно один `atomicAdd` в счетчик спайков в VRAM. Это снижает конкуренцию за шину памяти в 32 раза.
-- **Zero-Copy DMA:** По завершении батча оркестратор выполняет асинхронный `cudaMemcpyAsync` размером ровно **4 байта** в залоченную страницу памяти хоста (Pinned RAM). CPU читает это значение за 1 такт (`std::ptr::read_volatile`), не блокируясь на мьютексах и не обходя массивы.
+- **:**  `cu_extract_telemetry_kernel`   `soma_flags`.    `__ballot_sync` ( `__ballot`  AMD),   1         (32 ).
+- ** :**      `atomicAdd`     VRAM.        32 .
+- **Zero-Copy DMA:**       `cudaMemcpyAsync`   **4 **      (Pinned RAM). CPU     1  (`std::ptr::read_volatile`),        .
 
 
-### 2.2. Фаза «Ночь» (Per-Zone Offline Maintenance)
+### 2.2.   (Per-Zone Offline Maintenance)
 
-Выполняется на **CPU**. Каждая зона имеет **свой цикл сна** - независимый от остальных.
+  **CPU**.    **  ** -   .
 
-**Триггеры засыпания:**
-Проверяются оркестратором на CPU **только в конце каждого батча** `sync_batch_ticks` (во время сетевого барьера). Внутри рантайма GPU проверок сна нет - такты не тратятся.
+** :**
+   CPU **    ** `sync_batch_ticks` (   ).   GPU    -   .
 
-| Триггер | Источник | Пример |
+|  |  |  |
 |---|---|---|
-| **Таймер** | `night_interval_ticks` в конфиге зоны | V1: каждые 5 мин, гиппокамп: каждые 2 мин |
-| **Внешний сигнал** | `sleep_zone(zone_id)` через API оркестратора | Массовый сон существа (моторика → сенсоры → ассоциация) |
-| **Никогда** | `night_interval_ticks = 0` | Статические зоны (таламус, ствол - Variant = Fixed/Relay, GSOP заморожен) |
+| **** | `night_interval_ticks`    | V1:  5 , :  2  |
+| ** ** | `sleep_zone(zone_id)`  API  |    (    ) |
+| **** | `night_interval_ticks = 0` |   (,  - Variant = Fixed/Relay, GSOP ) |
 
-> **⚠️ Sentinel Refresh (зоны с `night_interval_ticks = 0`):**
-> `AXON_SENTINEL = 0x80000000` ≈ 59.6 часов при v_seg=1. Без Night Phase неактивные аксоны переполнятся → фантомные спайки. **Решение:** Каждые ~50 часов (`SENTINEL_REFRESH_TICKS = 1_800_000_000`) host запускает лёгкий проход: все `axon_heads[id]` со значением `> SENTINEL_DANGER_THRESHOLD` принудительно сбрасываются в `AXON_SENTINEL`. Активные сигналы (head < propagation_length × 10) не затрагиваются.
+> **[WARN] Sentinel Refresh (  `night_interval_ticks = 0`):**
+> `AXON_SENTINEL = 0x80000000`  59.6   v_seg=1.  Night Phase      . **:**  ~50  (`SENTINEL_REFRESH_TICKS = 1_800_000_000`) host   :  `axon_heads[id]`   `> SENTINEL_DANGER_THRESHOLD`    `AXON_SENTINEL`.   (head < propagation_length  10)  .
 
-**Конвейер Maintenance (5 шагов):**
+** Maintenance (5 ):**
 
-| Шаг | Где | Название | Описание |
+|  |  |  |  |
 |---|---|---|---|
-| **1** | **GPU** | **Sort & Prune** | Segmented Radix Sort: 128 слотов по `abs(weight)` (descending). Слоты с `abs(w) < threshold` обнуляются. Шина PCIe не забивается мусором. |
-| **2** | **PCIe** | **Download** (VRAM → RAM) | `cudaMemcpyAsync` только изменённых массивов (веса + targets). Статическая геометрия уже известна хосту. |
-| **3** | **CPU** | **Sprouting & Nudging** | Тяжёлая фаза. Cone Tracing для пустых слотов (Spatial Hash), рост отростков, создание Ghost Axons для межшардовых путей. Длительность зависит от железа и turnover rate. |
-| **4** | **CPU** | **Baking** | Дефрагментация топологии → новый `.axons`. Подготовка SoA-массивов с выравниванием по 64 (L2 Cache Line & AMD Wavefront). |
-| **5** | **PCIe** | **Upload** (RAM → VRAM) | `cudaMemcpyAsync` свежих данных. Шард мгновенно возвращается в строй и продолжает проекцию эпох через AEP. |
+| **1** | **GPU** | **Sort & Prune** | Segmented Radix Sort: 128   `abs(weight)` (descending).   `abs(w) < threshold` .  PCIe   . |
+| **2** | **PCIe** | **Download** (VRAM  RAM) | `cudaMemcpyAsync`    ( + targets).     . |
+| **3** | **CPU** | **Sprouting & Nudging** |  . Cone Tracing    (Spatial Hash),  ,  Ghost Axons   .      turnover rate. |
+| **4** | **CPU** | **Baking** |     `.axons`.  SoA-    64 (L2 Cache Line & AMD Wavefront). |
+| **5** | **PCIe** | **Upload** (RAM  VRAM) | `cudaMemcpyAsync`  .           AEP. |
 
-**Длительность фазы Maintenance - плавающая.** Зависит от количества нейронов, turnover rate и мощности CPU. Быстрый CPU = быстрый метаболизм, короткий сон. Это легализовано через [Structural Determinism](./01_foundations.md) (§2.3).
+**  Maintenance - .**    , turnover rate   CPU.  CPU =  ,  .    [Structural Determinism](./01_foundations.md) (2.3).
 
-**Возвращение по готовности:** Как только `cudaMemcpy` завершается, шард мгновенно встраивается в текущий цикл AEP и продолжает работу.
+**  :**   `cudaMemcpy` ,       AEP   .
 
-#### 2.2.1. Step 1: GPU Sort & Prune (Детали)
+#### 2.2.1. Step 1: GPU Sort & Prune ()
 
-**Проблема:** 128 дендритов лежат поколонно (Columnar Layout, stride = N). Глобальный Radix Sort с таким stride убьёт кэш.
+**:** 128    (Columnar Layout, stride = N).  Radix Sort   stride  .
 
-**Решение: Shared Memory Staging (The 48 KB Budget)**
+**: Shared Memory Staging (The 48 KB Budget)**
 
-1. Ядро загружает 128 слотов для **32 нейронов** в Shared Memory (AoS [Neuron][Slot])
-   - **ХАРД-ЛИМИТ 32 ПОТОКА:** Даже на AMD (где Wavefront = 64) ядро **ОБЯЗАНО** запускаться блоками строго по 32 потока. Это ограничивает потребление Shared Memory (LDS) и гарантирует запуск на любом железе.
-   - **Физика лимита:** Структура `DendriteSlot` (Target:4 + Weight:4 + Timer:1 + padding) весит **12 байт**.
-   - При 32 потоках: 12B × 128 слотов × 32 потока = **49 152 байта (48 KB)**. Это идеально укладывается в L1/Shared кэш как NVIDIA (где 48 KB — золотой стандарт), так и AMD.
-   - При 64 потоках (AMD default): Потребление составило бы 96 KB, что **физически разорвёт лимит LDS в 64 KB** на один блок в архитектурах RDNA/CDNA, вызвав фатальную ошибку запуска ядра.
+1.   128   **32 **  Shared Memory (AoS [Neuron][Slot])
+   - **- 32 :**   AMD ( Wavefront = 64)  ****     32 .    Shared Memory (LDS)      .
+   - ** :**  `DendriteSlot` (Target:4 + Weight:4 + Timer:1 + padding)  **12 **.
+   -  32 : 12B  128   32  = **49 152  (48 KB)**.     L1/Shared   NVIDIA ( 48 KB   ),   AMD.
+   -  64  (AMD default):    96 KB,  **   LDS  64 KB**      RDNA/CDNA,     .
 
-2. **Bitonic Sort** по `abs(weight)` descending - целочисленный, 32-битный.
+2. **Bitonic Sort**  `abs(weight)` descending - , 32-.
 
-3. **Auto LTM/WM Promotion:** Сортировка автоматически уплотняет сильнейшие связи в начало массива.
+3. **Auto LTM/WM Promotion:**        .
 
-4. **Pruning:** Слоты в хвосте с `abs(weight) < (prune_threshold << 16)` → `target = 0`.
+4. **Pruning:**     `abs(weight) < (prune_threshold << 16)`  `target = 0`.
 
-5. **Запись:** Возврат в глобальную память в Columnar Layout. Благодаря сортировке, пустые слоты (0) всегда оказываются в конце, что позволяет использовать оптимизацию **Early Exit** в Day Phase.
+5. **:**      Columnar Layout.  ,   (0)    ,     **Early Exit**  Day Phase.
 
 ```
 Shared Memory (AoS, per warp):
-┌─────────────────────────────────────────────────┐
-│ Neuron 0: [slot0_w, slot0_t, slot0_tmr] ... ×128│
-│ Neuron 1: [slot0_w, slot0_t, slot0_tmr] ... ×128│
-│ ...                                      ×32    │
-└───────── Sort per neuron, write back ───────────┘
++-------------------------------------------------+
+| Neuron 0: [slot0_w, slot0_t, slot0_tmr] ... 128|
+| Neuron 1: [slot0_w, slot0_t, slot0_tmr] ... 128|
+| ...                                      32    |
++--------- Sort per neuron, write back -----------+
 ```
 
-> **`weight = 0` ≠ `target = 0`:** Днём вес может упасть до 0 через GSOP depression - связь электрически молчит, но структурно жива (target ≠ 0). GSOP может поднять её обратно. Физическое удаление (`target = 0`) - только здесь, при Pruning.
+> **`weight = 0`  `target = 0`:**      0  GSOP depression -   ,    (target  0). GSOP    .   (`target = 0`) -  ,  Pruning.
 
-#### 2.2.3. Step 3: Sprouting & Nudging (CPU, f32 легален)
+#### 2.2.3. Step 3: Sprouting & Nudging (CPU, f32 )
 
-Порядок строго последовательный: сначала растим кабели, потом ищем розетки.
+  :   ,   .
 
 **a) Nudging (Growth Step):**
-- Аксоны с `remaining_length > 0` делают шаг через `step_and_pack()` (см. [04_connectivity.md §4.3](./04_connectivity.md)).
-- Математика: `V_global + V_attract + V_noise` → `normalize` → `quantize` → `PackedPosition`.
+-   `remaining_length > 0`    `step_and_pack()` (. [04_connectivity.md 4.3](./04_connectivity.md)).
+- : `V_global + V_attract + V_noise`  `normalize`  `quantize`  `PackedPosition`.
 
-**b) Boundary Check → NewAxon Handover:**
-- Если координата вылетает за габариты шарда → аксон обрезается, формируется `NewAxon { entry_point, vector, type_mask }` в Slow Path очередь соседу (см. [06_distributed.md §2.5](./06_distributed.md)).
+**b) Boundary Check  NewAxon Handover:**
+-         ,  `NewAxon { entry_point, vector, type_mask }`  Slow Path   (. [06_distributed.md 2.5](./06_distributed.md)).
 
 **c) Spatial Grid Rebuild:**
-- Новые сегменты прописываются в 3D хэш-сетку (ключи из PackedPosition X|Y|Z). Обязателен до Sprouting - иначе `get_in_radius()` не увидит свежие аксоны.
+-     3D - (  PackedPosition X|Y|Z).   Sprouting -  `get_in_radius()`    .
 
 **d) Sprouting (Slot Filling):**
-- CPU сканирует массив `targets[]`. Если `target_packed == 0` - слот пуст.
-- Cone Query: `calculate_v_attract()` в Spatial Grid (FOV + Lookahead).
-- Фильтрация: тип владельца аксона = `seg_val >> 28` (4 бита из PackedPosition). Без обращения к соме.
-- **Выбор кандидата** - тройной скоринг `sprouting_score()` по дистанции, `soma_power_index` и exploratory-шуму (см. [04_connectivity.md §1.6.1](./04_connectivity.md)). Веса конфигурируются по типу нейрона.
-- Новый `target_packed` записывается, вес = базовый (74), слот попадает в WM (индексы 80-127).
+- CPU   `targets[]`.  `target_packed == 0` -  .
+- Cone Query: `calculate_v_attract()`  Spatial Grid (FOV + Lookahead).
+- :    = `seg_val >> 28` (4   PackedPosition).    .
+- ** ** -   `sprouting_score()`  , `soma_power_index`  exploratory- (. [04_connectivity.md 1.6.1](./04_connectivity.md)).     .
+-  `target_packed` ,  =  (74),    WM ( 80-127).
 
 #### 2.2.4. Step 4: Baking & Defragmentation (CPU)
 
-**a) f32 → u32 Quantization:**
-- Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
+**a) f32  u32 Quantization:**
+- Float-   `step_and_pack()`  `PackedPosition` (4 bytes/segment).
 
 **b) DenseIndex Generation:**
-- GPU работает с dense indices (0..N-1), не с PackedPosition.
-- CPU строить маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
-- В массив `targets[]` вписываются DenseIndex + segment offset.
+- GPU   dense indices (0..N-1),   PackedPosition.
+- CPU  : `PackedPosition  dense_id`   `target_packed`   .
+-   `targets[]`  DenseIndex + segment offset.
 
 **c) Columnar Layout Defrag:**
-- Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
+-       `Column[Slot_K]`,    .
 
 **d) Warp Alignment:**
-- `padded_n = align_to_warp(neuron_count)`. Глобальное выравнивание `padded_n` до числа, кратного **64** (L2 Cache Line & AMD Wavefront).
-- **Инвариант:** Это математически гарантирует, что длины всех внутренних SoA-массивов (4N, 2N, 1N байт) будут кратны 64 байтам. Это обеспечивает идеальное начало каждого следующего массива с новой L2 кэш-линии без использования padding bytes внутри блоба.
-- Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
+- `padded_n = align_to_warp(neuron_count)`.   `padded_n`  ,  **64** (L2 Cache Line & AMD Wavefront).
+- **:**   ,     SoA- (4N, 2N, 1N )   64 .          L2 -   padding bytes  .
+-  `.state`  `.axons`  --   VRAM layout  Step 5: `cudaMemcpyAsync`.
 
-### 2.3. External I/O Server (UDP для входов/выходов)
+### 2.3. External I/O Server (UDP  /)
 
-Отдельный Tokio-сервер (на третьем ядре) для взаимодействия с External Hub. Обрабатывает I/O неблокирующе.
+ Tokio- (  )    External Hub.  I/O .
 
 ```rust
 pub struct ExternalIoServer {
-    sock_in: Arc<UdpSocket>,        // Port N: ресивер Input Bitmasks
-    sock_out: Arc<UdpSocket>,       // Port N+1: сендер Output History
-    last_client_addr: Option<SocketAddr>, // Память о клиенте
+    sock_in: Arc<UdpSocket>,        // Port N:  Input Bitmasks
+    sock_out: Arc<UdpSocket>,       // Port N+1:  Output History
+    last_client_addr: Option<SocketAddr>, //   
 }
 
-// Протокол пакета
+//  
 #[repr(C)]
 pub struct ExternalIoHeader {
-    pub zone_hash: u32,     // идентификатор Zone
-    pub matrix_hash: u32,   // идентификатор Input/Output матрицы
-    pub payload_size: u32,  // размер пайлоада
+    pub zone_hash: u32,     //  Zone
+    pub matrix_hash: u32,   //  Input/Output 
+    pub payload_size: u32,  //  
 }
 ```
 
-**Дисфрагментация:** UDP пакеты больше 65KB автоматически дропятся (отсутствует EMSGSIZE отравления сокета). Полные передачи когда батч готов.
+**:** UDP   65KB   ( EMSGSIZE  ).     .
 
-**Плагин**:
-- На каждом батче (когда `current_tick_in_batch == 0`) сервер выслыла UDP датаграмму с `output_history` предыдущего батча клиенту (робоцика, визуализация).
-- Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положении и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
+****:
+-    ( `current_tick_in_batch == 0`)   UDP   `output_history`    (, ).
+-    `Input Bitmask`  ,   `try_recv_input()`        Virtual Axons (`InjectInputs`).
 
-### 2.3.1. WaitStrategy: Управление CPU в Горячих Циклах
+### 2.3.1. WaitStrategy:  CPU   
 
-**Контекст:** День-фаза (GPU) автономна, но ночная фаза (Night Phase) и сетевой ввод (Network Phase, см. [06_distributed.md §2.10](./06_distributed.md)) требуют синхронизации с OS scheduler.
+**:** - (GPU) ,    (Night Phase)    (Network Phase, . [06_distributed.md 2.10](./06_distributed.md))    OS scheduler.
 
-**Сценарий:** CPU ждёт данных от соседних шардов в BSP-барьере или дождается завершения I/O асинхронного. Без явного управления spin/yield ядро растрачивает кванты впустую.
+**:** CPU       BSP-    I/O .    spin/yield    .
 
-**3 профиля (флаг `--cpu-profile`):**
+**3  ( `--cpu-profile`):**
 
-| Профиль | Стратегия | Эффект | Сценарий |
+|  |  |  |  |
 |---|---|---|---|
-| **Aggressive** | `std::hint::spin_loop()` | ~1 нс латентность, 100% CPU | Production, HFT, локальный кластер |
-| **Balanced** | `std::thread::yield_now()` | OS берёт квант, процесс в очереди (~1–15 мс) | Дебаг, SSH-сессии, многопроцессный хост |
-| **Eco** | `std::thread::sleep(1ms)` | ~0% CPU в холостую, батарея сохранена | Ноутбуки, мобильные, фоновые процессы |
+| **Aggressive** | `std::hint::spin_loop()` | ~1  , 100% CPU | Production, HFT,   |
+| **Balanced** | `std::thread::yield_now()` | OS  ,    (~115 ) | , SSH-,   |
+| **Eco** | `std::thread::sleep(1ms)` | ~0% CPU  ,   | , ,   |
 
 ```rust
 pub enum WaitStrategy {
@@ -488,27 +488,27 @@ impl WaitStrategy {
 }
 ```
 
-**Инварианты:**
+**:**
 
-1. **Выбор на стартапе:** WaitStrategy фиксируется при инициализации runtime in `OnceLock<WaitStrategy>`. Нулевой cost для горячего цикла.
-2. **Безопасность:** BSP-барьер - единственное место, где CPU физически ждёт события. Нет Mutex, нет CAS-loop.
-3. **Портативность:** Ядро физики (GSOP, спайки, диффузия) идентично во всех профилях. Меняется только OS-level scheduling поведение.
+1. **  :** WaitStrategy    runtime in `OnceLock<WaitStrategy>`.  cost   .
+2. **:** BSP- -  ,  CPU   .  Mutex,  CAS-loop.
+3. **:**   (GSOP, , )    .   OS-level scheduling .
 
 
-### 2.4. Легализованная Амнезия (Spike Drop)
+### 2.4.   (Spike Drop)
 
-Пока зона спит, остальные зоны продолжают работать и слать спайки (Fast Path).
+  ,        (Fast Path).
 
-- Хост спящей зоны принимает TCP/UDP пакет, видит статус `SLEEP` → **мгновенный Drop**.
-- Ноль копирований в VRAM. Ноль ветвлений. Информация теряется **физиологически достоверно**.
-- **Биологический аналог:** Человек во сне не обрабатывает зрительный вход. Это нормальное поведение живой системы, не ошибка инференс-сервера.
+-     TCP/UDP ,   `SLEEP`  ** Drop**.
+-    VRAM.  .   ** **.
+- ** :**       .     ,   -.
 
 
 ## Connected Documents
 
 | Document | Connection |
 |---|---|
-| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory variant parameters |
+| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (1.0), Constant Memory variant parameters |
 | [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, network I/O |
 | [02_configuration.md](./02_configuration.md) | Variant definitions, blueprints, parameter validation |
 | [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons file format, Sort&Prune during Night |
@@ -518,19 +518,19 @@ impl WaitStrategy {
 
 ## Changelog
 
-| Дата | Версия | Описание |
+|  |  |  |
 |---|---|---|
-| 2026-03-17 | 2.2 | Полная переработка раскладки VRAM и VariantParameters. Введен BurstHeads8 (64-byte alignment). Уточнена битовая семантика soma_flags. Исправлен inertia_curve (u8[16]). |
-| 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
-| TBD | 2.0 | Первая версия |
+| 2026-03-17 | 2.2 |    VRAM  VariantParameters.  BurstHeads8 (64-byte alignment).    soma_flags.  inertia_curve (u8[16]). |
+| 2026-02-28 | 2.1 |  VramState   memory.rs ( I/O Matrix , readout ).   Day Phase  6 kernels    .   External I/O Server  UDP . |
+| TBD | 2.0 |   |
 
 ---
 
-## 3. Инварианты Жизненного Цикла (Lifecycle Invariants)
+## 3.    (Lifecycle Invariants)
 
 ### 3.1. Cold Start: Sentinel Assert
 
-> **⚠️ Baking Tool Assert:** Перед записью `.state` блоба Baking Tool обязан убедиться что весь массив `axon_heads` заполнен `AXON_SENTINEL` (`0x80000000`), а не нулями (`calloc`-default). Нули при старте вызовут эпилептический разряд всей коры в Тик 1 - гомеостатические пороги задерутся и система умрёт на старте.
+> **[WARN] Baking Tool Assert:**   `.state`  Baking Tool      `axon_heads`  `AXON_SENTINEL` (`0x80000000`),    (`calloc`-default).           1 -        .
 
 ```rust
 // baking_compiler/src/validate.rs
@@ -540,45 +540,45 @@ assert!(
 );
 ```
 
-### 3.2. Reset: O(1) Сброс и Блокирующая Ночь
+### 3.2. Reset: O(1)    
 
-При команде `reset_zone(zone_id)`:
+  `reset_zone(zone_id)`:
 
-1. **Если зона спит (Night Phase):** Сброс **блокирующий** - CPU дожидается завершения Maintenance pipeline (до Step 5 Upload включительно). Прерывание в середине оставит VRAM with дырявыми матрицами дендритов.
-2. **Ring Buffer инвалидация (O(1)):** Обнуляются только `counts` обоих Ping-Pong буферов. Сами `ghost_id` не важны - GPU читает ровно `counts[tick]` записей. Предотвращает фантомные сигналы из прошлой жизни.
+1. **   (Night Phase):**  **** - CPU   Maintenance pipeline ( Step 5 Upload ).     VRAM with   .
+2. **Ring Buffer  (O(1)):**   `counts`  Ping-Pong .  `ghost_id`   - GPU   `counts[tick]` .      .
 
 ```rust
-// O(1) - достаточно обнулить счётчики, не весь буфер
+// O(1) -   ,   
 memset(schedule_a.counts, 0, batch_size * size_of::<u32>());
 memset(schedule_b.counts, 0, batch_size * size_of::<u32>());
 ```
 
-> **Phantom Signals & Input Bleed:** Фантомные сигналы из Ring Buffer при перезапуске - **легализованное биологическое поведение** (аналог дежавю при пробуждении). Input Bleed от асинхронного сенсора - аналогично. Не дефекты архитектуры.
+> **Phantom Signals & Input Bleed:**    Ring Buffer   - **  ** (   ). Input Bleed    - .   .
 
-### 3.3. Hot Checkpoint (Периодический Дамп на Диск)
+### 3.3. Hot Checkpoint (   )
 
-Помимо дампа геометрии после каждой Night Phase, оркестратор делает **периодический снапшот** (`dendrite_weights` + `dendrite_targets`) в холодное хранилище:
+     Night Phase,   ** ** (`dendrite_weights` + `dendrite_targets`)   :
 
 ```rust
 const CHECKPOINT_INTERVAL_BATCHES: u32 =
-    300_000_000 / TICK_DURATION_US / SYNC_BATCH_TICKS; // ≈ 5 минут
+    300_000_000 / TICK_DURATION_US / SYNC_BATCH_TICKS; //  5 
 
 if batch_counter % CHECKPOINT_INTERVAL_BATCHES == 0 {
     cudaMemcpyAsync(host_buf, vram_weights, ..., DeviceToHost);
-    // Атомарная запись: сначала .tmp, потом rename() - защита от краша
+    //  :  .tmp,  rename() -   
     write_to_disk("checkpoint_weights.bin.tmp");
     rename("checkpoint_weights.bin.tmp", "checkpoint_weights.bin");
 }
 ```
 
-| Тип дампа | Триггер | Файл |
+|   |  |  |
 |---|---|---|
-| **Геометрия** (`axons`) | После каждой Night Phase | `.axons` |
-| **Состояние** (`weights` + `targets`) | Каждые ~5 минут | `checkpoint_weights.bin` |
+| **** (`axons`) |   Night Phase | `.axons` |
+| **** (`weights` + `targets`) |  ~5  | `checkpoint_weights.bin` |
 
 ### 3.4. Crash Tolerance (Mmap Page Cache Flush)
 
-При работе с Zero-Copy Mmap (`.geom`, `.paths`) ОС использует Page Cache. В случае неожиданного отключения питания или Kernel Panic, "грязные" (dirty) страницы могут не успеть сброситься на энергонезависимый носитель (NVMe SSD), что приведёт к рассинхронизации топологии.
+   Zero-Copy Mmap (`.geom`, `.paths`)   Page Cache.       Kernel Panic, "" (dirty)         (NVMe SSD),     .
 
-**Асинхронный сброс (Flush Async):**
-Сразу после успешного структурного обновления в Night Phase (вызов `run_sprouting_pass`), Baker Daemon инициирует `flush_async()` для `mmap_geom` и `mmap_paths`. Это не блокирует дальнейший ход симуляции, но заставляет ОС приоритетно отправить грязные страницы на диск, минимизируя окно уязвимости до миллисекунд.
+**  (Flush Async):**
+      Night Phase ( `run_sprouting_pass`), Baker Daemon  `flush_async()`  `mmap_geom`  `mmap_paths`.      ,         ,     .

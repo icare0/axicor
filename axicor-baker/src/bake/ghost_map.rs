@@ -1,7 +1,7 @@
-// genesis-baker/src/bake/ghost_map.rs
+// axicor-baker/src/bake/ghost_map.rs
 //
 // Phase C: Inter-zone Ghost Routing (.ghosts)
-// Specification: 09_baking_pipeline.md §1.3
+// Specification: 09_baking_pipeline.md 1.3
 //
 // Contract:
 //   Phase C is strictly executed AFTER Phase B (GXO).
@@ -22,10 +22,10 @@ pub struct BakedGhosts {
 /// Builds inter-zone connections using the following principle:
 /// "The output matrix of Zone A (src_mapped_soma_ids) is projected into the input matrix of Zone B."
 ///
-/// `src_mapped_soma_ids` — flat array from the source zone's `BakedGxo.mapped_soma_ids`.
+/// `src_mapped_soma_ids`  flat array from the source zone's `BakedGxo.mapped_soma_ids`.
 ///                         EMPTY pixels (EMPTY_PIXEL) produce a corresponding GHOST axon
 ///                         but do not bind a real soma.
-/// `dst_base_ghost_id`   — index of the first ghost axon in Zone B (= base_axon_id from Phase A).
+/// `dst_base_ghost_id`    index of the first ghost axon in Zone B (= base_axon_id from Phase A).
 ///
 /// Contract: pixel traversal order is deterministic (row-major pixel_index).
 /// All `connection_count` links are recorded, even for EMPTY_PIXEL, to maintain
@@ -127,9 +127,9 @@ mod tests {
         // Phase C takes that exact slice.
         let mapped_soma_ids = vec![3u32, EMPTY_PIXEL, 7, 2];
         let g = build_ghost_mapping("src_zone", "dst_zone", &mapped_soma_ids, 200);
-        // Pixel 0 → soma 3 → ghost 200
+        // Pixel 0  soma 3  ghost 200
         assert_eq!(g.connections[0].src_soma_id, 3);
-        // Pixel 1 → empty  → ghost 201 (but src=EMPTY_PIXEL)
+        // Pixel 1  empty   ghost 201 (but src=EMPTY_PIXEL)
         assert_eq!(g.connections[1].src_soma_id, EMPTY_PIXEL);
         assert_eq!(g.connections[1].target_ghost_id, 201);
     }

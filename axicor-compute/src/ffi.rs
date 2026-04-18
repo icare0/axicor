@@ -5,11 +5,11 @@ use std::ffi::c_void;
 pub type CudaStream = *mut c_void;
 
 // =============================================================================
-// § ShardVramPtrs — The absolute source of truth for the shard's VRAM layout.
+//  ShardVramPtrs  The absolute source of truth for the shard's VRAM layout.
 //
 // LAW: The order of fields is FORBIDDEN to change. It defines the byte-for-byte layout
 // of the binary .state blob that baker writes to disk and compute uploads via
-// a single cudaMemcpyAsync. Violation → Silent Data Corruption.
+// a single cudaMemcpyAsync. Violation  Silent Data Corruption.
 //
 // Array sizes (N = padded_n, multiple of 32):
 //   soma_voltage       [N]     i32   | 4N bytes
@@ -49,7 +49,7 @@ unsafe impl Sync for ShardVramPtrs {}
 #[cfg_attr(all(not(feature = "mock-gpu"), feature = "amd"), link(name = "genesis_amd", kind = "static"))]
 extern "C" {
     // =====================================================================
-    // § New Zero-Cost contract (cu_* functions)
+    //  New Zero-Cost contract (cu_* functions)
     // =====================================================================
 
     /// Allocates VRAM for a single shard and writes pointers to out_vram.
@@ -67,7 +67,7 @@ extern "C" {
     );
 
     /// Zero-Cost DMA Upload: one cudaMemcpyAsync for the entire .state blob.
-    /// state_blob — flat byte array in the order of ShardVramPtrs fields.
+    /// state_blob  flat byte array in the order of ShardVramPtrs fields.
     /// Returns 0 on success.
     pub fn cu_upload_state_blob(
         vram:        *const ShardVramPtrs,
@@ -109,7 +109,7 @@ extern "C" {
     pub fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32;
 
     // =====================================================================
-    // § Memory and stream management (legacy helpers, used by memory.rs)
+    //  Memory and stream management (legacy helpers, used by memory.rs)
     // =====================================================================
     pub fn gpu_malloc(size: usize) -> *mut c_void;
     pub fn gpu_free(dev_ptr: *mut c_void);

@@ -39,7 +39,7 @@ pub fn render_io_inspector_system(
                                 return;
                             }
 
-                            // [DOD FIX] Читаем иерархические данные из RAM-кэша
+                            // [DOD FIX]     RAM-
                             let io_data = session.shard_io.get(zone);
 
                             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -79,7 +79,7 @@ pub fn render_io_inspector_system(
             });
     }
 
-    // Глобальный рендер летящего шнура
+    //    
     render_flying_wire(ctx);
 }
 
@@ -90,7 +90,7 @@ fn draw_capsule(ui: &mut egui::Ui, zone: &str, name: &str, is_input: bool) {
 
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), egui::Sense::click_and_drag());
 
-    // [DOD FIX] Эмиссия фокуса в глобальный блэкборд
+    // [DOD FIX]     
     if response.clicked() {
         ui.ctx().memory_mut(|m| m.data.insert_temp(
             egui::Id::new(layout_api::IO_ROUTER_FOCUS_ID), 

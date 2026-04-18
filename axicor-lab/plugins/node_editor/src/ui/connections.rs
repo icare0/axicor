@@ -25,8 +25,8 @@ pub fn draw_all_connections(
                 
                 if resp.hovered() { painter.circle_filled(mid, 5.0 * zoom, Color32::YELLOW); }
                 resp.context_menu(|ui| {
-                    ui.label(format!("Link: {}[{}] → {}[{}]", from, from_p, to, to_p));
-                    if ui.button("✂ Delete Connection").clicked() {
+                    ui.label(format!("Link: {}[{}]  {}[{}]", from, from_p, to, to_p));
+                    if ui.button(" Delete Connection").clicked() {
                         send_mutation(crate::domain::TopologyMutation::Delete(
                             crate::domain::DeleteTarget::Connection {
                                 from: from.clone(),

@@ -23,7 +23,7 @@ pub fn render_matrix_editor_system(
                 ui.allocate_ui_at_rect(content_rect, |ui| {
                     ui.centered_and_justified(|ui| {
                         ui.label(
-                            egui::RichText::new("🚧 UI in Quarantine 🚧\nWaiting for UX overhaul.")
+                            egui::RichText::new(" UI in Quarantine \nWaiting for UX overhaul.")
                                 .color(egui::Color32::DARK_GRAY)
                                 .size(16.0)
                         );

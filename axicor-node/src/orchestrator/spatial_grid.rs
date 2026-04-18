@@ -1,4 +1,4 @@
-// genesis-runtime/src/orchestrator/spatial_grid.rs
+// axicor-runtime/src/orchestrator/spatial_grid.rs
 use std::collections::HashMap;
 
 /// Size of a hash-grid cell in voxels. 1 voxel = 25 um (typically).

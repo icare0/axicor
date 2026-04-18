@@ -75,9 +75,9 @@ impl IntraGpuChannel {
     /// CPU-side ghost sync. Used in mock mode and intra-host tests.
     /// In production zones pass axon_head_index via ShardEngine, not ZoneRuntime.
     pub fn sync_spikes(&mut self, _zones: &mut [crate::zone_runtime::ZoneRuntime]) {
-        // Legacy path removed — ZoneRuntime no longer owns raw VRAM.
+        // Legacy path removed  ZoneRuntime no longer owns raw VRAM.
         // In production GPU sync is done via sync_ghosts() with raw device pointers.
-        unimplemented!("sync_spikes is not available after genesis-compute split");
+        unimplemented!("sync_spikes is not available after axicor-compute split");
     }
 
     /// GPU-side sync: calls CUDA kernel launch_ghost_sync (production).

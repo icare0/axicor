@@ -488,7 +488,7 @@ pub fn inject_ghost_axons(
         };
 
         grown.push(crate::bake::axon_growth::GrownAxon {
-            soma_idx: usize::MAX, // Ghost — no local soma
+            soma_idx: usize::MAX, // Ghost  no local soma
             type_idx: packet.type_idx,
             tip_x: final_x,
             tip_y: final_y,

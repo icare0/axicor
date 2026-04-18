@@ -34,7 +34,7 @@ pub fn debounce_save_blueprint_system(
     for mut state in query.iter_mut() {
         if state.is_dirty {
             state.debounce_timer += time.delta_seconds();
-            // Ждем 500мс покоя перед сбросом на диск
+            //  500     
             if state.debounce_timer > 0.5 {
                 state.is_dirty = false;
                 state.debounce_timer = 0.0;

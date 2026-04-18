@@ -13,7 +13,7 @@ use axicor_core::config::manifest::{ModelManifest, ManifestConnection};
 #[derive(Parser)]
 #[command(
     name = "baker",
-    about = "Genesis Baking Tool — TOML configs → binary .state/.axons blobs + ghost maps"
+    about = "Axicor Baking Tool  TOML configs  binary .state/.axons blobs + ghost maps"
 )]
 #[command(version)]
 struct Cli {
@@ -74,7 +74,7 @@ fn bake_single_brain(brain_path: &Path, clean: bool, yes: bool) -> Result<()> {
 
     let project_name = project_dir.file_name().unwrap().to_str().unwrap();
     let axic_path = project_dir.parent().unwrap().join(format!("{}.axic", project_name));
-    println!("\n[baker] 📦 Packing project into VFS Archive: {:?}", axic_path);
+    println!("\n[baker]  Packing project into VFS Archive: {:?}", axic_path);
     bake::axic::pack_directory_to_axic(project_dir, &axic_path)?;
 
     Ok(())
@@ -123,7 +123,7 @@ fn bake_entire_model(model_path: &Path, clean: bool, yes: bool) -> Result<()> {
     let manifest_toml = toml::to_string(&model_manifest).expect("Failed to serialize model manifest");
     let manifest_path = project_dir.join("manifest.toml");
     std::fs::write(&manifest_path, manifest_toml)?;
-    println!("[baker] ✓ Written global manifest.toml");
+    println!("[baker]  Written global manifest.toml");
 
     Ok(())
 }
@@ -177,7 +177,7 @@ fn establish_ghost_links(brain_config: &BrainConfig, compiled_zones: &HashMap<St
             bake::ghost_map::write_ghosts_file(&out_dir, &conn.from, &conn.to, &ghosts);
             ghosts.header.connection_count
         };
-        println!("[baker] ✓ Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
+        println!("[baker]  Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
     }
     Ok(())
 }

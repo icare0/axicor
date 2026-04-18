@@ -34,7 +34,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 try:
     sock.bind((UDP_IP, UDP_PORT))
 except Exception as e:
-    print(f"❌ Bind error: {e}")
+    print(f"[ERROR] Bind error: {e}")
     sys.exit(1)
 sock.setblocking(False)
 
@@ -106,7 +106,7 @@ def on_key(event):
         is_paused = False
     elif event.key == 's':
         plt.savefig(f"snapshot_ep{len(episodes)}.png", dpi=150)
-        print("📸 Captured!")
+        print(" Captured!")
 
 fig.canvas.mpl_connect('key_press_event', on_key)
 
@@ -201,5 +201,5 @@ def update(frame):
 # Launch
 ani = animation.FuncAnimation(fig, update, interval=250, blit=False)
 plt.tight_layout()
-print(f"🚀 Dashboard 2.2 Online ({UDP_IP}:{UDP_PORT})")
+print(f" Dashboard 2.2 Online ({UDP_IP}:{UDP_PORT})")
 plt.show()

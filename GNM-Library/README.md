@@ -1,7 +1,7 @@
-# GNM-Lib - Genesis Neuron Model Library
+# GNM-Lib - Axicor Neuron Model Library
 
-Библиотека цифровых блюпринтов нейронов для движка **Genesis**.
-Каждый `.toml` файл описывает один биологически аппроксимированный тип нейрона - мембранные свойства, морфологию роста, параметры пластичности - в целочисленной физике Genesis.
+Библиотека цифровых блюпринтов нейронов для движка **Axicor**.
+Каждый `.toml` файл описывает один биологически аппроксимированный тип нейрона - мембранные свойства, морфологию роста, параметры пластичности - в целочисленной физике Axicor.
 
 ---
 
@@ -22,31 +22,31 @@
 
 ```
 GNM-Library/
-├── Cortex/                     # ~1780 типов от Allen Cell Types API
-│   ├── L1/                     # Cortical layer 1
-│   │   ├── aspiny/             # Тормозные интернейроны
-│   │   ├── sparsely spiny/     # Переходный тип
-│   │   └── spiny/              # Возбуждающие пирамиды
-│   │       ├── VISp5/          # Зона → вложенные варианты
-│   │       │   ├── 1.toml
-│   │       │   └── 2.toml
-│   │       └── SSp-un5.toml    # Единственный вариант → плоский файл
-│   ├── L2/ ... L6b/            # Слои L2, L23, L3, L4, L5, L6, L6a, L6b
-│
-├── Cerebellum/                 # Мозжечок (hardcoded из литературы)
-│   ├── Mouse/
-│   ├── Rat/
-│   └── Zebrafish/
-│
-├── Hippocampus/                # Гиппокамп
-│   ├── Mouse/
-│   └── Rat/
-│
-├── Striatum/                   # Стриатум
-│   └── Mouse/ Rat/
-│
-└── Thalamus/                   # Таламус
-    └── Mouse/ Rat/
+|-- Cortex/                     # ~1780 типов от Allen Cell Types API
+|   |-- L1/                     # Cortical layer 1
+|   |   |-- aspiny/             # Тормозные интернейроны
+|   |   |-- sparsely spiny/     # Переходный тип
+|   |   \-- spiny/              # Возбуждающие пирамиды
+|   |       |-- VISp5/          # Зона -> вложенные варианты
+|   |       |   |-- 1.toml
+|   |       |   \-- 2.toml
+|   |       \-- SSp-un5.toml    # Единственный вариант -> плоский файл
+|   |-- L2/ ... L6b/            # Слои L2, L23, L3, L4, L5, L6, L6a, L6b
+|
+|-- Cerebellum/                 # Мозжечок (hardcoded из литературы)
+|   |-- Mouse/
+|   |-- Rat/
+|   \-- Zebrafish/
+|
+|-- Hippocampus/                # Гиппокамп
+|   |-- Mouse/
+|   \-- Rat/
+|
+|-- Striatum/                   # Стриатум
+|   \-- Mouse/ Rat/
+|
+\-- Thalamus/                   # Таламус
+    \-- Mouse/ Rat/
 ```
 
 ### Соглашение об именовании
@@ -96,7 +96,7 @@ steering_weight_jitter = 0.1                # f32, weight
 initial_synapse_weight = 168                # u16, absolute
 gsop_potentiation = 108                     # u16
 gsop_depression = 69                        # u16
-inertia_curve = [128, 121, 115, ...]        # [u8; 16], fixed-point (128 = 1.0×)
+inertia_curve = [128, 121, 115, ...]        # [u8; 16], fixed-point (128 = 1.0x)
 prune_threshold = 5                         # i16, min weight to survive
 ```
 
@@ -108,7 +108,7 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Тип | Единицы | Диапазон | Описание |
 |----------|-----|---------|----------|----------|
-| `threshold` | i32 | µV (GNM) | 0–65 000 | Порог возбуждения. Когда потенциал ≥ threshold - нейрон генерирует спайк. |
+| `threshold` | i32 | µV (GNM) | 0–65 000 | Порог возбуждения. Когда потенциал >= threshold - нейрон генерирует спайк. |
 | `rest_potential` | i32 | µV (GNM) | 0–30 000 | Потенциал покоя. Мембрана стремится к этому значению между спайками. |
 | `leak_rate` | i32 | dV/tick | 10–12 000 | Скорость утечки мембраны. Выше = быстрее возврат к rest_potential. |
 | `refractory_period` | u8 | ticks | 5–25 | Абсолютный рефрактерный период. Нейрон не может спайкнуть в течение этого времени. |
@@ -140,14 +140,14 @@ prune_threshold = 5                         # i16, min weight to survive
 | `steering_weight_sensor` | f32 | - | 0.0–1.0 | Вес сенсорного сигнала (притяжение к целям). |
 | `steering_weight_jitter` | f32 | - | 0.0–0.5 | Вес случайного шума при росте. |
 
-### Пластичность (GSOP - Genesis Synaptic Ordering Protocol)
+### Пластичность (GSOP - Axicor Synaptic Ordering Protocol)
 
 | Параметр | Тип | Единицы | Диапазон | Описание |
 |----------|-----|---------|----------|----------|
-| `initial_synapse_weight` | u16 | - | 50–32 767 | Начальный вес нового синапса. ~1/50 от (threshold − rest). |
+| `initial_synapse_weight` | u16 | - | 50–32 767 | Начальный вес нового синапса. ~1/50 от (threshold - rest). |
 | `gsop_potentiation` | u16 | - | 2–32 767 | Скорость потенциации (LTP). Больше = быстрее усиление. |
 | `gsop_depression` | u16 | - | 2–32 767 | Скорость депрессии (LTD). Больше = быстрее ослабление. |
-| `inertia_curve` | [u8; 16] | fixed-point | 2–255 | Сопротивление изменению веса по рангу. 128 = 1.0× (без модификации). |
+| `inertia_curve` | [u8; 16] | fixed-point | 2–255 | Сопротивление изменению веса по рангу. 128 = 1.0x (без модификации). |
 | `prune_threshold` | i16 | - | 5–8 000 | Минимальный вес для выживания синапса. Ниже = прунинг. |
 | `is_inhibitory` | bool | - | - | true = тормозной (ГАМК), false = возбуждающий (глутамат). |
 
@@ -168,18 +168,18 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Формула | Источник Allen |
 |----------|---------|----------------|
-| `threshold` | `(ef__fast_trough_v_long_square − (−82)) × 1000` | `ef__fast_trough_v_long_square` |
-| `rest_potential` | `(ef__vrest − (−82)) × 1000` | `ef__vrest` |
-| `leak_rate` | `ef__tau × 10` | `ef__tau` (мс) |
-| `refractory_period` | `29 − 4 × ef__upstroke_downstroke_ratio` , clamp [5, 25] | `ef__upstroke_downstroke_ratio_long_square` |
+| `threshold` | `(ef__fast_trough_v_long_square - (-82)) * 1000` | `ef__fast_trough_v_long_square` |
+| `rest_potential` | `(ef__vrest - (-82)) * 1000` | `ef__vrest` |
+| `leak_rate` | `ef__tau * 10` | `ef__tau` (мс) |
+| `refractory_period` | `29 - 4 * ef__upstroke_downstroke_ratio` , clamp [5, 25] | `ef__upstroke_downstroke_ratio_long_square` |
 | `spontaneous_firing_period_ticks` | **Приоритет 1:** `10000 / ef__avg_firing_rate` | `ef__avg_firing_rate` (Hz) |
-| | **Приоритет 2:** `10000 / ((0.5 × Rin) / ΔV)`, ΔV = threshold − rest | `ef__ri` (MΩ) |
+| | **Приоритет 2:** `10000 / ((0.5 * Rin) / dV)`, dV = threshold - rest | `ef__ri` (MΩ) |
 
 ### Адаптация
 
 | Параметр | Формула | Источник Allen |
 |----------|---------|----------------|
-| `homeostasis_penalty` | `max(1000, ef__adaptation × 20000)` | `ef__adaptation` |
+| `homeostasis_penalty` | `max(1000, ef__adaptation * 20000)` | `ef__adaptation` |
 | `homeostasis_decay` | `250 / ef__avg_isi`, clamp [2, 80] | `ef__avg_isi` (мс) |
 | `signal_propagation_length` | `nr__max_euclidean_distance / 20`, clamp [3, 100] | `nr__max_euclidean_distance` (µm) |
 
@@ -187,10 +187,10 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Параметр | Формула | Примечание |
 |----------|---------|------------|
-| `steering_fov_deg` | aspiny: 150°, sparsely spiny: 75°, spiny: 40° - коррекция: `−min(20, axon_length/100)` | Интернейроны = широкий поиск, пирамиды = узкий луч |
-| `steering_radius_um` | `axon_total_length_um × 0.12`, clamp [20, 500] | 12% от длины аксона из SWC |
-| `growth_vertical_bias` | **Exc:** `|soma_z − 0.05| × 2000 / axon_length`, clamp [0.3, 0.95] | Пирамиды L5 тянутся к L1 |
-| | **Inh:** `0.1 + soma_z × 0.2`, max 0.4 | Интернейроны ветвятся локально |
+| `steering_fov_deg` | aspiny: 150°, sparsely spiny: 75°, spiny: 40° - коррекция: `-min(20, axon_length/100)` | Интернейроны = широкий поиск, пирамиды = узкий луч |
+| `steering_radius_um` | `axon_total_length_um * 0.12`, clamp [20, 500] | 12% от длины аксона из SWC |
+| `growth_vertical_bias` | **Exc:** `|soma_z - 0.05| * 2000 / axon_length`, clamp [0.3, 0.95] | Пирамиды L5 тянутся к L1 |
+| | **Inh:** `0.1 + soma_z * 0.2`, max 0.4 | Интернейроны ветвятся локально |
 | `type_affinity` | spiny=0.8, aspiny=0.2, sparsely spiny=0.5 | Фиксированное правило |
 | `sprouting_weight_explore` | `0.05 + nr__number_bifurcations / 300`, clamp [0.05, 0.5] | Больше бифуркаций = больше exploration |
 
@@ -207,19 +207,19 @@ prune_threshold = 5                         # i16, min weight to survive
 | Параметр | Формула | Примечание |
 |----------|---------|------------|
 | `initial_synapse_weight` | 10 (Exc), 30 (Inh) | Safe Tabula Rasa |
-| `gsop_potentiation` | **Exc:** `100 + adaptation × 400` | Высокая адаптация = высокая пластичность |
-| | **PV inh:** `200 + adaptation × 100` (ratio 100:1) | PV держат связи стабильно |
+| `gsop_potentiation` | **Exc:** `100 + adaptation * 400` | Высокая адаптация = высокая пластичность |
+| | **PV inh:** `200 + adaptation * 100` (ratio 100:1) | PV держат связи стабильно |
 | `gsop_depression` | `potentiation * 1.2` | Entropy Erosion |
-| `inertia_curve` | `128 × exp(−steepness × rank × 3.5 / 15)` | steepness = penalty_norm × 0.6 + adaptation × 0.4 |
+| `inertia_curve` | `128 * exp(-steepness * rank * 3.5 / 15)` | steepness = penalty_norm * 0.6 + adaptation * 0.4 |
 | `prune_threshold` | `5` | Static Hard Limit |
 
 ### Dead Zone Guard (Patch)
 
 Условие живого обучения на каждом ранге:
 ```
-(gsop_potentiation × inertia[rank]) >> 7 ≥ 1
+(gsop_potentiation * inertia[rank]) >> 7 >= 1
 ```
-Если нарушено - `inertia[rank]` поднимается до `⌈128 / gsop_potentiation⌉`.
+Если нарушено - `inertia[rank]` поднимается до `ceil(128 / gsop_potentiation)`.
 
 ---
 
@@ -229,7 +229,7 @@ prune_threshold = 5                         # i16, min weight to survive
 
 | Источник | Что даёт | Endpoint / Файл |
 |----------|----------|------------------|
-| **Allen Cell Types API** | Электрофизиология: Vrest, τ, Rin, firing rate, adaptation, upstroke/downstroke ratio, dendrite type, cortical layer, brain area | `https://api.brain-map.org/api/v2/data/query.json` model: `ApiCellTypesSpecimenDetail` |
+| **Allen Cell Types API** | Электрофизиология: Vrest, tau, Rin, firing rate, adaptation, upstroke/downstroke ratio, dendrite type, cortical layer, brain area | `https://api.brain-map.org/api/v2/data/query.json` model: `ApiCellTypesSpecimenDetail` |
 | **Allen SWC morphometry** | Морфология аксона и дендритов: `axon_total_length_um`, `dendrite_max_radius_um` | SWC файлы через `well_known_file_download/{nrwkf_id}` |
 
 ### Подкорковые структуры (hardcoded)
@@ -241,7 +241,7 @@ prune_threshold = 5                         # i16, min weight to survive
 | **Thalamus** | TC, TRN | Sherman & Guillery 2006 |
 | **Hippocampus** | CA1 Pyramidal, CA3 Pyramidal, Dentate Granule, PV Basket | Spruston 2008, Klausberger & Somogyi 2008 |
 | **Striatum** | MSN | Kreitzer & Malenka 2008 |
-| **Cerebellum** | Purkinje, Granule | Häusser & Clark 1997 |
+| **Cerebellum** | Purkinje, Granule | Hausser & Clark 1997 |
 
 ---
 
@@ -251,13 +251,13 @@ prune_threshold = 5                         # i16, min weight to survive
 
 ```
 1. download_neuro_data.py      Скачивает raw_data/ из Allen API + SWC
-         ↓
-2. generate_gnm_library.py     Allen JSON → ~1780 индивидуальных .toml (Cortex)
-   generate_subcortical_library.py  Hardcoded → ~12 .toml (подкорка)
-         ↓
+         |
+2. generate_gnm_library.py     Allen JSON -> ~1780 индивидуальных .toml (Cortex)
+   generate_subcortical_library.py  Hardcoded -> ~12 .toml (подкорка)
+         |
 3. patch_gnm_library.py        Post-hoc исправления:
-                                 - signal_length ≥ refractory + 1
-                                 - Dead Zone guard для inertia × potentiation
+                                 - signal_length >= refractory + 1
+                                 - Dead Zone guard для inertia * potentiation
                                  - Масштабирование initial_weight от delta
                                  - Синхронизация prune_threshold
 ```
@@ -271,7 +271,7 @@ prune_threshold = 5                         # i16, min weight to survive
 Cortical neuron electrophysiology and morphometry data derived from the
 **Allen Cell Types Database**.
 
-> © 2015 Allen Institute for Brain Science. Allen Cell Types Database.
+> (c) 2015 Allen Institute for Brain Science. Allen Cell Types Database.
 > Available from: [celltypes.brain-map.org](https://celltypes.brain-map.org)
 >
 > Citation: *Allen Institute for Brain Science (2015). Allen Cell Types Database.
@@ -279,7 +279,7 @@ Cortical neuron electrophysiology and morphometry data derived from the
 
 The Allen Institute Terms of Use permit use of their data in research and derivative works
 with attribution. GNM-Library `.toml` files are derivative works - biological parameters
-(mV, ms, Hz, µm) were transformed through custom conversion formulas into Genesis
+(mV, ms, Hz, um) were transformed through custom conversion formulas into Axicor
 integer physics units. No raw Allen data is redistributed.
 
 ### Literature Sources (Subcortical)
@@ -290,11 +290,11 @@ Subcortical neuron parameters are based on published electrophysiological measur
 - Spruston, N. (2008). Pyramidal neurons: dendritic structure and synaptic integration. *Nature Reviews Neuroscience*, 9(3), 206–221.
 - Klausberger, T. & Somogyi, P. (2008). Neuronal diversity and temporal dynamics. *Science*, 321(5885), 53–57.
 - Kreitzer, A. C. & Malenka, R. C. (2008). Striatal plasticity and basal ganglia circuit function. *Neuron*, 60(4), 543–554.
-- Häusser, M. & Clark, B. A. (1997). Tonic synaptic inhibition modulates neuronal output pattern. *Neuron*, 19(3), 665–678.
+- Hausser, M. & Clark, B. A. (1997). Tonic synaptic inhibition modulates neuronal output pattern. *Neuron*, 19(3), 665–678.
 
 ### License
 
-GNM-Library is part of the Genesis project and is distributed under **GPLv3**
+GNM-Library is part of the Axicor project and is distributed under **GPLv3**
 (see root LICENSE). The conversion formulas and resulting neuron blueprints are
 original work; source data is used under the respective providers' terms of use.
 
@@ -302,8 +302,8 @@ original work; source data is used under the respective providers' terms of use.
 
 ## Инварианты
 
-- `inertia_curve` - ровно 16 элементов `[u8; 16]`, 128 = 1.0×
-- `is_inhibitory = true` → вес синапса интерпретируется как отрицательный
-- `signal_propagation_length ≥ refractory_period + 1` (иначе сигнал не успевает пройти)
-- `Σ sprouting_weight_* ≈ 1.0`
-- Dead Zone: `(gsop_potentiation × inertia[any_rank]) >> 7 ≥ 1`
+- `inertia_curve` - ровно 16 элементов `[u8; 16]`, 128 = 1.0x
+- `is_inhibitory = true` -> вес синапса интерпретируется как отрицательный
+- `signal_propagation_length >= refractory_period + 1` (иначе сигнал не успевает пройти)
+- `SUM sprouting_weight_* ~= 1.0`
+- Dead Zone: `(gsop_potentiation * inertia[any_rank]) >> 7 >= 1`

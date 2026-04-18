@@ -63,7 +63,7 @@ void init_brain() { // [DOD FIX] Без аргументов!
         printf("FATAL: Invalid Magic 0x%08X in Flash. Did you run distill_esp32.py?\n", (unsigned int)header[0]); abort();
     }
     uint32_t num_neurons = header[1];
-    printf("🧠 Flash Header OK! Auto-detected Neurons: %lu\n", (unsigned long)num_neurons);
+    printf("[BRAIN] Flash Header OK! Auto-detected Neurons: %lu\n", (unsigned long)num_neurons);
 
     sram.padded_n = num_neurons;
     sram.total_axons = num_neurons;
@@ -87,7 +87,7 @@ void init_brain() { // [DOD FIX] Без аргументов!
     uint32_t targets_size_bytes = num_neurons * MAX_DENDRITE_SLOTS * sizeof(uint32_t);
     flash.soma_to_axon = (uint32_t*)((uint8_t*)map_ptr + 64 + targets_size_bytes);
     
-    printf("✅ MMAP Topology loaded from Flash: %d bytes mapped\n", (int)part->size);
+    printf("[OK] MMAP Topology loaded from Flash: %d bytes mapped\n", (int)part->size);
 
     // 5. TUI DMA буфер
     size_t dma_buf_size = 240 * 10 * 2;
@@ -116,7 +116,7 @@ void init_brain() { // [DOD FIX] Без аргументов!
     VARIANT_LUT[0].d2_affinity = 128;
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
 
-    printf("🧠 Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
+    printf("[BRAIN] Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
 }
 
 
@@ -461,7 +461,7 @@ void day_phase_task(void *pvParameter) {
 
         global_tick.fetch_add(1, std::memory_order_relaxed);
         if (tick % 100 == 0) {
-            printf("⚡ Tick %" PRIu32 " | Hot loop time: %" PRId64 " us\n", tick, (int64_t)(end_time - start_time));
+            printf("[TPS] Tick %" PRIu32 " | Hot loop time: %" PRId64 " us\n", tick, (int64_t)(end_time - start_time));
         }
     }
 }
@@ -481,7 +481,7 @@ void day_phase_task(void *pvParameter) {
 #define TUI_PIN_CS      5
 
 void init_hardware() {
-    printf("⚙️ [Hardware] Initializing I2C & PWM...\n");
+    printf("[HW] Initializing I2C & PWM...\n");
     // 1. I2C Master Init
     i2c_config_t conf = {};
     conf.mode = I2C_MODE_MASTER;
@@ -561,7 +561,7 @@ int16_t i2c_read_accel_x() {
 // CORE 0: Pro Phase (Sensors I2C / PWM Motors / Network)
 // =========================================================
 void pro_core_task(void *pvParameter) {
-    printf("📡 [Core 0] Initializing LwIP UDP HFT Stack...\n");
+    printf("[NET] [Core 0] Initializing LwIP UDP HFT Stack...\n");
     // ... [Omitted nvs/wifi/socket init for brevity, but it's there in the file]
 
     esp_err_t ret = nvs_flash_init();
@@ -577,11 +577,11 @@ void pro_core_task(void *pvParameter) {
 
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
-        printf("⚠️ [Core 0] Wi-Fi init failed (QEMU environment). Falling back to Offline Mode.\n");
+        printf("[WARN] [Core 0] Wi-Fi init failed (QEMU environment). Falling back to Offline Mode.\n");
     } else {
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_start());
-        printf("✅ [Core 0] Wi-Fi initialized.\n");
+        printf("[OK] [Core 0] Wi-Fi initialized.\n");
     }
 
     // 0. Настройка UDP сокета
@@ -593,7 +593,7 @@ void pro_core_task(void *pvParameter) {
     bind(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
 
     init_hardware();
-    printf("🤖 [Core 0] Hardware I/O Loop Started.\n");
+    printf("[BOT] [Core 0] Hardware I/O Loop Started.\n");
 
     static uint32_t last_ui_tick = 0;
     static int64_t last_ui_time = esp_timer_get_time();
@@ -722,7 +722,7 @@ void pro_core_task(void *pvParameter) {
 extern "C" void app_main(void) {
     // [DOD FIX] Даем UART консоли 2 секунды на подключение, чтобы ловить паники!
     vTaskDelay(pdMS_TO_TICKS(2000));
-    printf("🚀 Booting Genesis-Lite on FreeRTOS (Dual-Core)...\n");
+    printf("[BOOT] Booting Genesis-Lite on FreeRTOS (Dual-Core)...\n");
     
     init_brain(); // Вызов без хардкода!
     init_font();  // [DOD FIX] Инициализация шрифта
@@ -737,5 +737,3 @@ extern "C" void app_main(void) {
         day_phase_task, "DayPhase", 8192, NULL, configMAX_PRIORITIES - 1, NULL, 1 
     );
 }
-
-

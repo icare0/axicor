@@ -1,8 +1,8 @@
 import os
 import toml
 from typing import Dict
-from .control import GenesisControl
-from .memory import GenesisMemory
+from .control import AxicorControl
+from .memory import AxicorMemory
 from .utils import fnv1a_32
 
 class Zone:
@@ -14,17 +14,17 @@ class Zone:
         self.manifest_path = os.path.join(baked_dir, "manifest.toml")
         
         # Control Plane is always available (even if the node is offline)
-        self.control = GenesisControl(self.manifest_path)
+        self.control = AxicorControl(self.manifest_path)
         self._memory = None
 
     @property
-    def memory(self) -> GenesisMemory:
+    def memory(self) -> AxicorMemory:
         """Lazy initialization of Memory Plane (mmap). Will fail if node is not running."""
         if self._memory is None:
-            self._memory = GenesisMemory(self.hash)
+            self._memory = AxicorMemory(self.hash)
         return self._memory
 
-class GenesisClusterControl:
+class AxicorClusterControl:
     """Global controller: applies commands to all cluster zones simultaneously."""
     def __init__(self, zones: Dict[str, Zone]):
         self._zones = zones
@@ -45,7 +45,7 @@ class GenesisClusterControl:
         for zone in self._zones.values():
             zone.control.set_max_sprouts(max_sprouts)
 
-class GenesisBrain:
+class AxicorBrain:
     """
     Unified entry point for multi-zone connectome management.
     Automatically reads topology from brain.toml.
@@ -66,4 +66,4 @@ class GenesisBrain:
             self.zones[name] = Zone(name, baked_dir)
 
         # Cluster management interface
-        self.control = GenesisClusterControl(self.zones)
+        self.control = AxicorClusterControl(self.zones)

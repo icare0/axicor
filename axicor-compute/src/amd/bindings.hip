@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 // =====================================================================
-// 1. VRAM Layout (Строгое совпадение с genesis_core::layout::VramState)
+// 1. VRAM Layout (   genesis_core::layout::VramState)
 // =====================================================================
 extern "C" {
 
@@ -35,8 +35,8 @@ struct SoA_State {
   uint32_t* __restrict__ telemetry_spikes;
 };
 
-// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
-// Строго 64 байта (1 кэш-линия L1)
+//  64  (1 - L1). 16  = 1024   Constant Memory.
+//  64  (1 - L1)
 struct alignas(64) VariantParameters {
   int32_t threshold;                        // 0..4
   int32_t rest_potential;                   // 4..8
@@ -67,11 +67,11 @@ struct alignas(64) VariantParameters {
 };
 }
 
-// Глобальная константная память GPU (448 байт).
-// Глобальная константная память. Определена в physics.cu.
+//    GPU (448 ).
+//   .   physics.cu.
 
 
-// Константы (совпадают с constants.rs)
+//  (  constants.rs)
 #define MAX_DENDRITE_SLOTS 128
 #define AXON_SENTINEL 0x80000000
 
@@ -83,13 +83,13 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h, uint32_t v_seg) 
   h->h3 = h->h2;
   h->h2 = h->h1;
   h->h1 = h->h0;
-  // [DOD FIX] Wrap-around u32. При следующем Propagate голова станет ровно 0.
+  // [DOD FIX] Wrap-around u32.   Propagate    0.
   h->h0 = (uint32_t)(0 - v_seg); 
 }
 
 // =====================================================================
-// Ядро 1: Инъекция внешних сигналов (InjectInputs)
-// Спецификация: 08_io_matrix.md §2.6
+//  1:    (InjectInputs)
+// : 08_io_matrix.md 2.6
 // =====================================================================
 __global__ void
 inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask,
@@ -99,11 +99,11 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
   if (tid >= total_virtual_axons)
     return;
 
-  // Поддержка stride (частоты инъекции)
+  //  stride ( )
   if (input_stride > 0 && (current_tick % input_stride) != 0)
     return;
 
-  // Вычисляем индекс слова в плоском массиве bitmask
+  //       bitmask
   uint32_t effective_tick =
       (input_stride == 0) ? 0 : (current_tick / input_stride);
   uint32_t words_per_tick = (total_virtual_axons + 63) / 64 * 2;
@@ -111,11 +111,11 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
   uint32_t word_idx = (effective_tick * words_per_tick) + (tid / 32);
   uint32_t bit_idx = tid % 32;
 
-  // Чтение маски (Broadcast read — 32 потока варпа читают одно и то же слово из
-  // L1 кеша)
+  //   (Broadcast read  32         
+  // L1 )
   uint32_t mask_word = bitmask[word_idx];
 
-  // Рождение сигнала = Burst Shift
+  //   = Burst Shift
   if ((mask_word >> bit_idx) & 1) {
     BurstHeads8 b = state.axon_heads[virtual_offset + tid];
     push_burst_head(&b, 1);
@@ -124,8 +124,8 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
 }
 
 // =====================================================================
-// Ядро 2: Инъекция Ghost-спайков (Fast Path)
-// Спецификация: 06_distributed.md §2.4 (Sender-Side Mapping)
+//  2:  Ghost- (Fast Path)
+// : 06_distributed.md 2.4 (Sender-Side Mapping)
 // =====================================================================
 __global__ void apply_spike_batch_kernel(SoA_State state,
                                          const uint32_t* __restrict__ schedule_buffer,
@@ -140,11 +140,11 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
   if (tid >= num_spikes)
     return;
 
-  // Вычисляем смещение для текущего тика
+  //     
   uint32_t offset = current_tick * max_spikes_per_tick + tid;
   uint32_t target_axon = schedule_buffer[offset];
 
-  // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
+  // [DOD FIX]   VRAM    
   if (target_axon < state.total_axons) {
     BurstHeads8 b = state.axon_heads[target_axon];
     push_burst_head(&b, 1);
@@ -153,8 +153,8 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
 }
 
 // =====================================================================
-// Ядро 3: Безусловный сдвиг голов всех аксонов (PropagateAxons)
-// Спецификация: 05_signal_physics.md §1.6
+//  3:      (PropagateAxons)
+// : 05_signal_physics.md 1.6
 // =====================================================================
 __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -174,8 +174,8 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
 }
 
 // =====================================================================
-// Ядро 6: Запись истории активности (Direct Memory Access)
-// Спецификация: 08_io_matrix.md §3.2
+//  6:    (Direct Memory Access)
+// : 08_io_matrix.md 3.2
 // =====================================================================
 __global__ void record_readout_kernel(const SoA_State state,
                                       const uint32_t* __restrict__ mapped_soma_ids,
@@ -188,14 +188,14 @@ __global__ void record_readout_kernel(const SoA_State state,
   uint32_t target_soma = mapped_soma_ids[tid];
   uint8_t is_spiking = state.flags[target_soma] & 0x01;
 
-  // Запись в 2D буфер [sync_batch_ticks × num_channels]
-  // Строгий flat access, никаких atomics
+  //   2D  [sync_batch_ticks  num_channels]
+  //  flat access,  atomics
   uint32_t out_idx = current_tick * num_channels + tid;
   state.output_history[out_idx] = is_spiking;
 }
 
 // =====================================================================
-// C-ABI Экспорты для Rust (FFI Bindings)
+// C-ABI   Rust (FFI Bindings)
 // =====================================================================
 extern "C" {
 
@@ -265,8 +265,8 @@ void gpu_device_synchronize() { (void)hipDeviceSynchronize(); }
 void gpu_synchronize() { (void)hipDeviceSynchronize(); }
 
 
-// Ланчеры. Мы передаем SoA_State по значению (repr(C) в Rust гарантирует
-// совместимость).
+// .   SoA_State   (repr(C)  Rust 
+// ).
 void launch_inject_inputs(SoA_State vram, const uint32_t *bitmask,
                           uint32_t current_tick, uint32_t total_virtual_axons) {
   uint32_t threads = 256;
@@ -282,12 +282,12 @@ void launch_apply_spike_batch(SoA_State vram, const uint32_t *tick_schedule,
     return;
   uint32_t threads = 256;
   uint32_t blocks = (tick_spikes_count + threads - 1) / threads;
-  // Мы используем tick_schedule напрямую. Ядро ожидает массив u32.
-  // SpikeEvent в Rust упакован так же, как Ghost_Payload в GPU (4B ID + 4B
-  // offset). Но ядро apply_spike_batch_kernel ожидает просто uint32_t *
-  // schedule_buffer. ВАКНИМАНИЕ: Если SpikeEvent - это (u32 id, u32 offset), то
-  // нам нужно ядро, которое это понимает. Но спецификация Шага 10 говорит:
-  // ApplySpikeBatch берет tick_schedule.
+  //   tick_schedule .    u32.
+  // SpikeEvent  Rust   ,  Ghost_Payload  GPU (4B ID + 4B
+  // offset).   apply_spike_batch_kernel   uint32_t *
+  // schedule_buffer. :  SpikeEvent -  (u32 id, u32 offset), 
+  //   ,   .    10 :
+  // ApplySpikeBatch  tick_schedule.
   apply_spike_batch_kernel<<<blocks, threads, 0, 0>>>(
       vram, tick_schedule, &tick_spikes_count, 0, tick_spikes_count);
 }
@@ -311,7 +311,7 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
 // ... rest of functions stay same or similar ...
 
 // =====================================================================
-// Ядро 7: Синхронизация Ghost Axons
+//  7:  Ghost Axons
 // =====================================================================
 
 #pragma pack(push, 1)
@@ -321,7 +321,7 @@ struct SpikeEvent {
 };
 #pragma pack(pop)
 
-// Ядро компактизирует спайки из гигабайтного графа в плоский Pinned RAM буфер
+//         Pinned RAM 
 __global__ void extract_outgoing_spikes_kernel(
     const BurstHeads8* __restrict__ axon_heads,
     const uint32_t* __restrict__ src_indices,   
@@ -343,19 +343,19 @@ __global__ void extract_outgoing_spikes_kernel(
   BurstHeads8 h = axon_heads[local_axon];
   uint32_t ghost_id = dst_ghost_ids[tid];
 
-  // Кастуем структуру к массиву для развернутого прохода (Zero-cost)
+  //        (Zero-cost)
   const uint32_t* heads = (const uint32_t*)&h;
 
   #pragma unroll
   for (int i = 0; i < 8; ++i) {
       uint32_t head = heads[i];
       
-      // Игнорируем мертвые хвосты (AXON_SENTINEL = 0x80000000)
+      //    (AXON_SENTINEL = 0x80000000)
       if (head >= 0x70000000u) continue;
 
       uint32_t ticks_since_spike = head / v_seg;
 
-      // Если спайк произошел ВНУТРИ текущего батча
+      //      
       if (ticks_since_spike < sync_batch_ticks) {
           uint32_t out_idx = atomicAdd(out_count, 1);
           out_events[out_idx].ghost_id = ghost_id;
@@ -374,7 +374,7 @@ void launch_extract_outgoing_spikes(const BurstHeads8 *axon_heads,
   uint32_t threads = 256;
   uint32_t blocks = (count + threads - 1) / threads;
 
-  // Сброс счетчика перед запуском ядра
+  //     
   (void)hipMemsetAsync(out_count, 0, sizeof(uint32_t), stream);
 
   extract_outgoing_spikes_kernel<<<blocks, threads, 0, stream>>>(
@@ -392,25 +392,25 @@ struct DendriteSlot {
 };
 
 // =====================================================================
-// Ядро 8: Сортировка и прунинг синапсов (Night Phase)
+//  8:     (Night Phase)
 // =====================================================================
 __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_t global_prune_threshold) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
 
-  // [DOD FIX] Полная очистка аккумулятора спайков [3:1], сохраняя Type [7:4] и Spike 
+  // [DOD FIX]     [3:1],  Type [7:4]  Spike 
   uint8_t flag = state.flags[tid];
   state.flags[tid] = flag & 0xF1;
 
   // [DOD FIX] Shift human-readable threshold into i32 Mass Domain
   int32_t prune_threshold = (int32_t)global_prune_threshold << 16;
 
-  // [DOD FIX] Жёстко 32 потока, чтобы 12-байтная структура уложилась в 48 KB Shared Memory.
+  // [DOD FIX]  32 ,  12-    48 KB Shared Memory.
   __shared__ DendriteSlot smem[32][MAX_DENDRITE_SLOTS];
   uint32_t lane_id = threadIdx.x;
 
-  // 1. КООПЕРАТИВНОЕ ЧТЕНИЕ (Coalesced Load)
+  // 1.   (Coalesced Load)
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
     uint32_t col_idx = slot * padded_n + tid;
     smem[lane_id][slot].target = state.dendrite_targets[col_idx];
@@ -419,7 +419,7 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
   }
   __builtin_amdgcn_wave_barrier();
 
-  // 2. ИНДИВИДУАЛЬНАЯ СОРТИРОВКА (Insertion Sort в L1/Shared Memory)
+  // 2.   (Insertion Sort  L1/Shared Memory)
   for (int i = 1; i < MAX_DENDRITE_SLOTS; ++i) {
     DendriteSlot key = smem[lane_id][i];
     if (key.target == 0)
@@ -440,7 +440,7 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
     smem[lane_id][j + 1] = key;
   }
 
-  // 3. PRUNING (Обрезка слабых связей)
+  // 3. PRUNING (  )
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
     int32_t w = smem[lane_id][slot].weight;
     int32_t abs_w = w >= 0 ? w : -w;
@@ -452,7 +452,7 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
   }
   __builtin_amdgcn_wave_barrier();
 
-  // 4. КООПЕРАТИВНАЯ ЗАПИСЬ (Coalesced Store)
+  // 4.   (Coalesced Store)
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
     uint32_t col_idx = slot * padded_n + tid;
     state.dendrite_targets[col_idx] = smem[lane_id][slot].target;
@@ -462,31 +462,31 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
 }
 
 extern "C" {
-// launch_sort_and_prune с полной сигнатурой определен ниже (requires
+// launch_sort_and_prune      (requires
 // ShardVramPtrs)
 } // last existing extern "C"
 
 // =====================================================================
-// § New Memory Contract: ShardVramPtrs + cu_* functions
+//  New Memory Contract: ShardVramPtrs + cu_* functions
 //
-// ЗАКОН: Порядок полей ShardVramPtrs строго совпадает с Rust-структурой
-// и с порядком байт в .state блобе. Нарушение = Silent Data Corruption.
+// :   ShardVramPtrs    Rust-
+//      .state .  = Silent Data Corruption.
 //
-// Раскладка в памяти (padded_n кратно 32 → всё Warp-Aligned):
-//   soma_voltage      [padded_n]       × 4 B  ← base ptr (= soma_voltage)
-//   soma_flags        [padded_n]       × 1 B
-//   threshold_offset  [padded_n]       × 4 B
-//   timers            [padded_n]       × 1 B
-//   soma_to_axon      [padded_n]       × 4 B
-//   dendrite_targets  [padded_n × 128] × 4 B
-//   dendrite_weights  [padded_n × 128] × 2 B
-//   ── один hipMalloc, один hipMemcpyAsync ──
-//   axon_heads        [total_axons]    × 4 B  ← отдельный hipMalloc
+//    (padded_n  32   Warp-Aligned):
+//   soma_voltage      [padded_n]        4 B   base ptr (= soma_voltage)
+//   soma_flags        [padded_n]        1 B
+//   threshold_offset  [padded_n]        4 B
+//   timers            [padded_n]        1 B
+//   soma_to_axon      [padded_n]        4 B
+//   dendrite_targets  [padded_n  128]  4 B
+//   dendrite_weights  [padded_n  128]  2 B
+//   --  hipMalloc,  hipMemcpyAsync --
+//   axon_heads        [total_axons]     4 B    hipMalloc
 // =====================================================================
 
-// Зеркало Rust #[repr(C)] struct ShardVramPtrs
+//  Rust #[repr(C)] struct ShardVramPtrs
 struct ShardVramPtrs {
-  int32_t* __restrict__ soma_voltage; // base ptr всего state-блоба
+  int32_t* __restrict__ soma_voltage; // base ptr  state-
   uint8_t* __restrict__ soma_flags;
   int32_t* __restrict__ threshold_offset;
   uint8_t* __restrict__ timers;
@@ -494,16 +494,16 @@ struct ShardVramPtrs {
   uint32_t* __restrict__ dendrite_targets;
   int32_t* __restrict__ dendrite_weights;
   uint8_t* __restrict__ dendrite_timers;
-  BurstHeads8* __restrict__ axon_heads; // отдельный буфер
+  BurstHeads8* __restrict__ axon_heads; //  
 };
 
 #define MAX_DENDRITES_SV 128
 
 extern "C" {
 
-// ─── Аллокация
-// ──────────────────────────────────────────────────────────────── Два
-// hipMalloc: State (непрерывный блок) + Axons (отдельный). Если хоть одна
+// --- 
+// ---------------------------------------------------------------- 
+// hipMalloc: State ( ) + Axons ().   
 __global__ void init_sentinels_kernel(BurstHeads8* heads, uint32_t total) {
     uint32_t i = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
     if (i < total) {
@@ -514,7 +514,7 @@ __global__ void init_sentinels_kernel(BurstHeads8* heads, uint32_t total) {
     }
 }
 
-// аллокация падает — откатываем и возвращаем ненулевой код.
+//        .
 int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
                           ShardVramPtrs *out_vram) {
   size_t sz_voltage = (size_t)padded_n * sizeof(int32_t);
@@ -529,7 +529,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   size_t total_state = sz_voltage + sz_flags + sz_thresh + sz_timers + sz_s2a +
                        sz_targets + sz_weights + sz_dtimers;
 
-  // Единый Flat Allocation для всех полей сом + дендритов
+  //  Flat Allocation     + 
   void *base = nullptr;
   hipError_t err = hipMalloc(&base, total_state);
   if (err != hipSuccess) {
@@ -538,10 +538,10 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
     return (int32_t)err;
   }
 
-  // Нулевая инициализация — гарантирует отсутствие мусора при первом тике
+  //         
   (void)hipMemset(base, 0, total_state);
 
-  // Zero-Cost Partitioning: раздаём указатели внутри одного буфера
+  // Zero-Cost Partitioning:     
   size_t off = 0;
   out_vram->soma_voltage = (int32_t *)((char *)base + off);
   off += sz_voltage;
@@ -559,7 +559,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   off += sz_weights;
   out_vram->dendrite_timers = (uint8_t *)((char *)base + off);
 
-  // Аксоны — отдельная аллокация (total_axons ≠ padded_n)
+  //     (total_axons  padded_n)
   err = hipMalloc((void **)&out_vram->axon_heads,
                    (size_t)total_axons * sizeof(BurstHeads8));
   if (err != hipSuccess) {
@@ -577,15 +577,15 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   return 0;
 }
 
-// ─── DMA Upload: State
-// ──────────────────────────────────────────────────────── .state блоб содержит
-// 7 массивов слитно, в том же порядке, что и ShardVramPtrs. Поскольку мы
-// сделали Flat Allocation, base_ptr == soma_voltage. Один hipMemcpyAsync
-// заполняет ВСЕ 7 массивов на 100% пропускной способности PCIe.
+// --- DMA Upload: State
+// -------------------------------------------------------- .state  
+// 7  ,    ,   ShardVramPtrs.  
+//  Flat Allocation, base_ptr == soma_voltage.  hipMemcpyAsync
+//   7   100%   PCIe.
 int32_t cu_upload_state_blob(const ShardVramPtrs *vram, const void *state_blob,
                              size_t state_size) {
   hipError_t err =
-      hipMemcpyAsync((void *)vram->soma_voltage, // base ptr блока
+      hipMemcpyAsync((void *)vram->soma_voltage, // base ptr 
                       state_blob, state_size, hipMemcpyHostToDevice,
                       0 // default stream
       );
@@ -594,14 +594,14 @@ int32_t cu_upload_state_blob(const ShardVramPtrs *vram, const void *state_blob,
             hipGetErrorString(err));
     return (int32_t)err;
   }
-  // Block CPU until VRAM is ready. Init-phase — latency не важна.
+  // Block CPU until VRAM is ready. Init-phase  latency  .
   (void)hipStreamSynchronize(0);
   return 0;
 }
 
-// ─── DMA Upload: Axons
-// ──────────────────────────────────────────────────────── .axons блоб —
-// плоский массив uint32_t axon_heads.
+// --- DMA Upload: Axons
+// -------------------------------------------------------- .axons  
+//   uint32_t axon_heads.
 int32_t cu_upload_axons_blob(const ShardVramPtrs *vram, const void *axons_blob,
                              size_t axons_size) {
   hipError_t err = hipMemcpyAsync((void *)vram->axon_heads, axons_blob,
@@ -615,10 +615,10 @@ int32_t cu_upload_axons_blob(const ShardVramPtrs *vram, const void *axons_blob,
   return 0;
 }
 
-// ─── Free
-// ─────────────────────────────────────────────────────────────────────
-// soma_voltage == base ptr всего state-блока.
-// Два cudaFree соответствуют двум hipMalloc в cu_allocate_shard.
+// --- Free
+// ---------------------------------------------------------------------
+// soma_voltage == base ptr  state-.
+//  cudaFree   hipMalloc  cu_allocate_shard.
 void cu_free_shard(ShardVramPtrs *vram) {
   if (vram->soma_voltage) {
     (void)hipFree((void *)vram->soma_voltage);
@@ -640,11 +640,11 @@ void cu_free_shard(ShardVramPtrs *vram) {
 
 // =====================================================================
 // Night Phase: Sort & Prune (requires ShardVramPtrs, defined above)
-// Один блок = один нейрон (32 потока). Идеальная утилизация Shared Memory.
-// Без stream — ночная фаза синхронна.
+//   =   (32 ).   Shared Memory.
+//  stream    .
 // =====================================================================
 extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded_n, int16_t prune_threshold) {
-  // [DOD FIX] Запуск строго 32 потоков на блок для лимита в 48KB Shared Memory
+  // [DOD FIX]   32       48KB Shared Memory
   dim3 threads(32, 1);
   dim3 blocks((padded_n + 32 - 1) / 32, 1);
 
@@ -652,7 +652,7 @@ extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded
   state.dendrite_targets = ptrs->dendrite_targets;
   state.dendrite_weights = ptrs->dendrite_weights;
   state.dendrite_timers = ptrs->dendrite_timers;
-  state.flags = ptrs->soma_flags; // Передаем флаги для чтения варианта
+  state.flags = ptrs->soma_flags; //     
 
   hipLaunchKernelGGL(sort_and_prune_kernel, blocks, threads, 0, 0, state, padded_n, prune_threshold);
 }
@@ -663,7 +663,7 @@ extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded
 extern "C" {
 
 int32_t cu_allocate_io_buffers(
-    uint32_t input_words,       // Размер битовой маски в u32
+    uint32_t input_words,       //     u32
     uint32_t schedule_capacity, // sync_batch_ticks * MAX_SPIKES_PER_TICK
     uint32_t output_capacity,   // sync_batch_ticks * num_outputs
     uint32_t **d_input_bitmask, uint32_t **d_incoming_spikes,
@@ -712,7 +712,7 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       const uint32_t *h_incoming_spikes,
                       uint32_t schedule_capacity,
                       hipStream_t stream) {
-  // Асинхронная загрузка в переданный Stream
+  //     Stream
   if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
     hipMemcpyAsync(d_input_bitmask, h_input_bitmask,
                     input_words * sizeof(uint32_t), hipMemcpyHostToDevice, stream);

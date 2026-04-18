@@ -61,7 +61,7 @@ impl BspBarrier {
                 let _n = self.timeout_log_counter.fetch_add(1, Ordering::Relaxed);
                 /* 
                 if n % 100 == 0 {
-                    println!("⚠️ [BSP] Timeout! Forcing epoch advance ({} timeouts). Dropped data will be filtered out.", n + 1);
+                    println!("[WARN] [BSP] Timeout! Forcing epoch advance ({} timeouts). Dropped data will be filtered out.", n + 1);
                 }
                 */
                 break;

@@ -1,140 +1,140 @@
-# 06. Распределённая Архитектура (Distributed)
+# 06.   (Distributed)
 
-> Часть архитектуры [Genesis](../../README.md). Шардинг, BSP, границы, атлас-маршрутизация.
+>   [Axicor](../../README.md). , BSP, , -.
 
-**Статус:** [MVP] = реализовано в V1, [PLANNED] = дорабатывается после V1.0 release.
+**:** [MVP] =   V1, [PLANNED] =   V1.0 release.
 
 ---
 
-## 1. Планарный Шардинг (Tile-Based Sharding)
+## 1.   (Tile-Based Sharding)
 
-### 1.1. Обоснование [MVP]
+### 1.1.  [MVP]
 
-1. **Топология коры:** Кора - это «простыня» (Sheet). 2–4 мм толщины (Z) против метров ширины (X/Y). Пилить 4 мм на разные сервера - безумие. Пилить метры ширины на тайлы - необходимость.
-2. **Колоночная архитектура:** Вся оптимизация памяти (Columnar Layout, см. [02_configuration.md §3](./02_configuration.md)) заточена на то, что вертикальная колонка (L1–L6) лежит в памяти рядом. Внутри колонки самый горячий трафик (L4 → L2/3 → L5 → L6). Разрезать Z = превратить локальные связи в сетевые пакеты.
-3. **Атлас вместо стэка:** Для соединения V1 (затылок) с PFC (лоб) используем маршрутизацию через Атлас (§3), а не физическое вертикальное наложение.
+1. ** :**  -   (Sheet). 24   (Z)    (X/Y).  4     - .      - .
+2. ** :**    (Columnar Layout, . [02_configuration.md 3](./02_configuration.md))   ,    (L1L6)    .      (L4  L2/3  L5  L6).  Z =      .
+3. **  :**   V1 ()  PFC ()     (3),     .
 
-### 1.2. Топология Соседей [MVP]
+### 1.2.   [MVP]
 
 > [!NOTE]
-> **[Planned: Macro-3D]** Расширить топологию соседей до 3D (6 граней).
-// Сейчас шард имеет 4 соседа (X+, X-, Y+, Y-). Для изотропного макро-куба необходимо добавить `Z+ (Roof)` и `Z- (Floor)`.
+> **[Planned: Macro-3D]**     3D (6 ).
+//    4  (X+, X-, Y+, Y-).   -   `Z+ (Roof)`  `Z- (Floor)`.
 // 
-// Механика Z-Handovers:
-// Если аксон при росте пробивает `Z_max` (потолок шарда), он не должен останавливаться или разворачиваться. 
-// Он должен формировать `GhostPacket` и улетать в шард-сосед сверху (`Z+`).
+//  Z-Handovers:
+//      `Z_max` ( ),      . 
+//    `GhostPacket`    -  (`Z+`).
 
-Каждый шард - плоская плитка (Tile). Максимум **4 соседа:**
+  -   (Tile).  **4 :**
 
 ```
         [North (Y+)]
-            │
-[West (X-)]─┼─[East (X+)]
-            │
+            |
+[West (X-)]-+-[East (X+)]
+            |
         [South (Y-)]
 ```
 
-Вертикальных соседей нет. Все связи по Z (L2 → L5, L4 → L6) - **всегда локальные** (Zero-Copy).
+  .    Z (L2  L5, L4  L6) - ** ** (Zero-Copy).
 
 ### 1.3. Ghost Connections (Ghost Axon Metadata) [MVP]
 
-При прорастании аксона через боковую границу шарда формируется контакт (Connection). В текущей MVP реализации (V1) сохраняется только метаинформация о связи:
+         (Connection).   MVP  (V1)     :
 
 ```rust
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct GhostConnection {
-    pub local_axon_id: u32,    // Индекс аксона на целевом шарде (Ghost)
-    pub paired_src_soma: u32,  // Soma ID на источнике (для трассировки)
+    pub local_axon_id: u32,    //      (Ghost)
+    pub paired_src_soma: u32,  // Soma ID   ( )
 }
 ```
 
-**Жизненный цикл:**
-- **Baking Phase:** Baker создаёт файл `.ghosts` с массивом Connections, отсортированными по целевому каналу.
-- **Runtime:** Каждая Connection описывает Ghost Axon, который уже **физически растёт** в целевом шарде (как обычный локальный аксон).
-- **Sender-Side Mapping:** При спайке soma на источнике, спайк кодируется как предвычисленный `ghost_id` (из таблицы маппинга), передаётся по сети, и на целевом шарде используется прямым индексом в массив `axon_heads`.
+** :**
+- **Baking Phase:** Baker   `.ghosts`   Connections,    .
+- **Runtime:**  Connection  Ghost Axon,   ** **    (   ).
+- **Sender-Side Mapping:**   soma  ,     `ghost_id` (  ),   ,          `axon_heads`.
 
-**[MVP] Полная AxonHandover (V2):**
-При включении полнофункционального роста аксонов через границы, используется 20-байтная структура:
+**[MVP]  AxonHandover (V2):**
+      ,  20- :
 
 ```rust
 #[repr(C, packed)]
 pub struct AxonHandoverEvent {
-    pub origin_zone_hash: u32, // Уникальный ID зоны-источника
-    pub local_axon_id: u32,    // ID локального аксона-исходника
-    pub entry_x: u16,          // 3D-координаты входа в новый шард
+    pub origin_zone_hash: u32, //  ID -
+    pub local_axon_id: u32,    // ID  -
+    pub entry_x: u16,          // 3D-    
     pub entry_y: u16,
-    pub vector_x: i8,          // Вектор роста (направление + скорость)
+    pub vector_x: i8,          //   ( + )
     pub vector_y: i8,
     pub vector_z: i8,
     pub type_mask: u8,         // Geo(1) | Sign(1) | Var(2)
-    pub remaining_length: u16, // TTL роста (оставшиеся сегменты)
-    pub entry_z: u8,           // Z-координата входа
-    pub _padding: u8,          // Добивка до 20 байт
-} // Строго 20 bytes
+    pub remaining_length: u16, // TTL  ( )
+    pub entry_z: u8,           // Z- 
+    pub _padding: u8,          //   20 
+} //  20 bytes
 
-Отличие: В V1 аксон уже вырос и зафиксирован. В V2 аксон продолжает расти через границы динамически. Размер структуры жестко привязан к смещениям в SHM.
+:  V1     .  V2      .        SHM.
 
 #### Dynamic Capacity Routing (DCR)
 
-Для обеспечения резерва VRAM под рост новых межшардовых связей (Ghost Axons) в Ночную Фазу, применяется динамический расчет емкости (Dynamic Capacity Routing).
-Формула резервирования: `ghost_capacity = SUM(width * height) * 2.0` (сумма пикселей всех входящих матриц из `brain.toml` для данной зоны, умноженная на 2 для обеспечения запаса под структурную пластичность).
-*Примечание:* Хардкод `200_000` объявляется устаревшим и вырезан. Вся аллокация строго математически обоснована.
+   VRAM      (Ghost Axons)   ,     (Dynamic Capacity Routing).
+ : `ghost_capacity = SUM(width * height) * 2.0` (      `brain.toml`   ,   2      ).
+*:*  `200_000`    .     .
 
-### 1.4. Ghost Axons (Планарная Версия) [PLANNED]
+### 1.4. Ghost Axons ( ) [PLANNED]
 
 > [!NOTE]
-> **[Planned: Macro-3D]** Аппаратная маршрутизация спайков.
-// При переходе на оптику / RDMA, `BspBarrier` должен поддерживать многоуровневый роутинг: 
-// Шард -> Локальная Нода -> Top-of-Rack Switch -> Целевая Нода -> Целевой Шард.
+> **[Planned: Macro-3D]**   .
+//     / RDMA, `BspBarrier`    : 
+//  ->   -> Top-of-Rack Switch ->   ->  .
 
-Механика из [04_connectivity.md §1.7](./04_connectivity.md) с поправкой на 2D-границы:
+  [04_connectivity.md 1.7](./04_connectivity.md)    2D-:
 
-- **Рождение:** При получении `AxonHandover` шард создаёт Ghost Axon от стены внутрь.
-- **Цепочка:** Если Ghost дорастает до **противоположной** стены (X- → X+), экспортируется дальше.
-- **Вертикальная свобода:** Ghost Axon может расти вверх/вниз по Z свободно - это локальная память, без сетевого трафика.
+- **:**   `AxonHandover`   Ghost Axon   .
+- **:**  Ghost   ****  (X-  X+),  .
+- ** :** Ghost Axon   /  Z  -   ,   .
 
-### 1.5. Тороидальная Топология (Periodic Boundaries) [PLANNED]
+### 1.5.   (Periodic Boundaries) [PLANNED]
 
-Для ядерных неслоистых структур (таламус, базальные ганглии) применяются **Периодические Граничные Условия**. Физика шара через математику плоскости.
+    (,  )  **  **.     .
 
-**Принцип:** GPU по-прежнему считает плоскую сетку. Замыкание решается **конфигурацией соседей:**
+**:** GPU -   .   ** :**
 
-- **1 шард (весь объём на одной GPU):** `Neighbor_X+ = Self`, `Neighbor_X- = Self`, `Neighbor_Y+ = Self`, `Neighbor_Y- = Self`. Аксон, вышедший за правый край, появляется на левом как Ghost Axon **того же шарда**.
-- **Сетка шардов (например, 2×2):** Правый крайний шард → `Neighbor_X+ = левый крайний шард` (кольцевое замыкание).
+- **1  (    GPU):** `Neighbor_X+ = Self`, `Neighbor_X- = Self`, `Neighbor_Y+ = Self`, `Neighbor_Y- = Self`. ,    ,     Ghost Axon **  **.
+- **  (, 22):**     `Neighbor_X+ =   ` ( ).
 
-**Ось Z:** Для слоистой коры Z жёстко ограничен (L1 сверху, L6 снизу) - замыкание **запрещено**. Для ядерных зон (где `height_pct = 1.0` и нет слоёв) - Z замыкается аналогично X/Y.
+** Z:**    Z   (L1 , L6 ) -  ****.    ( `height_pct = 1.0`   ) - Z   X/Y.
 
-**Защита от Ouroboros (бесконечных циклов):** Поле `remaining_segments` в `AxonHandover` (§1.3) продолжает уменьшаться при каждом пересечении границы. Когда `remaining_segments == 0` - рост останавливается. Аксон физически не может замкнуться на себя, если его длина меньше периметра зоны.
+**  Ouroboros ( ):**  `remaining_segments`  `AxonHandover` (1.3)      .  `remaining_segments == 0` -  .       ,      .
 
-**Итог:** Нет «мёртвых зон» на краях. Изотропия сохранена. Ноль нового кода в Hot Loop.
+**:**     .  .     Hot Loop.
 
 ---
 
-## 2. Протокол Синхронизации (Time Protocol) [MVP]
+## 2.   (Time Protocol) [MVP]
 
-Переход от синхронных барьеров к Asynchronous Epoch Projection (AEP).
+     Asynchronous Epoch Projection (AEP).
 
-### 2.1. Модель: Autonomous Epoch Execution [MVP]
+### 2.1. : Autonomous Epoch Execution [MVP]
 
-- Ядро физики GPU на каждой ноде крутится на своей максимальной частоте. Никаких ожиданий сети.
-- Если сосед не прислал данные вовремя — вычисляется «биологическая тишина» (нейрон просто не получает входящих спайков в этот квант времени).
-- Сеть рассматривается как асинхронный удлинитель шины PCIe. Мы не блокируем GPU из-за задержек на кабеле или джиттера планировщика ОС.
+-   GPU        .   .
+-           (         ).
+-       PCIe.    GPU -       .
 
-### 2.2. Latency Hiding (Компенсация Задержек) [MVP]
+### 2.2. Latency Hiding ( ) [MVP]
 
-Сетевой лаг легализуется как физическая задержка сигнала (аксона).
+       ().
 
-- Полученные спайки укладываются в эластичный кольцевой буфер `ElasticSchedule` (§2.8).
-- **Результат:** Задержка в несколько батчей биологически естественна. Система сохраняет стабильность при вариативном пинге.
+-        `ElasticSchedule` (2.8).
+- **:**      .      .
 
 #### 2.2.1. HFT Log Throttling & BSP Timings
 
-**Проблема:** Day Phase на GPU крутится 100+ раз в секунду (sync_batch_ticks = 100, 10 мс батч). Без троттлирования каждый спайк, каждый Egress-пакет, каждый Self-Heal event создаёт систему вывод в stdout → блокирует реактор.
+**:** Day Phase  GPU  100+    (sync_batch_ticks = 100, 10  ).    ,  Egress-,  Self-Heal event     stdout   .
 
-**Решение: Atomic Throttling (Lock-Free)**
+**: Atomic Throttling (Lock-Free)**
 
-Счётчики сообщений хранятся в `AtomicUsize` (thread-safe без Mutex) и выводятся **один раз на 100 сообщений**:
+    `AtomicUsize` (thread-safe  Mutex)   **   100 **:
 
 ```rust
 pub struct HftLogger {
@@ -168,28 +168,28 @@ impl HftLogger {
 }
 ```
 
-**Ключевые инварианты:**
+** :**
 
-1. **Нулевой блокинг:** `fetch_add(Ordering::Relaxed)` - чистая CAS-операция на ALU, ~2 цикла. Без шпинделя, без семафора.
-2. **Выборочный вывод:** Только каждое 100-е сообщение идёт в stderr. За 100 тиков (1 батч батча) система хранит в памяти только счётчик, затем однажды sпечатает.
-3. **Истина в logs:** Настоящие счётчики растут монотонно. Пользователь видит правду («cumulative: 1247»), не лепространные фрагменты.
+1. ** :** `fetch_add(Ordering::Relaxed)` -  CAS-  ALU, ~2 .  ,  .
+2. ** :**   100-    stderr.  100  (1  )      ,   s.
+3. **  logs:**    .    (cumulative: 1247),   .
 
 #### 2.2.2. BSP Synchronization Timeout
 
-**Инвариант:** **BSP_SYNC_TIMEOUT_MS = 500 ms** (вместо 50 ms).
+**:** **BSP_SYNC_TIMEOUT_MS = 500 ms** ( 50 ms).
 
-**Почему увеличиваем:**
+** :**
 
-- Медленная нода в кластере может лагать на 10–20 мс дополнительно (контекст, I/O, CPU scheduler jitter).
-- При `sync_batch_ticks = 100` (10 мс батч) это = 1–2 батча запаса.
-- Таймаут в 50 мс = 5 батчей, но первый лаг ноды → timeout → false panic.
-- **500 мс = ~50 батчей запаса** → защита даже от медленных дисков и CPU thrashing.
+-        1020   (, I/O, CPU scheduler jitter).
+-  `sync_batch_ticks = 100` (10  )  = 12  .
+-   50  = 5 ,      timeout  false panic.
+- **500  = ~50  **        CPU thrashing.
 
-**Фиксация в константе:**
+**  :**
 
 ```rust
 const BSP_SYNC_TIMEOUT_MS: u64 = 500;
-const MAX_BATCHES_LATENCY: u64 = BSP_SYNC_TIMEOUT_MS / BATCH_DURATION_MS;  // ~50 батчей
+const MAX_BATCHES_LATENCY: u64 = BSP_SYNC_TIMEOUT_MS / BATCH_DURATION_MS;  // ~50 
 
 pub fn wait_for_neighbors(
     wait_strategy: WaitStrategy,
@@ -216,129 +216,129 @@ pub fn wait_for_neighbors(
 }
 ```
 
-**Эффект:**
+**:**
 
-| Параметр | 50 мс | 500 мс |
+|  | 50  | 500  |
 |---|---|---|
-| Батчей запаса | 5 | 50 |
-| Защита от контекст-свичей | Низкая (одного спайка достаточно) | Высокая (система может глючить 0.5 сек) |
-| Performance Impact | Ноль | Ноль (timeout - редкое событие) |
+|   | 5 | 50 |
+|   - |  (  ) |  (   0.5 ) |
+| Performance Impact |  |  (timeout -  ) |
 
-**Как чтение?** Если нода зависнет на диске > 500 мс → система обнаружит deadlock и спаникует с логом. Это лучше, чем молчаливая потеря данных.
+** ?**      > 500     deadlock    .  ,    .
 
 ### 2.3. Fast Path & L7 Fragmentation (V2)
 
-UDP имеет жёсткий лимит MTU (максимальный размер полезной нагрузки `MAX_UDP_PAYLOAD = 65507`). Батчи спайков могут превышать этот лимит. Мы фрагментируем их на уровне приложения (L7) перед отправкой.
+UDP    MTU (    `MAX_UDP_PAYLOAD = 65507`).      .       (L7)  .
 
-2.3.1. Динамическая L7 Фрагментация (Dynamic MTU)
+2.3.1.  L7  (Dynamic MTU)
 
-Глобальный хардкод `MAX_EVENTS_PER_PACKET = 8186` отменен. Для интеграции гетерогенных устройств (High-End PC и микроконтроллеров) лимит фрагментации вычисляется динамически на основе заявленного поля `mtu` из `RouteUpdate`.
+  `MAX_EVENTS_PER_PACKET = 8186` .     (High-End PC  )         `mtu`  `RouteUpdate`.
 
-*   **Формула чанкинга:** `max_spikes = (peer_mtu - sizeof(SpikeBatchHeaderV2)) / sizeof(SpikeEventV2) = (peer_mtu - 16) / 8`
-*   **Tier 1 (PC / Server):** Объявляет MTU = 65507 (до 8186 спайков в одном UDP-фрейме).
-*   **Tier 2 (ESP32 LwIP):** Объявляет MTU = 1400 (до 173 спайков в пакете). Это аппаратное ограничение SRAM — LwIP падает с `ERR_MEM` при попытке IP-реассемблирования 65-килобайтных пакетов. Оркестратор обязан дробить батчи под размер приемника.
+*   ** :** `max_spikes = (peer_mtu - sizeof(SpikeBatchHeaderV2)) / sizeof(SpikeEventV2) = (peer_mtu - 16) / 8`
+*   **Tier 1 (PC / Server):**  MTU = 65507 ( 8186    UDP-).
+*   **Tier 2 (ESP32 LwIP):**  MTU = 1400 ( 173   ).    SRAM  LwIP   `ERR_MEM`   IP- 65- .       .
 
-### 2.3.2 Бинарный Контракт V2: SpikeBatchHeaderV2 & SpikeEventV2
+### 2.3.2   V2: SpikeBatchHeaderV2 & SpikeEventV2
 
 ```rust
-// Строго 16 байт. align(16) обязателен для Zero-Cost векторизации
-// при чтении напрямую из буфера LwIP на микроконтроллерах и GPU.
+//  16 . align(16)   Zero-Cost 
+//      LwIP    GPU.
 #[repr(C, align(16))]
 pub struct SpikeBatchHeaderV2 {
-    pub src_zone_hash: u32,    // Hash отправляющей зоны
-    pub dst_zone_hash: u32,    // Hash принимающей зоны
-    pub epoch: u32,            // Глобальный счётчик батчей (Epoch)
-    pub is_last: u32,          // 0 = Чанк, 1 = Последний чанк (Heartbeat), 2 = ACK-ответ
+    pub src_zone_hash: u32,    // Hash  
+    pub dst_zone_hash: u32,    // Hash  
+    pub epoch: u32,            //    (Epoch)
+    pub is_last: u32,          // 0 = , 1 =   (Heartbeat), 2 = ACK-
 }
 
-// Строго 8 байт.
+//  8 .
 #[repr(C, align(8))]
 pub struct SpikeEventV2 {
-    pub ghost_id: u32,    // ПРЯМОЙ индекс в памяти принимающего шарда
-    pub tick_offset: u32, // Смещение внутри батча (0..sync_batch_ticks)
+    pub ghost_id: u32,    //      
+    pub tick_offset: u32, //    (0..sync_batch_ticks)
 }
 ```
 
-Инвариант Heartbeat: Даже если за батч не было ни одного спайка, маршрутизатор обязан отправить пустой пакет с is_last = 1. Это пробивает BSP-барьер на стороне получателя и гарантирует синхронизацию эпох.
+ Heartbeat:         ,       is_last = 1.   BSP-       .
 
-#### 2.3.3. Zero-Copy Pipeline (Legacy MVP, работает как раньше)
+#### 2.3.3. Zero-Copy Pipeline (Legacy MVP,   )
 
-**Пайплайн:** `cudaMemcpy (VRAM → RAM)` → UDP сокет (с фрагментацией) → RAM соседа → аппаратный каст сырых байтов в `&[SpikeEventV2]`.
+**:** `cudaMemcpy (VRAM  RAM)`  UDP  ( )  RAM        `&[SpikeEventV2]`.
 
-Отправитель формирует пакеты с `SpikeBatchHeaderV2` + `SpikeEventV2[]` (до 8186 событий). Если коулических спайков > `MAX_EVENTS_PER_PACKET`, формируется несколько пакетов, все кроме последнего с `is_last = 0`, последний - `is_last = 1`.
+    `SpikeBatchHeaderV2` + `SpikeEventV2[]` ( 8186 ).    > `MAX_EVENTS_PER_PACKET`,   ,     `is_last = 0`,  - `is_last = 1`.
 
-2.3.4. Закон Эндианности (Zero-Cost Transport)
+2.3.4.   (Zero-Cost Transport)
 
-**Инвариант:** В кластере Genesis Data Plane (Fast Path UDP) строго игнорирует сетевые стандарты RFC (Network Byte Order / Big-Endian).
-Вся телеметрия и все сетевые структуры (`SpikeBatchHeaderV2`, `SpikeEventV2`) пересылаются и кастуются из сетевого буфера **исключительно в Little-Endian** (как лежат в памяти).
+**:**   Axicor Data Plane (Fast Path UDP)     RFC (Network Byte Order / Big-Endian).
+      (`SpikeBatchHeaderV2`, `SpikeEventV2`)       **  Little-Endian** (   ).
 
-**Обоснование:** x86_64, ARM и архитектура Xtensa LX7 (ESP32) нативно используют Little-Endian. Применение `ntohl`/`htonl` для парсинга 100 000 спайков в горячем цикле сети `pro_core_task` гарантированно сожжет бюджет времени (The 10ms Rule). Вектор спайков должен читаться из буфера LwIP напрямую через Zero-Cost cast: `(SpikeEvent*)rx_buffer`
+**:** x86_64, ARM   Xtensa LX7 (ESP32)   Little-Endian.  `ntohl`/`htonl`   100 000      `pro_core_task`     (The 10ms Rule).       LwIP   Zero-Cost cast: `(SpikeEvent*)rx_buffer`
 
 ### 2.4. Sender-Side Mapping & Dynamic Capacity Routing [MVP]
 
-Принимающий шард **не занимается маршрутизацией** внутри горячего цикла (Hot Loop). Отправитель сам переводит свой локальный ID в `receiver_ghost_id` (прямой индекс в VRAM получателя).
+  **  **    (Hot Loop).      ID  `receiver_ghost_id` (   VRAM ).
 
-Для обеспечения абсолютной структурной пластичности (рост новых и отмирание старых межшардовых связей) без глобальных реаллокаций VRAM, применяется паттерн **Dynamic Capacity Routing**.
+     (      )    VRAM,   **Dynamic Capacity Routing**.
 
-1. **Резервирование VRAM (Pre-allocation):**
-   При инициализации канала (IntraGPU или InterNode), массивы роутинга (`src_indices_d` и `dst_ghost_ids_d`) аллоцируются не под текущее число связей, а под хард-лимит `max_capacity` (равный `ghost_capacity` принимающего шарда из `manifest.toml`).
-   Текущее количество активных связей хранится в мутабельной переменной `count`.
+1. ** VRAM (Pre-allocation):**
+      (IntraGPU  InterNode),   (`src_indices_d`  `dst_ghost_ids_d`)      ,   - `max_capacity` ( `ghost_capacity`    `manifest.toml`).
+           `count`.
 
 2. **Hot-Patching (Sprouting):**
-   Когда в Ночную Фазу образуется новый Ghost Axon (получен `AxonHandoverAck`), отправитель:
-   - Дописывает новую пару `(src_axon, dst_ghost)` в конец своих хостовых векторов.
-   - Увеличивает `count += 1`.
-   - Выполняет микро-DMA (`cudaMemcpyAsync`) размером 8 байт (2 u32) **только для добавленного хвоста**.
-   - В следующем батче ядро `extract_outgoing_spikes` просто запускается с новым `count`.
+         Ghost Axon ( `AxonHandoverAck`), :
+   -    `(src_axon, dst_ghost)`     .
+   -  `count += 1`.
+   -  -DMA (`cudaMemcpyAsync`)  8  (2 u32) **   **.
+   -     `extract_outgoing_spikes`     `count`.
 
 3. **Swap-and-Pop (Pruning):**
-   Если связь разрушается (`AxonHandoverPrune`), сдвигать массив в VRAM (O(N)) строго запрещено - это убьет шину.
-   Применяется O(1) удаление:
-   - Последний элемент массива перемещается на место удаляемого (Swap).
-   - Уменьшается `count -= 1`.
-   - Выполняется микро-DMA (8 байт) для перезаписи одного измененного элемента в VRAM.
+      (`AxonHandoverPrune`),    VRAM (O(N))   -   .
+    O(1) :
+   -        (Swap).
+   -  `count -= 1`.
+   -  -DMA (8 )       VRAM.
 
-**Инвариант:** Никаких `cudaFree` / `cudaMalloc` в рантайме. Вся маршрутизация работает внутри преаллоцированного блока памяти. Патчинг массивов происходит строго на барьере BSP, пока 6Day-ядра стоят.
+**:**  `cudaFree` / `cudaMalloc`  .       .       BSP,  6Day- .
 
-### 2.5. Жизненный Цикл Ghost Axon [MVP: Рождение + Активность, PLANNED: Смерть]
+### 2.5.   Ghost Axon [MVP:  + , PLANNED: ]
 
-4 фазы: Рождение → Активность → Пропагация → Смерть.
+4 :       .
 
-**Шаг 1: Рождение (Slow Path / Night Phase)**
+** 1:  (Slow Path / Night Phase)**
 
-**Шаг 1: Рождение и Абсорбция (Slow Path / Night Phase)**
+** 1:    (Slow Path / Night Phase)**
 
-1. Аксон шарда A достигает 3D-границы (X, Y или Z). Ограничения шарда пробиваются, и в очередь SHM формируется `AxonHandoverEvent`.
-2. В фазу «Ночь» (внутри `run_sprouting_pass`) шард B читает входящую очередь `handovers_count`.
-3. CPU шарда B выполняет **Абсорбцию Ghost Axons**: происходит O(N) сканирование диапазона `padded_n .. padded_n + total_ghosts` (с идеальной локальностью L1 кэша) для поиска свободных слотов (`tip == 0`, что означает мёртвого призрака).
-4. Найдя свободный слот, шард распаковывает `entry_x/y/z` и `vector_x/y/z`, записывает их в `axon_tips_uvw` и `axon_dirs_xyz` и сбрасывает длину в 0. Новый Ghost Axon физически готов к росту и синаптогенезу.
+1.   A  3D- (X, Y  Z).   ,    SHM  `AxonHandoverEvent`.
+2.    ( `run_sprouting_pass`)  B    `handovers_count`.
+3. CPU  B  ** Ghost Axons**:  O(N)   `padded_n .. padded_n + total_ghosts` (   L1 )     (`tip == 0`,    ).
+4.   ,   `entry_x/y/z`  `vector_x/y/z`,    `axon_tips_uvw`  `axon_dirs_xyz`     0.  Ghost Axon      .
 
-**Шаг 2: Активность (Fast Path / Day Phase)**
+** 2:  (Fast Path / Day Phase)**
 
-1. Аксон шарда A стреляет → CPU формирует `SpikeBatch` с готовым `ghost_id` (Sender-Side Mapping).
-2. Шард B получает массив `ghost_indices[]` → ядро `ApplySpikeBatch`: `axon_heads[ghost_id] = 0` за O(1).
-- **Защита памяти:** Ядро `ApplySpikeBatch` обязано использовать `ghost_id` напрямую для адресации в массив (`axon_heads[ghost_id]`), а не использовать `tid` потока. Это гарантирует O(1) маршрутизацию без повреждения чужой памяти.
+1.   A   CPU  `SpikeBatch`   `ghost_id` (Sender-Side Mapping).
+2.  B   `ghost_indices[]`   `ApplySpikeBatch`: `axon_heads[ghost_id] = 0`  O(1).
+- ** :**  `ApplySpikeBatch`   `ghost_id`      (`axon_heads[ghost_id]`),    `tid` .   O(1)     .
 
 ### 2.5.1. Intra-GPU Ghost Sync (Zero-Copy L2 Routing)
 
-Для маршрутизации между зонами, вычисляемыми на одном физическом кристалле GPU (например, 8 зон коннектома Мухи), классический Fast Path через шину PCIe и процессор полностью исключается.
+   ,      GPU (, 8   ),  Fast Path   PCIe    .
 
-- **Механика (Temporal Age Extraction):** Ядро `cu_ghost_sync_kernel` читает 32-байтную структуру `BurstHeads8` из зоны-отправителя за одну транзакцию L1 кэша.
-- **Sender-Side Filtering:** Спайк переносится в `BurstHeads8` целевого Ghost-аксона **только если его абсолютный возраст меньше размера батча** (`head / v_seg < sync_batch_ticks`). Каждая голова будет отправлена ровно один раз за свою жизнь.
-- **Темпоральная непрерывность:** Массив из 8 голов сканируется аппаратно в обратном порядке (от `h7` к `h0`). Это гарантирует, что пулеметная очередь спайков (Burst) перекладывается в целевую зону с сохранением идеальных временных дистанций между импульсами. Задержка передачи (White Matter Delay) жестко и детерминированно равна 1 батчу.
-- **Zero-Cost:** 0 аллокаций, 0 байт трафика по PCIe. Сотни тысяч межзональных спайков маршрутизируются за единицы микросекунд внутри кэша L2.
+- ** (Temporal Age Extraction):**  `cu_ghost_sync_kernel`  32-  `BurstHeads8`  -    L1 .
+- **Sender-Side Filtering:**    `BurstHeads8`  Ghost- **       ** (`head / v_seg < sync_batch_ticks`).          .
+- ** :**   8       ( `h7`  `h0`).  ,     (Burst)           .   (White Matter Delay)     1 .
+- **Zero-Cost:** 0 , 0    PCIe.           L2.
 
-**Шаг 3: Пропагация**
+** 3: **
 
-`PropagateAxons` безусловно сдвигает Ghost аксоны (`+= v_seg`). `UpdateNeurons` в шарде B проверяет Active Tail через `dist = head - seg_idx` - математика идентична локальным аксонам.
+`PropagateAxons`   Ghost  (`+= v_seg`). `UpdateNeurons`   B  Active Tail  `dist = head - seg_idx` -    .
 
-**Шаг 4: Смерть (Night Phase)**
+** 4:  (Night Phase)**
 
-При получении `PruneAxon(ghost_id)`, шард B обязан не только освободить слот маршрутизации на хосте, но и физически записать `AXON_SENTINEL` (0x80000000) в `axon_heads[ghost_id]` в VRAM. Оставление старой головы приведет к фантомному распространению сигнала GPU-ядром PropagateAxons. В следующую Ночь шард B освобождает слот и восстанавливает статус готовности слота.
+  `PruneAxon(ghost_id)`,  B        ,     `AXON_SENTINEL` (0x80000000)  `axon_heads[ghost_id]`  VRAM.         GPU- PropagateAxons.     B       .
 
-### 2.6. Slow Path: Геометрия [PLANNED]
+### 2.6. Slow Path:  [PLANNED]
 
-Передача `AxonHandover` (§1.3) происходит **раз в K батчей** (например, раз в 10–50 мс). Рост аксонов - процесс медленный. Обновлять геометрию каждые 100 мкс не нужно. Это существенно разгружает канал.
+ `AxonHandover` (1.3)  **  K ** (,   1050 ).   -  .    100   .    .
 
 ### 2.7. Main Loop [MVP: Compute + Network, PLANNED: Geometry]
 
@@ -347,40 +347,40 @@ while simulation_running:
     # 1. Compute Phase (GPU)
     for t in range(sync_batch_ticks):
         current_tick += 1
-        apply_remote_spikes(current_tick)   # Из Schedule (Ring Buffer)
+        apply_remote_spikes(current_tick)   #  Schedule (Ring Buffer)
         physics_step()
         collect_outgoing_spikes()
 
-    # 2. Network Phase (CPU/IO) - Барьер
+    # 2. Network Phase (CPU/IO) - 
     send_buffers_to_neighbors()             # Zero-Copy Flush
-    incoming_data = wait_for_neighbors()    # Блокировка
+    incoming_data = wait_for_neighbors()    # 
 
     # 3. Map Phase
-    schedule_spikes(incoming_data)           # → Ring Buffer
+    schedule_spikes(incoming_data)           #  Ring Buffer
 ```
 
 ### 2.8. Ring Buffer Schedule [MVP]
 
-Плоский 2D массив - никаких Priority Queue, деревьев или сортировки:
+ 2D  -  Priority Queue,   :
 
 ```rust
-// Выделяется при старте (на CPU, затем → VRAM)
+//    ( CPU,   VRAM)
 struct SpikeSchedule {
     // schedule[tick_offset][slot] = ghost_id
     buffer: Vec<Vec<u32>>,      // [sync_batch_ticks][MAX_SPIKES_PER_TICK]
-    counts: Vec<u32>,           // Количество спайков в каждом тике
+    counts: Vec<u32>,           //     
 }
 ```
 
-**Запись (Map Phase, CPU):** Спайки из `SpikeBatch` раскладываются по `tick_offset` из `SpikeEvent`:
+** (Map Phase, CPU):**   `SpikeBatch`   `tick_offset`  `SpikeEvent`:
 
 ```rust
 for event in incoming_batch {
     let ghost_id = event.receiver_ghost_id as usize;
     let tick = event.tick_offset as usize;
     
-    // Защита от мусорных ID (Инъекция/Баги сети/Десинхронизация)
-    // Валидация происходит 1 раз на CPU, разгружая Hot Loop на GPU
+    //    ID (/ /)
+    //   1   CPU,  Hot Loop  GPU
     if ghost_id >= local_axons && ghost_id < (local_axons + ghost_axons) && tick < sync_batch_ticks {
         schedule.buffer[tick][schedule.counts[tick]] = ghost_id as u32;
         schedule.counts[tick] += 1;
@@ -390,15 +390,15 @@ for event in incoming_batch {
 }
 ```
 
-**Чтение (Day Phase, GPU):** На каждом тике `ApplySpikeBatch` читает **один слот** `schedule[current_tick_in_batch]`, запускается только для `counts[tick]` спайков.
+** (Day Phase, GPU):**    `ApplySpikeBatch`  ** ** `schedule[current_tick_in_batch]`,    `counts[tick]` .
 
 ### 2.8.1. Epoch Synchronization & Biological Amnesia
 
-Вместо слепого пинг-понга, BSP-барьер опирается на строгий счётчик `epoch` (номер батча). Поскольку UDP не гарантирует порядок доставки, рантайм реализует два механизма выживания:
+  -, BSP-     `epoch` ( ).  UDP    ,     :
 
 #### Biological Amnesia (Drop)
 
-Если приходит пакет с `header.epoch < current_epoch`, он **мгновенно отбрасывается**.
+    `header.epoch < current_epoch`,  ** **.
 
 ```rust
 fn process_spike_batch(
@@ -408,21 +408,21 @@ fn process_spike_batch(
     let curr = current_epoch.load(Ordering::Acquire);
     
     if packet.epoch < curr {
-        // Пакет "из прошлого" - биологически бессмыслен
-        // Отброс: нет логирования, нет паники, просто DROP
+        //  " " -  
+        // :  ,  ,  DROP
         return;
     }
     
-    // Обработать как обычно
+    //   
     apply_spike_events_to_schedule(packet);
 }
 ```
 
-**Почему это работает:** Сигнал "из прошлого" физиологически не имеет смысла и только разрушит причинно-следственные связи GSOP (долгосрочная пластичность зависит от точного временного порядка). Отброс - это **легальное биологическое поведение** (аналог забывчивости нейрона при задержниках).
+**  :**  " "        -  GSOP (      ).  -  **  ** (    ).
 
 #### Self-Healing (Fast-Forward)
 
-Если приходит пакет с `header.epoch > current_epoch`, это означает, что **наш шард завис или пропустил Heartbeat**. Шард принудительно сбрасывает свой барьер, делает прыжок во времени и синхронизируется с сетью, жертвуя потерянными локальными тиками:
+    `header.epoch > current_epoch`,  ,  **     Heartbeat**.     ,        ,    :
 
 ```rust
 fn self_heal_from_network(
@@ -432,58 +432,58 @@ fn self_heal_from_network(
     let curr = current_epoch.load(Ordering::Acquire);
     
     if packet.epoch > curr {
-        // Нас "отставили" в сети. Fast-forward:
+        //  ""  . Fast-forward:
         eprintln!("[SelfHeal] Epoch jumped from {} to {}", curr, packet.epoch);
         
-        // Сбросить Ring Buffer (потеря локальных спайков за пропущенные батчи)
+        //  Ring Buffer (     )
         flush_spike_schedule();
         
-        // Atomically обновить epoch
+        // Atomically  epoch
         current_epoch.store(packet.epoch, Ordering::Release);
     }
 }
 ```
 
-**Эффект:** Если кластер лагает, одна быстрая нода может "разбудить" отставшие, заставив их пересинхронизироваться. Потеря данных (Biological Amnesia) - это цена синхронизма, и она **приемлема для нейросети** (спайки теряются на биологических синапсах при глубоком сне).
+**:**   ,     "" ,   .   (Biological Amnesia) -   ,   **  ** (       ).
 
-**Инвариант:** `epoch` никогда не движется назад (монотонно возрастает). Это гарантирует, что система движется вперёд во времени, даже если теряет данные.
+**:** `epoch`     ( ).  ,      ,    .
 
 ### 2.9. Bulk DMA & Autonomous Batch Execution [MVP]
 
-Сетевой реактор Tokio и GPU полностью изолированы через Ping-Pong буферы (`BspBarrier`). Шина PCIe не дергается каждый тик.
+  Tokio  GPU    Ping-Pong  (`BspBarrier`).  PCIe    .
 
-**Стратегия: Минимум пересечений Host-Device**
+**:   Host-Device**
 
 1. **Bulk H2D (Host-to-Device):**
-   Перед началом батча `Input_Bitmask` и `SpikeSchedule` заливаются в VRAM за **одну** асинхронную транзакцию `cudaMemcpyAsync`. 
-   - Размер: `(input_bitmask_size + schedule_size)` байт
-   - Ожидание: <1 мс на PCIe 4.0 x16 при ≈100 МБ батча
-   - Запуск: `cudaMemcpyAsync(d_input, h_input, size, 0, stream)` с non-blocking флагом
+      `Input_Bitmask`  `SpikeSchedule`   VRAM  ****   `cudaMemcpyAsync`. 
+   - : `(input_bitmask_size + schedule_size)` 
+   - : <1   PCIe 4.0 x16  100  
+   - : `cudaMemcpyAsync(d_input, h_input, size, 0, stream)`  non-blocking 
 
 2. **Autonomous GPU Loop:**
-   GPU крутит **6-ядерный цикл** (`sync_batch_ticks` шагов) полностью независимо от хоста:
+   GPU  **6- ** (`sync_batch_ticks` )    :
    ```
    for tick_in_batch in 0..sync_batch_ticks:
        InjectInputs        (Virtual Axon pulse)
        ApplySpikeBatch     (Ghost Axon activation)
-       PropagateAxons      (Безусловный IADD на все аксоны)
+       PropagateAxons      ( IADD   )
        UpdateNeurons       (GLIF + spike check)
        ApplyGSOP           (Plasticity)
        RecordReadout       (Output snapshot)
    ```
-   - **Ни одного вызова `cudaDeviceSynchronize()`** внутри цикла
-   - Ни одного обращения к хосту
-   - **Результат:** Полная утилизация GPU SM, без простоев
+   - **   `cudaDeviceSynchronize()`**  
+   -     
+   - **:**   GPU SM,  
 
 3. **Pointer Offsetting (O(1)):**
-   Внутри горячего цикла CUDA ядра получают смещенные указатели на данные текущего тика:
+      CUDA        :
    ```cuda
    __global__ void PropagateAxons(...) {
        int tid = blockIdx.x * blockDim.x + threadIdx.x;
        if (tid >= total_axons) return;
        
        // tick_input_ptr = base_ptr + (tick_in_batch * stride)
-       // O(1) арифметика, никакого поиска
+       // O(1) ,  
        uint32_t *tick_schedule = schedule_base + (tick_in_batch * max_spikes_per_tick);
        int head = axon_heads[tid];
        axon_heads[tid] = head + v_seg[tid];  // Propagate
@@ -491,28 +491,28 @@ fn self_heal_from_network(
    ```
 
 4. **Bulk D2H (Device-to-Host):**
-   По окончании батча - одна асинхронная транзакция:
+      -   :
    ```cuda
    cudaMemcpyAsync(h_output, d_output_history, output_size, cudaMemcpyDeviceToHost, stream);
    ```
-   - Перекрытие: пока host обрабатывает батч N, GPU готовит батч N+1
-   - Network Phase парирует это естественно через BSP barrier
+   - :  host   N, GPU   N+1
+   - Network Phase     BSP barrier
 
-**Инвариант:** Нет микротранзакций. Нет пинг-понга каждый тик. Только 4 макро-операции за весь батч (100 ms → 4 DMA).
+**:**  .  -  .  4 -    (100 ms  4 DMA).
 
 ### 2.10. WaitStrategy: CPU Profiles [MVP]
 
-**Задача:** Управление планировщиком ОС в горячих циклах (BSP Barrier, сетевой ввод). Выбор между спин-локом, yield и дремой при ожидании данных от соседей.
+**:**       (BSP Barrier,  ).   -, yield       .
 
-**3 профиля (флаг `--cpu-profile`):**
+**3  ( `--cpu-profile`):**
 
-| Профиль | Стратегия | Латентность | Использование CPU | Сценарий |
+|  |  |  |  CPU |  |
 |---|---|---|---|---|
-| **Aggressive** | `spin_loop()` | ~1 нс | 100% ядро | Production / HFT |
-| **Balanced** | `yield_now()` | ~1–15 мс | Разд. с OS | Дебаг, локальная сеть |
-| **Eco** | `sleep(1ms)` | ~1–5 мс | ~0% детально | Ноутбуки, батарея |
+| **Aggressive** | `spin_loop()` | ~1  | 100%  | Production / HFT |
+| **Balanced** | `yield_now()` | ~115  | .  OS | ,   |
+| **Eco** | `sleep(1ms)` | ~15  | ~0%  | ,  |
 
-**Реализация в Network Phase:**
+**  Network Phase:**
 
 ```rust
 pub enum WaitStrategy {
@@ -523,7 +523,7 @@ pub enum WaitStrategy {
 
 pub fn wait_for_neighbors(wait_strategy: WaitStrategy) -> Vec<SpikeBatch> {
     loop {
-        // Попытка неблокирующего чтения из буфера сокетов
+        //      
         if let Some(batch) = try_recv_all_neighbors() {
             return batch;
         }
@@ -537,118 +537,118 @@ pub fn wait_for_neighbors(wait_strategy: WaitStrategy) -> Vec<SpikeBatch> {
 }
 ```
 
-**Ключевые Инварианты:**
+** :**
 
-1. **Spin-loop безопасен:** BSP барьер - единственное место, где хост ждёт физиологического события (приход сетки). Нет Mutex, нет atomics-loop.
-2. **Не цепляется за GPU:** Network Phase - чисто CPU, GPU работает независимо (Autonomous Loop, §2.9).
-3. **Портативность:** Выбор профиля - runtime, переносится через config или CLI. Ядро физики одинаково во всех режимах.
+1. **Spin-loop :** BSP  -  ,      ( ).  Mutex,  atomics-loop.
+2. **   GPU:** Network Phase -  CPU, GPU   (Autonomous Loop, 2.9).
+3. **:**   - runtime,   config  CLI.      .
 
-### 2.11. Почему Это Сработает [MVP]
+### 2.11.    [MVP]
 
-| Принцип | Эффект |
+|  |  |
 |---|---|
-| **Масштабируемость** | Платим за латентность сети один раз за 100 тиков, не 100 раз |
-| **Детерминизм** | При тех же сидах и `sync_batch_ticks` - бит-в-бит одинаковый результат, независимо от скорости сети |
-| **Безопасность** | Если сеть лагает - система притормаживает (Wall Clock Speed падает), но физика (GSOP, спайки) остаётся математически точной |
-| **Zero-Copy** | Hot Loop получателя: O(1) вставка по готовому индексу, без десериализации |
+| **** |        100 ,  100  |
+| **** |      `sync_batch_ticks` - --  ,     |
+| **** |    -   (Wall Clock Speed ),   (GSOP, )    |
+| **Zero-Copy** | Hot Loop : O(1)    ,   |
 
 ---
 
-## 3. Интеграция Атласа (White Matter Routing) [PLANNED]
+## 3.   (White Matter Routing) [PLANNED]
 
-Атлас (например, на базе FLNe-матриц мармозетки) - **статичная таблица маршрутизации**. Используется только на CPU во время фазы Baking. В горячем цикле (Hot Loop) на GPU Атласа не существует. Пространство между зонами **не симулируется**.
+ (,   FLNe- ) - **  **.    CPU    Baking.    (Hot Loop)  GPU   .    ** **.
 
-### 3.1. Квотирование (Hard Quotas)
+### 3.1.  (Hard Quotas)
 
-Отказываемся от генерации связей «по вероятности». Используем **жёсткие квоты**.
+     .  ** **.
 
-- Если атлас говорит, что доля V1 во входящих связях V2 составляет 17%, и слою нужно 100 000 входов - Compiler Tool обязан выбрать **ровно 17 000** сом-отправителей из V1.
-- Выбор отправителей производится **детерминированным шаффлом** на базе `master_seed` (см. [02_configuration.md §5.3](./02_configuration.md)).
+-   ,   V1    V2  17%,    100 000  - Compiler Tool   ** 17 000** -  V1.
+-    ** **   `master_seed` (. [02_configuration.md 5.3](./02_configuration.md)).
 
-### 3.2. Топографический Маппинг (UV-Projection)
+### 3.2.   (UV-Projection)
 
-Зоны имеют разные физические размеры. Прямой перенос координат невозможен.
+    .    .
 
-- **UV-нормализация:** Координаты сомы-отправителя переводятся в диапазон `0.0..1.0` (`U`, `V`).
-- **Проекция:** Целевая координата = `U × Target_Width`, `V × Target_Height`.
-- **Результат:** Пространственная топология проекции сохраняется - то, что рядом в V1, рядом и в V2.
+- **UV-:**  -    `0.0..1.0` (`U`, `V`).
+- **:**   = `U  Target_Width`, `V  Target_Height`.
+- **:**     - ,    V1,    V2.
 
-### 3.3. Детерминированное Рассеивание (Jitter)
+### 3.3.   (Jitter)
 
-Никаких проверок коллизий для Ghost Axons на целевой стороне.
+    Ghost Axons   .
 
-- Чтобы аксоны не попадали в один математический пиксель идеальной сетки, к целевой координате добавляется **детерминированный шум:**
+-          ,     ** :**
 
 ```
 Target_X += Hash(master_seed + soma_id) % jitter_radius
 Target_Y += Hash(master_seed + soma_id + 1) % jitter_radius
 ```
 
-- Шум воспроизводим при том же `master_seed` - детерминизм сохранён.
+-      `master_seed` -  .
 
-### 3.4. Результат: Zero-Cost Routing
+### 3.4. : Zero-Cost Routing
 
-1. **Передающий шард (V1):** Создаётся выходной порт (`Port Out`).
-2. **Принимающий шард (V2):** Создаётся массив Ghost Axons в рассчитанных координатах (`Target_X`, `Target_Y`). Они начинают **локально прорастать** вглубь целевого слоя, подчиняясь обычной физике Cone Tracing (§4 из [04_connectivity.md](./04_connectivity.md)).
-3. **Задержка:** `Delay_Ticks` рассчитывается жёстко по физическому расстоянию между зонами в Атласе. Реальный сетевой лаг (пинг) **прячется** внутри этой математической задержки - сеть перестаёт быть проблемой.
+1. **  (V1):**    (`Port Out`).
+2. **  (V2):**   Ghost Axons    (`Target_X`, `Target_Y`).   ** **   ,    Cone Tracing (4  [04_connectivity.md](./04_connectivity.md)).
+3. **:** `Delay_Ticks`         .    () ****     -    .
 
 ### 3.5. Dynamic Routing (Read-Copy-Update)
 
-Статическая маршрутизация не подходит для отказоустойчивых кластеров. Адреса шардов могут меняться при их воскрешении (Resurrection) на новых нодах.
+      .        (Resurrection)   .
 
-**Таблица маршрутизации** (`RoutingTable`) работает по принципу **RCU (Read-Copy-Update)**, гарантируя **0 блокировок в горячем цикле:**
+** ** (`RoutingTable`)    **RCU (Read-Copy-Update)**,  **0    :**
 
-- **Read:** Egress-потоки читают адреса через `AtomicPtr` (O(1), без блокировок).
-- **Copy-Update:** При получении пакета `RouteUpdate` (Magic: `0x54554F52` / "ROUT"), оркестратор клонирует хэш-таблицу, обновляет IP:Port, и делает атомарный `swap` указателя.
-- **Deferred Cleanup:** Старая таблица удаляется через `tokio::spawn` с задержкой 100 мс, гарантируя, что все отставшие Egress-потоки успели завершить чтение.
+- **Read:** Egress-    `AtomicPtr` (O(1),  ).
+- **Copy-Update:**    `RouteUpdate` (Magic: `0x54554F52` / "ROUT"),   -,  IP:Port,    `swap` .
+- **Deferred Cleanup:**     `tokio::spawn`   100 , ,    Egress-   .
 
-#### Формат пакета RouteUpdate
+####   RouteUpdate
 
 ```rust
 #[repr(C)]
 pub struct RouteUpdate {
     pub magic: u32,      // 0x54554F52 ("ROUT")
-    pub zone_hash: u32,  // ID перемещенной зоны
-    pub new_ipv4: u32,   // Новый IP в u32 (network byte order)
-    pub new_port: u16,   // Новый порт
-    pub mtu: u16,        // [DOD FIX] Динамический MTU для L7-фрагментации
-    pub cluster_secret: u64, // Секрет кластера для валидации
+    pub zone_hash: u32,  // ID  
+    pub new_ipv4: u32,   //  IP  u32 (network byte order)
+    pub new_port: u16,   //  
+    pub mtu: u16,        // [DOD FIX]  MTU  L7-
+    pub cluster_secret: u64, //    
 }  // = 24 bytes
 ```
 
-**Режим MTU:**
-- Поле `mtu` позволяет передающей ноде адаптировать размер L7-фрагментов под возможности приемника.
-- Если `mtu` равен 0 или не задан (legacy), используется значение по умолчанию для ПК (65507).
+** MTU:**
+-  `mtu`      L7-   .
+-  `mtu`  0    (legacy),       (65507).
 
 #### RCU Implementation
 
 ```rust
 pub struct RoutingTable {
-    // Указатель на текущую таблицу маршрутизации
-    // Читается без блокировок через load(Ordering::Acquire)
+    //     
+    //     load(Ordering::Acquire)
     ptr: AtomicPtr<HashMap<u32, SocketAddr>>,
 }
 
 impl RoutingTable {
     pub fn lookup(&self, zone_hash: u32) -> Option<SocketAddr> {
-        // O(1) чтение без мьютекса
+        // O(1)   
         let table = unsafe { &*self.ptr.load(Ordering::Acquire) };
         table.get(&zone_hash).copied()
     }
     
     pub fn update(&self, zone_hash: u32, new_addr: SocketAddr) {
-        // Copy: клонировать текущую таблицу
+        // Copy:   
         let old_ptr = self.ptr.load(Ordering::Acquire);
         let mut new_table = unsafe { (*old_ptr).clone() };
         
-        // Update: вставить новый адрес
+        // Update:   
         new_table.insert(zone_hash, new_addr);
         let new_ptr = Box::into_raw(Box::new(new_table));
         
-        // Swap: атомарно поменять указатель
+        // Swap:   
         let old_ptr = self.ptr.swap(new_ptr, Ordering::Release);
         
-        // Cleanup (deferred): удалить старую таблицу через 100 мс
+        // Cleanup (deferred):     100 
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
             drop(unsafe { Box::from_raw(old_ptr) });
@@ -657,43 +657,43 @@ impl RoutingTable {
 }
 ```
 
-**Инварианты:**
+**:**
 
-1. **Горячий цикл (Egress):** `lookup()` - чистое чтение без атомиков, без блокировок. CAS + Acquire ordering = ~3 цикла на x86.
-2. **Холодный цикл (Control Plane):** `update()` работает редко (при воскрешении шарда); может заполнять CPU на copy+swap, но не влияет на рендеринг спайков.
-3. **Безопасность:** Deferred cleanup гарантирует, что нет Use-After-Free: старая таблица удаляется только когда все читатели заведомо завершили свои операции (100 мс >> max jitter).
+1. **  (Egress):** `lookup()` -    ,  . CAS + Acquire ordering = ~3   x86.
+2. **  (Control Plane):** `update()`   (  );   CPU  copy+swap,      .
+3. **:** Deferred cleanup ,   Use-After-Free:            (100  >> max jitter).
 
 ---
 
-## 4. Текущая Реализация в V1 (MVP)
+## 4.    V1 (MVP)
 
-### 4.1. Что Работает Сейчас [MVP]
+### 4.1.    [MVP]
 
 **Multi-Node (Cluster) & Single-Node:**
-- Изолированные шарды работают на разных GPU и машинах через UDP Fast-Path (`InterNodeChannel`).
-- Внутри одного GPU шарды общаются через Zero-Copy VRAM указатели (`IntraGpuChannel`).
-- L7-фрагментация пакетов (`SpikeBatchHeaderV2`) с динамическим адаптивным MTU для поддержки гетерогенных сетей (PC + ESP32).
-- Zero-Lock RCU-маршрутизация (`ROUT_MAGIC`) для Hot-Reload адресов нод при восстановлении или миграции.
+-      GPU    UDP Fast-Path (`InterNodeChannel`).
+-   GPU    Zero-Copy VRAM  (`IntraGpuChannel`).
+- L7-  (`SpikeBatchHeaderV2`)    MTU     (PC + ESP32).
+- Zero-Lock RCU- (`ROUT_MAGIC`)  Hot-Reload      .
 
 **Autonomous Epoch Projection (AEP):**
-- `BspBarrier` полноценно использует асинхронный сетевой I/O.
-- Жёсткая синхронизация заменена на эластичную (Latency Hiding через Lock-Free очереди).
-- Biological Amnesia (Spike Drop) аппаратно отбрасывает отставшие из-за сетевого лага пакеты, защищая VRAM.
+- `BspBarrier`     I/O.
+-      (Latency Hiding  Lock-Free ).
+- Biological Amnesia (Spike Drop)    -   ,  VRAM.
 
-### 4.2. Что НЕ Работает Пока [PLANNED]
+### 4.2.     [PLANNED]
 
-| Функция | Статус | Причина |
+|  |  |  |
 |---|---|---|
-| **Dynamic AxonHandover** | PLANNED | Аксоны не растут через границы; они бакутся заранее |
-| **Periodic Boundaries (Toroidal)** | PLANNED | Замыкание Z и кольцо X/Y требуют изменения конфига |
-| **Slow Path Geometry Sync** | PLANNED | Геометрия вычисляется только раз при Baking |
-| **Pruning & Night Phase Networking** | PLANNED | Удаление Ghost Axons на целевом шарде не реализовано |
-| **Latency Hiding Variance** | PLANNED | Фиксированная задержка 1 батч; адаптивная задержка не реализована |
-| **Atlas-Based Routing** | PLANNED | Маршрутизация между зонами фиксирована в `.ghosts` файлах |
+| **Dynamic AxonHandover** | PLANNED |     ;    |
+| **Periodic Boundaries (Toroidal)** | PLANNED |  Z   X/Y    |
+| **Slow Path Geometry Sync** | PLANNED |      Baking |
+| **Pruning & Night Phase Networking** | PLANNED |  Ghost Axons      |
+| **Latency Hiding Variance** | PLANNED |   1 ;     |
+| **Atlas-Based Routing** | PLANNED |      `.ghosts`  |
 
 ---
 
-## 5. Структуры Данных (Реальные Сигнатуры)
+## 5.   ( )
 
 ### 5.1. SpikeBatchHeader & SpikeEvent
 
@@ -701,98 +701,98 @@ impl RoutingTable {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SpikeBatchHeader {
-    pub batch_id: u32,      // Номер батча (защита от рассинхрона)
-    pub spikes_count: u32,  // Количество событий в батче
+    pub batch_id: u32,      //   (  )
+    pub spikes_count: u32,  //    
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SpikeEvent {
-    pub receiver_ghost_id: u32,  // Ghost Axon ID на целевом шарде (прямой индекс)
-    pub tick_offset: u8,         // Тик внутри батча (0..sync_batch_ticks)
-    pub _pad: [u8; 3],           // Выравнивание до 8 байт
+    pub receiver_ghost_id: u32,  // Ghost Axon ID    ( )
+    pub tick_offset: u8,         //    (0..sync_batch_ticks)
+    pub _pad: [u8; 3],           //   8 
 }
 ```
 
-**Размер:** 8 байт на спайк (Coalesced Access на GPU).
+**:** 8    (Coalesced Access  GPU).
 
-**Передача:** Заголовок (8 байт) + массив SpikeEvent (8 байт × count).
+**:**  (8 ) +  SpikeEvent (8   count).
 
 ### 5.2. BspBarrier Internals
 
 ```rust
 pub struct BspBarrier {
-    pub schedule_a: SpikeSchedule,              // Буфер 1
-    pub schedule_b: SpikeSchedule,              // Буфер 2
-    pub writing_to_b: bool,                     // Куда пишет сеть
-    pub outgoing_batches: HashMap<u32, Vec<SpikeEvent>>,  // Исходящие спайки по шардам
-    pub socket: Option<NodeSocket>,             // Сокет (None в MVP)
-    pub peer_addresses: HashMap<u32, SocketAddr>,  // Маршрут: shard_id → IP:port
+    pub schedule_a: SpikeSchedule,              //  1
+    pub schedule_b: SpikeSchedule,              //  2
+    pub writing_to_b: bool,                     //   
+    pub outgoing_batches: HashMap<u32, Vec<SpikeEvent>>,  //    
+    pub socket: Option<NodeSocket>,             //  (None  MVP)
+    pub peer_addresses: HashMap<u32, SocketAddr>,  // : shard_id  IP:port
 }
 ```
 
-**Жизненный цикл sync_and_swap():**
-1. Flip `writing_to_b` (GPU читает из одного, сеть пишет в другой).
-2. Если `socket.is_some()`: отправить `outgoing_batches` всем соседям (async).
-3. Ждём прихода батчей от соседей (await).
-4. `ingest_spike_batch()` раскладывает входящие спайки в текущий Schedule.
-5. Сброс Schedule на следующий батч.
+**  sync_and_swap():**
+1. Flip `writing_to_b` (GPU   ,    ).
+2.  `socket.is_some()`:  `outgoing_batches`   (async).
+3.      (await).
+4. `ingest_spike_batch()`      Schedule.
+5.  Schedule   .
 
 ### 5.3. GhostConnection File Format
 
-Файл `{shard_name}.ghosts` (бинарный, Little-Endian):
+ `{shard_name}.ghosts` (, Little-Endian):
 
 ```
 [0..3]   magic: u32 = 0x47485354 ("GHST")
 [4]      version: u8 = 1
 [5]      padding: u8
-[6..7]   width: u16 (измерение X/Y стыка)
-[8..9]   height: u16 (измерение Z или второе строящееся направление)
+[6..7]   width: u16 ( X/Y )
+[8..9]   height: u16 ( Z    )
 [10..11] padding: u16
-[12..15] src_zone_hash: u32 (идентификатор Zona-источника)
-[16..19] dst_zone_hash: u32 (идентификатор Zona-приёма)
-[20..]   connections: [GhostConnection; width × height]
-         Каждый: local_axon_id (u32) + paired_src_soma (u32) = 8 байт
+[12..15] src_zone_hash: u32 ( Zona-)
+[16..19] dst_zone_hash: u32 ( Zona-)
+[20..]   connections: [GhostConnection; width  height]
+         : local_axon_id (u32) + paired_src_soma (u32) = 8 
 ```
 
-**Примечание:** Массив Connections отсортирован по (Y, Z) если X-граница или (X, Z) если Y-граница. Это позволяет GPU применять `ApplySpikeBatch` с хорошей локальностью доступа.
+**:**  Connections   (Y, Z)  X-  (X, Z)  Y-.   GPU  `ApplySpikeBatch`    .
 
 ---
 
-## Связанные документы
+##  
 
-| Документ | Что связывается |
+|  |   |
 |---|---|
-| [04_connectivity.md](./04_connectivity.md) | §1.7: Ghost Axons, Cone Tracing, Axon Growth |
-| [05_signal_physics.md](./05_signal_physics.md) | §1.2.1: ApplySpikeBatch kernel, Ghost indices |
-| [07_gpu_runtime.md](./07_gpu_runtime.md) | §2: Batch Orchestration, sync_and_swap timing, Stream management |
-| [09_baking_pipeline.md](./09_baking_pipeline.md) | §3: Ghost Connection generation, Z-sort for boundaries |
-| [02_configuration.md](./02_configuration.md) | §5.3: master_seed, deterministic topology |
-| [project_structure.md](../project_structure.md) | Distributed arch role in overall Genesis design |
+| [04_connectivity.md](./04_connectivity.md) | 1.7: Ghost Axons, Cone Tracing, Axon Growth |
+| [05_signal_physics.md](./05_signal_physics.md) | 1.2.1: ApplySpikeBatch kernel, Ghost indices |
+| [07_gpu_runtime.md](./07_gpu_runtime.md) | 2: Batch Orchestration, sync_and_swap timing, Stream management |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | 3: Ghost Connection generation, Z-sort for boundaries |
+| [02_configuration.md](./02_configuration.md) | 5.3: master_seed, deterministic topology |
+| [project_structure.md](../project_structure.md) | Distributed arch role in overall Axicor design |
 
 ## 6. Autonomous Node Recovery (The Great Resurrection)
 
-Кластер Genesis проектируется под постоянные аппаратные отказы. Вместо остановки симуляции применяется механизм **Zero-Downtime Shard Recovery**, гарантирующий восстановление вычислений за миллисекунды.
+ Axicor     .      **Zero-Downtime Shard Recovery**,     .
 
-### 6.1. Shadow Buffers (Теневые Реплики)
+### 6.1. Shadow Buffers ( )
 
-Для избежания потери синаптических весов при смерти ноды применяется асинхронная репликация в POSIX Shared Memory.
+            POSIX Shared Memory.
 
-1. **Периодичность:** Каждые 500 батчей оркестратор вызывает `replicate_shards`.
+1. **:**  500    `replicate_shards`.
 
-2. **Zero-Copy Transfer:** Массивы `dendrite_weights` и `dendrite_targets` напрямую копируются из `/dev/shm/genesis_shard_{zone_hash}` в `/dev/shm/{zone_hash}.shadow` на соседних резервных нодах.
+2. **Zero-Copy Transfer:**  `dendrite_weights`  `dendrite_targets`    `/dev/shm/axicor_shard_{zone_hash}`  `/dev/shm/{zone_hash}.shadow`    .
 
-3. **OS-Level Transport:** Используется `tokio::io::copy`, который на Linux транслируется в системный вызов `sendfile` (или `splice`), обеспечивая копирование из сокета в файловый дескриптор в пространстве ядра, минуя user-space аллокации.
+3. **OS-Level Transport:**  `tokio::io::copy`,   Linux     `sendfile` ( `splice`),          ,  user-space .
 
 ```rust
-// genesis-runtime/src/recovery.rs
+// axicor-runtime/src/recovery.rs
 
 pub async fn replicate_shards(
     shards: &[ShardState],
     backup_nodes: &[BackupNode],
 ) -> Result<Vec<ReplicaStatus>> {
     for shard in shards {
-        let shm_path = format!("/dev/shm/genesis_shard_{:x}", shard.zone_hash);
+        let shm_path = format!("/dev/shm/axicor_shard_{:x}", shard.zone_hash);
         let shadow_path = format!("/dev/shm/{:x}.shadow", shard.zone_hash);
         
         // Open source (shared memory)
@@ -810,14 +810,14 @@ pub async fn replicate_shards(
 
 ### 6.2. 500ms Isolation Detection
 
-`BspBarrier` отслеживает время ожидания от каждого соседа.
+`BspBarrier`      .
 
-- Если барьер заблокирован более чем на `BSP_SYNC_TIMEOUT_MS` (500 мс), срабатывает детектор изоляции.
-- Оркестратор генерирует ошибку `BspError::NodeIsolated(dead_zone_hash)`.
-- Узел, хранящий теневую реплику (`.shadow`) упавшей зоны, назначается координатором воскрешения.
+-       `BSP_SYNC_TIMEOUT_MS` (500 ),   .
+-    `BspError::NodeIsolated(dead_zone_hash)`.
+- ,    (`.shadow`)  ,   .
 
 ```rust
-// genesis-runtime/src/orchestrator.rs
+// axicor-runtime/src/orchestrator.rs
 
 pub fn detect_isolation(
     current_epoch: u32,
@@ -836,18 +836,18 @@ pub fn detect_isolation(
 }
 ```
 
-### 6.3. The Great Resurrection (Протокол Воскрешения)
+### 6.3. The Great Resurrection ( )
 
-При активации координатор выполняет следующий конвейер:
+     :
 
-1. **VRAM Re-allocation:** Выделяется новая память на GPU под `padded_n` и `total_axons`.
+1. **VRAM Re-allocation:**     GPU  `padded_n`  `total_axons`.
 
-2. **Shadow Restore:** Данные из `/dev/shm/*.shadow` заливаются в VRAM через `cudaMemcpyAsync`.
+2. **Shadow Restore:**   `/dev/shm/*.shadow`   VRAM  `cudaMemcpyAsync`.
 
-3. **RCU Route Patching:** Координатор рассылает всем пирам широковещательный пакет `RouteUpdate` (см. [06_distributed.md §3.5](./06_distributed.md#35-dynamic-routing-read-copy-update), `ROUT_MAGIC = 0x54554F52`). Пиры атомарно обновляют свои Egress-таблицы (RCU Swap), перенаправляя трафик на новый IP/Port. **Ноль мьютексов в горячем цикле**.
+3. **RCU Route Patching:**       `RouteUpdate` (. [06_distributed.md 3.5](./06_distributed.md#35-dynamic-routing-read-copy-update), `ROUT_MAGIC = 0x54554F52`).     Egress- (RCU Swap),     IP/Port. **    **.
 
 ```rust
-// genesis-runtime/src/recovery.rs
+// axicor-runtime/src/recovery.rs
 
 pub struct ResurrectionCoordinator {
     shadow_path: String,
@@ -874,21 +874,21 @@ impl ResurrectionCoordinator {
 
 ### 6.4. Stabilization (Warmup Loop)
 
-Сохранённый `.shadow` дамп содержит веса дендритов и топологию аксонов, но **не содержит мембранные потенциалы** (вольтаж сомы) - они слишком волатильны и их сброс на диск убьёт PCIe шину.
+ `.shadow`       ,  **   ** ( ) -          PCIe .
 
-При воскрешении все нейроны имеют `voltage = 0`. Если сразу пустить шард в сеть, произойдёт эпилептический шторм из-за потери гомеостатических порогов или, наоборот, полное молчание.
+     `voltage = 0`.      ,    -    , ,  .
 
-**Механика:**
+**:**
 
-Команда `ComputeCommand::Resurrect(zone_hash)` переводит шард в режим **Warmup** длительностью 100 тиков (Day Phase):
+ `ComputeCommand::Resurrect(zone_hash)`     **Warmup**  100  (Day Phase):
 
-1. **Входящие сетевые спайки** обрабатываются нормально (`ApplySpikeBatch`).
-2. **Собственные исходящие спайки** (External Outputs через Virtual Axons) **гасятся** (не отправляются в сеть).
-3. **Мембранные потенциалы** (`voltage` и `threshold_offset`) медленно напитываются токами и стабилизируются до биологической нормы.
-4. **По окончании 100 тиков** шард переходит в режим Normal и начинает полноценно взаимодействовать с кластером.
+1. **  **   (`ApplySpikeBatch`).
+2. **  ** (External Outputs  Virtual Axons) **** (   ).
+3. ** ** (`voltage`  `threshold_offset`)        .
+4. **  100 **     Normal      .
 
 ```rust
-// genesis-runtime/src/compute.rs
+// axicor-runtime/src/compute.rs
 
 pub struct ShardMode {
     pub variant: ShardVariant,
@@ -897,7 +897,7 @@ pub struct ShardMode {
 
 pub enum ShardVariant {
     Normal,
-    Warmup,  // Входящие спайки ОК, исходящие гасятся
+    Warmup,  //   ,  
 }
 
 pub fn record_readout_warmup(
@@ -906,26 +906,26 @@ pub fn record_readout_warmup(
     shard_mode: &ShardMode,
 ) {
     if shard_mode.variant == ShardVariant::Warmup {
-        // Отбросить все исходящие спайки
+        //    
         out_spike_ids.clear();
         *out_count = 0;
         return;
     }
-    // Normal mode: запись как обычно
-    // ... записать spike_ids в out_spike_ids
+    // Normal mode:   
+    // ...  spike_ids  out_spike_ids
 }
 ```
 
-**Результат:** После 100 тиков (1–10 мс реального времени) напряжение стабилизируется, пороги учитывают локальный контекст активности, и шард может безопасно взаимодействовать с остальным кластером без риска паралича или неконтролируемых всплесков.
+**:**  100  (110   )  ,     ,              .
 
 ---
 
 ## Changelog
 
-| Дата | Версия | Описание изменений |
+|  |  |   |
 |---|---|---|
-| 2026-03-18 | 1.3 | **AEP Transition:** Полный отказ от BSP и WaitStrategy. Внедрение ElasticSchedule и асинхронной проекции эпох. |
-| 2026-03-02 | 1.2 | Добавлено требование по Autonomous Node Recovery (Fault Tolerance) |
-| 2026-02-28 | 1.1 | Разделение на [MVP] vs [PLANNED] маркеры. Уточнение GhostConnection. |
-| TBD | 1.0 | Первая версия спеки |
+| 2026-03-18 | 1.3 | **AEP Transition:**    BSP  WaitStrategy.  ElasticSchedule    . |
+| 2026-03-02 | 1.2 |    Autonomous Node Recovery (Fault Tolerance) |
+| 2026-02-28 | 1.1 |   [MVP] vs [PLANNED] .  GhostConnection. |
+| TBD | 1.0 |    |
 

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Genesis will be documented in this file.
+All notable changes to Axicor will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
@@ -41,12 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Add .github/workflows/ci.yml with dual-platform build matrix for ubuntu-latest and windows-latest
-- Implement matrix strategy with os and features variables, including genesis-compute/mock-gpu feature flag
+- Implement matrix strategy with os and features variables, including axicor-compute/mock-gpu feature flag
 - Enforce CI triggers on push and pull_request to main branch with cargo build and cargo test steps
 - Add scripts/setup.ps1 Windows bootstrap script with dependency checks for Python and Rust (cargo)
 - Implement Python virtual environment creation (.venv) and activation via .venv\Scripts\Activate.ps1
 - Install Python dependencies: numpy==1.26.4, gymnasium==0.29.1, pygame==2.5.2, optuna==3.6.1, toml==0.10.2
-- Build genesis-node and genesis-baker in release mode with --features genesis-compute/mock-gpu
+- Build axicor-node and axicor-baker in release mode with --features axicor-compute/mock-gpu
 
 ## [0.1351.134] - 2026-04-17 23:33:38
 
@@ -54,25 +54,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Implement platform.py with get_shm_path() and get_manifest_path() functions for Unix /dev/shm and Windows temp directory
-- Update GenesisControl.__init__() to use get_manifest_path() instead of hardcoded /dev/shm path
-- Update GenesisMemory.__init__() to use get_shm_path() and mmap.ACCESS_READ/ACCESS_WRITE
+- Update AxicorControl.__init__() to use get_manifest_path() instead of hardcoded /dev/shm path
+- Update AxicorMemory.__init__() to use get_shm_path() and mmap.ACCESS_READ/ACCESS_WRITE
 - Fix test_checkpointing.py and test_distillation.py to import and use get_shm_path()
-- Add manifest_shm_path() function in genesis-core/src/ipc.rs with Unix/Windows conditional compilation
+- Add manifest_shm_path() function in axicor-core/src/ipc.rs with Unix/Windows conditional compilation
 - Enforce OS page alignment (4096 bytes) in shm_size() function for strict memory mapping contracts
-- Update main.rs to use genesis_core::ipc::manifest_shm_path() for manifest export
+- Update main.rs to use axicor_core::ipc::manifest_shm_path() for manifest export
 - Wrap libc::sched_setaffinity calls in #[cfg(target_os = "linux")] blocks in main.rs and shard_thread.rs
-- Add Windows daemon executable detection in node/mod.rs with genesis-baker-daemon.exe
+- Add Windows daemon executable detection in node/mod.rs with axicor-baker-daemon.exe
 - Fix TUI initialization in tui/mod.rs with conditional /dev/tty opening and stdout fallback for Windows
 - Guard /dev/null redirection with #[cfg(target_os = "linux")] to prevent compilation errors
 - Fix test_distillation.py to use weight shift (100 << 16, 10 << 16) instead of raw values for strong/weak connections
 
 ## [0.1347.132] - 2026-04-17 22:54:45
 
-**[System] Remove genesis-retina workspace member and libc dependencies**
+**[System] Remove axicor-retina workspace member and libc dependencies**
 
 ### Added
-- Remove genesis-retina from workspace members in Cargo.toml
-- Remove libc dependency from genesis-baker and genesis-compute Cargo.toml files
+- Remove axicor-retina from workspace members in Cargo.toml
+- Remove libc dependency from axicor-baker and axicor-compute Cargo.toml files
 - Replace cfg!(feature = "mock-gpu") check with CARGO_FEATURE_MOCK_GPU environment variable in build.rs
 - Add conditional link search for ROCm on Linux only
 - Remove forced -ccbin=gcc-13 and -allow-unsupported-compiler flags for NVCC
@@ -117,7 +117,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Modify create_entity_system.rs to generate io.toml in new format when spawning zones
 - Update wm_file_ops.rs add_io_entry/remove_io_entry to work with [[matrix]] instead of [[input]]/[[output]]
 - Refactor io_inspector/src/systems/render.rs to iterate through matrix.pin[] for I/O Router capsule display
-- Adjust genesis-client/builder.py for new I/O structure in build process
+- Adjust axicor-client/builder.py for new I/O structure in build process
 
 ## [0.1316.132] - 2026-04-03 11:56:51
 
@@ -159,7 +159,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Remove shard_cad plugin from workspace and plugin registry in Cargo.toml
 - Delete DOMAIN_SHARD_CAD constant and references from layout-api
 - Move cad_glass_material.rs from node_editor to anatomy_slicer
-- Add dependencies to anatomy_slicer: node-editor, connectome-viewer, genesis-core, toml_edit
+- Add dependencies to anatomy_slicer: node-editor, connectome-viewer, axicor-core, toml_edit
 - Add domain.rs with AnatomySlicerState, ShardCadEntity, and CadCameraState structs
 - Implement systems/mod.rs and include interaction, render, cad_inspector modules
 - Add render.rs with render_anatomy_slicer_system for UI rendering
@@ -308,8 +308,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement shard anatomy and geometry loading in load_graph_from_disk: read voxel_size_um from simulation.toml, parse dimensions from shard.toml, and parse layers from anatomy.toml for each zone
 - Modify create_entity_system, delete_entity_system, and rename_zone_system in axicor-lab/src/layout/systems to incorporate new domain variants and logic
 - Update wm_file_ops system with extended file operation handling
-- Update genesis-core/src/physics.rs with modifications to physics structures and systems
-- Update genesis-node/src/network/test_intra_gpu.rs with revised intra-GPU network testing logic
+- Update axicor-core/src/physics.rs with modifications to physics structures and systems
+- Update axicor-node/src/network/test_intra_gpu.rs with revised intra-GPU network testing logic
 
 ## [0.1244.127] - 2026-03-31 06:48:57
 
@@ -326,7 +326,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Remove local resolve_sandbox_path from wm_file_ops.rs, delegate to layout_api::resolve_sandbox_path
 - Update load_document to use layout_api::overlay_read_to_string
 - Update save_document to resolve path via layout_api::resolve_sandbox_path
-- Extend add_io_record with mandatory biological parameters for Genesis Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
+- Extend add_io_record with mandatory biological parameters for Axicor Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
 - In code_editor render.rs save_and_notify, write strictly to Sandbox path via resolve_sandbox_path, create parent directories
 - In create_entity_system.rs, use layout_api::resolve_sandbox_path for brain and shard directories
 - Update project name extraction in loader.rs to use path components for consistency
@@ -337,7 +337,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Replace per-session TOML flushing with transactional directory overlay from .Sandbox/.tmp.autosave
-- Implement copy_dir_recursive for applying sandbox changes to pure Genesis-Models files
+- Implement copy_dir_recursive for applying sandbox changes to pure Axicor-Models files
 - Add backup rotation: rename .tmp.last_backup to .tmp.old_backup, then autosave to last_backup
 - Reset session dirty flags only after successful atomic rename of autosave directory
 - Extend NodeGraphUiState with show_inputs_panel, show_outputs_panel, and show_uv_panel booleans
@@ -365,7 +365,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Remove local resolve_sandbox_path from wm_file_ops.rs, delegate to layout_api::resolve_sandbox_path
 - Update load_document to use layout_api::overlay_read_to_string
 - Update save_document to resolve path via layout_api::resolve_sandbox_path
-- Extend add_io_record with mandatory biological parameters for Genesis Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
+- Extend add_io_record with mandatory biological parameters for Axicor Baker: entry_z, target_type, growth_steps for inputs; target_type for outputs
 - In code_editor render.rs save_and_notify, write strictly to Sandbox path via resolve_sandbox_path, create parent directories
 - In create_entity_system.rs, use layout_api::resolve_sandbox_path for brain and shard directories
 - Update project name extraction in loader.rs to use path components for consistency
@@ -376,7 +376,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Replace per-session TOML flushing with transactional directory overlay from .Sandbox/.tmp.autosave
-- Implement copy_dir_recursive for applying sandbox changes to pure Genesis-Models files
+- Implement copy_dir_recursive for applying sandbox changes to pure Axicor-Models files
 - Add backup rotation: rename .tmp.last_backup to .tmp.old_backup, then autosave to last_backup
 - Reset session dirty flags only after successful atomic rename of autosave directory
 - Extend NodeGraphUiState with show_inputs_panel, show_outputs_panel, and show_uv_panel booleans
@@ -459,7 +459,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update project_explorer UI systems render/mod.rs and ui_components.rs for new interaction patterns
 - Add new config fields to brain.rs, instance.rs, io.rs, and manifest.rs
 - Update specs documents 02_configuration.md, 08_ide.md, and 09_baking_pipeline.md
-- Refactor genesis-baker main.rs to integrate new baking pipeline logic
+- Refactor axicor-baker main.rs to integrate new baking pipeline logic
 - Add toml_edit dependency to axicor-lab, node_editor, and project_explorer
 - Extend .gitignore with temporary layout and brain files (.layout.tmp.toml, .brain.tmp.toml, .simulation.tmp.toml)
 - Add layout-api module and plugin systems to axicor-lab layout module
@@ -472,7 +472,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement project_io_system in systems/interaction.rs to handle SaveProjectEvent, CompileGraphEvent, and BakeProjectEvent
 - Add SaveProjectEvent for point saving of current graph level to brain.toml
 - Add CompileGraphEvent for full compilation of all files including default configs and brain.toml updates
-- Execute genesis-baker via cargo run for BakeProjectEvent in separate thread
+- Execute axicor-baker via cargo run for BakeProjectEvent in separate thread
 - Track dirty state with is_dirty flag in BrainTopologyGraph struct
 - Add new loader.rs with LoadGraphTask component and LoadedGraph struct
 - Implement spawn_load_task_system to spawn async tasks for loading graphs from disk
@@ -492,7 +492,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement project_io_system in systems/interaction.rs to handle SaveProjectEvent, CompileGraphEvent, and BakeProjectEvent
 - Add SaveProjectEvent for point saving of current graph level to brain.toml
 - Add CompileGraphEvent for full compilation of all files including default configs and brain.toml updates
-- Execute genesis-baker via cargo run for BakeProjectEvent in separate thread
+- Execute axicor-baker via cargo run for BakeProjectEvent in separate thread
 - Track dirty state with is_dirty flag in BrainTopologyGraph struct
 - Add new loader.rs with LoadGraphTask component and LoadedGraph struct
 - Implement spawn_load_task_system to spawn async tasks for loading graphs from disk
@@ -537,7 +537,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement dynamic color-coded breadcrumbs based on EditorLevel (Model, Department, Zone) in ui.rs
 - Extend draw_searchable_breadcrumb function to accept active_color parameter for visual state indication
 - Replace static placeholders with conditional current names (Select Model, Select Dept, Select Zone)
-- Implement global filesystem scanning for Departments across all models in Genesis-Models directory
+- Implement global filesystem scanning for Departments across all models in Axicor-Models directory
 - Implement global filesystem scanning for Zones (Shards) across all models, detecting shard.toml or anatomy.toml
 - Parse selection strings with slash delimiter (model/dept, model/zone) for cross-model navigation
 - Add sync_smart_focus_system to interaction.rs, registered in lib.rs
@@ -611,7 +611,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Add CreateNewModelEvent to layout-api for new model generation
-- Implement create_new_model_system in systems/interaction.rs to create Genesis-Models directory with brain.toml and simulation.toml
+- Implement create_new_model_system in systems/interaction.rs to create Axicor-Models directory with brain.toml and simulation.toml
 - Refactor render system into render/mod.rs, separating UI components into ui_components.rs
 - Implement draw_explorer_tree, draw_bundles, draw_bundle_zones, draw_sources, and draw_separator functions for structured UI rendering
 - Extend fs_scanner_system to ignore .axic.mem and baked directories, and dynamically scan TOML files
@@ -642,7 +642,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Connectome] Refactor viewer plugin and fix axon mapping**
 
 ### Added
-- Add genesis-core, toml, serde dependencies to connectome_viewer/Cargo.toml
+- Add axicor-core, toml, serde dependencies to connectome_viewer/Cargo.toml
 - Implement NeuronInstanceData struct with Pod, Zeroable, ShaderType derives in domain.rs
 - Add TopologyGraph resource with padded_n, targets, soma_to_axon, axon_segments, soma_positions, traced_entity, last_selected, compact_to_dense, axon_to_soma, global_axon_mat, soma_mat fields
 - Add NeuronInstances resource with data Vec<NeuronInstanceData> and selected Option<usize>
@@ -672,7 +672,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Rewrite `load_zone_geometry_system` in `geometry.rs` to spawn entities in batches using `spawn_batch` and `StandardMaterial`, removing manual buffer management
 - Integrate `ShardStateView` and `ShardPosView` facades for zero-copy access to simulation data in `soma_picking_system`
 - Remove custom `ConnectomeMaterial` and `connectome.wgsl` shader, switching to automatic Bevy instancing
-- Use `genesis_core::coords::unpack_position` for consistent coordinate extraction across viewer and simulation
+- Use `axicor_core::coords::unpack_position` for consistent coordinate extraction across viewer and simulation
 - Eliminate redundant pre-computed position caches, unpacking coordinates directly from VRAM dumps during entity spawning
 - Implement linear scan over raw memory slices in picking system for optimal CPU cache hits
 - Enable on-the-fly connectivity visualization for "micro-surgery" rendering with zero overhead
@@ -695,14 +695,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement sync_topology_graph_system for Zero-Lock background reading of brain.toml and io.toml
 - Register LoadGraphEvent and sync system in NodeEditorPlugin build
 - Update Viewport3D input handling to use isolated payload_rect for interaction
-- Refactor genesis-baker daemon.rs and main.rs for improved structure
+- Refactor axicor-baker daemon.rs and main.rs for improved structure
 - Implement unified header with plugin switcher menu for Connectome Viewer, Shard Assembler, and Project Explorer
 - Add draggable title for pane swapping using egui memory for Zero-Cost state
 - Render payload area with separator line and domain-specific content routing
 - Add NodeGraphUiState resource for Dumb View rendering state with pan, zoom, and node_positions
 - Update project_explorer plugin for refined UI integration
-- Update genesis-core config modules: anatomy.rs, brain.rs, io.rs
-- Refactor genesis-node boot.rs, main.rs, and network/ghosts.rs
+- Update axicor-core config modules: anatomy.rs, brain.rs, io.rs
+- Refactor axicor-node boot.rs, main.rs, and network/ghosts.rs
 - Update examples: FLY_exp/agent.py, ant_exp/ant_agent.py, cartpole_exp/agent.py
 - Add *GEMINI.md to .gitignore
 - Update CHANGELOG.md with version 0.1047.125 details
@@ -737,7 +737,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add connectome-viewer and node-editor plugins to workspace members in root Cargo.toml
 - Integrate connectome-viewer and node-editor as dependencies in axicor-lab/Cargo.toml
 - Add WindowDragRequest resource to layout-api for window management
-- Implement load_zone_geometry_system with Zero-Copy Read of packed shard positions from Genesis-Models/{project}/{shard}/shard.pos
+- Implement load_zone_geometry_system with Zero-Copy Read of packed shard positions from Axicor-Models/{project}/{shard}/shard.pos
 - Add ShardGeometry component and ViewportCamera component with isometric default parameters
 - Implement viewport_camera_control_system with DOD FIX 1 for aspect ratio sync and DOD FIX 2 for scroll delta quantization
 - Add DOD garbage collection for existing geometry in load_zone_geometry_system
@@ -907,18 +907,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extend ShmHeader from 64 to 128 bytes with voltage_offset, threshold_offset_offset, and timers_offset fields
 - Update SHM version from 2 to 3 to support full neuron state synchronization (voltage, threshold, timers)
 - Enforce 128-byte alignment for ShmHeader and document the new 128-byte invariant in specs
-- Add GenesisIoContract to automatically generate client config from manifest.toml
+- Add AxicorIoContract to automatically generate client config from manifest.toml
 - Replace hardcoded encoder/decoder creation with contract.create_population_encoder and contract.create_pwm_decoder calls
 - Implement L7 demultiplexing for dual motor hemispheres in bayesian_search.py
 - Add memory.voltage.fill(0), memory.threshold_offset.fill(0), and memory.timers.fill(0) for hard electrical state reset
 - Implement crystallization state machine in agent.py to disable plasticity and force VRAM checkpoint upon skill mastery
 - Add control.set_membrane_physics, set_dopamine_receptors, set_prune_threshold, and set_night_interval for ASIC parameter flashing
 - Synchronize BATCH_SIZE to 10 ticks across bayesian_search.py and agent.py
-- Update baked model directory path to "../Genesis-Models/cartpole_exp/baked/MotorCortex"
+- Update baked model directory path to "../Axicor-Models/cartpole_exp/baked/MotorCortex"
 - Fix payload size calculations and loop iterations to match new batch size and physics timing (20 batches = 20 ms)
-- Extend shard memory validation and state handling in genesis-core/src/ipc.rs for v3 header
-- Update memory mapping logic in genesis-client/genesis/memory.py to handle new voltage, threshold_offset, and timers arrays
-- Add control plane methods in genesis-client/genesis/control.py for setting membrane physics and dopamine receptors
+- Extend shard memory validation and state handling in axicor-core/src/ipc.rs for v3 header
+- Update memory mapping logic in axicor-client/axicor/memory.py to handle new voltage, threshold_offset, and timers arrays
+- Add control plane methods in axicor-client/axicor/control.py for setting membrane physics and dopamine receptors
 
 
 ## [0.937.124] - 2026-03-23 05:53:32
@@ -926,13 +926,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Implement Intra-GPU Ghost Sync with Zero-Copy L2 Routing**
 
 ### Added
-- Implement `cu_ghost_sync_kernel` in `genesis-compute/src/cuda/physics.cu` and `genesis-compute/src/amd/physics.hip` for Zero-Copy L2 Cache Routing
+- Implement `cu_ghost_sync_kernel` in `axicor-compute/src/cuda/physics.cu` and `axicor-compute/src/amd/physics.hip` for Zero-Copy L2 Cache Routing
 - Add Sender-Side Filtering: transfer spike to target Ghost axon only if its absolute age (`head / v_seg`) is less than `sync_batch_ticks`
 - Enforce temporal continuity via hardware reverse scan of `BurstHeads8` array (from `h7` to `h0`) to preserve burst queue timing
-- Extend FFI signature for `launch_ghost_sync` to include `sync_batch_ticks` and `v_seg` parameters in `genesis-compute/src/ffi.rs` and mock
-- Remove old `ghost_sync_kernel` and its launch wrapper from `genesis-compute/src/cuda/bindings.cu` and `genesis-compute/src/amd/bindings.hip`
-- Update `IntraGpuChannel::sync_ghosts` in `genesis-node/src/network/intra_gpu.rs` to pass new `sync_batch_ticks` and `v_seg` parameters
-- Update mock implementation in `genesis-compute/src/mock_ffi.rs` to match new function signature
+- Extend FFI signature for `launch_ghost_sync` to include `sync_batch_ticks` and `v_seg` parameters in `axicor-compute/src/ffi.rs` and mock
+- Remove old `ghost_sync_kernel` and its launch wrapper from `axicor-compute/src/cuda/bindings.cu` and `axicor-compute/src/amd/bindings.hip`
+- Update `IntraGpuChannel::sync_ghosts` in `axicor-node/src/network/intra_gpu.rs` to pass new `sync_batch_ticks` and `v_seg` parameters
+- Update mock implementation in `axicor-compute/src/mock_ffi.rs` to match new function signature
 - Add section "2.5.1. Intra-GPU Ghost Sync (Zero-Copy L2 Routing)" to `docs/specs/06_distributed.md`
 - Document mechanics of `cu_ghost_sync_kernel` reading 32-byte `BurstHeads8` struct via L1 cache transaction
 - Specify deterministic white matter delay equal to 1 batch and zero PCIe traffic
@@ -1001,21 +1001,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Replace separate motor decoders with unified motor_out decoder and adjust encoder to cartpole_sensors
 - Update build_brain.py to use new brain name cartpole_exp and adjust tick_duration_us to 1000
 - Fix README.md command-line arguments to reference new brain name cartpole_exp
-- Remove genesis-client builder.py debug print statement for cleaner output
+- Remove axicor-client builder.py debug print statement for cleaner output
 
 
 ## [0.908.122] - 2026-03-23 02:15:05
 
-**[Agent] Replace manual FlyAvatarState with GenesisControl and implement **
+**[Agent] Replace manual FlyAvatarState with AxicorControl and implement **
 
 ### Added
 - Remove FlyAvatarState class and inline float variables from agent.py
-- Add GenesisControl import and initialize RL reactor with exploration phase settings
+- Add AxicorControl import and initialize RL reactor with exploration phase settings
 - Implement dopamine reward calculation based on linear velocity (vel_x) with i16 bounds
 - Fix virtual axon length in topology.rs to span entire zone height for scaled cortex penetration
 - Fix time progression in node/mod.rs by incrementing current_tick with batch_size as u64
 - Remove FlyAvatarState class and inline float variables from agent.py
-- Add GenesisControl import and initialize RL reactor with exploration phase settings
+- Add AxicorControl import and initialize RL reactor with exploration phase settings
 - Implement dopamine reward calculation based on linear velocity (vel_x) with i16 bounds
 - Fix virtual axon length in topology.rs to span entire zone height for scaled cortex penetration
 - Fix time progression in node/mod.rs by incrementing current_tick with batch_size as u64
@@ -1033,8 +1033,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add new examples/FLY_exp/agent.py with 325 lines of fly environment integration code
 - Update examples/FLY_exp/build_brain.py with 222 lines of modifications for brain building
 - Create examples/FLY_exp/inspector_fly.py with 45 lines for fly inspection utilities
-- Modify genesis-client/genesis/builder.py with 90 lines of updates for improved brain construction
-- Add genesis-client/genesis/contract.py with 60 lines of new contract management code
+- Modify axicor-client/axicor/builder.py with 90 lines of updates for improved brain construction
+- Add axicor-client/axicor/contract.py with 60 lines of new contract management code
 - Revise docs/Python-SDK/Brain_Builder.md with 53 lines of changes
 - Update docs/Python-SDK/QuickStart_SDK.md with 75 lines of modifications
 - Import and instantiate flygym.Fly environment in examples/FLY_ex/agent.py
@@ -1044,8 +1044,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add new examples/FLY_exp/agent.py with 325 lines of fly environment integration code
 - Update examples/FLY_exp/build_brain.py with 222 lines of modifications for brain building
 - Create examples/FLY_exp/inspector_fly.py with 45 lines for fly inspection utilities
-- Modify genesis-client/genesis/builder.py with 90 lines of updates for improved brain construction
-- Add genesis-client/genesis/contract.py with 60 lines of new contract management code
+- Modify axicor-client/axicor/builder.py with 90 lines of updates for improved brain construction
+- Add axicor-client/axicor/contract.py with 60 lines of new contract management code
 - Revise docs/Python-SDK/Brain_Builder.md with 53 lines of changes
 - Update docs/Python-SDK/QuickStart_SDK.md with 75 lines of modifications
 
@@ -1060,12 +1060,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Enforce hard limit of 32 threads per CUDA/AMD block for sort_and_prune kernel to stay within 48 KB Shared Memory budget (12B * 128 slots * 32 threads)
 - Optimize inject_inputs_kernel dense packing to `words_per_tick_total = (total_num_pixels + 63) / 64 * 2`
 - Implement branchless burst flag assembly in CUDA: `vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | final_spike`
-- Implement Cold Start Auto-Wiring: GenesisIoContract parses baked io.toml to auto-compute C-ABI alignment and L7 fragmentation
-- Add Zero-Copy L7 Assembler in GenesisMultiClient: transparently reassembles MTU-chunked UDP payloads with 64-byte alignment
+- Implement Cold Start Auto-Wiring: AxicorIoContract parses baked io.toml to auto-compute C-ABI alignment and L7 fragmentation
+- Add Zero-Copy L7 Assembler in AxicorMultiClient: transparently reassembles MTU-chunked UDP payloads with 64-byte alignment
 - Enforce 8 MB OS socket buffer (SO_RCVBUF) to prevent UDP overflow from L7 chunk bursts
 - Expose SDK Telemetry Translation: get_network_stats() returns avg_weight/max_weight divided by 65536.0 (Charge Domain)
 - Update all VRAM calculations in specs to reflect 1166-byte per neuron and i32 dendrite_weights
-- Revise Python examples (ant_agent.py, cartpole_exp/agent.py, build_brain.py) to use new GenesisIoContract and GenesisMultiClient
+- Revise Python examples (ant_agent.py, cartpole_exp/agent.py, build_brain.py) to use new AxicorIoContract and AxicorMultiClient
 - Correct STDP inertia rank calculation from `abs(weight) >> 11` to `abs(weight) >> 27`
 - Document Hebbian Structural Rule: dendrite sprouts only if soma was active (`flags[i] & 0x01 != 0`)
 
@@ -1082,22 +1082,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update nudge_axon() in sprouting.rs to use PackedPosition for tip coordinates and type mask
 - Add unit tests test_packed_position_consistency and test_sprouting_position_unpacking in new test modules
 - Replace manual warp padding in generate_placement_from_config() with align_to_warp()
-- Remove unused slot_decay_ltm and slot_decay_wm fields from GenesisConstantMemory in tests
+- Remove unused slot_decay_ltm and slot_decay_wm fields from AxicorConstantMemory in tests
 - Fix test_concurrent_somas_connect_to_same_axon to use shard.padded_n for position vector size
 
 ## [0.878.120] - 2026-03-21 21:30:14
 
-**Update GNM-Library synaptic parameters and recalibrate genesis-client mo**
+**Update GNM-Library synaptic parameters and recalibrate axicor-client mo**
 
 ### Added
 - Update initial_synapse_weight from species-specific values to uniform 1500 across all cortical, cerebellar, hippocampal, striatal, thalamic, and Drosophila neuron types
 - Change gsop_potentiation from 100 to 20 and gsop_depression from variable values to uniform 24
 - Replace inertia_curve arrays with new exponential decay profiles across all 1818 neuron configuration files
 - Increase prune_threshold from species-specific values (5-25) to uniform 100
-- Simplify genesis/encoders.py by removing redundant normalization and clipping operations
-- Optimize genesis/decoders.py with more efficient tensor operations and reduced branching
-- Streamline genesis/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
-- Update genesis/retina/encoder.py with improved contrast sensitivity parameters
+- Simplify axicor/encoders.py by removing redundant normalization and clipping operations
+- Optimize axicor/decoders.py with more efficient tensor operations and reduced branching
+- Streamline axicor/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
+- Update axicor/retina/encoder.py with improved contrast sensitivity parameters
 - Reorganize agent.py training loop for better readability and performance
 - Update build_brain.py to use recalibrated library configurations
 - Remove obsolete scripts/reset_weights.py utility
@@ -1107,17 +1107,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.866.120] - 2026-03-21 21:30:14
 
-**Update GNM-Library synaptic parameters and recalibrate genesis-client mo**
+**Update GNM-Library synaptic parameters and recalibrate axicor-client mo**
 
 ### Added
 - Update initial_synapse_weight from species-specific values to uniform 1500 across all cortical, cerebellar, hippocampal, striatal, thalamic, and Drosophila neuron types
 - Change gsop_potentiation from 100 to 20 and gsop_depression from variable values to uniform 24
 - Replace inertia_curve arrays with new exponential decay profiles across all 1818 neuron configuration files
 - Increase prune_threshold from species-specific values (5-25) to uniform 100
-- Simplify genesis/encoders.py by removing redundant normalization and clipping operations
-- Optimize genesis/decoders.py with more efficient tensor operations and reduced branching
-- Streamline genesis/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
-- Update genesis/retina/encoder.py with improved contrast sensitivity parameters
+- Simplify axicor/encoders.py by removing redundant normalization and clipping operations
+- Optimize axicor/decoders.py with more efficient tensor operations and reduced branching
+- Streamline axicor/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
+- Update axicor/retina/encoder.py with improved contrast sensitivity parameters
 - Reorganize agent.py training loop for better readability and performance
 - Update build_brain.py to use recalibrated library configurations
 - Remove obsolete scripts/reset_weights.py utility
@@ -1136,9 +1136,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add ghost_capacity field to configuration specs as a u32 for VRAM reserve under Ghost Axons
 - Clarify PruneAxon handling: shard must write AXON_SENTINEL (0x80000000) to axon_heads[ghost_id] in VRAM
 - Adjust Input_Bitmask allocation to use 64-bit words for coalesced access in GPU runtime
-- Remove DEFAULT_GHOST_CAPACITY parameter from genesis-baker parse_and_validate function
-- Read ghost_capacity from InstanceConfig settings in genesis-baker
-- Implement dynamic ghost_capacity calculation in genesis-client builder.py based on incoming connections
+- Remove DEFAULT_GHOST_CAPACITY parameter from axicor-baker parse_and_validate function
+- Read ghost_capacity from InstanceConfig settings in axicor-baker
+- Implement dynamic ghost_capacity calculation in axicor-client builder.py based on incoming connections
 - Remove deprecated mtu and growth_steps parameters from cartpole_exp example
 - Add "НЕ ЗАВЕРШЕНО" warning header to FLY_exp README
 - Simplify cartpole sensor input by removing growth_steps parameter
@@ -1154,20 +1154,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Replace em dash with en dash for consistency in Russian text
 - Remove CartPole benchmark table and performance metrics section
 - Update quick start instructions to reference ant_exp example instead of ant
-- Clarify component table by adding genesis-client Python SDK as a core component
+- Clarify component table by adding axicor-client Python SDK as a core component
 - Update project status to reflect ongoing pre-alpha development and MVP stabilization
-- Add timeout parameter to GenesisMultiClient.__init__ for configurable UDP response wait
+- Add timeout parameter to AxicorMultiClient.__init__ for configurable UDP response wait
 - Replace blocking socket with settimeout to enable Biological Amnesia on packet loss
 - Implement try/except block in sync_and_swap to catch socket.timeout and TimeoutError
 - Print warning and return empty memoryview slice on timeout, simulating spike drop
-- Add PopulationDecoder class in genesis/decoders.py for center-of-mass decoding
+- Add PopulationDecoder class in axicor/decoders.py for center-of-mass decoding
 - Define constructor with variables_count, neurons_per_var, and batch_size parameters
 - Implement decode_from method with Amnesia Defense returning neutral state (0.5) on empty input
 - Utilize zero-copy casting via np.frombuffer and internal np.float16 buffers for efficiency
 - Create test_checkpointing.py with 94 lines for state serialization/deserialization tests
 - Create test_client_timeout.py with 37 lines to validate Biological Amnesia behavior
 - Create test_population_decoder.py with 66 lines to verify PopulationDecoder functionality
-- Expand genesis/memory.py with additional structures or utilities for memory management
+- Expand axicor/memory.py with additional structures or utilities for memory management
 
 
 ## [0.839.119] - 2026-03-21 15:02:26
@@ -1238,7 +1238,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refactor clean_checkpoints.py to delete files by exact name match or .tmp extension
 - Remove shutil import and replace checkpoint_files list with checkpoint_names set
 - Search recursively from target path without requiring 'baked' subdirectory
-- Add fallback logic to locate Genesis-Models relative to project root
+- Add fallback logic to locate Axicor-Models relative to project root
 
 ## [0.815.119] - 2026-03-19 22:37:56
 
@@ -1247,9 +1247,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Refactor docs/Architecture_and_Troubleshooting.md into concise CartPole-focused troubleshooting guide
 - Add solutions for FATAL DMA BUFFER OVERFLOW, UDP MTU exceed, Neural Silence, and buffer size ValueError
-- Fix axon handover entry_z coordinate calculation in genesis-baker/src/bake/axon_growth.rs inject_handover_events()
-- Add z_plus and z_minus neighbor fields to Neighbors struct in genesis-core/src/config/instance.rs
-- Implement Z-axis handover dispatch and routing in genesis-node/src/node/shard_thread.rs dispatch_handovers()
+- Fix axon handover entry_z coordinate calculation in axicor-baker/src/bake/axon_growth.rs inject_handover_events()
+- Add z_plus and z_minus neighbor fields to Neighbors struct in axicor-core/src/config/instance.rs
+- Implement Z-axis handover dispatch and routing in axicor-node/src/node/shard_thread.rs dispatch_handovers()
 - Support new queues for ceiling (z_plus) and floor (z_minus) boundary crossings
 
 ## [0.810.118] - 2026-03-19 19:48:08
@@ -1257,8 +1257,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Fix variable naming inconsistencies in cartpole experiment agent**
 
 ### Fixed
-- Rename DISTILL_ prefixed variables to DISTILLATION_ in GenesisAutoTuner constructor call
-- Rename CRYSTALLIZED_ prefixed variables to CRYSTALLIZATION_ in GenesisAutoTuner constructor call
+- Rename DISTILL_ prefixed variables to DISTILLATION_ in AxicorAutoTuner constructor call
+- Rename CRYSTALLIZED_ prefixed variables to CRYSTALLIZATION_ in AxicorAutoTuner constructor call
 - Update variable references in examples/cartpole_exp/agent.py to match configuration definitions
 - Synchronize naming changes across examples/cartpole_exp/build_brain.py for consistency
 
@@ -1291,12 +1291,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Architecture] Implement event-driven vision pipeline with zero-garbage **
 
 ### Added
-- Add RetinaEncoder class in genesis-client/genesis/retina/encoder.py for converting RGB frames to sparse bitmask features
+- Add RetinaEncoder class in axicor-client/axicor/retina/encoder.py for converting RGB frames to sparse bitmask features
 - Implement Difference of Gaussians (DoG) for contours, frame delta for motion, and chromatic opponents (R-G, B-Y) for color features
 - Enforce C-ABI warp alignment with padded_N calculation and strict little-endian bit packing via np.packbits
 - Pre-allocate all buffers including _frame_f32, _gray, _dog, _motion, _rg_opp, _by_opp, and _batch_bool_buffer to eliminate heap allocations
-- Expose RetinaEncoder in genesis-client/genesis/retina/__init__.py for module import
-- Add opencv-python dependency to genesis-client/pyproject.toml for image processing
+- Expose RetinaEncoder in axicor-client/axicor/retina/__init__.py for module import
+- Add opencv-python dependency to axicor-client/pyproject.toml for image processing
 - Create scripts/test_retina.py for stress testing with C-ABI alignment check and zero-garbage invariant verification
 
 ## [0.791.114] - 2026-03-18 11:18:13
@@ -1332,9 +1332,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Implement DOD fixes and layer isolation for CartPole brain architecture**
 
 ### Added
-- Add manifest loading and caching in GenesisControl.__init__ for fast parameter access
+- Add manifest loading and caching in AxicorControl.__init__ for fast parameter access
 - Synchronize BATCH_SIZE with actual simulation sync_batch_ticks from manifest in agent.py
-- Update manifest cache in GenesisControl._update_manifest after mutation
+- Update manifest cache in AxicorControl._update_manifest after mutation
 - Replace temporary array creation in hot loop with pre-allocated temp_buffer in run_cartpole()
 - Implement in-place normalization using np.clip, np.subtract, np.divide with out= parameters
 - Eliminate garbage arrays in continuous error gradient calculation
@@ -1361,7 +1361,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Replace GC stats tracking with simpler gc.get_count() for object allocation detection
 - Add main() function to run both encoder benchmarks and report overall success
 - Add dry_run_stats() method to BrainBuilder for O(1) C-ABI memory cost estimation
-- Mirror genesis-baker neuron placement logic for raw neuron count calculation
+- Mirror axicor-baker neuron placement logic for raw neuron count calculation
 - Apply Warp Alignment (32 threads) to neuron and axon counts
 - Calculate VRAM bytes using the 910-Byte Invariant: (padded_n * 910) + (total_axons * 32)
 - Calculate SHM bytes for Night Phase IPC v4: 64 + (padded_n * 769) + 280_000
@@ -1377,7 +1377,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Python SDK] Implement MTU-aware matrix fragmentation and UV projection**
 
 ### Added
-- Implement MTU-aware matrix fragmentation in genesis-client/genesis/builder.py with _fragment_matrix method
+- Implement MTU-aware matrix fragmentation in axicor-client/axicor/builder.py with _fragment_matrix method
 - Add UV projection math for chunked mode with uv_rect coordinates [u_offset, v_offset, u_width, v_height]
 - Enforce strict C-ABI payload sizing including Time Domain with batch_ticks parameter
 - Support 2D Grid Slicing (Chunked Mode) and Pie Mode for matrices fitting single packet
@@ -1388,9 +1388,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add Connectome Resource Estimation section with VRAM, Shared Memory, and practical scale test formulas
 - Update Zero-Index Trap explanation with Early Exit mechanism in docs/Python-SDK/Client_SDK.md
 - Clarify packed target C-ABI format with 8-bit Segment Offset and 24-bit Axon ID + 1
-- Update build_gxo_mapping in genesis-baker/src/bake/output_map.rs to accept uv_rect parameter
+- Update build_gxo_mapping in axicor-baker/src/bake/output_map.rs to accept uv_rect parameter
 - Implement inverse UV projection with boundary checking to exclude somas outside physical chunk
-- Modify build_local_topology_internal in genesis-baker/src/bake/topology.rs with UV Projection Math
+- Modify build_local_topology_internal in axicor-baker/src/bake/topology.rs with UV Projection Math
 - Replace pixel center calculation with mapped_u and mapped_v using matrix.uv_rect coordinates
 - Add CHANGELOG entries for versions 0.760.110 and 0.756.110 with ESP32 deployment notes
 - Document EXCLUDED_FOLDERS and EXCLUDED_FILES configuration in gen_commit.py artifact collection
@@ -1412,17 +1412,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
 
 ### Added
-- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Deploy axicor-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
 - Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
 - Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
 - Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
 - Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
 - Initialize SPI device handle tui_spi for display communication
 - Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
-- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
-- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Update .gitignore to ignore axicor-lite/sdkconfig, axicor-lite/sdkconfig.old, and firmware dumps
+- Remove axicor-lite/sdkconfig and replace with axicor-lite/sdkconfig.defaults
 - Add partitions.csv for brain_topo RAW partition definition
-- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Add axicor-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
 - Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
 
 ### Fixed
@@ -1436,17 +1436,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
 
 ### Added
-- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Deploy axicor-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
 - Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
 - Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
 - Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
 - Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
 - Initialize SPI device handle tui_spi for display communication
 - Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
-- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
-- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Update .gitignore to ignore axicor-lite/sdkconfig, axicor-lite/sdkconfig.old, and firmware dumps
+- Remove axicor-lite/sdkconfig and replace with axicor-lite/sdkconfig.defaults
 - Add partitions.csv for brain_topo RAW partition definition
-- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Add axicor-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
 - Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
 
 ### Fixed
@@ -1460,17 +1460,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
 
 ### Added
-- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Deploy axicor-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
 - Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
 - Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
 - Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
 - Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
 - Initialize SPI device handle tui_spi for display communication
 - Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
-- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
-- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Update .gitignore to ignore axicor-lite/sdkconfig, axicor-lite/sdkconfig.old, and firmware dumps
+- Remove axicor-lite/sdkconfig and replace with axicor-lite/sdkconfig.defaults
 - Add partitions.csv for brain_topo RAW partition definition
-- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Add axicor-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
 - Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
 
 ### Fixed
@@ -1483,10 +1483,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Dynamic MTU Implementation and Networking Logic Consolidation**
 
 ### Added
-- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
-- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into axicor-node/src/network/router.rs
+- Completely rollback axicor-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
 - Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
-- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Update axicor-node/src/boot.rs and axicor-node/src/node/mod.rs to import InterNodeRouter from router module
 - Define SpikeBatchHeaderV2 with align(16) and SpikeEventV2 with align(8) in docs/specs/06_distributed.md
 - Establish law that Data Plane ignores Network Byte Order; all structures are transmitted and cast in Little-Endian
 - Update AxonHandoverEvent structure in 06_distributed.md to include origin_zone_hash and strict 20-byte size
@@ -1507,11 +1507,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Dynamic MTU Implementation and Networking Logic Consolidation**
 
 ### Added
-- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into axicor-node/src/network/router.rs
 - Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
-- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Completely rollback axicor-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
 - Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
-- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Update axicor-node/src/boot.rs and axicor-node/src/node/mod.rs to import InterNodeRouter from router module
 - Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
 - Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
 - Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
@@ -1543,18 +1543,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Updated `ManifestVariant` and `into_gpu` in `manifest.rs` to support these parameters in TOML.
 - Restored branchless Dopamine modulation math in CUDA and HIP kernels: `raw_pot = gsop_potentiation + ((dopamine * d1_affinity) >> 7)` and `raw_dep = gsop_depression - ((dopamine * d2_affinity) >> 7)`.
 - Synchronized FFI bindings in `bindings.cu` and `bindings.hip`.
-- Restored Dopamine modulation and initialized default affinities in `genesis-lite` (ESP32) `main.cpp`.
+- Restored Dopamine modulation and initialized default affinities in `axicor-lite` (ESP32) `main.cpp`.
 
 ## [0.693.105] - 2026-03-18 00:13:17
 
 **Dynamic MTU Implementation and Networking Logic Consolidation**
 
 ### Added
-- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into axicor-node/src/network/router.rs
 - Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
-- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Completely rollback axicor-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
 - Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
-- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Update axicor-node/src/boot.rs and axicor-node/src/node/mod.rs to import InterNodeRouter from router module
 - Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
 - Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
 - Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
@@ -1570,40 +1570,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Dynamic MTU Implementation and Networking Logic Consolidation**
 
 ### Added
-- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into axicor-node/src/network/router.rs
 - Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
 - Remove duplicate flush_outgoing_batch_pool method and consolidate RoutingTable logic within router.rs
-- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Completely rollback axicor-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
 - Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
 - Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
 - Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
 - Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
 - Specify hard MTU = 1400 for ESP32 and outline L7-fragmentation strategy in 11_edge_bare_metal.md
-- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Update axicor-node/src/boot.rs and axicor-node/src/node/mod.rs to import InterNodeRouter from router module
 - Adjust InterNodeRouter::new constructor to satisfy existing usage patterns
-- Update imports in genesis-node/src/network/io_server.rs, genesis-node/src/node/recovery.rs, and genesis-node/src/node/shard_thread.rs
+- Update imports in axicor-node/src/network/io_server.rs, axicor-node/src/node/recovery.rs, and axicor-node/src/node/shard_thread.rs
 
 ## [0.672.105] - 2026-03-17 21:46:30
 
 **Implement biology.rs and refactor VariantParameters across compute and c**
 
 ### Added
-- Add genesis-baker/src/biology.rs with TomlNeuronType struct and From<TomlNeuronType> for VariantParameters
+- Add axicor-baker/src/biology.rs with TomlNeuronType struct and From<TomlNeuronType> for VariantParameters
 - Replace algorithmic D1/D2 receptor derivation with direct fields: is_inhibitory, spontaneous_firing_period_ticks, initial_synapse_weight
 - Remove slot_decay_ltm, slot_decay_wm, ltm_slot_count, heartbeat_m, prune_threshold, d1_affinity, d2_affinity
 - Add adaptive leak fields: adaptive_leak_max, adaptive_leak_gain, adaptive_mode
 - Change inertia_curve from i16[15] to u8[16] in all representations
-- Refactor genesis-baker/src/main.rs serialize_artifacts to map new VariantParameters fields
-- Refactor genesis-baker/src/parser/blueprints.rs parse_blueprints to populate new fields and remove GSOP dead zone validation
-- Update genesis-core/src/config/blueprints.rs and genesis-core/src/config/manifest.rs to reflect new parameter set
-- Adjust genesis-core/src/layout.rs VariantParameters struct alignment and padding
-- Update genesis-compute/src/amd/bindings.hip VariantParameters to match new layout with 64-byte alignment
-- Update genesis-compute/src/cuda/bindings.cu VariantParameters identically for CUDA
-- Refactor genesis-compute/src/amd/physics.hip and genesis-compute/src/cuda/physics.cu kernels to use new fields
-- Add genesis-compute/src/compute/shard.rs placeholder change
+- Refactor axicor-baker/src/main.rs serialize_artifacts to map new VariantParameters fields
+- Refactor axicor-baker/src/parser/blueprints.rs parse_blueprints to populate new fields and remove GSOP dead zone validation
+- Update axicor-core/src/config/blueprints.rs and axicor-core/src/config/manifest.rs to reflect new parameter set
+- Adjust axicor-core/src/layout.rs VariantParameters struct alignment and padding
+- Update axicor-compute/src/amd/bindings.hip VariantParameters to match new layout with 64-byte alignment
+- Update axicor-compute/src/cuda/bindings.cu VariantParameters identically for CUDA
+- Refactor axicor-compute/src/amd/physics.hip and axicor-compute/src/cuda/physics.cu kernels to use new fields
+- Add axicor-compute/src/compute/shard.rs placeholder change
 - Add Ko-fi support badge and donation section to README.md
 - Clarify dopamine penalty duration in docs/Architecture_and_Troubleshooting.md from "10 мс" to "2-10 мс"
-- Update genesis-lite/main/genesis_core.hpp header to reflect new struct layout
+- Update axicor-lite/main/axicor_core.hpp header to reflect new struct layout
 
 ## [0.660.105] - 2026-03-17 18:04:16
 
@@ -1631,7 +1631,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Implement dynamic GPU pruning threshold in CUDA kernel `sort_and_prune_kernel` (`bindings.cu`) and HIP kernel (`bindings.hip`)
 - Propagate threshold via Rust FFI contracts (`ffi.rs`, `mock_ffi.rs`) and Orchestrator's `execute_night_phase` in `shard_thread.rs`
-- Add `disable_all_plasticity()` to `GenesisControl` (`control.py`) to zero out `gsop_potentiation` and `gsop_depression` in the brain manifest
+- Add `disable_all_plasticity()` to `AxicorControl` (`control.py`) to zero out `gsop_potentiation` and `gsop_depression` in the brain manifest
 - Integrate hardware plasticity freeze into `AutoTuner._transition_to_crystallization()` for total electrical freeze
 - Update `tuner.py` to support dopamine, physics, and affinity parameters with `EXPLORE_`, `DISTILL_`, `CRYSTAL_` prefixes
 - Implement `property` getters in `AutoTuner` for dynamic loop constants and flatten properties into cached attributes for O(1) access
@@ -1646,15 +1646,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Dynamic Structural Plasticity & GPU Pruning Threshold**
 
 ### Added
-- Replace `_padding: u16` with `max_sprouts: u16` in `BakeRequest` (`genesis-core/src/ipc.rs`) to preserve 16-byte contract
-- Add `max_sprouts` field with Serde default to `ManifestPlasticity` and `ShardSettings` (`genesis-core/src/config/manifest.rs`, `instance.rs`)
-- Integrate `max_sprouts` into `ShardAtomicSettings` and support Hot-Reload in `genesis-node/src/node/mod.rs`
+- Replace `_padding: u16` with `max_sprouts: u16` in `BakeRequest` (`axicor-core/src/ipc.rs`) to preserve 16-byte contract
+- Add `max_sprouts` field with Serde default to `ManifestPlasticity` and `ShardSettings` (`axicor-core/src/config/manifest.rs`, `instance.rs`)
+- Integrate `max_sprouts` into `ShardAtomicSettings` and support Hot-Reload in `axicor-node/src/node/mod.rs`
 - Update `BakerClient` and `shard_thread.rs` to read atomic settings and pass `max_sprouts` via IPC to the Baker Daemon
-- Modify `run_sprouting_pass` in `genesis-baker/src/bake/sprouting.rs` to use dynamic `max_sprouts_per_night` parameter
-- Expose `set_max_sprouts(max_sprouts: int)` in `GenesisControl` and `GenesisClusterControl` (`genesis-client/genesis/control.py`, `brain.py`) with atomic TOML mutation
-- Refactor `sort_and_prune_kernel` in `genesis-compute/src/cuda/bindings.cu` and `amd/bindings.hip` to accept `int16_t global_prune_threshold`
-- Update `launch_sort_and_prune` signatures in FFI layer (`genesis-compute/src/ffi.rs`, `mock_ffi.rs`) to include `prune_threshold: i16`
-- Propagate dynamic threshold in orchestrator's `execute_night_phase` (`genesis-node/src/node/shard_thread.rs`)
+- Modify `run_sprouting_pass` in `axicor-baker/src/bake/sprouting.rs` to use dynamic `max_sprouts_per_night` parameter
+- Expose `set_max_sprouts(max_sprouts: int)` in `AxicorControl` and `AxicorClusterControl` (`axicor-client/axicor/control.py`, `brain.py`) with atomic TOML mutation
+- Refactor `sort_and_prune_kernel` in `axicor-compute/src/cuda/bindings.cu` and `amd/bindings.hip` to accept `int16_t global_prune_threshold`
+- Update `launch_sort_and_prune` signatures in FFI layer (`axicor-compute/src/ffi.rs`, `mock_ffi.rs`) to include `prune_threshold: i16`
+- Propagate dynamic threshold in orchestrator's `execute_night_phase` (`axicor-node/src/node/shard_thread.rs`)
 
 ## [0.630.105] - 2026-03-16 20:47:10
 
@@ -1663,9 +1663,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Delete entire `examples/cartpole [EXPERIMENTAL]/` directory and all contained files
 - Remove `README.md` with Zero-Magic Pipeline instructions, HFT reactor launch commands for CUDA/ROCm, and Python gateway steps
-- Remove `agent.py` containing the Embodied AI agent with SNN, dopamine injections (R-STDP), GenesisMultiClient, PopulationEncoder, PwmDecoder, GenesisControl, GenesisAutoTuner, GenesisMemory, GenesisSurgeon
-- Remove `benchmark.py` for performance testing with GenesisMultiClient and GenesisMemory
-- Remove `build_brain.py` script for generating TOML topology and invoking Rust compiler (`genesis-baker`)
+- Remove `agent.py` containing the Embodied AI agent with SNN, dopamine injections (R-STDP), AxicorMultiClient, PopulationEncoder, PwmDecoder, AxicorControl, AxicorAutoTuner, AxicorMemory, AxicorSurgeon
+- Remove `benchmark.py` for performance testing with AxicorMultiClient and AxicorMemory
+- Remove `build_brain.py` script for generating TOML topology and invoking Rust compiler (`axicor-baker`)
 
 ## [0.629.105] - 2026-03-16 18:54:02
 
@@ -1674,15 +1674,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Restore 6-layer biological topology in build_brain.py, fixing NameError for motor_pyramidal
 - Re-add missing add_input and add_output calls to ensure I/O integrity in build_brain.py
-- Refactor humanoid_agent.py to use GenesisBrain for dynamic zone discovery from brain.toml
+- Refactor humanoid_agent.py to use AxicorBrain for dynamic zone discovery from brain.toml
 - Fix sprouting trigger in sprouting.rs to check full 3-bit burst counter using mask 0x0E instead of 0x02
 - Resolve VRAM phantom leak in CUDA/HIP by clearing burst count bits [3:1] with mask 0xF1 in sort_and_prune_kernel
 - Implement cu_reset_burst_counters_kernel in physics.hip for AMD/HIP backend
 - Integrate burst counter reset call at start of cu_step_day_phase in physics.cu and physics.hip
-- Implement every-batch burst reset in Genesis-Lite main.cpp, moving flags &= 0xF1 to top of daily loop
+- Implement every-batch burst reset in Axicor-Lite main.cpp, moving flags &= 0xF1 to top of daily loop
 - Synchronize batch reset and pruning logic across CUDA, HIP, and Lite backends for consistent simulation
-- Update genesis-lite main.cpp to create explicit sort_and_prune_kernel function with 0xF1 burst clear
-- Add required function declarations to genesis_core.hpp
+- Update axicor-lite main.cpp to create explicit sort_and_prune_kernel function with 0xF1 burst clear
+- Add required function declarations to axicor_core.hpp
 - Enhance scripts/brain_debugger.py for improved debugging capabilities
 
 ## [0.619.102] - 2026-03-16 04:12:01
@@ -1740,7 +1740,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement 15-batch Death Signal
 - Boost Motor_Pyramidal initial_synapse_weight to 12000 and dendrite_radius_um to 500.0
 - Delete obsolete CartPole-example model files and examples/DELETE.py
-- Move cartpole example to experimental directory and update genesis-client modules
+- Move cartpole example to experimental directory and update axicor-client modules
 
 ## [0.596.99] - 2026-03-15 21:59:44
 
@@ -1763,21 +1763,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement 15-batch Death Signal
 - Boost Motor_Pyramidal initial_synapse_weight to 12000 and dendrite_radius_um to 500.0
 - Delete obsolete CartPole-example model files and examples/DELETE.py
-- Move cartpole example to experimental directory and update genesis-client modules
+- Move cartpole example to experimental directory and update axicor-client modules
 
 ## [0.592.99] - 2026-03-15 16:17:13
 
 **ESP32 Telemetry & Desktop Bridge Pipeline**
 
 ### Added
-- Implement DashboardFrame struct in genesis_core.hpp with 16-byte aligned layout for dashboard parser compatibility
+- Implement DashboardFrame struct in axicor_core.hpp with 16-byte aligned layout for dashboard parser compatibility
 - Add metrics calculation (TPS, Score) within the pro_core_task in main.cpp
 - Implement esp_now_send broadcast of the DashboardFrame for zero-copy telemetry egress
 - Create scripts/esp_now_bridge.py as a Serial-to-UDP bridge script for HFT telemetry routing
 - Fix broadcast_mac array size to 6 bytes to prevent stack corruption
 - Standardize bridge script argument parsing, using sys.argv[1] for serial port
 - Update README.md with bridge usage information
-- Perform final build check of genesis-lite to validate struct and FFI calls
+- Perform final build check of axicor-lite to validate struct and FFI calls
 
 ## [0.584.98] - 2026-03-15 15:20:50
 
@@ -1796,10 +1796,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add CUDA kernel `cu_reset_burst_counter` to clear burst bits at each sync batch
 - Update `cu_update_neurons_kernel` to increment burst counter on every spike
 - Modify `cu_apply_gsop_kernel` to multiply `delta_pot` and `delta_dep` by `burst_mult`
-- Implement identical BDP logic in ESP32 `genesis-lite/main/main.cpp`, resetting counters every epoch (100 ticks)
-- Call `cu_reset_burst_counters` from `genesis-compute/src/compute/shard.rs` at start of each batch
+- Implement identical BDP logic in ESP32 `axicor-lite/main/main.cpp`, resetting counters every epoch (100 ticks)
+- Call `cu_reset_burst_counters` from `axicor-compute/src/compute/shard.rs` at start of each batch
 - Relocate `cu_reset_burst_counters` FFI wrapper from `bindings.cu` to `physics.cu` to fix circular dependency
-- Add FFI signature for `cu_reset_burst_counters` in `genesis-compute/src/ffi.rs`
+- Add FFI signature for `cu_reset_burst_counters` in `axicor-compute/src/ffi.rs`
 - Enforce branchless arithmetic for burst multiplier scaling in both CUDA and ESP32 kernels
 
 ## [0.574.97] - 2026-03-15 13:32:04
@@ -1825,13 +1825,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Security] Implement Cluster Secret Zero-Cost Authentication**
 
 ### Added
-- Add `cluster_secret: u64` field to `RouteUpdate` C-ABI struct in `genesis-core/src/ipc.rs`
+- Add `cluster_secret: u64` field to `RouteUpdate` C-ABI struct in `axicor-core/src/ipc.rs`
 - Enforce 24-byte size assertion for `RouteUpdate` to maintain 8-byte alignment
-- Inject `cluster_secret` into `NodeRuntime` struct and `boot` method in `genesis-node/src/node/mod.rs`
-- Update `broadcast_route_update` in `genesis-node/src/node/recovery.rs` to sign outgoing packets
-- Add O(1) validation in `ExternalIoServer::process_incoming_udp` in `genesis-node/src/network/io_server.rs` for `ROUT_MAGIC` packets
-- Derive and propagate `cluster_secret` from `master_seed` in `genesis-node/src/boot.rs`
-- Inject `-ccbin=gcc-13` and `-w` flags into CUDA build configuration in `genesis-compute/build.rs`
+- Inject `cluster_secret` into `NodeRuntime` struct and `boot` method in `axicor-node/src/node/mod.rs`
+- Update `broadcast_route_update` in `axicor-node/src/node/recovery.rs` to sign outgoing packets
+- Add O(1) validation in `ExternalIoServer::process_incoming_udp` in `axicor-node/src/network/io_server.rs` for `ROUT_MAGIC` packets
+- Derive and propagate `cluster_secret` from `master_seed` in `axicor-node/src/boot.rs`
+- Inject `-ccbin=gcc-13` and `-w` flags into CUDA build configuration in `axicor-compute/build.rs`
 - Add `gcc-13` dependency check to `scripts/setup.sh`
 
 ## [0.561.95] - 2026-03-15 12:37:41
@@ -1843,7 +1843,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[System] Add ESP32 model distillation tool with zero‑copy parsing**
 
 ### Added
-- Implement scripts/distill_esp32.py for analyzing and distilling Genesis models for ESP32 deployment
+- Implement scripts/distill_esp32.py for analyzing and distilling Axicor models for ESP32 deployment
 - Support universal format auto‑detection: Live SHM (GENS), Snapshots (SNAP), and Raw SoA blobs
 - Use mmap and numpy.frombuffer for Zero‑Copy parsing of multi‑gigabyte models without RAM overhead
 - Perform topological scan to analyze synaptic density and identify neurons exceeding ESP32 hardware limits (32 connections)
@@ -1865,7 +1865,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Axicor 8-Way Burst Synchronization & Kernel Hardening**
 
 ### Added
-- Implement SAFE_CALLOC macro in genesis-lite/main/main.cpp for fail-fast SRAM allocation in init_brain
+- Implement SAFE_CALLOC macro in axicor-lite/main/main.cpp for fail-fast SRAM allocation in init_brain
 - Expand initialization loop to explicitly set AXON_SENTINEL across all 8 heads of BurstHeads8 structure
 - Replace logical OR with branchless bitwise OR in day_phase_task GLIF hit detection (h.h0 - seg_idx) < prop
 - Extend GSOP potentiation logic to poll the full 8-head shift register for min distance calculation
@@ -1896,7 +1896,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Update root Cargo.toml repository URL to https://github.com/H4V1K-dev/Axicor
-- Update sub-package Cargo.toml descriptions for genesis-core, genesis-node, genesis-compute, and genesis-baker to use "Axicor"
+- Update sub-package Cargo.toml descriptions for axicor-core, axicor-node, axicor-compute, and axicor-baker to use "Axicor"
 - Update README.md title to "Axicor Alpha 0.0.1", marketing text, and GitHub clone URLs
 - Update Credits.md project references and repository link
 - Update Python SDK documentation titles and descriptions in QuickStart_SDK.md, Client_SDK.md, Brain_Builder.md, SDK_Encoders_Decoders.md, and SDK_Surgery_Dopamine.md
@@ -1917,14 +1917,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Increase DOPAMINE_PULSE to -15 and lower DOPAMINE_REWARD to 35 for aggressive R-STDP background erosion
 - Implement non-linear kinetic pain shock: shock = BASE + (score >> 5) + (velocity * 5) capped at 100 batches
 - Extract D1_AFFINITY, D2_AFFINITY, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY, ANGLE_SCALE, VELOCITY_SCALE to global constants in agent.py
-- Create benchmark.py with 10s stress test using GenesisMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
+- Create benchmark.py with 10s stress test using AxicorMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
 - Add idle mode and simulated 20ms environment delay latency wall to benchmark.py
 - Fix synapse counting in benchmark.py by debugging SHM read for targets to count synapses before training
-- Add entry_z to InputMap DTO in genesis-core/src/config/io.rs for dynamic cable routing
-- Implement flags_offset in ThreadWorkspace and flags_slice_mut in genesis-node/src/node/shard_thread.rs
+- Add entry_z to InputMap DTO in axicor-core/src/config/io.rs for dynamic cable routing
+- Implement flags_offset in ThreadWorkspace and flags_slice_mut in axicor-node/src/node/shard_thread.rs
 - Inject soma_flags DMA at top of execute_night_phase and clear accumulator in bindings.cu and bindings.hip
-- Switch to Bit 1 check in genesis-baker/src/bake/sprouting.rs for spike detection
-- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in genesis-compute/build.rs
+- Switch to Bit 1 check in axicor-baker/src/bake/sprouting.rs for spike detection
+- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in axicor-compute/build.rs
 - Add checks for nvcc and hipcc in scripts/setup.sh with mock-gpu feature prompt for CPU-only simulation
 - Update README.md to clarify GPU recommendation and CPU-only mock mode availability
 
@@ -1943,14 +1943,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Increase DOPAMINE_PULSE to -15 and lower DOPAMINE_REWARD to 35 for aggressive R-STDP background erosion
 - Implement non-linear kinetic pain shock: shock = BASE + (score >> 5) + (velocity * 5) capped at 100 batches
 - Extract D1_AFFINITY, D2_AFFINITY, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY, ANGLE_SCALE, VELOCITY_SCALE to global constants in agent.py
-- Create benchmark.py with 10s stress test using GenesisMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
+- Create benchmark.py with 10s stress test using AxicorMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
 - Add idle mode and simulated 20ms environment delay latency wall to benchmark.py
 - Fix synapse counting in benchmark.py by debugging SHM read for targets to count synapses before training
-- Add entry_z to InputMap DTO in genesis-core/src/config/io.rs for dynamic cable routing
-- Implement flags_offset in ThreadWorkspace and flags_slice_mut in genesis-node/src/node/shard_thread.rs
+- Add entry_z to InputMap DTO in axicor-core/src/config/io.rs for dynamic cable routing
+- Implement flags_offset in ThreadWorkspace and flags_slice_mut in axicor-node/src/node/shard_thread.rs
 - Inject soma_flags DMA at top of execute_night_phase and clear accumulator in bindings.cu and bindings.hip
-- Switch to Bit 1 check in genesis-baker/src/bake/sprouting.rs for spike detection
-- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in genesis-compute/build.rs
+- Switch to Bit 1 check in axicor-baker/src/bake/sprouting.rs for spike detection
+- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in axicor-compute/build.rs
 - Add checks for nvcc and hipcc in scripts/setup.sh with mock-gpu feature prompt for CPU-only simulation
 - Update README.md to clarify GPU recommendation and CPU-only mock mode availability
 
@@ -1959,18 +1959,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Implement HFT encoders/decoders and stabilize Mouse Agent feedback loop**
 
 ### Added
-- Implement PwmEncoder and PopulationEncoder in genesis/encoders.py for high-frequency sensory encoding
-- Implement PwmDecoder in genesis/decoders.py for motor signal decoding
-- Add TelemetryListener in genesis/telemetry.py for real-time spike monitoring
-- Add distill_graph and clear_weights functions in genesis/memory.py for zero-copy pruning and full network resets
-- Fix genesis-node CLI arguments by removing deprecated --batch-size and using --brain flag with brain.toml
-- Fix PYTHONPATH for cartpole_client.py by adding sys.path modification to include genesis-client directory
+- Implement PwmEncoder and PopulationEncoder in axicor/encoders.py for high-frequency sensory encoding
+- Implement PwmDecoder in axicor/decoders.py for motor signal decoding
+- Add TelemetryListener in axicor/telemetry.py for real-time spike monitoring
+- Add distill_graph and clear_weights functions in axicor/memory.py for zero-copy pruning and full network resets
+- Fix axicor-node CLI arguments by removing deprecated --batch-size and using --brain flag with brain.toml
+- Fix PYTHONPATH for cartpole_client.py by adding sys.path modification to include axicor-client directory
 - Correct mouse_client.py to monitor Motor_Cortex (1,252,141 synapses) instead of LGN_Thalamus relay zone
 - Reduce DOPAMINE_REWARD from 10 to 2 to prevent network epilepsy and oversaturation of spikes
 - Broaden Gaussian sigma from 0.15 to 0.2 in population coding for better sensory coverage
 - Create scripts/reset_weights.py tool for total network weight reset across all shards
 - Add benchmark_encoders.py and test_distillation.py for component validation
-- Update GenesisMultiClient and GenesisControl usage to match current SDK version in examples
+- Update AxicorMultiClient and AxicorControl usage to match current SDK version in examples
 
 ## [0.485.75] - 2026-03-13 14:16:30
 
@@ -1979,7 +1979,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Add detailed visual data flow diagram in docs/specs/11_edge_bare_metal.md showing Core 0/Core 1 interaction via Lock-Free Ring Buffer
 - Implement alignas(32) MotorOut struct with std::atomic<uint32_t> left and right fields for zero-lock motor output
-- Include math.h for sensor emulation in genesis-lite/main/main.cpp
+- Include math.h for sensor emulation in axicor-lite/main/main.cpp
 - Replace ESP-NOW-only Core 0 task with integrated Hardware I/O Loop featuring I2C gyroscope stub and PWM motor out
 - Implement I2C gyroscope stub generating sine wave angle using sinf() and esp_timer_get_time()
 - Add Population Coding encoder mapping float angle to spikes on receptor axons 0..9 via rx_queue.push(ev)
@@ -1999,7 +1999,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement pro_core_task on Core 0 with full ESP‑NOW initialization and fallback to mock sensor in QEMU
 - Register on_esp_now_recv callback to receive spike packets and push them into LockFreeSpikeQueue
 - Expose SpikeEvent struct as 8‑byte aligned network packet with ghost_id and tick_offset fields
-- Implement LockFreeSpikeQueue in genesis_core.hpp with atomic head/tail separated by cache lines
+- Implement LockFreeSpikeQueue in axicor_core.hpp with atomic head/tail separated by cache lines
 - Add push and pop methods using std::atomic with memory_order_relaxed, acquire, and release semantics
 - Define SPIKE_QUEUE_SIZE as 256 and declare global rx_queue instance
 - Integrate queue pop loop in day_phase_task to apply incoming spikes as axon head resets (h0 = 0)
@@ -2010,12 +2010,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.474.75] - 2026-03-13 13:43:36
 
-**Genesis-Lite HFT Core MVP**
+**Axicor-Lite HFT Core MVP**
 
 ### Added
-- Genesis-Lite: ESP-IDF Port with GLIF Physics and GSOP Plasticity
-- Create genesis-lite project structure with ESP-IDF CMakeLists.txt and sdkconfig
-- Implement genesis_core.hpp with SramState, FlashTopology, and 64-byte VariantParameters
+- Axicor-Lite: ESP-IDF Port with GLIF Physics and GSOP Plasticity
+- Create axicor-lite project structure with ESP-IDF CMakeLists.txt and sdkconfig
+- Implement axicor_core.hpp with SramState, FlashTopology, and 64-byte VariantParameters
 - Port main.cpp to FreeRTOS API using esp_timer.h and xTaskCreatePinnedToCore
 - Bind day_phase_task strictly to Core 1, leaving Core 0 for I/O and networking
 - Implement Axon Propagation and Dendritic Integration phases with 32 dendrite slots per neuron
@@ -2038,7 +2038,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Document Zero-Cost Spatial Search via Axon Segment Grid (O(K) Spatial Hashing) and En Passant synapses
 - Update backend diversity status from [Planned] to [MVP] for AMD ROCm/HIP with bitwise-identical determinism
 - Finalize Dual-Backend C-ABI architecture with mirror directories (cuda/, amd/) and compile-time feature selection
-- Lower CUDA target architecture from sm_86 to sm_61 (NVIDIA Pascal) in genesis-compute/build.rs
+- Lower CUDA target architecture from sm_86 to sm_61 (NVIDIA Pascal) in axicor-compute/build.rs
 
 ## [0.457.73] - 2026-03-13 11:21:51
 
@@ -2062,9 +2062,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Move telemetry launcher functions and constant memory management functions from bindings.hip to physics.hip to resolve undeclared identifier errors
 - Simplify synaptic pruning logic by hardcoding sort_and_prune_kernel threshold to 15, decoupling from constant memory
 - Add (void) casts to hipStreamSynchronize, hipDeviceSynchronize, hipMemset, hipMemsetAsync, hipFree, hipMemcpyToSymbol, and hipMemcpyToSymbolAsync calls to suppress nodiscard warnings
-- Update genesis-compute/build.rs with new HIP compilation logic
-- Add mock GPU functions to genesis-compute/src/mock_ffi.rs
-- Add GPU context initialization to genesis-node/src/boot.rs
+- Update axicor-compute/build.rs with new HIP compilation logic
+- Add mock GPU functions to axicor-compute/src/mock_ffi.rs
+- Add GPU context initialization to axicor-node/src/boot.rs
 - amd completed successfully with reduced warnings
 
 ## [0.448.71] - 2026-03-12 16:40:31
@@ -2073,28 +2073,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.448.70] - 2026-03-12 08:37:24
 
-**Stabilize SDK and examples for MVP with unified Genesis_Models structure**
+**Stabilize SDK and examples for MVP with unified Axicor_Models structure**
 
 ### Added
-- Rename primary model output directory from config/ to Genesis_Models/
-- Separate DNA and Baked artifacts, storing baked zone data in Genesis_Models/{project}/baked/{zone}/
-- Add Genesis_Models/ to .gitignore for generated artifacts
-- Update examples/mouse_agent.py to use new Genesis_Models/ path and correct sys.path.append
+- Rename primary model output directory from config/ to Axicor_Models/
+- Separate DNA and Baked artifacts, storing baked zone data in Axicor_Models/{project}/baked/{zone}/
+- Add Axicor_Models/ to .gitignore for generated artifacts
+- Update examples/mouse_agent.py to use new Axicor_Models/ path and correct sys.path.append
 - Fix builder.py path resolution to use absolute paths for all discovery files
 - Update baked_dir logic to point directly to the zone directory
 - Add --brain argument support to automatically expand brain.toml into zone manifests
 - Implement intelligent path resolver that accepts model names (e.g., --brain mouse_agent)
-- Add default-run to Cargo.toml to eliminate --bin genesis-node requirement
+- Add default-run to Cargo.toml to eliminate --bin axicor-node requirement
 - Update ZONE_SENSORY to match LGN_Thalamus zone name
 - Update MATRIX_SENSORS to match retina_rgb sensor configuration
-- Correct manifest path to Genesis_Models/mouse_agent/baked/LGN_Thalamus/manifest.toml
+- Correct manifest path to Axicor_Models/mouse_agent/baked/LGN_Thalamus/manifest.toml
 
 ## [0.444.70] - 2026-03-12 07:08:04
 
-**Genesis SDK procedural DNA generator**
+**Axicor SDK procedural DNA generator**
 
 ### Added
-- Fix sys.path.append in test_builder.py to correctly point to genesis-client directory
+- Fix sys.path.append in test_builder.py to correctly point to axicor-client directory
 - Update builder.py ZoneDesigner with add_input() and add_output() for matrix registration
 - Implement BrainBuilder connect() method for inter-zonal topological junctions
 - Extend BrainBuilder build() to generate per-zone io.toml and populate brain.toml connections
@@ -2112,10 +2112,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Define static height layout for metric blocks (Header, Core, Zones, IO) totaling 14 rows in `layout.rs`
 - Ensure Event Log automatically stretches to fill all remaining vertical terminal space in `layout.rs`
 - Remove unused `draw_narrow_warning` function and `Rect` import in `layout.rs`
-- Add focus-dependent Cyan border and `▶` title prefix to `zone_table.rs` and `event_log.rs`
+- Add focus-dependent Cyan border and `>` title prefix to `zone_table.rs` and `event_log.rs`
 - Implement vertical scrolling for Per-Zone table, displaying a slice of 7 zones in `zone_table.rs`
 - Implement history scrolling with inverted logic for Event Log in `event_log.rs`
-- Add activity bar (`█`) for visual spike rate tracking in the zone table in `zone_table.rs`
+- Add activity bar (`|`) for visual spike rate tracking in the zone table in `zone_table.rs`
 - Add color-coded levels and Green Dopamine highlights to the Event Log in `event_log.rs`
 - Clean up `unused_mut` and `unused_variables` warnings in `cartpole_htf.rs`
 
@@ -2129,14 +2129,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Remove high-level Python code examples and OOP abstractions from Client_SDK.md and 08_io_matrix.md
-- Enforce strict 20-byte ExternalIoHeader per UDP chunk, linked to genesis-core/src/ipc.rs
+- Enforce strict 20-byte ExternalIoHeader per UDP chunk, linked to axicor-core/src/ipc.rs
 - Define payload types: GSIO as 1 bit per virtual axon and GSOO as 1 byte per soma
 - Replace "Host Convention" with Feature Pyramid Batching abstraction describing temporal unfolding of layers
 - Clarify UDP L7-asymmetry: mega-batches are fragmented per MTU with header attached to each chunk
 - Add mandatory paradigm stating engine only handles bitmasks/bytes; float/RGB/token processing is client responsibility
-- Add uv_rect: [f32; 4] field to InputMap and OutputMap structs in genesis-core/src/config/io.rs
-- Implement DOD-projection math in genesis-baker/src/bake/topology.rs to partition start_x/start_y based on uv_rect for GXI
-- Pass matrix.uv_rect parameter to build_gxo_mapping function in genesis-baker/src/bake/output_map.rs with TODO for reverse UV projection
+- Add uv_rect: [f32; 4] field to InputMap and OutputMap structs in axicor-core/src/config/io.rs
+- Implement DOD-projection math in axicor-baker/src/bake/topology.rs to partition start_x/start_y based on uv_rect for GXI
+- Pass matrix.uv_rect parameter to build_gxo_mapping function in axicor-baker/src/bake/output_map.rs with TODO for reverse UV projection
 - Document Canvas, Chunked, and Pie spatial mapping modes in specs/08_io_matrix.md section 2.4
 - Implement zero-cost state extraction from shard.state in scripts/visualize_neuron.py
 - Aggregate morphology stats (Fan-In, Total Weight Mass, Synaptic Balance) using NumPy operations
@@ -2180,12 +2180,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Assemble HiddenCortex blueprints from GNM-Library in examples/cartpole/config/zones/HiddenCortex/blueprints.toml
 - Assemble MotorCortex blueprints from GNM-Library in examples/cartpole/config/zones/MotorCortex/blueprints.toml
 - Update corresponding anatomy.toml, io.toml, and shard.toml files for SensoryCortex, HiddenCortex, and MotorCortex
-- Remove hardcoded batch_size in genesis-core/src/config/instance.rs
+- Remove hardcoded batch_size in axicor-core/src/config/instance.rs
 - Remove hardcoded night phase and prune limits in examples/cartpole/config/simulation.toml
-- Fix Baker Daemon IPC Acks and show logs in genesis-baker/src/bin/daemon.rs and genesis-baker/src/main.rs
+- Fix Baker Daemon IPC Acks and show logs in axicor-baker/src/bin/daemon.rs and axicor-baker/src/main.rs
 - Fix output fallback in config/io.rs
 - Revert [[neuron_types]] and fix missing stride in IO configuration
-- Wire incoming ACK queue in boot.rs within genesis-node/src/node/mod.rs
+- Wire incoming ACK queue in boot.rs within axicor-node/src/node/mod.rs
 - Fix live_dashboard.py UDP connection in cartpole_htf.rs
 - Fix SHM size hardcoding in examples/cartpole/config/brain.toml
 
@@ -2194,20 +2194,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[System] Fix hardcoded parameters and wire ACK queue**
 
 ### Added
-- Fix SHM size hardcoding in genesis-core/src/ipc.rs and genesis-node/src/ipc.rs
-- Wire incoming ACK queue in genesis-node/src/boot.rs for proper IPC synchronization
-- Fix output fallback logic in genesis-core/src/config/io.rs
-- Remove hardcoded batch_size from examples/cartpole config files and genesis-baker modules
-- Fix live_dashboard.py UDP connection handling in genesis-node/src/bin/cartpole_htf.rs
-- Update neuron placement in genesis-baker/src/bake/neuron_placement.rs
-- Refactor output map generation in genesis-baker/src/bake/output_map.rs
-- Adjust sprouting logic in genesis-baker/src/bake/sprouting.rs
-- Extend topology baking in genesis-baker/src/bake/topology.rs
-- Update daemon boot sequence in genesis-baker/src/bin/daemon.rs
-- Modify geometry client in genesis-node/src/network/geometry_client.rs
-- Update slow path network handling in genesis-node/src/network/slow_path.rs
-- Refactor shard thread communication in genesis-node/src/node/shard_thread.rs
-- Adjust main node initialization in genesis-node/src/node/mod.rs and genesis-node/src/main.rs
+- Fix SHM size hardcoding in axicor-core/src/ipc.rs and axicor-node/src/ipc.rs
+- Wire incoming ACK queue in axicor-node/src/boot.rs for proper IPC synchronization
+- Fix output fallback logic in axicor-core/src/config/io.rs
+- Remove hardcoded batch_size from examples/cartpole config files and axicor-baker modules
+- Fix live_dashboard.py UDP connection handling in axicor-node/src/bin/cartpole_htf.rs
+- Update neuron placement in axicor-baker/src/bake/neuron_placement.rs
+- Refactor output map generation in axicor-baker/src/bake/output_map.rs
+- Adjust sprouting logic in axicor-baker/src/bake/sprouting.rs
+- Extend topology baking in axicor-baker/src/bake/topology.rs
+- Update daemon boot sequence in axicor-baker/src/bin/daemon.rs
+- Modify geometry client in axicor-node/src/network/geometry_client.rs
+- Update slow path network handling in axicor-node/src/network/slow_path.rs
+- Refactor shard thread communication in axicor-node/src/node/shard_thread.rs
+- Adjust main node initialization in axicor-node/src/node/mod.rs and axicor-node/src/main.rs
 - Extend CHANGELOG.md with 189 lines of updates
 - Update example configurations across cartpole zone anatomy.toml, io.toml, and shard.toml files
 - Revise examples/cartpole/readme.md
@@ -2224,7 +2224,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Implement swap-and-pop mechanics (Pruning) in inter_node.rs and intra_gpu.rs for runtime capacity reduction
 - Integrate Dynamic Capacity Routing mechanics with the Night Phase in shard_thread.rs
 - Update node/mod.rs with new routing state management and integration points
-- Extend genesis-core/src/ipc.rs with new IPC structures for capacity signaling
+- Extend axicor-core/src/ipc.rs with new IPC structures for capacity signaling
 - Update docs/specs/06_distributed.md with Dynamic Capacity Routing protocol details
 
 ## [0.385.45] - 2026-03-10 21:16:06
@@ -2242,9 +2242,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[System] Remove default LTM slot count and update configurations**
 
 ### Added
-- Remove default value for ltm_slot_count field in genesis-core/src/config/blueprints.rs
-- Fix associated tests in genesis-core/src/config/test_blueprints.rs
-- Map ltm_slot_count in genesis-baker/src/parser/blueprints.rs
+- Remove default value for ltm_slot_count field in axicor-core/src/config/blueprints.rs
+- Fix associated tests in axicor-core/src/config/test_blueprints.rs
+- Map ltm_slot_count in axicor-baker/src/parser/blueprints.rs
 - Update ltm_slot_count in all example cartpole zone blueprints.toml files
 - Add ltm_slot_count to corresponding cartpole zone shard.toml files
 - Update _template/blueprints.toml with ltm_slot_count
@@ -2258,24 +2258,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Refactor] Remove default configs and enforce strict manifest validation**
 
 ### Added
-- Refactor genesis-core/src/config/instance.rs to remove Optional and Default trait implementations
-- Refactor genesis-core/src/config/mod.rs to eliminate global night_interval_ticks constant
-- Refactor genesis-core/src/config/manifest.rs to make all fields strict and non-optional
-- Refactor genesis-node/src/boot.rs to remove unwrap_or fallbacks for config loading
+- Refactor axicor-core/src/config/instance.rs to remove Optional and Default trait implementations
+- Refactor axicor-core/src/config/mod.rs to eliminate global night_interval_ticks constant
+- Refactor axicor-core/src/config/manifest.rs to make all fields strict and non-optional
+- Refactor axicor-node/src/boot.rs to remove unwrap_or fallbacks for config loading
 - Delete all template config files (_blank_anatomy.toml, _blank_blueprints.toml, etc.) and legacy zone configurations
-- Update genesis-baker and genesis-node to handle strict configs without defaults
+- Update axicor-baker and axicor-node to handle strict configs without defaults
 
 ## [0.369.44] - 2026-03-10 19:52:12
 
 **[Refactor] Replace population_pct with density, remove global_density**
 
 ### Added
-- Refactor genesis-core/src/config/mod.rs to remove global_density field
-- Refactor genesis-core/src/config/anatomy.rs to change population_pct to density
-- Fix genesis-core/src/config/test_config.rs and test_anatomy.rs explicitly
-- Refactor genesis-baker/src/validator/checks.rs to remove check_layer_populations
-- Refactor genesis-baker/src/bake/neuron_placement.rs to update generate_placement_from_config
-- Fix all calls to generate_placement_from_config across genesis-baker
+- Refactor axicor-core/src/config/mod.rs to remove global_density field
+- Refactor axicor-core/src/config/anatomy.rs to change population_pct to density
+- Fix axicor-core/src/config/test_config.rs and test_anatomy.rs explicitly
+- Refactor axicor-baker/src/validator/checks.rs to remove check_layer_populations
+- Refactor axicor-baker/src/bake/neuron_placement.rs to update generate_placement_from_config
+- Fix all calls to generate_placement_from_config across axicor-baker
 - Update example configs (cartpole, ant_v4) to use density in anatomy.toml files
 - Remove deprecated ant_v4 example files including client.py and all configs
 
@@ -2312,7 +2312,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Replace Mutex<DashboardState> with LockFreeTelemetry using AtomicU64, AtomicU32, AtomicI16, and crossbeam::queue::SegQueue
-- Implement O(1) lock-free updates via telemetry.update_zone_spikes and push_log in genesis-node/src/tui/state.rs
+- Implement O(1) lock-free updates via telemetry.update_zone_spikes and push_log in axicor-node/src/tui/state.rs
 - Refactor shard_thread.rs to remove all .lock().unwrap() calls, using direct atomic operations and zero-cost spike reporting
 - Optimize orchestrator in node/mod.rs, replacing reporter with telemetry and using relaxed atomic stores for batch/tick counts
 - Eliminate Mutex<DashboardState> from main.rs and boot.rs, passing telemetry as the only shared state during bootstrap
@@ -2328,18 +2328,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Implement full axon path storage and interactive 3D visualization**
 
 ### Added
-- Add ShardSoA.paths field and dump_to_disk logic in genesis-baker/src/bake/layout.rs to write 16-byte header, lengths array, and A*256 u32 segments
-- Update genesis-baker/src/bake/sprouting.rs to retain and provide segment data using 11-11-6 packed position layout
-- Fix genesis-baker/src/bake/atlas_map.rs ghost format and bit-unpacking to use 11-11-6 layout
-- Unify simulation coordinates in genesis-baker/src/bake/topology.rs, axon_growth.rs, and output_map.rs to 11-11-6
-- Fix legacy dendrite target packing (24/8) in genesis-core/src/test_tick.rs and types.rs
+- Add ShardSoA.paths field and dump_to_disk logic in axicor-baker/src/bake/layout.rs to write 16-byte header, lengths array, and A*256 u32 segments
+- Update axicor-baker/src/bake/sprouting.rs to retain and provide segment data using 11-11-6 packed position layout
+- Fix axicor-baker/src/bake/atlas_map.rs ghost format and bit-unpacking to use 11-11-6 layout
+- Unify simulation coordinates in axicor-baker/src/bake/topology.rs, axon_growth.rs, and output_map.rs to 11-11-6
+- Fix legacy dendrite target packing (24/8) in axicor-core/src/test_tick.rs and types.rs
 - Make scripts/visualize_neuron.py interactive by default with PyQt6 or Tkinter backend, add --save flag for PNG export
 - Add interactive 3D mode to scripts/visualize_ghosts.py with --show flag, using real shard.pos for neuron 3D positions
 - Implement reading of shard.paths binary file to extract and render intermediate points of ghost axons across shards
 - Parse manifest.toml and shard.toml for world_offset and dimensions to map Node A and Node B bounding boxes in 3D
 - Add legend, metadata overlay, and statistics collection (neuron counts, ghost connection metrics) to visualize_ghosts.py
-- Add ratatui and crossterm dependencies to genesis-node/Cargo.toml
-- Implement tui module with DashboardState, ZoneMetrics, LogEntry, and responsive layout in genesis-node/src/tui/
+- Add ratatui and crossterm dependencies to axicor-node/Cargo.toml
+- Implement tui module with DashboardState, ZoneMetrics, LogEntry, and responsive layout in axicor-node/src/tui/
 - Replace SimpleReporter usage in main.rs, node/mod.rs, and boot.rs with Arc<Mutex<DashboardState>>
 - Update shard_thread.rs to report zone metrics (spikes, phase) and log Night Phase latency in nanoseconds
 - Add --log flag to Cli struct for plain text fallback mode, isolate TUI output by redirecting stdout/stderr
@@ -2362,10 +2362,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update all zone configs (SensoryCortex, HiddenCortex, MotorCortex) for GNM integration
 - Implement Hot-Reload of ZoneManifest with atomic settings block in NodeContext
 - Add cyclic file checking in NodeRuntime for live manifest updates without restart
-- Extend genesis-core/src/config/manifest.rs ZoneManifest to support settings block
-- Modify genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to integrate hot-reload logic
+- Extend axicor-core/src/config/manifest.rs ZoneManifest to support settings block
+- Modify axicor-node/src/boot.rs and axicor-node/src/node/mod.rs to integrate hot-reload logic
 - Implement GPU Constant Memory hot-reload for physics and plasticity parameters
-- Fix genesis-baker structural synchronization in src/main.rs
+- Fix axicor-baker structural synchronization in src/main.rs
 - Update example README with 3-layer guide and 100+ points record
 - Achieve record 3100+ TPS in IntraNode mode after HiddenCortex integration
 - Increase checkpoint frequency to 100,000 ticks for optimized I/O
@@ -2430,7 +2430,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Remove __constant__ current_dopamine and update_global_dopamine from physics.cu and bindings.cu
 - Pass dopamine as int16_t kernel argument through cu_apply_gsop_kernel, cu_step_day_phase, ffi.rs, and shard.rs
 - Add assertion in boot.rs to validate axons_blob.len() % 32 == 0 for C-ABI alignment
-- Add --clean flag to genesis-baker to wipe target baked/ directories
+- Add --clean flag to axicor-baker to wipe target baked/ directories
 - Implement sustained TPS logging every 500 batches in mod.rs, printing `[Performance] Sustained TPS:`
 
 ## [0.289.35] - 2026-03-08 14:15:00
@@ -2438,23 +2438,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Refactor] Minor network and node adjustments**
 
 ### Added
-- Modify genesis-node/src/network/inter_node.rs, io_server.rs, and router.rs for internal logic updates
-- Adjust genesis-node/src/node/shard_thread.rs and main.rs with minor code changes
+- Modify axicor-node/src/network/inter_node.rs, io_server.rs, and router.rs for internal logic updates
+- Adjust axicor-node/src/node/shard_thread.rs and main.rs with minor code changes
 
 ## [0.287.35] - 2026-03-08 12:23:51
 
 **Fix Critical Runtime Bugs**
 
 ### Added
-- Fix Daemon Config Paths by passing root brain.toml path instead of zone blueprint paths in genesis-baker/src/bin/daemon.rs
-- Refactor boot sequence in genesis-node/src/boot.rs to correctly handle config loading and zone initialization
-- Update config file parsing in genesis-core/src/config/manifest.rs to support new path semantics
+- Fix Daemon Config Paths by passing root brain.toml path instead of zone blueprint paths in axicor-baker/src/bin/daemon.rs
+- Refactor boot sequence in axicor-node/src/boot.rs to correctly handle config loading and zone initialization
+- Update config file parsing in axicor-core/src/config/manifest.rs to support new path semantics
 - Update zone blueprint and IO configs in config/zones/MotorCortex/ and config/zones/SensoryCortex/ for consistency
 - Adjust shard.toml configuration in config/zones/MotorCortex/shard.toml
 - Modify scripts/ant_v4_client.py for updated connection parameters
 
 ### Fixed
-- Fix v_offset Invariant in genesis-compute/src/memory.rs to always compute offset, even for neurons without inputs
+- Fix v_offset Invariant in axicor-compute/src/memory.rs to always compute offset, even for neurons without inputs
 - Clean Ghost Artifacts by ensuring user re-bakes after code fixes, reflected in config file updates
 
 ## [0.284.30] - 2026-03-07 18:19:56
@@ -2471,8 +2471,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add current_tick parameter to cu_step_day_phase and cu_update_neurons_kernel in CUDA bindings
 - Update execute_day_phase in shard_thread.rs to receive and forward tick_base from ComputeCommand::RunBatch
 - Replace _pad1[2] with heartbeat_m: u16 in VariantParameters across CUDA bindings, FFI, and core layouts
-- Update manifest serialization in genesis-baker/main.rs to include heartbeat_m field
-- Enforce warp alignment (multiple of 32) for total_axons_max calculation in genesis-baker/src/bin/daemon.rs
+- Update manifest serialization in axicor-baker/main.rs to include heartbeat_m field
+- Enforce warp alignment (multiple of 32) for total_axons_max calculation in axicor-baker/src/bin/daemon.rs
 - Fix axon_heads slice mapping to use entire axons_mmap without legacy 16-byte header
 - Set spontaneous_firing_period_ticks = 1000 in examples/cartpole/config/zones/MotorCortex/blueprints.toml and SensoryCortex/blueprints.toml
 - Increase night_interval_ticks from 0 to 15000 in examples/cartpole/config/simulation.toml
@@ -2482,7 +2482,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.266.30] - 2026-03-07 16:41:18
 
-*** Add heartbeat_m field to VariantParameters in genesis-core, genesis-co**
+*** Add heartbeat_m field to VariantParameters in axicor-core, axicor-co**
 
 ### Added
 - Compute heartbeat_m in parser/blueprints.rs from spontaneous_firing_period_ticks using DDS multiplier formula (65536 / period)
@@ -2493,7 +2493,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update execute_day_phase in shard_thread.rs to receive and forward tick_base from ComputeCommand::RunBatch
 - Replace _pad1[2] with heartbeat_m: u16 in VariantParameters across CUDA bindings, FFI, and core layouts
 - Add spontaneous_firing_period_ticks field to NeuronType in config/blueprints.rs with serde default
-- Update manifest serialization in genesis-baker/main.rs to include heartbeat_m field
+- Update manifest serialization in axicor-baker/main.rs to include heartbeat_m field
 
 ## [0.254.30] - 2026-03-07 16:24:10
 
@@ -2501,7 +2501,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Add spontaneous_firing_period_ticks configuration field for neuron types in docs/specs/02_configuration.md
-- Document DDS Heartbeat compilation from period_ticks to heartbeat_m multiplier in genesis-baker/src/compile_heartbeat.rs
+- Document DDS Heartbeat compilation from period_ticks to heartbeat_m multiplier in axicor-baker/src/compile_heartbeat.rs
 - Add comprehensive DDS Heartbeat mathematical model and physiological contract in docs/specs/03_neuron_model.md
 - Integrate DDS Phase Accumulator logic into update_neurons_kernel in docs/specs/05_signal_physics.md
 - Extend VariantParameters struct in docs/specs/07_gpu_runtime.md with 16-bit heartbeat_m field and adjust padding
@@ -2512,11 +2512,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Zero-Downtime Recovery Integration**
 
 ### Added
-- Add ComputeCommand::Resurrect and is_warmup flag for ComputeFeedback::BatchComplete in genesis-node/src/node/mod.rs
+- Add ComputeCommand::Resurrect and is_warmup flag for ComputeFeedback::BatchComplete in axicor-node/src/node/mod.rs
 - Implement hardware gating of outgoing network traffic in run_node_loop by zeroing DMA counters (channel.out_count_pinned) when is_warmup flag is received
-- Add warmup_ticks_remaining state variable in genesis-node/src/node/shard_thread.rs
+- Add warmup_ticks_remaining state variable in axicor-node/src/node/shard_thread.rs
 - Decrement timer during execute_day_phase and download_outputs, sending is_warmup: true status back to orchestrator while timer > 0
-- Implement broadcast_route_update in genesis-node/src/node/recovery.rs, sending ROUTE_UPDATE packet with magic: ROUT_MAGIC to all live peers in routing_table
+- Implement broadcast_route_update in axicor-node/src/node/recovery.rs, sending ROUTE_UPDATE packet with magic: ROUT_MAGIC to all live peers in routing_table
 - Add resurrect_shard() function that broadcasts route to all nodes and commands local shard_thread to enter Warmup mode
 - Fix minor ComputeCommand import issue and run cargo check --workspace successfully
 
@@ -2527,24 +2527,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Implement run_sprouting_pass with strict Dale's Law using 4-bit type mask from axon_tips_uvw
 - Add nudge_axon function for activity-based nudging: local axons shift only if soma spiked (flags[soma_idx] & 0x01 != 0), ghost/virtual axons shift unconditionally
-- Compute new_synapses using updated CPU Sprouting logic in genesis_baker::bake::sprouting::run_sprouting_pass
+- Compute new_synapses using updated CPU Sprouting logic in axicor_baker::bake::sprouting::run_sprouting_pass
 - Modify build_night_context to return mutable NightPhaseContext (night_ctx now mut)
 - Update run_night_phase call to accept ctx: Option<&mut NightPhaseContext>
 - Extract VRAM slice flags using correct offset from header hdr.flags_offset
-- Delete genesis-node/src/orchestrator/sprouting.rs file entirely
-- Remove pub mod sprouting; declaration from genesis-node/src/orchestrator/mod.rs
+- Delete axicor-node/src/orchestrator/sprouting.rs file entirely
+- Remove pub mod sprouting; declaration from axicor-node/src/orchestrator/mod.rs
 
 ## [0.237.29] - 2026-03-07 14:56:43
 
 **Warp-Aggregated Telemetry with Zero Atomics & C-ABI Fixes**
 
 ### Added
-- Fix C-ABI signatures in `genesis-compute/src/ffi.rs` to pass `VramState` as a `*const ShardVramPtrs` pointer instead of by value
+- Fix C-ABI signatures in `axicor-compute/src/ffi.rs` to pass `VramState` as a `*const ShardVramPtrs` pointer instead of by value
 - Update `gpu_reset_telemetry_count` and `launch_extract_telemetry` signatures to accept `vram: *const ShardVramPtrs` and `padded_n: u32`
-- Apply identical fixes to `genesis-compute/src/mock_ffi.rs`, including adding the import for `ShardVramPtrs`
-- Rename and implement `cu_extract_telemetry_kernel` in `genesis-compute/src/cuda/physics.cu`
+- Apply identical fixes to `axicor-compute/src/mock_ffi.rs`, including adding the import for `ShardVramPtrs`
+- Rename and implement `cu_extract_telemetry_kernel` in `axicor-compute/src/cuda/physics.cu`
 - Utilize warp-level primitives `__ballot_sync`, `__popc`, and `__shfl_sync` to perform exactly one `atomicAdd` per warp of 32 threads
-- Update C-wrapper functions in `genesis-compute/src/cuda/bindings.cu` to accept `const ShardVramPtrs* ptrs`
+- Update C-wrapper functions in `axicor-compute/src/cuda/bindings.cu` to accept `const ShardVramPtrs* ptrs`
 - Move `gpu_reset_telemetry_count` and `launch_extract_telemetry` implementations lower in the file to resolve C++ compiler visibility error for `ShardVramPtrs`
 - Update `CHANGELOG.md` and `examples/cartpole/readme.md`
 - Run `cargo check --workspace` to verify successful compilation and FFI signature alignment
@@ -2554,20 +2554,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Implement Warp-Aggregated Telemetry with Zero-Copy Atomics**
 
 ### Added
-- Implement `extract_telemetry_kernel` in `genesis-compute/src/cuda/physics.cu` using warp primitives `__ballot_sync`, `__popc`, and `__shfl_sync`
+- Implement `extract_telemetry_kernel` in `axicor-compute/src/cuda/physics.cu` using warp primitives `__ballot_sync`, `__popc`, and `__shfl_sync`
 - Aggregate spike predicates across 32 threads into a single atomic increment via `atomicAdd(out_count, warp_pop)` from lane zero
 - Compute `local_rank` via `__popc(active_mask & ((1u << lane) - 1))` for each spiking neuron to write IDs into flat array `out_ids[warp_offset + local_rank]`
-- Add `extern` signature for `extract_telemetry_kernel` and implement `launch_extract_telemetry` in `genesis-compute/src/cuda/bindings.cu`, accepting new parameter `padded_n: u32`
+- Add `extern` signature for `extract_telemetry_kernel` and implement `launch_extract_telemetry` in `axicor-compute/src/cuda/bindings.cu`, accepting new parameter `padded_n: u32`
 - Implement `gpu_reset_telemetry_count` via `cudaMemsetAsync(vram.telemetry_count, 0, ...)` in bindings
-- Update Rust FFI signatures in `genesis-compute/src/ffi.rs` and `genesis-compute/src/mock_ffi.rs` to accept `padded_n: u32` in `launch_extract_telemetry`
+- Update Rust FFI signatures in `axicor-compute/src/ffi.rs` and `axicor-compute/src/mock_ffi.rs` to accept `padded_n: u32` in `launch_extract_telemetry`
 
 ## [0.227.29] - 2026-03-07 14:04:35
 
 **[Memory & C-ABI Foundation] Finalize Stage 1 with Zero-Copy memory mappi**
 
 ### Added
-- Update `ShmHeader` in `genesis-core/src/ipc.rs`: increment `SHM_VERSION` to 2, remove `_padding`, add fields `prunes_offset`, `prunes_count`, `incoming_prunes_count`, `flags_offset` while preserving 64-byte L2 Cache Line alignment
-- Enforce Zero-Copy Memory Mapping in `genesis-baker/src/bin/daemon.rs`: replace heap allocations by directly mapping `shard.state`, `shard.axons`, and `shard.geom` files via `memmap2::Mmap::map()` with 4096-byte OS page alignment
+- Update `ShmHeader` in `axicor-core/src/ipc.rs`: increment `SHM_VERSION` to 2, remove `_padding`, add fields `prunes_offset`, `prunes_count`, `incoming_prunes_count`, `flags_offset` while preserving 64-byte L2 Cache Line alignment
+- Enforce Zero-Copy Memory Mapping in `axicor-baker/src/bin/daemon.rs`: replace heap allocations by directly mapping `shard.state`, `shard.axons`, and `shard.geom` files via `memmap2::Mmap::map()` with 4096-byte OS page alignment
 - Remove functions `bytes_to_u32_vec` and `bytes_to_burst_heads` to eliminate uncontrolled heap allocations
 - Add strict C-ABI assert checks for 64-byte pointer alignment before using zero-copy type casting with `bytemuck::cast_slice`
 - Fix import for `BurstHeads8` in the daemon module
@@ -2577,7 +2577,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Architecture] Extend distributed runtime and IDE specs with Zero-Cost S**
 
 ### Added
-- Implement Zero-Cost State Machine with GeometryGpuApplied marker component and LoadedGeometry in genesis-ide/src/geometry.rs to prevent repeated GPU uploads
+- Implement Zero-Cost State Machine with GeometryGpuApplied marker component and LoadedGeometry in axicor-ide/src/geometry.rs to prevent repeated GPU uploads
 - Add HFT Log Throttling with HftLogger using AtomicUsize counters and fetch_add(Ordering::Relaxed) for dopamine, egress packet, and self-heal event logging
 - Increase BSP synchronization timeout to BSP_SYNC_TIMEOUT_MS = 500 ms and define MAX_BATCHES_LATENCY constant in wait_for_neighbors function
 - Specify L7 Fragmentation parameters: MAX_EVENTS_PER_PACKET = 8186 and binary contract with SpikeBatchHeaderV2 and SpikeEventV2 structs
@@ -2585,7 +2585,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Document Biological Amnesia rule: drop packets with header.epoch < current_epoch and implement Epoch Synchronization
 - Enforce Dale's Law invariant for Night Phase Sprouting: sign of initial_synapse_weight determined exclusively by sender-side axon type from axon_tips_uvw[axon_id] >> 28
 - Implement Activity-Based Nudging for Living Axons: local axons grow only if soma spiked (soma_flags & 0x01 != 0), ghost axons grow unconditionally
-- Define LivingAxon struct with tip_uvw, forward_dir, remaining_steps, and last_night_active fields in genesis-baker/src/bake/growth.rs
+- Define LivingAxon struct with tip_uvw, forward_dir, remaining_steps, and last_night_active fields in axicor-baker/src/bake/growth.rs
 - Add step_and_pack function for axon tip movement and spatial_grid.insert for immediate Spatial Grid updates
 - Document structural plasticity pattern ensuring computational resources spent only on active network regions
 - Implement Burst Gating protection: if any of 8 axon heads touches a dendrite, the dendrite injects weight and enters synapse_refractory_period
@@ -2604,7 +2604,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Architecture] Extend distributed runtime and IDE specs with Zero-Cost S**
 
 ### Added
-- Implement Zero-Cost State Machine with `GeometryGpuApplied` marker component and `LoadedGeometry` in genesis-ide/src/geometry.rs to prevent repeated GPU uploads
+- Implement Zero-Cost State Machine with `GeometryGpuApplied` marker component and `LoadedGeometry` in axicor-ide/src/geometry.rs to prevent repeated GPU uploads
 - Add HFT Log Throttling with `HftLogger` using `AtomicUsize` counters and `fetch_add(Ordering::Relaxed)` for dopamine, egress packet, and self-heal event logging
 - Increase BSP synchronization timeout to `BSP_SYNC_TIMEOUT_MS = 500 ms` and define `MAX_BATCHES_LATENCY` constant in wait_for_neighbors function
 - Specify L7 Fragmentation parameters: `MAX_EVENTS_PER_PACKET = 8186` and binary contract with `SpikeBatchHeaderV2` and `SpikeEventV2` structs
@@ -2613,9 +2613,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extend docs/specs/06_distributed.md with detailed HFT logging, BSP timeout, L7 fragmentation, and Epoch Synchronization sections
 - Update docs/specs/010_ide.md with Zero-Cost State Machine cascade: fetch_real_geometry, upload_geometry_to_gpu, and render_neuron_network systems
 - Revise docs/specs/07_gpu_runtime.md with new memory layout and synchronization protocols
-- Modify genesis-node/src/network/bsp.rs to incorporate new timeout constant and telemetry adjustments
-- Update genesis-node/src/network/telemetry.rs to integrate throttled logging mechanisms
-- Remove genesis-node/src/network/router.rs placeholder and adjust genesis-node/src/boot.rs and main.rs for initialization changes
+- Modify axicor-node/src/network/bsp.rs to incorporate new timeout constant and telemetry adjustments
+- Update axicor-node/src/network/telemetry.rs to integrate throttled logging mechanisms
+- Remove axicor-node/src/network/router.rs placeholder and adjust axicor-node/src/boot.rs and main.rs for initialization changes
 - Update README.md CartPole record line with commit hash 3ed37ac
 - Revise examples/cartpole/readme.md with updated instructions and links
 
@@ -2637,7 +2637,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.187.27] - 2026-03-06 23:20:17
 
-**IDE Fixes [Genesis-IDE]**
+**IDE Fixes [Axicor-IDE]**
 
 ### Added
 - Update config path to config/zones/SensoryCortex/blueprints.toml
@@ -2674,9 +2674,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Windows IPC & Alignment [Platform]**
 
 ### Added
-- Add TCP fallback and Windows SHM path in genesis-core/ipc.rs
-- Refactor genesis-node/ipc.rs for TCP and file-backed shm
-- Use file-backed mmap and TCP in genesis-baker daemon for Windows
+- Add TCP fallback and Windows SHM path in axicor-core/ipc.rs
+- Refactor axicor-node/ipc.rs for TCP and file-backed shm
+- Use file-backed mmap and TCP in axicor-baker daemon for Windows
 - Add bytes_to_u32_vec/bytes_to_burst_heads to avoid cast_slice on unaligned data
 - Fix bytemuck alignment in geometry_client and socket for Windows
 
@@ -2690,7 +2690,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.172.25] - 2026-03-06 23:20:17
 
-**IDE Fixes [Genesis-IDE]**
+**IDE Fixes [Axicor-IDE]**
 
 ### Added
 - Update config path to config/zones/SensoryCortex/blueprints.toml
@@ -2727,9 +2727,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Windows IPC & Alignment [Platform]**
 
 ### Added
-- Add TCP fallback and Windows SHM path in genesis-core/ipc.rs
-- Refactor genesis-node/ipc.rs for TCP and file-backed shm
-- Use file-backed mmap and TCP in genesis-baker daemon for Windows
+- Add TCP fallback and Windows SHM path in axicor-core/ipc.rs
+- Refactor axicor-node/ipc.rs for TCP and file-backed shm
+- Use file-backed mmap and TCP in axicor-baker daemon for Windows
 - Add bytes_to_u32_vec/bytes_to_burst_heads to avoid cast_slice on unaligned data
 - Fix bytemuck alignment in geometry_client and socket for Windows
 
@@ -2752,20 +2752,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.156.23] - 2026-03-06 10:47:13
 
-**Genesis Code Cleanup & Strictness Enforcement**
+**Axicor Code Cleanup & Strictness Enforcement**
 
 ### Added
-- Add #![deny(warnings)], #![deny(unused_variables)], and #![deny(dead_code)] to all crate entry points: genesis-core/src/lib.rs, genesis-baker/src/main.rs, genesis-baker/src/lib.rs, genesis-ide/src/main.rs, genesis-compute/src/lib.rs, genesis-node/src/main.rs
-- Restructure genesis-baker/src/main.rs to use library modules, eliminating redundant compilation warnings
-- Remove file-level #![allow(dead_code)] from genesis-ide/src/connectome.rs, genesis-ide/src/world.rs, and genesis-ide/src/io_matrix.rs
-- Remove serialize_axons and atomic_write functions from genesis-baker/src/main.rs
-- Purge compute_power_index and unused sprouting logic from genesis-baker/src/bake/sprouting.rs
+- Add #![deny(warnings)], #![deny(unused_variables)], and #![deny(dead_code)] to all crate entry points: axicor-core/src/lib.rs, axicor-baker/src/main.rs, axicor-baker/src/lib.rs, axicor-ide/src/main.rs, axicor-compute/src/lib.rs, axicor-node/src/main.rs
+- Restructure axicor-baker/src/main.rs to use library modules, eliminating redundant compilation warnings
+- Remove file-level #![allow(dead_code)] from axicor-ide/src/connectome.rs, axicor-ide/src/world.rs, and axicor-ide/src/io_matrix.rs
+- Remove serialize_axons and atomic_write functions from axicor-baker/src/main.rs
+- Purge compute_power_index and unused sprouting logic from axicor-baker/src/bake/sprouting.rs
 - Remove _master_seed parameter from connect_dendrites signature and all call sites in topology.rs
-- Clean up unmaintained variables in genesis-baker/src/bake/axon_growth.rs
-- Delete unused SpikeRoute, GlobalSpikeMap, and get_type_color from genesis-ide/src/world.rs
+- Clean up unmaintained variables in axicor-baker/src/bake/axon_growth.rs
+- Delete unused SpikeRoute, GlobalSpikeMap, and get_type_color from axicor-ide/src/world.rs
 - Move AxonInstance, IoPixelInstance, MaterialUniforms, and NeuronPalette into shader_data or material_data submodules with #[allow(dead_code)] annotations
 - Remove #[allow(dead_code)] from individual structs in connectome.rs and io_matrix.rs
-- Systematically remove dozens of unused imports and variables across genesis-node and genesis-baker-daemon
+- Systematically remove dozens of unused imports and variables across axicor-node and axicor-baker-daemon
 
 ## [0.153.23] - 2026-03-06 09:39:58
 
@@ -2776,11 +2776,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update `sort_and_prune_kernel` CUDA kernel implementation to use dynamic threshold
 - Modify `launch_sort_and_prune` API function signature to accept `prune_threshold` argument
 - Update all zone blueprint configurations (MotorCortex, SensoryCortex, V1) with explicit `prune_threshold` values
-- Refactor genesis-baker sprouting logic to integrate new pruning parameter
-- Adjust genesis-node shard thread and orchestrator sprouting for updated compute calls
+- Refactor axicor-baker sprouting logic to integrate new pruning parameter
+- Adjust axicor-node shard thread and orchestrator sprouting for updated compute calls
 - Clean up template configuration files, removing redundant _blank_blueprints.toml entries
 - Update specification documents (foundations, configuration, connectivity, distributed) with pruning threshold details
-- Synchronize genesis-ide asset configurations with new blueprint structure
+- Synchronize axicor-ide asset configurations with new blueprint structure
 - Run full workspace validation with `cargo check --workspace`
 
 ## [0.144.23] - 2026-03-06 05:24:44
@@ -2792,12 +2792,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **CartPole 2E2 Duble Nodes**
 
 ### Added
-- Add dendrite_radius_um field to genesis-core/src/config/blueprints.rs for per‑soma radius configuration.
-- Implement per‑soma dynamic radius in connect_dendrites (genesis-baker/src/bake/dendrite_connect.rs) and update its call in topology.rs.
-- Extend blueprint handling in genesis-core/config/blueprints.rs.
+- Add dendrite_radius_um field to axicor-core/src/config/blueprints.rs for per‑soma radius configuration.
+- Implement per‑soma dynamic radius in connect_dendrites (axicor-baker/src/bake/dendrite_connect.rs) and update its call in topology.rs.
+- Extend blueprint handling in axicor-core/config/blueprints.rs.
 - Modify baking modules (dendrite_connect.rs, input_map.rs, output_map.rs, spatial_grid.rs, topology.rs) to support radius changes and improve baking logic.
-- Overhaul genesis-node/src/network/io_server.rs for improved connection handling.
-- Enhance genesis-node/src/network/inter_node.rs with updated message protocols.
+- Overhaul axicor-node/src/network/io_server.rs for improved connection handling.
+- Enhance axicor-node/src/network/inter_node.rs with updated message protocols.
 - Refactor node initialization (boot.rs, node/mod.rs) for streamlined startup.
 - Update I/O server logic in io_server.rs and inter_node.rs for revised communication.
 - Streamline config/brain.toml (significant reduction) and modify config/simulation.toml with updated parameters.
@@ -2806,9 +2806,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update README.md with baking instructions for environment setup.
 - Remove legacy zone configuration files: anatomy.toml, io.toml, and blueprints.toml from config/zones/CartPoleBrain/.
 - Delete outdated examples/cartpole/client.py and scripts/cartpole_client.py (replaced by updated version).
-- Adjust genesis-baker/src/bake/spatial_grid.rs for dynamic radius changes.
-- Update main baking logic in genesis-baker/src/main.rs.
-- Add new CUDA kernel bindings and definitions to genesis-compute/src/cuda/bindings.cu.
+- Adjust axicor-baker/src/bake/spatial_grid.rs for dynamic radius changes.
+- Update main baking logic in axicor-baker/src/main.rs.
+- Add new CUDA kernel bindings and definitions to axicor-compute/src/cuda/bindings.cu.
 
 ## [0.138.23] - 2026-03-06 02:47
 
@@ -2829,8 +2829,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **[Architecture] Implement vectorized axon head layout and pipeline**
 
 ### Added
-- Add BurstHeads8 struct (32-byte, align 32) in genesis-core and update ShardStateSoA and VramState
-- Update ShardSoA and topology baking logic in genesis-baker to initialize 8 heads per axon with AXON_SENTINEL
+- Add BurstHeads8 struct (32-byte, align 32) in axicor-core and update ShardStateSoA and VramState
+- Update ShardSoA and topology baking logic in axicor-baker to initialize 8 heads per axon with AXON_SENTINEL
 - Align C-ABI in bindings.cu and physics.cu with explicit h0..h7 fields
 - Implement 1-tick shift register across h0..h7 in inject_inputs, apply_spike_batch, and update_neurons kernels
 - Optimize propagate_axons to unconditionally add v_seg to all 8 heads using branchless logic
@@ -2880,7 +2880,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Delete bootstrap.py script, replacing manual UDP injection with integrated IPC
 - Enforce axon_growth_max_steps <= 255 limit in validator/checks.rs to protect 8-bit PackedTarget memory layout
 - Reduce default axon_growth_max_steps from 2500 to 255 in config/simulation.toml
-- Replace CLI argument --zone (u16) with --zone_hash (u32) in genesis-baker daemon.rs
+- Replace CLI argument --zone (u16) with --zone_hash (u32) in axicor-baker daemon.rs
 - Update shm_name(), default_socket_path(), and all IPC calls to use zone_hash
 - Propagate brain_config through parse_and_validate() to bake workspace
 - Include SimulationConfigRef and filtered ManifestConnection list in serialized ZoneManifest
@@ -2888,7 +2888,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update extract_outgoing_spikes_kernel to compute ticks_since_spike = head / v_seg
 - Add sentinel check (head >= 0x70000000u) to skip dead axons in kernel
 - Adjust kernel logic to use ticks_since_spike for tick_offset calculation
-- Major refactor of genesis-node/src/boot.rs (246 insertions, 318 deletions total)
+- Major refactor of axicor-node/src/boot.rs (246 insertions, 318 deletions total)
 - Update network modules (bsp.rs, inter_node.rs, intra_gpu.rs, io_server.rs) for revised IPC
 - Adjust node/shard_thread.rs and main.rs for new initialization flow
 
@@ -2899,7 +2899,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Implement Unified Stepper with `GrowthContext` struct and `execute_growth_loop` function in `axon_growth.rs`
 - Refactor `grow_single_axon`, `inject_ghost_axons`, and `inject_handover_events` to use the unified `execute_growth_loop`
-- Purge JSON contracts by removing `NightPhaseRequest`, `NightPhaseResponse`, and `CompiledShardMeta` from `genesis-core/src/ipc.rs`
+- Purge JSON contracts by removing `NightPhaseRequest`, `NightPhaseResponse`, and `CompiledShardMeta` from `axicor-core/src/ipc.rs`
 - Implement raw SHM handover writing in `BakerClient::run_night` using `std::ptr::copy_nonoverlapping` and 16-byte `BakeRequest`
 - Optimize CUDA kernels by changing `continue` to `break` in `cu_update_neurons_kernel` for early exit
 - Restore Night Phase weight sync by updating `execute_night_phase` in `shard_thread.rs` to sync weights back to GPU
@@ -2907,17 +2907,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extract `flash_hardware_physics` for CUDA constant memory upload and `build_intra_gpu_channels` for local message passing
 - Extract `load_shards_into_vram` for SHM mapping and `setup_networking` for UDP IO and Telemetry
 - Reassemble `boot_node` as a high-level orchestrator calling the new initialization phases sequentially
-- Replace TUI with `SimpleReporter` using atomic counters in `genesis-node/src/simple_reporter.rs`
+- Replace TUI with `SimpleReporter` using atomic counters in `axicor-node/src/simple_reporter.rs`
 - Remove `println!` from hot loops in `mod.rs` and `shard_thread.rs` and spawn a CLI monitor thread in `main.rs`
 - Update `NodeRuntime::boot` struct definition and integrate `extract_spikes` and `flush_outgoing_batch_pool` into `run_node_loop`
 - Refactor `build_intra_gpu_channels` to `build_routing_channels` and calculate `expected_peers` for `BspBarrier` initialization
-- Delete redundant `genesis-node/src/orchestrator/baker.rs` to de-duplicate Baker clients
+- Delete redundant `axicor-node/src/orchestrator/baker.rs` to de-duplicate Baker clients
 - Remove `ratatui` references and clean up `DashboardState` and TUI modules (`tui/app.rs`, `tui/mod.rs`, `tui/tui/app.rs`, `tui/tui/mod.rs`)
-- Remove `genesis-node/src/network/external.rs` and update `genesis-node/Cargo.toml`
+- Remove `axicor-node/src/network/external.rs` and update `axicor-node/Cargo.toml`
 
 ## [0.78.22] - 2026-03-05 11:31
 
-**Genesis Baker Refactoring & NodeRuntime Zero-Copy Pipeline**
+**Axicor Baker Refactoring & NodeRuntime Zero-Copy Pipeline**
 
 ### Added
 - Implement AxonSegmentGrid in spatial_grid.rs to index axon segments with SegmentRef payload
@@ -2952,30 +2952,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **fix(node, compute): virtual_offset correction, GSOP inertia rewrite, DMA**
 
 ### Added
-- genesis-node/node/mod.rs: Fixed virtual_offset=0 memory corruption.
+- axicor-node/node/mod.rs: Fixed virtual_offset=0 memory corruption.
 - Virtual axons live at tail of axon_heads array, not at index 0.
 - Now computed as total_axons - num_virtual_axons.
-- genesis-node/boot.rs: Panic on missing shard.gxi when io.toml
+- axicor-node/boot.rs: Panic on missing shard.gxi when io.toml
 - declares inputs. Silent fallback to 0 caused DMA buffer overflow
 - that corrupted entire VRAM state.
-- genesis-node/boot.rs: Hoisted io_config_path resolution before
+- axicor-node/boot.rs: Hoisted io_config_path resolution before
 - GXI safety check. Added checkpoint.state resume priority over
 - shard.state in boot_shard_from_disk.
-- genesis-node/network/io_server.rs: Added capacity field and
+- axicor-node/network/io_server.rs: Added capacity field and
 - hard assert to InputSwapchain::write_incoming_at. Prevents
 - network packets from overflowing Pinned RAM DMA buffers.
-- genesis-compute/cuda/physics.cu: Rewrote cu_apply_gsop_kernel
+- axicor-compute/cuda/physics.cu: Rewrote cu_apply_gsop_kernel
 - with Inertia Curve, decay-as-multiplier (not subtracted from
 - weight), and ltm_slot_count from VariantParameters.
-- genesis-compute/cuda/physics.cu, bindings.cu: Expanded
+- axicor-compute/cuda/physics.cu, bindings.cu: Expanded
 - VariantParameters from 64B to 128B with inertia_curve[16]
 - and ltm_slot_count fields.
-- genesis-compute/ffi.rs: Synced Rust FFI VariantParameters to
+- axicor-compute/ffi.rs: Synced Rust FFI VariantParameters to
 - 128B layout matching CUDA side.
-- genesis-core/config/manifest.rs: Added inertia_curve and
+- axicor-core/config/manifest.rs: Added inertia_curve and
 - ltm_slot_count to ManifestVariant DTO and GpuVariantParameters
 - with serde defaults for backward compatibility.
-- genesis-node/node/mod.rs: Hot Checkpointing - periodic VRAM
+- axicor-node/node/mod.rs: Hot Checkpointing - periodic VRAM
 - dump to checkpoint.state via gpu_memcpy_device_to_host every
 - 500 batches with atomic file write.
 - scripts/brain_debugger.py: New diagnostic tool for parsing
@@ -2986,11 +2986,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **refactor: isolate network I/O and fix async runtime conflicts**
 
 ### Added
-- genesis-ide: Isolated telemetry and geometry fetchers into dedicated OS threads with independent Tokio runtimes. This prevents "no reactor running" panics within Bevy's ComputeTaskPool.
-- genesis-ide: Patched handle_picking and handle_box_select systems to use Option<Res<LoadedGeometry>>, preventing ECS access panics during cold boot/loading states.
-- genesis-node: Fixed EADDRINUSE fatal panic in IoMultiplexer. Port 8081 binding now fails gracefully with a log entry instead of crashing the daemon.
-- genesis-node: Removed nested tokio::Runtime from ZoneRuntime to resolve "cannot drop a runtime in async context" errors during boot/shutdown.
-- genesis-baker: (prev) Fixed type mismatches in manifest variant mapping for i32/u8 compatibility.
+- axicor-ide: Isolated telemetry and geometry fetchers into dedicated OS threads with independent Tokio runtimes. This prevents "no reactor running" panics within Bevy's ComputeTaskPool.
+- axicor-ide: Patched handle_picking and handle_box_select systems to use Option<Res<LoadedGeometry>>, preventing ECS access panics during cold boot/loading states.
+- axicor-node: Fixed EADDRINUSE fatal panic in IoMultiplexer. Port 8081 binding now fails gracefully with a log entry instead of crashing the daemon.
+- axicor-node: Removed nested tokio::Runtime from ZoneRuntime to resolve "cannot drop a runtime in async context" errors during boot/shutdown.
+- axicor-baker: (prev) Fixed type mismatches in manifest variant mapping for i32/u8 compatibility.
 
 ## [0.54.14] - 2026-03-03 14:37
 
@@ -3022,7 +3022,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **refactor: implement byte-perfect foundations and columnar layout**
 
 ### Added
-- This commit completes the refactoring of genesis-core types and memory
+- This commit completes the refactoring of axicor-core types and memory
 - layout to align with the 03_neuron_model.md specification. The changes
 - ensure FFI compatibility and optimize data structures for GPU VRAM
 - interaction and constant memory access.
@@ -3042,7 +3042,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Verification:
 - Added comprehensive unit tests in types.rs covering coordinate
 - packing/unpacking, O(1) variant ID extraction, and memory alignment.
-- Confirmed all 54 genesis-core tests are passing.
+- Confirmed all 54 axicor-core tests are passing.
 - Verified byte-offsets and alignment via std::mem checks.
 
 ## [0.43.14] - 2026-03-02 12:41
@@ -3135,10 +3135,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Input Interface (Virtual Axons §2.1)** - added `inject_inputs.cu` to map 1-bit external bitmasks to virtual axon firing
 - Abstracted `grow_single_axon()` for reuse in Input map generation (`grow_input_maps`)
 - Deterministic FNV-1a seeded routing for `pixel→soma` translation across virtual axons
-- Generation of `.gxi` (Genesis eXternal Input) binary format with Header, Map Descriptors, and flat axon arrays
+- Generation of `.gxi` (Axicor eXternal Input) binary format with Header, Map Descriptors, and flat axon arrays
 - Expanded VRAM state to load `.gxi` indirection tables (`map_pixel_to_axon`) and allocate bitmask buffers
 - Batched bitmask upload capability (`upload_input_bitmask`) via DayPhase
-- **Testing Architecture** - comprehensive unit testing for Cone Tracing algorithm (26 tests in genesis-baker) covering SpatialGrid sensing, trajectory steering, and multi-shard generation
+- **Testing Architecture** - comprehensive unit testing for Cone Tracing algorithm (26 tests in axicor-baker) covering SpatialGrid sensing, trajectory steering, and multi-shard generation
 - **Testing Architecture** - comprehensive testing of synaptogenesis (dendrite_connect) validating Rule of Uniqueness, Type Whitelist, Inhibitory signs, and Self-Exclusion with an ASCII visualizer
 
 ### Fixed
@@ -3192,7 +3192,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.7.0] - 2026-02-23
 
 ### Added
-- **Configuration Architecture (Spec 02 §1.1–1.3)** - `simulation.toml` parser in genesis-core
+- **Configuration Architecture (Spec 02 §1.1–1.3)** - `simulation.toml` parser in axicor-core
 - `anatomy.rs` parser with population calculation tests
 - `DerivedPhysics` + `compute_derived_physics()` with §1.6 invariant
 - `Tick`, `Microns`, `Fraction`, `VoxelCoord` type aliases
@@ -3206,7 +3206,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0] - 2026-02-23
 
 ### Added
-- **Night Phase IPC Baker Daemon** - `genesis-baker-daemon` executable running in background
+- **Night Phase IPC Baker Daemon** - `axicor-baker-daemon` executable running in background
 - **Shared Memory Protocol (SHM)** - zero-copy transfer of weights and targets between CUDA runtime and CPU baker
 - **Unix Sockets** - for JSON control messages (`night_start`, `night_done`) synchronization
 - **Sort & Prune CUDA Kernel** - O(1) register Bitonic Sort (N=128) per neuron to auto-promote LTM/WM and prune weak connections
@@ -3224,7 +3224,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.4.1] - 2026-02-23
 
 ### Added
-- **Genesis IDE** - new `genesis-ide` crate with Bevy 3D viewer
+- **Axicor IDE** - new `axicor-ide` crate with Bevy 3D viewer
 - Orbital + Fly camera modes with mouse/keyboard control
 - HUD overlay: FPS, neuron count, axon count, selected neuron info
 - Neuron spheres colored by `type_mask`
@@ -3233,7 +3233,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.4.0] - 2026-02-23
 
 ### Added
-- **Genesis Monitor** - WebSocket telemetry server broadcasting tick, phase, and real-time spike dense IDs
+- **Axicor Monitor** - WebSocket telemetry server broadcasting tick, phase, and real-time spike dense IDs
 - Bevy 3D client renders neurons as glow-highlighted spheres synced to live VRAM state
 
 ## [0.3.0] - 2026-02-22
@@ -3247,7 +3247,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.0] - 2026-02-22
 
 ### Added
-- `genesis-node` daemon: parses `shard.toml`, mounts VRAM, drives BSP ephemeral loop
+- `axicor-node` daemon: parses `shard.toml`, mounts VRAM, drives BSP ephemeral loop
 - **Atlas Routing** - external Ghost Axons baked at compile time, zero GPU overhead at runtime
 
 ### Fixed

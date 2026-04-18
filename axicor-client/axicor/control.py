@@ -6,7 +6,7 @@ from .axic import AxicReader
 from .platform import get_manifest_path
 from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
 
-class GenesisControl:
+class AxicorControl:
     """
     Control Plane SDK. 
     Manages runtime parameters on the fly via atomic rewriting of manifest.toml.

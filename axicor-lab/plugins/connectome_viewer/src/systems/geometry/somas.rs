@@ -23,7 +23,7 @@ pub fn build_soma_instances(
     shard_pos_data: &[u8],
     blueprints_data: Option<&[u8]>,
 ) -> Option<SomaBuildResult> {
-    // 1. Загружаем blueprints для получения thresholds
+    // 1.  blueprints   thresholds
     let mut thresholds = vec![32000; 16]; // Fallback
     if let Some(bp_data) = blueprints_data {
         if let Ok(bp_str) = std::str::from_utf8(bp_data) {
@@ -35,7 +35,7 @@ pub fn build_soma_instances(
         }
     }
 
-    // DOD FIX: Безопасное чтение невыровненной памяти через Vec<u32>
+    // DOD FIX:      Vec<u32>
     let packed_positions_vec: Vec<u32> = shard_pos_data.chunks_exact(4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
         .collect();
@@ -45,7 +45,7 @@ pub fn build_soma_instances(
     let mut max_bounds = Vec3::splat(f32::MIN);
     let mut valid_count = 0;
     
-    // Первый проход для центрирования
+    //    
     for &packed in packed_positions {
         if packed == 0 { continue; }
         let x = (packed & 0x3FF) as f32 * 0.025;
@@ -61,7 +61,7 @@ pub fn build_soma_instances(
     if valid_count == 0 { return None; }
     let center = (min_bounds + max_bounds) * 0.5;
 
-    // 2. Сборка данных инстансов
+    // 2.   
     let mut instances = Vec::with_capacity(valid_count);
     for &packed in packed_positions {
         if packed == 0 { continue; }
@@ -73,19 +73,19 @@ pub fn build_soma_instances(
         let pos = Vec3::new(x, z, -y) - center;
         let threshold = thresholds[type_id];
         
-        // DOD FIX: Физически точный расчет радиуса сомы.
-        // Опорная точка: Пирамидальный нейрон L5 (Threshold 42000) имеет радиус 10 мкм.
-        // Емкость мембраны пропорциональна площади поверхности сферы (R^2),
-        // поэтому радиус R пропорционален sqrt(threshold).
+        // DOD FIX:     .
+        //  :   L5 (Threshold 42000)   10 .
+        //       (R^2),
+        //   R  sqrt(threshold).
         let base_threshold = 42000.0;
         let base_radius_um = 10.0;
 
         let radius_um = base_radius_um * (threshold as f32 / base_threshold).sqrt();
 
-        // Защита от нулевых или экстремально малых порогов
+        //       
         let clamped_radius_um = radius_um.clamp(3.0, 12.5);
 
-        // Перевод микрометров в систему координат Bevy (где 1.0 единица = 1 мм = 1000 мкм)
+        //      Bevy ( 1.0  = 1  = 1000 )
         let scale = clamped_radius_um / 1000.0;
 
         let color = if type_id % 2 == 0 {
@@ -101,7 +101,7 @@ pub fn build_soma_instances(
         });
     }
 
-    // 3. Создаем базовый меш Icosphere(2)
+    // 3.    Icosphere(2)
     #[allow(deprecated)]
     let base_sphere_mesh: Mesh = bevy::render::mesh::shape::Icosphere {
         radius: 1.0,

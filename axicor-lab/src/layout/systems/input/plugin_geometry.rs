@@ -18,10 +18,10 @@ pub fn sync_plugin_geometry_system(
 ) {
     if drag_state.is_dragging { return; }
 
-    known_ids.clear(); // Очищаем без освобождения памяти
+    known_ids.clear(); //    
 
     for (_, mut window, mut geom) in query.iter_mut() {
-        known_ids.insert(window.plugin_id.clone()); // Клон неизбежен, но контейнер не аллоцируется
+        known_ids.insert(window.plugin_id.clone()); //  ,    
 
         let Some(rect) = allocated.rects.get(&window.plugin_id) else { continue };
 

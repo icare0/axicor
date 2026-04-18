@@ -35,17 +35,17 @@ Strict hardware invariants apply for compiling the CUDA backend (`axicor-compute
 Status: [MVP - Implemented]
 
 ### 3.1. Architecture: Dual-Backend C-ABI
-Instead of relying on fragile tooling like `hipify-perl` (automatic CUDA→HIP translation), a cleaner approach was implemented — the Dual-Backend C-ABI abstraction.
+Instead of relying on fragile tooling like `hipify-perl` (automatic CUDAHIP translation), a cleaner approach was implemented  the Dual-Backend C-ABI abstraction.
 `axicor-compute` contains two mirrored directories with native implementations of the exact same interface:
 
 ```text
 axicor-compute/src/
-├── cuda/
-│   ├── bindings.cu   ← NVIDIA CUDA (nvcc, Warp 32)
-│   └── physics.cu
-└── amd/
-    ├── bindings.hip  ← AMD ROCm/HIP (hipcc, Wavefront 64)
-    └── physics.hip
++-- cuda/
+|   +-- bindings.cu    NVIDIA CUDA (nvcc, Warp 32)
+|   +-- physics.cu
++-- amd/
+    +-- bindings.hip   AMD ROCm/HIP (hipcc, Wavefront 64)
+    +-- physics.hip
 ```
 
 Backend selection occurs at compile time via Cargo feature flags. `build.rs` dynamically invokes `nvcc` or `hipcc`:
@@ -68,7 +68,7 @@ Due to the inherent Data-Oriented architecture with no computation graphs (zero 
 | `__syncthreads()` | `__syncthreads()` (identical) |
 | `blockDim.x = 32` (Warp) | `blockDim.x = 64` (Wavefront) |
 
-The only substantial adaptation was the local thread group size: AMD architectures (GCN/RDNA) natively use a 64-thread Wavefront instead of NVIDIA's 32-thread Warp. All algorithms (Integer Physics GLIF, GSOP, Columnar Dendrite Access) scale linearly — a larger wavefront simply increases VRAM utilization efficiency without code changes in the hot loop.
+The only substantial adaptation was the local thread group size: AMD architectures (GCN/RDNA) natively use a 64-thread Wavefront instead of NVIDIA's 32-thread Warp. All algorithms (Integer Physics GLIF, GSOP, Columnar Dendrite Access) scale linearly  a larger wavefront simply increases VRAM utilization efficiency without code changes in the hot loop.
 
 ---
 

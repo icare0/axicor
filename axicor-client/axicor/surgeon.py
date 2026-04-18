@@ -1,13 +1,13 @@
 import numpy as np
 import struct
-from .memory import GenesisMemory
+from .memory import AxicorMemory
 
-class GenesisSurgeon:
+class AxicorSurgeon:
     """
     Data-Oriented scalpel for direct VRAM intervention.
     Operates strictly via Zero-Copy mmap, without calling the Rust orchestrator.
     """
-    def __init__(self, memory: GenesisMemory):
+    def __init__(self, memory: AxicorMemory):
         self.mem = memory
 
     def incubate_gaba(self, baseline_weight: int = -2000000000) -> int:

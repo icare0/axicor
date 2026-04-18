@@ -13,7 +13,7 @@ pub struct GxiMatrix {
 pub struct GxiFile {
     pub total_pixels: u32,
     pub matrices: Vec<GxiMatrix>,
-    pub axon_ids: Vec<u32>, // Flat array: Pixel → Virtual Axon ID
+    pub axon_ids: Vec<u32>, // Flat array: Pixel  Virtual Axon ID
 }
 
 impl GxiFile {

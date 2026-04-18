@@ -10,7 +10,7 @@ struct NeuronInstanceData {
 @group(2) @binding(0)
 var<storage, read> instances: array<NeuronInstanceData>;
 
-// Читаем позицию и наш кастомный ATTRIBUTE_SPHERE_ID
+//      ATTRIBUTE_SPHERE_ID
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) sphere_id: u32,
@@ -23,10 +23,10 @@ struct VertexOutput {
 
 @vertex
 fn vertex(vertex: VertexInput) -> VertexOutput {
-    // Получаем данные конкретной сферы через O(1) lookup
+    //      O(1) lookup
     let instance = instances[vertex.sphere_id];
 
-    // Трансформируем вершину базовой сферы
+    //    
     let local_pos = (vertex.position * instance.scale) + instance.position;
 
     var out: VertexOutput;

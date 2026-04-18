@@ -4,11 +4,11 @@ use axicor_core::constants::AXON_SENTINEL;
 use crate::ffi::ShardVramPtrs;
 
 // =============================================================================
-// §2.1 cpu_propagate_axons
+// 2.1 cpu_propagate_axons
 // =============================================================================
 
-/// Ядро 3: Безусловный сдвиг голов всех аксонов.
-/// DOD FIX: Математика Branchless (vpaddd) для AVX2 векторизации.
+///  3:     .
+/// DOD FIX:  Branchless (vpaddd)  AVX2 .
 pub fn cpu_propagate_axons(
     axon_heads: &mut [BurstHeads8],
     v_seg: u32,
@@ -28,12 +28,12 @@ pub fn cpu_propagate_axons(
 }
 
 // =============================================================================
-// §2.2 cpu_apply_spike_batch
+// 2.2 cpu_apply_spike_batch
 // =============================================================================
 
-/// Ядро 2: Инъекция сетевых спайков.
-/// DOD FIX: Burst-сдвиг (имитация сдвигового регистра) + Темпоральный синхронизм.
-/// Убран Rayon — линейный проход в L1 кэше дешевле Work-Stealing оверхеда.
+///  2:   .
+/// DOD FIX: Burst- (  ) +  .
+///  Rayon     L1   Work-Stealing .
 pub fn cpu_apply_spike_batch(
     axon_heads: &mut [BurstHeads8],
     schedule_indices: &[u32],
@@ -41,7 +41,7 @@ pub fn cpu_apply_spike_batch(
 ) {
     for &ghost_id in schedule_indices {
         if let Some(head) = axon_heads.get_mut(ghost_id as usize) {
-            // Аппаратный сдвиг голов (Spec 01 §1.4.3)
+            //    (Spec 01 1.4.3)
             head.h7 = head.h6;
             head.h6 = head.h5;
             head.h5 = head.h4;
@@ -49,18 +49,18 @@ pub fn cpu_apply_spike_batch(
             head.h3 = head.h2;
             head.h2 = head.h1;
             head.h1 = head.h0;
-            // Инициализация h0 с поправкой на темпоральный синхронизм
+            //  h0     
             head.h0 = 0u32.wrapping_sub(v_seg); 
         }
     }
 }
 
 // =============================================================================
-// §2.3 cpu_inject_inputs
+// 2.3 cpu_inject_inputs
 // =============================================================================
 
-/// Ядро 1: Инъекция сенсорных данных (Виртуальные аксоны).
-/// DOD FIX: SIMD-friendly битмаск-сканирование.
+///  1:    ( ).
+/// DOD FIX: SIMD-friendly -.
 pub fn cpu_inject_inputs(
     axon_heads: &mut [BurstHeads8],
     input_bitmask: &[u32],
@@ -71,7 +71,7 @@ pub fn cpu_inject_inputs(
     for tid in 0..num_virtual_axons as usize {
         let word_idx = tid / 32;
         let bit_idx = tid % 32;
-        // Извлекаем бит
+        //  
         if (input_bitmask[word_idx] >> bit_idx) & 1 != 0 {
             if let Some(head) = axon_heads.get_mut(virtual_offset as usize + tid) {
                 head.h7 = head.h6;
@@ -88,12 +88,12 @@ pub fn cpu_inject_inputs(
 }
 
 // =============================================================================
-// §2.4 cpu_record_outputs
+// 2.4 cpu_record_outputs
 // =============================================================================
 
-/// Ядро 6: Вывод активности сом (RecordReadout).
-/// DOD FIX: Безусловная запись для предотвращения "эффекта грязного буфера".
-/// Добавлена проверка на 0xFFFF_FFFF (пустой пиксель).
+///  6:    (RecordReadout).
+/// DOD FIX:     "  ".
+///    0xFFFF_FFFF ( ).
 pub fn cpu_record_outputs(
     soma_flags: &[u8],
     mapped_soma_ids: &[u32],
@@ -103,11 +103,11 @@ pub fn cpu_record_outputs(
 ) {
     let tick_offset = (current_tick as usize) * (total_mapped_somas as usize);
     for (i, &soma_id) in mapped_soma_ids.iter().enumerate() {
-        // Защита от EMPTY_PIXEL (0xFFFF_FFFF)
+        //   EMPTY_PIXEL (0xFFFF_FFFF)
         if soma_id != 0xFFFF_FFFF {
             if let Some(&flag) = soma_flags.get(soma_id as usize) {
                 if let Some(out) = output_history.get_mut(tick_offset + i) {
-                    // Безусловная запись 0 или 1 (LTM/WM state)
+                    //   0  1 (LTM/WM state)
                     *out = flag & 0x01;
                 }
             }
@@ -116,11 +116,11 @@ pub fn cpu_record_outputs(
 }
 
 // =============================================================================
-// §2.4 cpu_update_neurons (The Hot Loop)
+// 2.4 cpu_update_neurons (The Hot Loop)
 // =============================================================================
 
-/// Ядро 4: Интеграция GLIF, дендритное дерево и гомеостаз.
-/// DOD FIX: Raw pointer index iteration (Zero-Cost). Branchless математика.
+///  4:  GLIF,    .
+/// DOD FIX: Raw pointer index iteration (Zero-Cost). Branchless .
 pub unsafe fn cpu_update_neurons(
     ptrs: &ShardVramPtrs,
     padded_n: u32,
@@ -130,7 +130,7 @@ pub unsafe fn cpu_update_neurons(
     use crate::bindings::VARIANT_LUT;
 
     (0..padded_n as usize).into_par_iter().for_each(|tid| {
-        // 1. Распаковка типа + загрузка параметров (1 такт L1)
+        // 1.   +   (1  L1)
         let flags_ptr = ptrs.soma_flags.add(tid);
         let mut flag = *flags_ptr;
         let var_id = (flag >> 4) & 0x0F;
@@ -139,9 +139,9 @@ pub unsafe fn cpu_update_neurons(
         let timer_ptr = ptrs.timers.add(tid);
         let timer = *timer_ptr;
 
-        flag &= !0x01; // Очищаем флаг спайка
+        flag &= !0x01; //   
 
-        // 2. Рефрактерность сомы - Early Exit (~90% тиков)
+        // 2.   - Early Exit (~90% )
         if timer > 0 {
             *timer_ptr = timer - 1;
             *flags_ptr = flag;
@@ -152,12 +152,12 @@ pub unsafe fn cpu_update_neurons(
         let mut i_in = 0;
         let prop = p.signal_propagation_length as u32;
 
-        // 3. Columnar Dendrite Loop: 128 слотов (Coalesced Access / Gather)
+        // 3. Columnar Dendrite Loop: 128  (Coalesced Access / Gather)
         for slot in 0..128 {
             let col_idx = slot * (padded_n as usize) + tid;
             let target_packed = *ptrs.dendrite_targets.add(col_idx);
 
-            // Hardware Trap: Пустой слот означает конец активных связей
+            // Hardware Trap:      
             if target_packed == 0 { break; } 
 
             let d_timer_ptr = ptrs.dendrite_timers.add(col_idx);
@@ -171,7 +171,7 @@ pub unsafe fn cpu_update_neurons(
 
             let h = *ptrs.axon_heads.add(axon_id as usize);
 
-            // Branchless 8-head Hit Detection (Без jmp/br инструкций)
+            // Branchless 8-head Hit Detection ( jmp/br )
             let hit = ((h.h0.wrapping_sub(seg_idx) <= prop) as i32) |
                       ((h.h1.wrapping_sub(seg_idx) <= prop) as i32) |
                       ((h.h2.wrapping_sub(seg_idx) <= prop) as i32) |
@@ -183,19 +183,19 @@ pub unsafe fn cpu_update_neurons(
 
             if hit != 0 {
                 let weight = *ptrs.dendrite_weights.add(col_idx);
-                // Shift Mass Domain (i32) to Charge Domain (микровольты)
+                // Shift Mass Domain (i32) to Charge Domain ()
                 i_in += weight >> 16; 
                 *d_timer_ptr = p.synapse_refractory_period;
             }
         }
 
-        // 4. Гомеостаз (Soft Limit)
+        // 4.  (Soft Limit)
         let t_off_ptr = ptrs.threshold_offset.add(tid);
         let mut thresh_offset = *t_off_ptr;
         let decayed = thresh_offset - p.homeostasis_decay as i32;
         thresh_offset = decayed & !(decayed >> 31); // Branchless max(0, val)
 
-        // 5. GLIF Утечка (Branchless clamp)
+        // 5. GLIF  (Branchless clamp)
         let diff = current_voltage - p.rest_potential;
         let sign = (diff > 0) as i32 - (diff < 0) as i32;
         let abs_mask = diff >> 31;
@@ -208,18 +208,18 @@ pub unsafe fn cpu_update_neurons(
         let eff_thresh = p.threshold + thresh_offset;
         let is_glif_spiking = (current_voltage >= eff_thresh) as i32;
 
-        // 6. Спонтанная активность (Heartbeat DDS)
+        // 6.   (Heartbeat DDS)
         let period = p.spontaneous_firing_period_ticks;
         let is_heartbeat = if period > 0 && ((current_tick + (tid as u32 * 104729)) % period) == 0 { 1 } else { 0 };
 
         let final_spike = is_glif_spiking | is_heartbeat;
 
-        // 7. Сброс мембраны и таймеров
+        // 7.    
         current_voltage = final_spike * p.rest_potential + (1 - final_spike) * current_voltage;
         thresh_offset += final_spike * p.homeostasis_penalty;
         *timer_ptr = (final_spike * p.refractory_period as i32 + (1 - final_spike) * timer as i32) as u8;
 
-        // 8. Выстрел аксона (Burst Shift)
+        // 8.   (Burst Shift)
         if final_spike != 0 {
             let my_axon = *ptrs.soma_to_axon.add(tid);
             if my_axon != 0xFFFFFFFF {
@@ -237,11 +237,11 @@ pub unsafe fn cpu_update_neurons(
             }
         }
 
-        // 9. Запись обратно в VRAM (Zero-Warp Divergence pattern)
+        // 9.    VRAM (Zero-Warp Divergence pattern)
         *ptrs.soma_voltage.add(tid) = current_voltage;
         *t_off_ptr = thresh_offset;
 
-        // 10. Burst-Dependent Plasticity (BDP) счетчик
+        // 10. Burst-Dependent Plasticity (BDP) 
         let mut burst_count = (flag >> 1) & 0x07;
         burst_count = (final_spike as u8) * (burst_count + (burst_count < 7) as u8);
         flag = (flag & 0xF0) | (burst_count << 1) | (final_spike as u8);
@@ -250,11 +250,11 @@ pub unsafe fn cpu_update_neurons(
 }
 
 // =============================================================================
-// §2.5 cpu_apply_gsop
+// 2.5 cpu_apply_gsop
 // =============================================================================
 
-/// Ядро 5: Пластичность GSOP.
-/// DOD FIX: Branchless-аппроксимация STDP. Zero-Warp Divergence.
+///  5:  GSOP.
+/// DOD FIX: Branchless- STDP. Zero-Warp Divergence.
 pub unsafe fn cpu_apply_gsop(
     ptrs: &ShardVramPtrs,
     padded_n: u32,
@@ -265,7 +265,7 @@ pub unsafe fn cpu_apply_gsop(
     (0..padded_n as usize).into_par_iter().for_each(|tid| {
         let flags = *ptrs.soma_flags.add(tid);
         
-        // Early Exit: Если нейрон не спайкнул, пластичность не применяется
+        // Early Exit:    ,   
         if (flags & 0x01) == 0 { return; }
 
         let burst_count = (flags >> 1) & 0x07;
@@ -279,17 +279,17 @@ pub unsafe fn cpu_apply_gsop(
 
             let timer = *ptrs.dendrite_timers.add(col_idx);
             if timer > 0 {
-                // Если таймер > 0, мы декрементировали его в UpdateNeurons.
-                // Синапс спит, пропускаем тяжелую математику.
+                //   > 0,     UpdateNeurons.
+                //  ,   .
                 continue; 
             }
 
             let target_packed = *ptrs.dendrite_targets.add(col_idx);
-            if target_packed == 0 { break; } // Hardware Trap: конец живых связей
+            if target_packed == 0 { break; } // Hardware Trap:   
 
             let weight_ptr = ptrs.dendrite_weights.add(col_idx);
             let w = *weight_ptr;
-            if w == 0 { continue; } // Мертвая связь (ждет Night Phase Pruning)
+            if w == 0 { continue; } //   ( Night Phase Pruning)
 
             let seg_idx = target_packed >> 24;
             let axon_id = (target_packed & 0x00FFFFFF).saturating_sub(1);
@@ -309,7 +309,7 @@ pub unsafe fn cpu_apply_gsop(
             let sign = if w >= 0 { 1 } else { -1 };
             let abs_w = w.abs();
 
-            // 1. Inertia Rank (1 такт, Branchless)
+            // 1. Inertia Rank (1 , Branchless)
             let mut rank = (abs_w >> 27) as usize;
             if rank > 15 { rank = 15; }
             let inertia = p.inertia_curve[rank] as i32;
@@ -324,11 +324,11 @@ pub unsafe fn cpu_apply_gsop(
             let final_pot = raw_pot & !(raw_pot >> 31); // max(0, val)
             let final_dep = raw_dep & !(raw_dep >> 31); // max(0, val)
 
-            // Умножение ДО сдвига строго как в CUDA-эквиваленте
+            //       CUDA-
             let delta_pot = (final_pot * inertia * burst_mult) >> 7;
             let delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
-            // Causal Delta. Если спайк сомы совпал с Active Tail (is_active) -> LTP, иначе LTD.
+            // Causal Delta.      Active Tail (is_active) -> LTP,  LTD.
             let mut delta = if is_active != 0 { delta_pot } else { -delta_dep };
             
             // Fixed Slot Decay = 1.0x
@@ -345,22 +345,22 @@ pub unsafe fn cpu_apply_gsop(
 }
 
 // =============================================================================
-// §2.6 cpu_extract_telemetry
+// 2.6 cpu_extract_telemetry
 // =============================================================================
 
-/// Ядро 7: Сбор спайков (Телеметрия).
-/// DOD FIX: Строго последовательный проход. LLVM векторизует это в SIMD (pmovmskb),
-/// что в L1/L2 кэше работает в разы быстрее, чем оверхед Rayon-планировщика и Atomics.
+///  7:   ().
+/// DOD FIX:   . LLVM    SIMD (pmovmskb),
+///   L1/L2     ,   Rayon-  Atomics.
 pub fn cpu_extract_telemetry(
     soma_flags: &[u8],
     out_ids: &mut [u32],
 ) -> u32 {
     let mut count = 0;
     
-    // Никаких iter_mut или chunking. Чистое чтение + линейная запись.
+    //  iter_mut  chunking.   +  .
     for (id, &flag) in soma_flags.iter().enumerate() {
         if (flag & 0x01) != 0 {
-            // Защита от переполнения буфера телеметрии
+            //     
             if let Some(slot) = out_ids.get_mut(count) {
                 *slot = id as u32;
                 count += 1;

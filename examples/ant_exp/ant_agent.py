@@ -9,14 +9,15 @@ import time
 import gymnasium as gym
 import numpy as np
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "axicor-client")))
 
-from genesis.utils import fnv1a_32
-from genesis.client import GenesisMultiClient
-from genesis.contract import GenesisIoContract
-from genesis.control import GenesisControl
-from genesis.tuner import GenesisAutoTuner, Phase
-from genesis.memory import GenesisMemory
+from axicor.utils import fnv1a_32
+from axicor.client import AxicorMultiClient
+from axicor.contract import AxicorIoContract
+from axicor.control import AxicorControl
+from axicor.tuner import AxicorAutoTuner, Phase
+from axicor.memory import AxicorMemory
+
 
 # ============================================================
 # HFT & TUNER CONSTANTS
@@ -54,16 +55,16 @@ def run_ant():
     global BATCH_SIZE
     
     # 1. Auto-connection Contracts
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/AntConnectome/baked"))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Axicor-Models/AntConnectome/baked"))
     
-    contract_sensory = GenesisIoContract(os.path.join(base_dir, "SensoryCortex"), "SensoryCortex")
-    contract_motor = GenesisIoContract(os.path.join(base_dir, "MotorCortex"), "MotorCortex")
+    contract_sensory = AxicorIoContract(os.path.join(base_dir, "SensoryCortex"), "SensoryCortex")
+    contract_motor = AxicorIoContract(os.path.join(base_dir, "MotorCortex"), "MotorCortex")
 
     cfg_in = contract_sensory.get_client_config(BATCH_SIZE)
     cfg_out = contract_motor.get_client_config(BATCH_SIZE)
 
     # Client: Send to Sensory, Read only from Motor
-    client = GenesisMultiClient(
+    client = AxicorMultiClient(
         addr=("127.0.0.1", 8081),
         matrices=cfg_in["matrices"],
         rx_layout=cfg_out["rx_layout"],
@@ -73,7 +74,7 @@ def run_ant():
     try:
         client.sock.bind(("0.0.0.0", 8092))
     except OSError as e:
-        print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
+        print(f"[ERROR] FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
         sys.exit(1)
 
     # 2. DOD Encoder/Decoder Factory
@@ -81,9 +82,9 @@ def run_ant():
     encoder = contract_sensory.create_population_encoder("ant_sensors", vars_count=28, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
     decoder = contract_motor.create_pwm_decoder("motor_out", batch_size=BATCH_SIZE)
 
-    control = GenesisControl(os.path.join(base_dir, "MotorCortex", "manifest.toml"))
+    control = AxicorControl(os.path.join(base_dir, "MotorCortex", "manifest.toml"))
     
-    tuner = GenesisAutoTuner(
+    tuner = AxicorAutoTuner(
         control,
         target_score=3000.0, # Ant can score thousands of points
         explore_prune=750, explore_night=30_000, explore_sprouts=128,
@@ -92,12 +93,12 @@ def run_ant():
     )
 
     # Analytics (monitoring only the Motor Cortex)
-    print("⏳ Waiting for MotorCortex Shared Memory initialization...")
+    print(" Waiting for MotorCortex Shared Memory initialization...")
     memory = None
     for i in range(20):
         try:
-            memory = GenesisMemory(contract_motor.zone_hash, read_only=False)
-            print("✅ Telemetry Plane (MotorCortex) connected!")
+            memory = AxicorMemory(contract_motor.zone_hash, read_only=False)
+            print("[OK] Telemetry Plane (MotorCortex) connected!")
             break
         except Exception:
             time.sleep(1)
@@ -114,7 +115,7 @@ def run_ant():
     action_buffer = np.zeros(8, dtype=np.float32)
     obs_padded = np.zeros(28, dtype=np.float16)
 
-    print(f"🚀 Starting Axicor DOD Ant Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
+    print(f" Starting Axicor DOD Ant Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
     current_params = PHASE_PARAMS[Phase.EXPLORATION]
 
     state, _ = env.reset()

@@ -58,7 +58,7 @@ fn handle_split(
 ) {
     let rect = topology.tiles.get(&target).copied().unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)));
     let base = base_domain(plugin_id);
-    // Уникальный ID через elapsed — не ломает ECS-контракт как SystemTime
+    //  ID  elapsed    ECS-  SystemTime
     let new_plugin_id = format!("{}::{}", base, time.elapsed().as_micros());
     let pane = Pane { plugin_id: new_plugin_id.clone(), title: domain_title(base).to_string() };
 
@@ -82,19 +82,19 @@ fn handle_split(
 }
 
 fn handle_merge(tree: &mut egui_tiles::Tree<Pane>, survivor: egui_tiles::TileId, victim: egui_tiles::TileId) {
-    // O(N) карта родителей
+    // O(N)  
     let parent_map = build_parent_map(&tree.tiles);
 
     let Some(&victim_parent) = parent_map.get(&victim) else { return };
 
-    // Поднимаем survivor до прямого соседа жертвы
+    //  survivor    
     let mut survivor_branch = survivor;
     while let Some(&p) = parent_map.get(&survivor_branch) {
         if p == victim_parent { break; }
         survivor_branch = p;
     }
 
-    // Переливаем share жертвы в survivor и отцепляем
+    //  share   survivor  
     if let Some(Tile::Container(Container::Linear(lin))) = tree.tiles.get_mut(victim_parent) {
         let v_share = lin.shares[victim];
         let s_share = lin.shares[survivor_branch];
@@ -150,9 +150,9 @@ pub fn spawn_pane_entity(
     width: f32,
     height: f32,
 ) -> Entity {
-    // DOD FIX: WM спавнит только голый контракт. 
-    // Текстура создастся автоматически в sync_plugin_geometry_system.
-    // Плагины сами найдут свои окна и навесят доменные компоненты (например, Camera3d).
+    // DOD FIX: WM    . 
+    //     sync_plugin_geometry_system.
+    //          (, Camera3d).
     commands.spawn((
         PluginWindow { 
             plugin_id: plugin_id.to_string(), 

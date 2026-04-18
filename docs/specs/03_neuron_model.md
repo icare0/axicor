@@ -1,129 +1,129 @@
-# 03. Модель Нейрона (Neuron Model)
+# 03.   (Neuron Model)
 
-> Часть архитектуры [Genesis](../../README.md). Нейрон как единица: как рождается, какой он, как себя регулирует.
+>   [Axicor](../../README.md).   :  ,  ,   .
 
 ---
 
-## 1. Размещение и Структура (Placement)
+## 1.    (Placement)
 
-### 1.1. Стохастическая Генерация
+### 1.1.  
 
-- **Метод:** Координаты нейронов генерируются случайно (Stochastic), чтобы избежать анизотропии сетки.
-- **Цель:** Обеспечить равномерное распространение сигнала во все стороны (изотропия). Регулярная решётка создаёт предпочтительные направления - сигнал «бежит» быстрее вдоль осей.
-- **Плотность:** Задаётся глобально (`global_density`, см. [02_configuration.md §5.2](./02_configuration.md)), но локально могут возникать сгустки и пустоты - это соответствует биологической реальности.
+- **:**     (Stochastic),    .
+- **:**        ().      -     .
+- **:**   (`global_density`, . [02_configuration.md 5.2](./02_configuration.md)),        -    .
 
-### 1.2. Привязка к Сетке (Voxel Grid)
+### 1.2.    (Voxel Grid)
 
-- **Правило:** 1 Воксель = Максимум 1 Нейрон.
-- **Гарантия:** При генерации (Baking) координатных позиций используется *reject-sampling* с картой занятости (`Occupancy HashSet`). Если случайно выбранный воксель уже занят агрегатом другого нейрона - позиция перегенерируется с изменённым seed. Лимит - 100 попыток, после чего выводится предупреждение (возникает только при экстремальной плотности).
-- **Смысл:** Уникальный индекс вокселя может использоваться как ID нейрона для быстрого поиска соседей (Spatial Hashing без дополнительных структур данных).
+- **:** 1  =  1 .
+- **:**   (Baking)    *reject-sampling*    (`Occupancy HashSet`).          -     seed.  - 100 ,     (    ).
+- **:**       ID      (Spatial Hashing    ).
 
-### 1.3. Двойная Система Индексации (Packed Position / Dense Index)
+### 1.3.    (Packed Position / Dense Index)
 
-Координаты хранятся не как `float`, а как целочисленные индексы. Два пространства ID для разных фаз:
+    `float`,    .   ID   :
 
-**CPU / Фаза «Ночь» (Baking): Packed Position (`u32`)**
+**CPU /   (Baking): Packed Position (`u32`)**
 
-Упаковка в 1 регистр для Cone Tracing, Spatial Hash и маршрутизации:
+  1   Cone Tracing, Spatial Hash  :
 
 ```rust
-// Распаковка: 1 такт ALU
+// : 1  ALU
 let type_mask = (packed >> 28) & 0xF;
-let z = (packed >> 20) & 0xFF; // Z-Маска: строго 8 бит (0..255)
+let z = (packed >> 20) & 0xFF; // Z-:  8  (0..255)
 let y = (packed >> 10) & 0x3FF;
 let x = packed & 0x3FF;
 
-// Упаковка:
+// :
 let packed = (type_mask << 28) | (z << 20) | (y << 10) | x;
 ```
 
-**Визуализация (Bit Layout):**
+** (Bit Layout):**
 
 ```
 u32 packed_position = 0xABCDEFGH
-├─ Биты 31-28: Type (4 бита)     [A]        0..15 (16 типов)
-├─ Биты 27-20: Z (8 битов)       [BC]       0..255 (256 глубин = 6.4мм)
-├─ Биты 19-10: Y (10 битов)      [DEF]      0..1023 (1024 ширины = 25.6мм)
-└─ Биты 9-0:   X (10 битов)      [GH]       0..1023 (1024 длины = 25.6мм)
++-  31-28: Type (4 )     [A]        0..15 (16 )
++-  27-20: Z (8 )       [BC]       0..255 (256  = 6.4)
++-  19-10: Y (10 )      [DEF]      0..1023 (1024  = 25.6)
++-  9-0:   X (10 )      [GH]       0..1023 (1024  = 25.6)
 ```
-Пример: 0x3A5C80F0 = Type:3, Z:165, Y:598, X:240
+: 0x3A5C80F0 = Type:3, Z:165, Y:598, X:240
 
-**GPU / Фаза «День» (Hot Loop): Dense Index (`u32`)**
+**GPU /   (Hot Loop): Dense Index (`u32`)**
 
-- Сплошной индекс `0..N-1` без «дыр» от пустых вокселей.
-- Размер `N` выровнен паддингом до числа, **кратного 64** (Warp Alignment) - гарантия 100% Coalesced Access.
-- Все SoA-массивы (`voltage[]`, `flags[]`, `threshold_offset[]`) адресуются Dense Index.
-- 4-битный тип хранится в `flags[dense_index] >> 4` (см. [07_gpu_runtime.md §1.1](./07_gpu_runtime.md)).
+-   `0..N-1`     .
+-  `N`    , ** 64** (Warp Alignment) -  100% Coalesced Access.
+-  SoA- (`voltage[]`, `flags[]`, `threshold_offset[]`)  Dense Index.
+- 4-    `flags[dense_index] >> 4` (. [07_gpu_runtime.md 1.1](./07_gpu_runtime.md)).
 
-**Связь:** При Baking CPU генерирует маппинги `DenseIndex → PackedPosition` и `PackedPosition → DenseIndex` (Spatial Hash). В Hot Loop GPU не знает о координатах - работает только с Dense Index.
+**:**  Baking CPU   `DenseIndex  PackedPosition`  `PackedPosition  DenseIndex` (Spatial Hash).  Hot Loop GPU     -    Dense Index.
 
 ---
 
-## 2. Композитная Типизация (4-bit Typing)
+## 2.   (4-bit Typing)
 
-Тип нейрона определяется **4-битным индексом** (0..15), который используется как прямой индекс в таблице профилей поведения `VARIANT_LUT[16]` в `__constant__` памяти GPU.
+   **4- ** (0..15),          `VARIANT_LUT[16]`  `__constant__`  GPU.
 
-### 2.1. Кодирование Типа
+### 2.1.  
 
-`type_mask` (4 бита, биты 4-7 в `flags[dense_index]`):
+`type_mask` (4 ,  4-7  `flags[dense_index]`):
 
 ```
-Биты:  [7..4]
-Поле:  Type (0..15)
+:  [7..4]
+:  Type (0..15)
 ```
 
 ```rust
-// Распаковка: 1 такт ALU
-let type_mask = flags[dense_index] >> 4;  // Биты 4-7
-let params = const_mem.variants[type_mask];  // Прямой индекс в LUT
+// : 1  ALU
+let type_mask = flags[dense_index] >> 4;  //  4-7
+let params = const_mem.variants[type_mask];  //    LUT
 ```
 
-Тип нейрона - это **порядковый индекс в конфиге** `blueprints.toml` → `neuron_types[0..15]`.
+  -  **   ** `blueprints.toml`  `neuron_types[0..15]`.
 
-#### 2.1.1. Полная Карта Битов в `flags[dense_index]`
+#### 2.1.1.     `flags[dense_index]`
 
-Все 8 битов с текущим и зарезервированным использованием:
+ 8      :
 
-| Биты | Поле | Тип | Семантика | Статус |
+|  |  |  |  |  |
 |---|---|---|---|---|
-| `[7:4]` | `type_mask` | `u4` | Индекс типа нейрона (0..15). Используется как прямой индекс в `VARIANT_LUT[3]` (§2.2). | ✅ Активно |
-| `[3:1]` | `burst_count` | `u3` | **[BDP]** Счетчик серийных спайков (0..7). Инкрементируется при каждом спайке в рамках одного батча. | ✅ Активно |
-| `[0:0]` | `is_spiking` | `u1` | **Instant Spike**. 1 = сома генерирует спайк в текущем тике. | ✅ Активно |
+| `[7:4]` | `type_mask` | `u4` |    (0..15).      `VARIANT_LUT[3]` (2.2). | [OK]  |
+| `[3:1]` | `burst_count` | `u3` | **[BDP]**    (0..7).        . | [OK]  |
+| `[0:0]` | `is_spiking` | `u1` | **Instant Spike**. 1 =      . | [OK]  |
 
-**Инварианты BDP (Burst-Dependent Plasticity):**
-Счетчик `burst_count` читается ядром пластичности для нелинейного умножения STDP. Сборка флага в CUDA выполняется **Branchless** (O(1)):
+** BDP (Burst-Dependent Plasticity):**
+ `burst_count`       STDP.    CUDA  **Branchless** (O(1)):
 `vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | final_spike;`
 
-Сброс счетчика выполняется строго маской `0xF1` (`11110001_2`), чтобы выжечь биты `[3:1]`, не затронув `type_mask` и флаг текущего спайка.
+     `0xF1` (`11110001_2`),    `[3:1]`,   `type_mask`    .
 
-**Пример извлечения (1 такт ALU):**
+**  (1  ALU):**
 ```cpp
 u8 flags_byte = flags[dense_index];
-u8 type_mask = flags_byte >> 4;                 // Биты 7-4
-u8 burst_count = (flags_byte >> 1) & 0x07;      // Биты 3-1
-u8 is_spiking = flags_byte & 0x1;               // Бит 0
+u8 type_mask = flags_byte >> 4;                 //  7-4
+u8 burst_count = (flags_byte >> 1) & 0x07;      //  3-1
+u8 is_spiking = flags_byte & 0x1;               //  0
 ```
 
-### 2.2. Принцип LUT (Look-Up Table)
+### 2.2.  LUT (Look-Up Table)
 
-Вместо того чтобы хранить GSOP-константы и параметры мембраны **в каждом нейроне** (расход памяти), используем `type_mask` как индекс массива в `__constant__` памяти GPU.
+    GSOP-    **  ** ( ),  `type_mask`     `__constant__`  GPU.
 
 ```cuda-cpp
-// GPU Shader (реальный код)
-uint8_t type_mask = f >> 4;                    // Биты 4-7
-VariantParameters p = const_mem.variants[type_mask];  // Прямой индекс
+// GPU Shader ( )
+uint8_t type_mask = f >> 4;                    //  4-7
+VariantParameters p = const_mem.variants[type_mask];  //  
 int32_t new_threshold = threshold + p.homeostasis_penalty;
 ```
 
-Это **одна инструкция** - constant memory всегда в кеше L1. До **16 уникальных профилей**.
+ ** ** - constant memory    L1.  **16  **.
 
-### 2.3. Варианты Поведения (Blueprint-управляемые)
+### 2.3.   (Blueprint-)
 
-Каждый профиль (0..15) определяется в файле `blueprints.toml`:
+  (0..15)    `blueprints.toml`:
 
 ```toml
 [[neuron_types]]
-name = "PyramidL5"                  # Имя типа (произвольная строка)
+name = "PyramidL5"                  #   ( )
 threshold = 500
 rest_potential = -70
 leak_rate = 2
@@ -131,94 +131,94 @@ homeostasis_penalty = 15
 homeostasis_decay = 1
 gsop_potentiation = 74
 gsop_depression = 2
-# ... ещё 6 параметров
+# ...  6 
 ```
 
-Порядок типов в `blueprints.toml` → их index в `type_mask`. Нет ограничений на названия или количество параметров в пределах 0..15.
+   `blueprints.toml`   index  `type_mask`.          0..15.
 
-### 2.4. Пространство Типов  
+### 2.4.    
 
-До **16 уникальных типов** (0..15), каждый с полным набором параметров GLIF и GSOP:
+ **16  ** (0..15),      GLIF  GSOP:
 
-- **Индекс:** 0 - тип из фрагмента `[[neuron_types]]` в `blueprints.toml`
-- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, signal_propagation_length, adaptive_leak_max, adaptive_leak_gain, adaptive_mode, d1_affinity, d2_affinity
-- **Семантика:** определяется при конфигурации, не жёстко закодирована. Одна конфигурация может иметь типы {ExcitatoryFast, InhibitorySlow}, другая - {Relay, Memory, Burst, Regular}
+- **:** 0 -    `[[neuron_types]]`  `blueprints.toml`
+- **:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, signal_propagation_length, adaptive_leak_max, adaptive_leak_gain, adaptive_mode, d1_affinity, d2_affinity
+- **:**   ,   .      {ExcitatoryFast, InhibitorySlow},  - {Relay, Memory, Burst, Regular}
 
-При Baking каждому нейрону из `anatomy.toml` назначается `type_idx` (0..15). При загрузке в VRAM `type_idx` кодируется в `flags[dense_index] >> 4`.
+ Baking    `anatomy.toml`  `type_idx` (0..15).    VRAM `type_idx`   `flags[dense_index] >> 4`.
 
-
----
-
-## 3. Гомеостаз (Homeostasis)
-
-Два механизма защиты. Не мешают нейрону работать, но не дают ему сойти с ума.
-
-### 3.1. Hard Limit: Рефрактерный Период
-
-- **Переменная:** `refractory_counter` (`u8`).
-- **Механика:** После спайка счётчик устанавливается в `refractory_period` (из LUT по Variant ID). Декрементируется каждый тик. Пока `> 0`, сома игнорирует все входящие сигналы.
-- **Зачем:** Жёсткий clamp - предотвращает физически невозможную частоту (>500 Гц) и защищает движок от бесконечных циклов.
-
-### 3.2. Soft Limit: Адаптивный Порог
-
-Вместо того чтобы лезть в веса синапсов (дорого), регулируем чувствительность сомы.
-
-- **Переменная:** `threshold_offset` (`i32`), хранится в нейроне.
-- **Константы:** `homeostasis_penalty` и `homeostasis_decay` - **не хранятся** в нейроне. Берутся из LUT по Type ID (§2.2, constant memory GPU).
-- **Механика (Integer Math):**
-  - **Спайк:** `threshold_offset += penalty` (нейрону труднее выстрелить повторно).
-  - **Каждый тик:** `threshold_offset = max(0, threshold_offset - decay)` - branchless, без `if`.
-  - **Эффективный порог:** `threshold + threshold_offset`.
-- **Поведенческий эффект (Habituation):** Постоянный стимул (шум вентилятора) → нейрон сначала реагирует, потом «скучает» и замолкает. Сильный новый стимул → пробивает выросший порог. Это база для внимания.
-- **Burst Mode:** Если стимул реально сильный - нейрон выдаёт пачку спайков (penalty накапливается, но каждый спайк проходит). При постоянном шуме порог задирается и нейрон замолкает.
 
 ---
 
-## 4. Спонтанная Активность (DDS Heartbeat)
+## 3.  (Homeostasis)
 
-В биологических сетях существует базовый уровень фоновой активности (Spontaneous Firing Rate), необходимый для поддержания гомеостаза и выживания синапсов (GSOP). 
+  .    ,       .
 
-Для генерации спонтанных спайков без хранения состояния таймера в каждом нейроне (что уничтожило бы VRAM), применяется паттерн **Direct Digital Synthesis (DDS) / Fractional Phase Accumulator**.
+### 3.1. Hard Limit:  
 
-### 4.1. Математика (Zero-Cost Branchless)
+- **:** `refractory_counter` (`u8`).
+- **:**      `refractory_period` ( LUT  Variant ID).   .  `> 0`,     .
+- **:**  clamp -     (>500 )      .
 
-Частота задается через 16-битный множитель `heartbeat_m` (0 = отключено). Фаза вычисляется математически на лету:
+### 3.2. Soft Limit:  
+
+       (),   .
+
+- **:** `threshold_offset` (`i32`),   .
+- **:** `homeostasis_penalty`  `homeostasis_decay` - ** **  .   LUT  Type ID (2.2, constant memory GPU).
+- ** (Integer Math):**
+  - **:** `threshold_offset += penalty` (   ).
+  - ** :** `threshold_offset = max(0, threshold_offset - decay)` - branchless,  `if`.
+  - ** :** `threshold + threshold_offset`.
+- **  (Habituation):**   ( )    ,    .       .    .
+- **Burst Mode:**     -     (penalty ,    ).        .
+
+---
+
+## 4.   (DDS Heartbeat)
+
+        (Spontaneous Firing Rate),        (GSOP). 
+
+           (   VRAM),   **Direct Digital Synthesis (DDS) / Fractional Phase Accumulator**.
+
+### 4.1.  (Zero-Cost Branchless)
+
+   16-  `heartbeat_m` (0 = ).     :
 
 ```cpp
-// 104729 - простое число для детерминированного пространственного рассеивания (Spatial Scattering).
-// Предотвращает одновременный залп всего варпа.
+// 104729 -       (Spatial Scattering).
+//     .
 uint32_t phase = (current_tick * heartbeat_m + tid * 104729) & 0xFFFF;
 bool is_heartbeat = phase < heartbeat_m;
 ```
 
-Это требует ровно **4 такта ALU** (IMUL, IADD, IAND, ICMP) и **0 ветвлений**.
+   **4  ALU** (IMUL, IADD, IAND, ICMP)  **0 **.
 
-### 4.2. Физиологический контракт Пейсмейкера
+### 4.2.   
 
-Спонтанный прорыв (Heartbeat) кардинально отличается от обычного GLIF-спайка:
+  (Heartbeat)     GLIF-:
 
-- **Сигнал идёт в аксон:** Нейрон выбрасывает импульс (`axon_heads[my_axon] = 0`).
-- **GSOP триггерится:** Флаг `is_spiking` устанавливается в 1 (критично для выживания связей).
-- **Мембрана не сбрасывается:** Heartbeat **НЕ** сбрасывает `voltage`, **НЕ** обнуляет `refractory_timer` и **НЕ** добавляет `homeostasis_penalty`. Это фоновый шум, который не сжигает накопленный мембранный потенциал.
+- **   :**    (`axon_heads[my_axon] = 0`).
+- **GSOP :**  `is_spiking`   1 (   ).
+- **  :** Heartbeat ****  `voltage`, ****  `refractory_timer`  ****  `homeostasis_penalty`.   ,      .
 
-**Итоговая логика (см. [05_signal_physics.md §1.5](./05_signal_physics.md))**
+**  (. [05_signal_physics.md 1.5](./05_signal_physics.md))**
 
 ```cuda
-// Спайк ГЛИФ (пороговый)
+//   ()
 i32 is_glif_spiking = (voltage >= effective_threshold) ? 1 : 0;
 
-// Спайк Heartbeat (спонтанный)
+//  Heartbeat ()
 u32 phase = (current_tick * heartbeat_m + tid * 104729) & 0xFFFF;
 i32 is_heartbeat = (phase < heartbeat_m) ? 1 : 0;
 
-// Итоговый спайк
+//  
 i32 final_spike = is_glif_spiking | is_heartbeat;
 
-// Состояние сбрасывается ТОЛЬКО от GLIF-спайка
+//     GLIF-
 voltage    = is_glif_spiking * rest_potential + (1 - is_glif_spiking) * voltage;
 ref_timer  = is_glif_spiking * refractory_period;
 threshold_offset += is_glif_spiking * homeostasis_penalty;
 
-// Флаг активности устанавливается от ЛЮБОГО спайка (нужно для GSOP)
+//       (  GSOP)
 flags = (flags & 0xFE) | (u8)final_spike;
 ```

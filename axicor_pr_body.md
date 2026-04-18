@@ -31,7 +31,7 @@ The changes are limited to bootstrap, backend selection, mock backend completene
 cargo build --release -p genesis-node -p genesis-baker --features mock-gpu
 source .venv/bin/activate
 python examples/cartpole_exp/build_brain.py
-./target/release/genesis-node Genesis-Models/cartpole_exp.axic --cpu --log
+./target/release/genesis-node Axicor-Models/cartpole_exp.axic --cpu --log
 python examples/cartpole_exp/agent.py
 ```
 

@@ -37,7 +37,7 @@ pub fn window_input_system(
     }
 }
 
-// DOD FIX: Микро-хитбоксы (8x8) в абсолютных углах тайла
+// DOD FIX: - (8x8)    
 pub fn edge_triggers(rect: egui::Rect) -> [egui::Rect; 4] {
     let r = rect.shrink(BORDER_SHRINK);
     let s = 8.0;

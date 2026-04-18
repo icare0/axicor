@@ -1,18 +1,18 @@
 from collections import deque
 from enum import Enum
-from .control import GenesisControl
+from .control import AxicorControl
 
 class Phase(Enum):
     EXPLORATION = 1   # Rapid growth, high dopamine, low pruning threshold
     DISTILLATION = 2  # Noise burnout, high pruning threshold, frequent sleep
     CRYSTALLIZED = 3  # Pure inference, sleep and plasticity disabled
 
-class GenesisAutoTuner:
+class AxicorAutoTuner:
     """
     Production State Machine for automated topology distillation.
     Operates on Simple Moving Average (SMA) of environment metrics.
     """
-    def __init__(self, control: GenesisControl, target_score: float = 400.0, window_size: int = 15, **kwargs):
+    def __init__(self, control: AxicorControl, target_score: float = 400.0, window_size: int = 15, **kwargs):
         self.control = control
         # [DOD FIX] Explicit initialization for better type inference
         self.default_target = target_score
@@ -44,7 +44,7 @@ class GenesisAutoTuner:
         return params
 
     def _apply_phase_settings(self, p: dict):
-        """Propagates parameters to the manifest. Any parameter can be None — simply skipped."""
+        """Propagates parameters to the manifest. Any parameter can be None  simply skipped."""
         if p.get("prune") is not None:
             self.control.set_prune_threshold(p["prune"])
         if p.get("night") is not None:
@@ -103,12 +103,12 @@ class GenesisAutoTuner:
         return self.phase
 
     def _transition_to_distillation(self):
-        print("\n🔥 [AutoTuner] Transitioning to DISTILLATION: Burning weak connections and refining physics...")
+        print("\n [AutoTuner] Transitioning to DISTILLATION: Burning weak connections and refining physics...")
         self._apply_phase_settings(self.distill_params)
         self.phase = Phase.DISTILLATION
 
     def _transition_to_crystallization(self):
-        print("\n❄️ [AutoTuner] Transitioning to CRYSTALLIZED: Graph frozen. Ideal skill level.")
+        print("\n [AutoTuner] Transitioning to CRYSTALLIZED: Graph frozen. Ideal skill level.")
         self._apply_phase_settings(self.crystallized_params)
         
         # [DOD FIX] Hardware-level disabling of synaptic plasticity (GSOP)
@@ -116,7 +116,7 @@ class GenesisAutoTuner:
         self.phase = Phase.CRYSTALLIZED
 
     def _transition_to_exploration(self):
-        print("\n🌱 [AutoTuner] Rolling back to EXPLORATION: Skill lost, resuming growth...")
+        print("\n [AutoTuner] Rolling back to EXPLORATION: Skill lost, resuming growth...")
         self._apply_phase_settings(self.explore_params)
         self.phase = Phase.EXPLORATION
         self.window.clear() # Reset window to prevent oscillation

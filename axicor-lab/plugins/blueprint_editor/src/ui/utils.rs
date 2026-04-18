@@ -1,6 +1,6 @@
 use bevy_egui::egui;
 
-/// Единый стандарт строк "Label : Control" (Blender Properties Style)
+///    "Label : Control" (Blender Properties Style)
 pub fn labeled_row<R>(ui: &mut egui::Ui, label: &str, content: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
         ui.add_sized(

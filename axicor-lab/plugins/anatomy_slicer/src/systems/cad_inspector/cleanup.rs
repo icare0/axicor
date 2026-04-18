@@ -11,7 +11,7 @@ pub fn cleanup_cad_scene_system(
         let current_zone = state.active_zone.clone();
 
         if *last_zone != current_zone {
-            // Если зона сменилась или была закрыта — сносим 3D сцену
+            //         3D 
             if last_zone.is_some() {
                 for entity in entities.iter() {
                     commands.entity(entity).despawn_recursive();

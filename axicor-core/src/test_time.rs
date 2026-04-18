@@ -1,4 +1,4 @@
-/// Temporal metric tests (§1.4).
+/// Temporal metric tests (1.4).
 use super::*;
 use crate::constants::TICK_DURATION_US;
 
@@ -27,11 +27,11 @@ fn ticks_to_ms_roundtrip() {
     let ms = 7.5f32;
     let ticks = ms_to_ticks(ms);
     let back = ticks_to_ms(ticks);
-    assert!((back - ms).abs() < 0.01, "roundtrip: {ms} ms → {ticks} ticks → {back} ms");
+    assert!((back - ms).abs() < 0.01, "roundtrip: {ms} ms  {ticks} ticks  {back} ms");
 }
 
 #[test]
 fn biological_refractory_example() {
-    // Spec §1.4: 5 ms refractoriness = 50 ticks
+    // Spec 1.4: 5 ms refractoriness = 50 ticks
     assert_eq!(ms_to_ticks(5.0), 50);
 }

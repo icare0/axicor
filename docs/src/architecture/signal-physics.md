@@ -1,6 +1,6 @@
 # Signal Physics
 
-> Part of the Axicor architecture. The complete path of the signal: input → propagation → output.
+> Part of the Axicor architecture. The complete path of the signal: input  propagation  output.
 
 ## 1. Day Phase Pipeline
 
@@ -25,7 +25,7 @@ sequenceDiagram
 
     GPU->>GPU: 4. UpdateNeurons (GLIF kernel)
     GPU->>GPU: Reads voltage, flags, axon_heads, dendrite struct.
-    GPU->>GPU: Executes: homeostasis → refractoriness → GLIF leak → columnar dendrite loop → threshold check → fire
+    GPU->>GPU: Executes: homeostasis  refractoriness  GLIF leak  columnar dendrite loop  threshold check  fire
     GPU->>GPU: Writes: voltage, flags (new spikes!). Triggers own axons.
     GPU-->>GPU: Soma fires or stays silent
 
@@ -43,12 +43,12 @@ sequenceDiagram
 
 **Execution Order (Dependency Chain):**
 
-1. `InjectInputs` → virtual axons.
-2. `ApplySpikeBatch` → network axons.
-3. `PropagateAxons` → all axons move.
-4. `UpdateNeurons` → dendrites collect → soma fires → own axons are born.
-5. `ApplyGSOP` → weights updated (based on spike flag from UpdateNeurons).
-6. `RecordReadout` → results written to output buffer.
+1. `InjectInputs`  virtual axons.
+2. `ApplySpikeBatch`  network axons.
+3. `PropagateAxons`  all axons move.
+4. `UpdateNeurons`  dendrites collect  soma fires  own axons are born.
+5. `ApplyGSOP`  weights updated (based on spike flag from UpdateNeurons).
+6. `RecordReadout`  results written to output buffer.
 
 ## 2. Burst Train Model & Inference Pipeline
 The signal is not a single point, but a burst of impulses sliding along the axon segments.
@@ -66,11 +66,11 @@ Executed every tick for every dendrite. Uses an Early Exit strategy to offload t
 **Step 1. Refractory Gate (Cut-off on first read):**
 
 ```cpp
-// Refractory timer - 1 byte per dendrite. 32 threads × 1 byte = 32 bytes (1 L1 sector)
+// Refractory timer - 1 byte per dendrite. 32 threads  1 byte = 32 bytes (1 L1 sector)
 uint8_t timer = refractory_timer[slot * N_padded + tid];
 if (timer > 0) {
     refractory_timer[slot * N_padded + tid] = timer - 1;
-    return; // Early Exit: ~90% of ticks the dendrite "sleeps" → DO NOT read Global Memory of the axon
+    return; // Early Exit: ~90% of ticks the dendrite "sleeps"  DO NOT read Global Memory of the axon
 }
 ```
 
@@ -91,7 +91,7 @@ The engine separates the synaptic weight into two physical entities: structural 
 - **Charge Domain (16-bit shift):** In the hot loop of the UpdateNeurons kernel, the mass is converted to an electrical charge (microvolts) via a single arithmetic shift: `int32_t charge = w >> 16;`.
 
 ## 4. The Main Tick: UpdateNeurons (GLIF Kernel)
-The kernel that gathers all physics in a single pass: GLIF leak, homeostasis, Early Exit, dendrite summation, threshold check, fire/reset. Parameters are read from `GenesisConstantMemory`.
+The kernel that gathers all physics in a single pass: GLIF leak, homeostasis, Early Exit, dendrite summation, threshold check, fire/reset. Parameters are read from `AxicorConstantMemory`.
 
 ```cpp
 // 5. Columnar Loop: 128 dendrite slots (Coalesced Access)

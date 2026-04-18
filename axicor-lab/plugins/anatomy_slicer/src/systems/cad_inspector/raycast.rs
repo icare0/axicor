@@ -53,7 +53,7 @@ pub fn dnd_raycast_system(
         }
     }
 
-    // 1. Обработка финального броска (Drop) через глобальный блэкборд
+    // 1.    (Drop)   
     let payload_id = bevy_egui::egui::Id::new("io_wire_drag");
     let ctx = contexts.ctx_mut();
     
@@ -74,11 +74,11 @@ pub fn dnd_raycast_system(
                             actions: vec![
                                 layout_api::MenuAction {
                                     action_id: format!("node_editor.connect_matrix|{}|{}|{}|{}|{}", from_zone, from_port, to_zone, to_port, voxel_z),
-                                    label: format!("🔗 Connect to Z-Voxel {}", voxel_z),
+                                    label: format!(" Connect to Z-Voxel {}", voxel_z),
                                 },
                                 layout_api::MenuAction {
                                     action_id: format!("node_editor.connect_global|{}|{}|{}", from_zone, from_port, to_zone),
-                                    label: "🌐 Map to Global UV Atlas".into(),
+                                    label: " Map to Global UV Atlas".into(),
                                 }
                             ],
                         });
@@ -89,8 +89,8 @@ pub fn dnd_raycast_system(
         }
     }
 
-    // 2. Обработка визуальной проекции якоря (Hover)
-    // DOD FIX: В Slicer мы только читаем блэкборд для отображения Hover Plane
+    // 2.     (Hover)
+    // DOD FIX:  Slicer       Hover Plane
     if let Some(payload) = ctx.memory(|m| m.data.get_temp::<layout_api::IoWirePayload>(payload_id)) {
         if let Some(mouse_pos) = ctx.input(|i| i.pointer.latest_pos()) {
             if let Some(rect) = state.cad_viewport_rect {

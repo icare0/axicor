@@ -32,7 +32,7 @@ pub fn render_project_explorer_system(
             }
         };
         
-        // В первом кадре (пока команда insert на выполнилась) используем None
+        //    (  insert  )  None
         let mut explorer_state = explorer_state;
         let active_file = explorer_state.as_mut().map(|s| &mut s.active_file);
 
@@ -44,10 +44,10 @@ pub fn render_project_explorer_system(
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.set_clip_rect(rect);
-                // DOD FIX: Отрисовка хедера до передачи управления в UI плагина
+                // DOD FIX:       UI 
                 let (content_rect, _) = layout_api::draw_unified_header(ui, rect, "Project Explorer");
 
-                // Подготовка данных
+                //  
                 let mut bundles = Vec::new();
                 let mut sources = Vec::new();
                 for project in &cache.projects {

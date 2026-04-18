@@ -1,8 +1,8 @@
 use std::path::Path;
 use crate::domain::{NodeGraphUiState, ProjectSession};
 
-/// Сохранение только визуального состояния редактора (Layout).
-/// Мутация AST-деревьев (TOML) отсюда вырезана в пользу DOD-роутеров оконного менеджера.
+///      (Layout).
+///  AST- (TOML)     DOD-  .
 pub fn flush_session_to_disk(
     base_path: &Path,
     session: &ProjectSession,
@@ -14,8 +14,8 @@ pub fn flush_session_to_disk(
 
     if let Some(state) = ui_state {
         let cold_layout_path = parent_dir.join(format!("{}.layout.toml", toml_fname.replace(".toml", "")));
-        // В плагине мы не можем достучаться до crate::layout (это приватный модуль axicor-lab).
-        // Поэтому для сохранения Layout-файлов мы теперь используем официальный резолвер из API.
+        //        crate::layout (   axicor-lab).
+        //    Layout-       API.
         let layout_path = layout_api::resolve_sandbox_path(&cold_layout_path);
         if let Some(p) = layout_path.parent() { let _ = std::fs::create_dir_all(p); }
         
@@ -38,8 +38,8 @@ pub fn flush_session_to_disk(
     Ok(())
 }
 
-/// Синхронизирует RAM-кэш портов (пинов) с файлами io.toml.
-/// [DOD FIX] Использует абстрактный парсинг поверх Overlay FS, игнорируя строгие схемы бекенда.
+///  RAM-  ()   io.toml.
+/// [DOD FIX]     Overlay FS,    .
 pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::ProjectSession) {
     let project_dir = base_path.parent().unwrap_or(std::path::Path::new("."));
     let path_str = base_path.to_string_lossy();
@@ -51,7 +51,7 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
         let io_path = if is_sim {
             project_dir.join(zone_name).join("io.toml")
         } else if is_zone_level {
-            // [DOD FIX] На микро-уровне project_dir уже указывает на папку шарда
+            // [DOD FIX]  - project_dir     
             project_dir.join("io.toml")
         } else {
             project_dir.join(&dept_name).join(zone_name).join("io.toml")
@@ -86,16 +86,16 @@ pub fn sync_io_ports_from_disk(base_path: &Path, session: &mut crate::domain::Pr
                     }
                 }
 
-                // [DOD FIX] Merge: стандартные порты "in"/"out" всегда должны присутствовать.
-                // Если диск содержит порты, мержим с гарантией стандартных.
-                // Если диск пуст, оставляем то что было в RAM (хардкод из loader).
+                // [DOD FIX] Merge:   "in"/"out"   .
+                //    ,    .
+                //   ,      RAM (  loader).
                 if !inputs.is_empty() {
                     if !inputs.contains(&"in".to_string()) {
                         inputs.insert(0, "in".to_string());
                     }
                     session.node_inputs.insert(zone_name.clone(), inputs);
                 }
-                // Не удаляем из RAM если на диске пусто — loader уже вписал defaults
+                //    RAM      loader   defaults
                 
                 if !outputs.is_empty() {
                     if !outputs.contains(&"out".to_string()) {

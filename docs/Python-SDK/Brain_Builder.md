@@ -1,43 +1,43 @@
-# Brain Builder: HFT-Коннектом и Offline-Компиляция
+# Brain Builder: HFT-  Offline-
 
-В Axicor вы не создаете нейроны в оперативной памяти Питона через `new Neuron()`. Это убьет сборщик мусора (GC) и сделает невозможным Zero-Copy загрузку на GPU. 
+ Axicor          `new Neuron()`.     (GC)    Zero-Copy   GPU. 
 
-Вместо этого мы используем паттерн **"ДНК Мозга"**. С помощью Python-класса `BrainBuilder` вы генерируете строгую топологию в виде TOML-конфигов. Затем утилита `genesis-baker` "запекает" эту ДНК в плоские бинарные C-ABI массивы (`.state` и `.axons`). Это основа движка Axicor.
+     **" "**.   Python- `BrainBuilder`       TOML-.   `axicor-baker` ""      C-ABI  (`.state`  `.axons`).    Axicor.
 
-## 1. Жизненный цикл (Pipeline Clarity)
+## 1.   (Pipeline Clarity)
 
-1. **Python Script (`builder.build()`):** Генерирует иерархию папок и TOML-файлов (`anatomy.toml`, `blueprints.toml`, `io.toml`, `shard.toml`).
-2. **Genesis Baker (CPU Compiler):** `cargo run -p genesis-baker -- --brain config/brain.toml`. Читает TOML, расставляет нейроны, "проращивает" аксоны через 3D-пространство (Cone Tracing) и сохраняет выровненные по варпам VRAM-дампы.
-3. **Genesis Node (GPU Runtime):** `cargo run -p genesis-node`. Делает `mmap` запеченных дампов в память ОС напрямую, минуя аллокации.
+1. **Python Script (`builder.build()`):**     TOML- (`anatomy.toml`, `blueprints.toml`, `io.toml`, `shard.toml`).
+2. **Axicor Baker (CPU Compiler):** `cargo run -p axicor-baker -- --brain config/brain.toml`.  TOML,  , ""   3D- (Cone Tracing)      VRAM-.
+3. **Axicor Node (GPU Runtime):** `cargo run -p axicor-node`.  `mmap`      ,  .
 
 ---
 
-## 2. Создание HFT-Коннектома (Эталон)
+## 2.  HFT- ()
 
-При работе в высокочастотном цикле (100+ Гц) со средами вроде Gymnasium, базовая пластичность из биологической библиотеки убьет веса. Мы обязаны глушить фоновый рост и переводить сеть в режим **Reward-Gated Plasticity** (рост только при дофамине).
+     (100+ )    Gymnasium,       .           **Reward-Gated Plasticity** (   ).
 
 ```python
-from genesis.builder import BrainBuilder
+from axicor.builder import BrainBuilder
 
-# 1. Инициализация архитектора
-builder = BrainBuilder(project_name="HftAgent", output_dir="Genesis-Models/")
+# 1.  
+builder = BrainBuilder(project_name="HftAgent", output_dir="Axicor-Models/")
 
-# Тонкая настройка физики под HFT-цикл (1 ms барьер)
+#     HFT- (1 ms )
 builder.sim_params["sync_batch_ticks"] = 10
 builder.sim_params["tick_duration_us"] = 100
 
-# 2. Создание зоны (Ширина, Глубина, Высота в вокселях)
-# Размер вокселя по умолчанию = 25 мкм
+# 2.   (, ,   )
+#     = 25 
 cortex = builder.add_zone("SensoryCortex", width_vox=64, depth_vox=64, height_vox=63)
 
-# 3. Загрузка типов и HFT-тюнинг пластичности
-# В HFT-режиме рост весов происходит ТОЛЬКО при вливании дофамина (pot=0)
-# Фоновая депрессия (dep=2) медленно выжигает случайный шум. Это важно для Axicor.
+# 3.    HFT- 
+#  HFT-        (pot=0)
+#   (dep=2)    .    Axicor.
 exc_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
 inh_type = builder.gnm_lib("VISp4/114").set_plasticity(pot=0, dep=2)
 
-# 4. Наполнение слоями (Bottom-Up дизайн)
-# ВНИМАНИЕ: height_pct слоев в сумме должны давать строго 1.0!
+# 4.   (Bottom-Up )
+# : height_pct       1.0!
 cortex.add_layer("L4_Input", height_pct=0.1, density=0.3)\
       .add_population(exc_type, fraction=0.8)\
       .add_population(inh_type, fraction=0.2)
@@ -49,58 +49,58 @@ cortex.add_layer("L23_Hidden", height_pct=0.6, density=0.15)\
 cortex.add_layer("L5_Motor", height_pct=0.3, density=0.1)\
       .add_population(exc_type, fraction=1.0)
 
-# 5. Определение Входов и Выходов (I/O Matrix)
+# 5.     (I/O Matrix)
 cortex.add_input("sensors", width=8, height=8, entry_z="top")
 cortex.add_output("motors", width=16, height=8, target_type="All")
 
-# 6. Компиляция ДНК
+# 6.  
 builder.build()
 ```
 
-## 3. Как это работает под капотом (DOD)
+## 3.      (DOD)
 
-1. **Никакого RNG для популяций (Hard Quotas):** Метод `add_population(fraction=0.8)` устанавливает жесткую квоту. Если в слое помещается 1000 нейронов по объему и density, движок гарантированно создаст ровно 800 нейронов одного типа и 200 другого. Типы перемешиваются детерминированным шаффлом (master_seed).
-2. **Матричный маппинг:** Входы и выходы (`add_input`, `add_output`) растягиваются на 3D-сетку зоны (UV-проекция). Один пиксель матрицы охватывает популяцию физических нейронов. Выбор конкретной сомы для I/O детерминирован алгоритмом Spatial Hashing.
-3. **C-ABI выравнивание:** Baker автоматически вычисляет `padded_n` и добивает количество нейронов нулями до числа, кратного 32 (Warp Alignment). GPU будет читать эту память без Divergence и Cache Misses.
-4. **Закон Дейла (Strict Dale's Law):** В Axicor знак веса синапса (возбуждающий или тормозной) — это не параметр самого синапса или дендрита. Знак определяется **исключительно типом пресинаптического нейрона (источника)**. Если тип помечен как `is_inhibitory = true` в `blueprints.toml`, все его аксоны будут нести только тормозные сигналы. Это решение «цементируется» Baker-ом при генерации бинарных дампов. Такое ограничение позволяет GPU-ядрам проводить GSOP-пластичность без единого ветвления (Branchless Math), что критично для HFT-цикла.
+1. ** RNG   (Hard Quotas):**  `add_population(fraction=0.8)`   .     1000     density,     800     200 .     (master_seed).
+2. ** :**    (`add_input`, `add_output`)   3D-  (UV-).       .     I/O   Spatial Hashing.
+3. **C-ABI :** Baker   `padded_n`       ,  32 (Warp Alignment). GPU      Divergence  Cache Misses.
+4. **  (Strict Dale's Law):**  Axicor    (  )        .   **    ()**.     `is_inhibitory = true`  `blueprints.toml`,        .    Baker-    .    GPU-  GSOP-    (Branchless Math),    HFT-.
 
 ## 4. Shift-Left Validation & Ergonomics
 
-Python SDK (`BrainBuilder`) выступает в роли первого эшелона защиты C-ABI контрактов. Валидация должна происходить до генерации `.toml` файлов.
+Python SDK (`BrainBuilder`)       C-ABI .      `.toml` .
 
 ### 4.1. Interactive Auto-Fix
-Если скрипт запущен в интерактивном терминале (`sys.stdout.isatty()`), при обнаружении архитектурного нарушения SDK обязан остановить выполнение, показать текущее ошибочное значение, математически рассчитать ближайшие валидные варианты и предложить пользователю выбор (ввод числа или Enter для дефолтного автофикса).
-В неинтерактивных средах (CI/CD) скрипт должен падать с `ValueError`.
+      (`sys.stdout.isatty()`),     SDK   ,    ,          (   Enter   ).
+   (CI/CD)     `ValueError`.
 
 ### 4.2. Integer Physics Validation (`v_seg`)
-Скорость распространения сигнала обязана быть кратна длине сегмента.
-*   **Правило:** `v_seg = (signal_speed_m_s * 1000 * (tick_duration_us / 1000)) / (voxel_size_um * segment_length_voxels)`. Значение `v_seg` должно быть строго целым.
-*   **UX:** При дробном `v_seg` SDK предлагает изменить либо `signal_speed_m_s`, либо `segment_length_voxels`, отображая точные рассчитанные значения.
+       .
+*   **:** `v_seg = (signal_speed_m_s * 1000 * (tick_duration_us / 1000)) / (voxel_size_um * segment_length_voxels)`.  `v_seg`    .
+*   **UX:**   `v_seg` SDK    `signal_speed_m_s`,  `segment_length_voxels`,    .
 
 ### 4.3. Topological Auto-Routing (MTU Fragmentation)
-Пользователь оперирует только логическими размерами матриц (например, `width=256, height=256`).
-*   **Правило:** SDK вычисляет размер payload'а: `(width * height) / 8` байт.
-*   **Фрагментация:** Если payload превышает заданный MTU (по умолчанию 65507 для PC, 1400 для ESP32), `BrainBuilder` автоматически разбивает логическую матрицу на `N` физических подматриц (чанков).
-*   **Маппинг:** Каждому чанку автоматически назначается пространственный оффсет `uv_rect = [u_offset, v_offset, u_width, v_height]`, чтобы `genesis-baker` собрал их в единую сетку без перекрытий.
+      (, `width=256, height=256`).
+*   **:** SDK   payload': `(width * height) / 8` .
+*   **:**  payload   MTU (  65507  PC, 1400  ESP32), `BrainBuilder`      `N`   ().
+*   **:**       `uv_rect = [u_offset, v_offset, u_width, v_height]`,  `axicor-baker`       .
 
 ### 4.4. 4-Bit Type Limit
-Внутри одной зоны (Shard) может быть не более 16 уникальных типов нейронов, так как `type_mask` занимает строго 4 бита в массиве `soma_flags`. Попытка добавить 17-й тип через `add_population` мгновенно прерывается ошибкой.
+   (Shard)     16   ,   `type_mask`   4    `soma_flags`.   17-   `add_population`   .
 
-## 5. Определение Входов и Выходов (I/O Matrix & Blueprint Wiring)
-Входы и выходы привязываются к физическим слоям зоны. Для избежания ООП-оверхеда на стороне клиента, мы используем семантическую разметку `layout`.
+## 5.     (I/O Matrix & Blueprint Wiring)
+       .   -   ,     `layout`.
 
 ```python
-# Матрица 8x8 (64 виртуальных аксона)
-# Первые 3 слота привязываются к читаемым именам, остальные 61 добиваются нулями (Padding)
+#  8x8 (64  )
+#  3     ,  61   (Padding)
 cortex.add_input("sensors", width=8, height=8, entry_z="top", layout=[
     "pos_x", "pos_y", "angle_joint_0"
 ])
 
-# Выходная матрица 16x8
+#   16x8
 cortex.add_output("motors", width=16, height=8, target_type="All", layout=[
     "motor_left", "motor_right"
 ])
 ```
 
-Физика layout: Rust-компилятор (Data Plane) игнорирует эти строки. Он берет width=8, height=8 и аппаратно аллоцирует ровно 64 слота, выровненных по границе кэш-линии (The 64-Byte Alignment Rule). Python SDK (Control Plane) читает эти строки из io.toml и динамически генерирует Zero-Cost Фасад, где pos_x — это прямое замыкание на memoryview, а pos_y на memoryview.
+ layout: Rust- (Data Plane)   .   width=8, height=8     64 ,    - (The 64-Byte Alignment Rule). Python SDK (Control Plane)     io.toml    Zero-Cost ,  pos_x      memoryview,  pos_y  memoryview.
 

@@ -146,7 +146,7 @@ fn draw_node(
     // --- Header / Rename Logic ---
     if state.renaming_zone.as_deref() == Some(zone) {
         ui.allocate_ui_at_rect(header_rect, |ui| {
-            // [DOD FIX] Запрещаем пробелы в именах зон (важно для путей в файловой системе)
+            // [DOD FIX]      (     )
             state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
             let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer)
@@ -154,8 +154,8 @@ fn draw_node(
                 .text_color(Color32::WHITE)
                 .horizontal_align(egui::Align::Center));
 
-            // [DOD FIX] Каноничный Egui-паттерн. 
-            // TextEdit сам поглощает Enter/Esc и отдает lost_focus().
+            // [DOD FIX]  Egui-. 
+            // TextEdit   Enter/Esc   lost_focus().
             if edit.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     state.renaming_zone = None;
@@ -233,8 +233,8 @@ fn handle_node_drag(
     if response.dragged_by(egui::PointerButton::Primary) {
         if let Some(pos) = state.node_positions.get_mut(zone) {
             *pos += response.drag_delta() / state.zoom;
-            // [DOD FIX] Обновляем кэш в RAM для выживания при переключении вкладок.
-            // При этом НЕ ставим is_dirty = true, чтобы не дергать AST-компилятор!
+            // [DOD FIX]    RAM     .
+            //     is_dirty = true,    AST-!
             if let Some(id) = session.zone_ids.get(zone) {
                 session.layout_cache.insert(id.clone(), (pos.x, pos.y));
             }
@@ -266,11 +266,11 @@ fn handle_node_drag(
                 actions: vec![
                     layout_api::MenuAction {
                         action_id: format!("node_editor.delete_node|{}", zone),
-                        label: format!("🗑 Delete {}", label_suffix),
+                        label: format!(" Delete {}", label_suffix),
                     },
                     layout_api::MenuAction {
                         action_id: format!("node_editor.start_rename|{}", zone),
-                        label: "📝 Rename".into(),
+                        label: " Rename".into(),
                     },
                 ],
             });
@@ -301,12 +301,12 @@ fn draw_input_pins(
         if is_editing {
             let edit_rect = Rect::from_min_size(pin_pos + Vec2::new(10.0 * zoom, -8.0 * zoom), Vec2::new(60.0 * zoom, 16.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
-                // [DOD FIX] Жестко вырезаем пробелы, чтобы они не попали в AST и FNV хэши
+                // [DOD FIX]   ,      AST  FNV 
                 state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL));
                 
-                // [DOD FIX] Каноничный паттерн фокуса
+                // [DOD FIX]   
                 if edit.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         state.renaming_port = None;
@@ -340,12 +340,12 @@ fn draw_input_pins(
 
         if resp.secondary_clicked() {
             if port == "in" {
-                // Защита дефолтного порта
+                //   
             } else if let Some(pos) = ui.ctx().pointer_hover_pos() {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
-                        layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|1|{}", zone, port), label: "📝 Rename Port".into() },
-                        layout_api::MenuAction { action_id: format!("node_editor.delete_port|{}|1|{}", zone, port), label: "🗑 Delete Port".into() },
+                        layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|1|{}", zone, port), label: " Rename Port".into() },
+                        layout_api::MenuAction { action_id: format!("node_editor.delete_port|{}|1|{}", zone, port), label: " Delete Port".into() },
                     ]
                 });
             }
@@ -384,12 +384,12 @@ fn draw_output_pins(
         if is_editing {
             let edit_rect = Rect::from_min_max(pin_pos - Vec2::new(70.0 * zoom, 8.0 * zoom), pin_pos - Vec2::new(10.0 * zoom, -8.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
-                // [DOD FIX] Жестко вырезаем пробелы
+                // [DOD FIX]   
                 state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL).horizontal_align(egui::Align::RIGHT));
                 
-                // [DOD FIX] Каноничный паттерн фокуса
+                // [DOD FIX]   
                 if edit.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         state.renaming_port = None;
@@ -415,12 +415,12 @@ fn draw_output_pins(
 
         if out_response.secondary_clicked() {
             if port == "out" {
-                // Защита дефолтного порта
+                //   
             } else if let Some(pos) = ui.ctx().pointer_hover_pos() {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
-                        layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|0|{}", zone, port), label: "📝 Rename Port".into() },
-                        layout_api::MenuAction { action_id: format!("node_editor.delete_port|{}|0|{}", zone, port), label: "🗑 Delete Port".into() },
+                        layout_api::MenuAction { action_id: format!("node_editor.start_rename_port|{}|0|{}", zone, port), label: " Rename Port".into() },
+                        layout_api::MenuAction { action_id: format!("node_editor.delete_port|{}|0|{}", zone, port), label: " Delete Port".into() },
                     ]
                 });
             }

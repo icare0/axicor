@@ -1,6 +1,6 @@
 [package]
 name = "axicor-baker"
-description = "TOML config compiler → binary .state/.axons blobs for Axicor"
+description = "TOML config compiler  binary .state/.axons blobs for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

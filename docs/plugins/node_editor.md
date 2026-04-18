@@ -1,46 +1,46 @@
 # Node Editor (Shard Assembler)
 
-| Свойство | Значение |
+|  |  |
 | :--- | :--- |
-| **Домен** | `PluginDomain::NodeEditor` (`axicor.node_editor`) |
-| **Крейт** | `axicor-lab/plugins/node_editor/` |
-| **Роль** | Визуальный конструктор нейронных топологий: макро-роутинг (Модель → Департаменты → Шарды) и микро-инспекция (CAD-вьюпорт шарда с DND-проекцией связей на слои). |
+| **** | `PluginDomain::NodeEditor` (`axicor.node_editor`) |
+| **** | `axicor-lab/plugins/node_editor/` |
+| **** |    : - (    )  - (CAD-   DND-   ). |
 
 ---
 
-## 1. Иерархия уровней (EditorLevel)
+## 1.   (EditorLevel)
 
-Навигация по топологии — трёхуровневая, управляется через хлебные крошки (`ui/breadcrumb/`).
+    ,     (`ui/breadcrumb/`).
 
-| Уровень | Файл-контекст | Ноды | Связи |
+|  | - |  |  |
 |:---|:---|:---|:---|
-| **Model** | `simulation.toml` | Департаменты (`Zone_N`) | Inter-Department Ghost Axons |
-| **Department** | `{dept}.toml` | Шарды (`Shard_N`) | Inter-Shard Ghost Axons |
-| **Zone (Shard)** | Тот же `{dept}.toml` | — | — (Микро-уровень вырезан в независимые плагины: `shard_cad`, `io_inspector`, `blueprint_editor`, `anatomy_slicer`) |
+| **Model** | `simulation.toml` |  (`Zone_N`) | Inter-Department Ghost Axons |
+| **Department** | `{dept}.toml` |  (`Shard_N`) | Inter-Shard Ghost Axons |
+| **Zone (Shard)** |   `{dept}.toml` |  |  (-    : `shard_cad`, `io_inspector`, `blueprint_editor`, `anatomy_slicer`) |
 
-Переход на уровень Zone скрывает граф нод и активирует специализированные микро-плагины.
+   Zone       -.
 
 ---
 
-## 2. ECS Контракт (Данные)
+## 2. ECS  ()
 
-### Компоненты (на Entity окна)
+###  ( Entity )
 
-| Компонент | Описание |
+|  |  |
 |:---|:---|
-| `NodeGraphUiState` | Полное UI-состояние окна: pan/zoom, позиции нод, буферы переименования, DND-стейт (`dragging_pin`, `pending_3d_drop`, `active_3d_hover`), флаги шторок, RTT handle для CAD Inspector |
-| `ShardCadEntity` | Маркер для 3D сущностей CAD Inspector (геометрия слоёв, hover-plane, камера) |
+| `NodeGraphUiState` |  UI- : pan/zoom,  ,  , DND- (`dragging_pin`, `pending_3d_drop`, `active_3d_hover`),  , RTT handle  CAD Inspector |
+| `ShardCadEntity` |   3D  CAD Inspector ( , hover-plane, ) |
 | `CadCameraState` | Orbital camera: target, radius, alpha (yaw), beta (pitch) |
-| `CadGeometryMarker` | Маркер для мешей геометрии (слои + якоря существующих связей) |
-| `CadHoverPlane` | Маркер для полупрозрачной плоскости Z-привязки при DND |
+| `CadGeometryMarker` |     ( +   ) |
+| `CadHoverPlane` |     Z-  DND |
 
-### Ресурсы (глобальные)
+###  ()
 
-| Ресурс | Описание |
+|  |  |
 |:---|:---|
-| `BrainTopologyGraph` | Менеджер сессий. `sessions: HashMap<PathBuf, ProjectSession>`, `active_path`, `active_project` |
+| `BrainTopologyGraph` |  . `sessions: HashMap<PathBuf, ProjectSession>`, `active_path`, `active_project` |
 
-### ProjectSession (кэш открытого графа)
+### ProjectSession (  )
 
 ```
 zones, zone_ids, env_rx_nodes, env_tx_nodes,
@@ -53,196 +53,196 @@ is_dirty: bool
 
 ---
 
-## 3. Шина Событий
+## 3.  
 
-### Генерирует
+### 
 
-| Событие | Когда | Потребитель |
+|  |  |  |
 |:---|:---|:---|
-| `TopologyMutation::Create(CreateTarget)` | DND-связь, кнопка "+", double-click, контекст-меню | WM `create_entity_system` (диск + RAM) |
-| `TopologyMutation::Delete(DeleteTarget)` | Контекст-меню | `mutations.rs` (RAM) + WM `delete_entity_system` (диск) |
-| `TopologyMutation::Rename(RenameTarget)` | Inline TextEdit | `mutations.rs` (RAM) + WM `rename_zone_system` (диск) |
-| `OpenContextMenuEvent` | ПКМ на ноде/порте/канвасе/3D-drop | WM `render_context_menu_system` |
-| `SaveProjectEvent` / `CompileGraphEvent` / `BakeProjectEvent` | Кнопки хедера | IO-системы плагина |
+| `TopologyMutation::Create(CreateTarget)` | DND-,  "+", double-click, - | WM `create_entity_system` ( + RAM) |
+| `TopologyMutation::Delete(DeleteTarget)` | - | `mutations.rs` (RAM) + WM `delete_entity_system` () |
+| `TopologyMutation::Rename(RenameTarget)` | Inline TextEdit | `mutations.rs` (RAM) + WM `rename_zone_system` () |
+| `OpenContextMenuEvent` |   ///3D-drop | WM `render_context_menu_system` |
+| `SaveProjectEvent` / `CompileGraphEvent` / `BakeProjectEvent` |   | IO-  |
 | `OpenFileEvent` | Breadcrumb click | WM |
 
-### Слушает
+### 
 
-| Событие | Действие |
+|  |  |
 |:---|:---|
-| `LoadGraphEvent` | Async-загрузка TOML в `ProjectSession` |
-| `OpenFileEvent` | Переключение `active_path` |
-| `EntityDeletedEvent` | Evict `sessions`, сброс фокуса |
-| `ContextMenuActionTriggeredEvent` | Маршрутизация действий через `interaction.rs` |
+| `LoadGraphEvent` | Async- TOML  `ProjectSession` |
+| `OpenFileEvent` |  `active_path` |
+| `EntityDeletedEvent` | Evict `sessions`,   |
+| `ContextMenuActionTriggeredEvent` |    `interaction.rs` |
 
 ---
 
-## 4. Мутационный конвейер (Data Flow)
+## 4.   (Data Flow)
 
 > [!IMPORTANT]  
-> Асимметрия по дизайну: **Create** пишет RAM + диск на стороне WM (нужен UUID). **Delete/Rename** — RAM на стороне плагина, диск на стороне WM.
+>   : **Create**  RAM +    WM ( UUID). **Delete/Rename**  RAM   ,    WM.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  UI (node.rs / panels.rs / mod.rs)                           │
-│  Генерирует TopologyMutation через FnMut сигнал              │
-└──────────────────────┬───────────────────────────────────────┘
-                       │ EventWriter<TopologyMutation>
-           ┌───────────┴───────────┐
-           ▼                       ▼
-┌─────────────────────┐  ┌──────────────────────────┐
-│ mutations.rs (NE)   │  │ create_entity_system (WM)│
-│ RAM: Delete, Rename │  │ RAM + DISK: Create       │
-└─────────────────────┘  │ (wm_file_ops → sandbox)  │
-                         └──────────────────────────┘
-           │                       │
-           ▼                       ▼
-┌──────────────────────┐  ┌──────────────────────────┐
-│ delete/rename_system │  │ session.is_dirty = true  │
-│ (WM, DISK only)      │  │ → автосохранение layout  │
-└──────────────────────┘  └──────────────────────────┘
++--------------------------------------------------------------+
+|  UI (node.rs / panels.rs / mod.rs)                           |
+|   TopologyMutation  FnMut               |
++----------------------+---------------------------------------+
+                       | EventWriter<TopologyMutation>
+           +-----------+-----------+
+                                  
++---------------------+  +--------------------------+
+| mutations.rs (NE)   |  | create_entity_system (WM)|
+| RAM: Delete, Rename |  | RAM + DISK: Create       |
++---------------------+  | (wm_file_ops  sandbox)  |
+                         +--------------------------+
+           |                       |
+                                  
++----------------------+  +--------------------------+
+| delete/rename_system |  | session.is_dirty = true  |
+| (WM, DISK only)      |  |   layout  |
++----------------------+  +--------------------------+
 ```
 
 ---
 
-## 5. Система Ordering (lib.rs .chain())
+## 5.  Ordering (lib.rs .chain())
 
 > [!CAUTION]  
-> Порядок систем в `.chain()` критичен для DND pipeline. `render_node_editor_system` **ОБЯЗАН** идти до `dnd_raycast_system`, иначе `pending_3d_drop` теряется между кадрами.
+>    `.chain()`   DND pipeline. `render_node_editor_system` ****   `dnd_raycast_system`,  `pending_3d_drop`   .
 
-### Chain 1: Логика + IO (холодный путь)
+### Chain 1:  + IO ( )
 ```
-init_node_editor_windows → handle_menu_triggers
-→ save → compile → bake → autosave_layout
-→ apply_topology_mutations → evict_deleted_entities
-→ spawn_load_task → apply_loaded_graph
+init_node_editor_windows  handle_menu_triggers
+ save  compile  bake  autosave_layout
+ apply_topology_mutations  evict_deleted_entities
+ spawn_load_task  apply_loaded_graph
 ```
 
-### Chain 2: CAD Inspector + Render (горячий путь)
+### Chain 2: CAD Inspector + Render ( )
 ```
-allocate_vram → sync_vram
-→ spawn_cad_camera → sync_camera_aspect → cad_camera_control
-→ spawn_cad_geometry
-→ render_node_editor_system   ◄── UI ПИШЕТ pending_3d_drop, dragging_over_3d
-→ sync_hover_plane            ◄── Визуализация плоскости (active_3d_hover из прошлого кадра)
-→ dnd_raycast_system          ◄── ЧИТАЕТ pending_3d_drop → OpenContextMenuEvent
-→ cleanup_cad_scene
-→ clear_graph_modal
+allocate_vram  sync_vram
+ spawn_cad_camera  sync_camera_aspect  cad_camera_control
+ spawn_cad_geometry
+ render_node_editor_system   -- UI  pending_3d_drop, dragging_over_3d
+ sync_hover_plane            --   (active_3d_hover   )
+ dnd_raycast_system          --  pending_3d_drop  OpenContextMenuEvent
+ cleanup_cad_scene
+ clear_graph_modal
 ```
 
 ---
 
-## 6. DND Pipeline (связи на уровне шарда)
+## 6. DND Pipeline (   )
 
-### 6.1 Состояния DND (поля NodeGraphUiState)
+### 6.1  DND ( NodeGraphUiState)
 
-| Поле | Тип | Назначение |
+|  |  |  |
 |:---|:---|:---|
-| `dragging_pin` | `Option<(zone, port, pos, is_input)>` | Активный drag. Устанавливается капсулой |
-| `dragging_over_3d` | `Option<Pos2>` | Локальные координаты курсора над 3D (для raycast → hover) |
-| `active_3d_hover` | `Option<(Pos2, u32)>` | Результат raycast: экранная позиция snap + voxel_z |
-| `pending_3d_drop` | `Option<(zone, port, screen_pos, local_pos, is_input)>` | Финальный drop, ждёт обработки raycast |
+| `dragging_pin` | `Option<(zone, port, pos, is_input)>` |  drag.   |
+| `dragging_over_3d` | `Option<Pos2>` |     3D ( raycast  hover) |
+| `active_3d_hover` | `Option<(Pos2, u32)>` |  raycast:   snap + voxel_z |
+| `pending_3d_drop` | `Option<(zone, port, screen_pos, local_pos, is_input)>` |  drop,   raycast |
 
-### 6.2 Покадровый flow
+### 6.2  flow
 
 ```
-Кадр N:
-  panels.rs         → dragging_pin.clone() → dragging_over_3d = Some(local_pos)
-  dnd_raycast_system → dragging_over_3d → intersect_shard() → active_3d_hover = Some((snap, z))
+ N:
+  panels.rs          dragging_pin.clone()  dragging_over_3d = Some(local_pos)
+  dnd_raycast_system  dragging_over_3d  intersect_shard()  active_3d_hover = Some((snap, z))
 
-Кадр N+1:
-  panels.rs         → active_3d_hover → wire snap визуализация в draw_matrix_capsule
-  (hover plane видна через sync_hover_plane_system)
+ N+1:
+  panels.rs          active_3d_hover  wire snap   draw_matrix_capsule
+  (hover plane   sync_hover_plane_system)
 
-Кадр R (release):
-  panels.rs         → pointer.any_released() + rect_contains_pointer
-                    → pending_3d_drop = Some(...), dragging_pin = None
-  dnd_raycast_system → pending_3d_drop.take() → intersect_shard()
-                    → OpenContextMenuEvent { "connect_matrix|zone|port|zone|in|Z" }
+ R (release):
+  panels.rs          pointer.any_released() + rect_contains_pointer
+                     pending_3d_drop = Some(...), dragging_pin = None
+  dnd_raycast_system  pending_3d_drop.take()  intersect_shard()
+                     OpenContextMenuEvent { "connect_matrix|zone|port|zone|in|Z" }
 
-Кадр R+1:
-  WM context_menu   → рендерит "Connect to Z-Voxel N"
-  Клик              → ContextMenuActionTriggeredEvent
+ R+1:
+  WM context_menu     "Connect to Z-Voxel N"
+                 ContextMenuActionTriggeredEvent
 
-Кадр R+2:
-  handle_menu_triggers → TopologyMutation::Create(Connection{..., voxel_z})
-  create_entity_system → io.toml + ghost_capacity DCR + RAM session update
+ R+2:
+  handle_menu_triggers  TopologyMutation::Create(Connection{..., voxel_z})
+  create_entity_system  io.toml + ghost_capacity DCR + RAM session update
 ```
 
 ### 6.3 Raycast (AABB)
 
 ```rust
 // raycast.rs::intersect_shard
-// Классический slab intersection для AABB [-w/2..w/2, -h/2..h/2, -d/2..d/2]
+//  slab intersection  AABB [-w/2..w/2, -h/2..h/2, -d/2..d/2]
 // voxel_z = (hit.y + h/2).floor().clamp(0, h-1)
 ```
 
-Snap-проекция: **input** → левая грань (`-w/2`), **output** → правая грань (`+w/2`). Snap-точка проецируется обратно в 2D через `camera.world_to_viewport`.
+Snap-: **input**    (`-w/2`), **output**    (`+w/2`). Snap-    2D  `camera.world_to_viewport`.
 
 ---
 
-## 7. Hot Path: Infinite Canvas Rendering (макро-уровни)
+## 7. Hot Path: Infinite Canvas Rendering (-)
 
-3-Pass Render через низкоуровневый `egui::Painter`:
+3-Pass Render   `egui::Painter`:
 
-1. **Calc Pass** (`node::calc_all_layouts`): Локальные координаты → экранные `Rect` с учётом zoom/pan.
-2. **Background Pass** (`connections::draw_all_connections`): Кубические Безье для Ghost Axons. Отрисовываются первыми → под нодами.
-3. **Foreground Pass** (`node::draw_all_nodes`): Плашки зон, заголовки, пины. Регистрация `Sense::click_and_drag()` для перемещения.
+1. **Calc Pass** (`node::calc_all_layouts`):     `Rect`   zoom/pan.
+2. **Background Pass** (`connections::draw_all_connections`):    Ghost Axons.     .
+3. **Foreground Pass** (`node::draw_all_nodes`):  , , .  `Sense::click_and_drag()`  .
 
-### Типы нод
+###  
 
-| Тип | Цвет хедера | Порты |
+|  |   |  |
 |:---|:---|:---|
-| `Shard` | Тёмно-синий `(45,55,70)` | Inputs + Outputs |
-| `EnvRX` (Sensor) | Зелёный `(35,65,45)` | Только Outputs |
-| `EnvTX` (Motor) | Красный `(65,35,35)` | Только Inputs |
+| `Shard` | - `(45,55,70)` | Inputs + Outputs |
+| `EnvRX` (Sensor) |  `(35,65,45)` |  Outputs |
+| `EnvTX` (Motor) |  `(65,35,35)` |  Inputs |
 
 ---
 
-## 8. Декомпозиция Микро-Уровня (The Great Vivisection)
+## 8.  - (The Great Vivisection)
 
-Исторически `node_editor` включал в себя рендер 3D-стекла (`cad_inspector`) и боковые шторки свойств. Это нарушало инвариант *Separation of Concerns* и превращало плагин в God Object. 
+ `node_editor`     3D- (`cad_inspector`)    .    *Separation of Concerns*     God Object. 
 
-Теперь микро-уровень распилен на независимые плагины, общающиеся через Event Bus и RAM-блэкборды:
-* **`shard_cad`**: Чистый 3D-рендерер анатомии шарда и обработчик DND-лучей (Raycasting).
-* **`io_inspector`**: Роутер I/O матриц. Рендерит капсулы In/Out и инициирует `IoWirePayload` в `egui::Memory` при драге.
-* **`blueprint_editor`**: Инспектор параметров нейронов (GLIF/STDP).
-* **`anatomy_slicer`**: Управление плотностью и процентом высоты слоев.
+ -    ,   Event Bus  RAM-:
+* **`shard_cad`**:  3D-     DND- (Raycasting).
+* **`io_inspector`**:  I/O .   In/Out   `IoWirePayload`  `egui::Memory`  .
+* **`blueprint_editor`**:    (GLIF/STDP).
+* **`anatomy_slicer`**:      .
 
-**Связывание (Cross-Plugin DND Protocol):**
-1. Пользователь тянет капсулу порта из `io_inspector`. Плагин пишет `IoWirePayload` в глобальную память `egui` и рисует кривую Безье на слое `Order::Tooltip`.
-2. Курсор наводится на тайл `shard_cad`. Плагин читает блэкборд. Если видит летящий провод — делает рейкаст в стекло и подсвечивает Z-слой пересечения (Hover Plane).
-3. При отпускании (Drop) `shard_cad` шлет `OpenContextMenuEvent` для завершения подключения. Плагины не имеют прямых ссылок друг на друга.
+** (Cross-Plugin DND Protocol):**
+1.      `io_inspector`.   `IoWirePayload`    `egui`       `Order::Tooltip`.
+2.     `shard_cad`.   .            Z-  (Hover Plane).
+3.   (Drop) `shard_cad`  `OpenContextMenuEvent`   .        .
 
 ---
 
 ## 9. DCR (Dynamic Capacity Reservation)
 
-При создании межзонной связи:
-1. `create_entity_system` читает `width × height` output-матрицы источника
-2. Вычисляет `ghost_capacity += w × h × 2` на целевом шарде (`shard.toml`)
-3. При удалении — симметричное освобождение: `ghost_capacity -= w × h × 2`
+   :
+1. `create_entity_system`  `width  height` output- 
+2.  `ghost_capacity += w  h  2`    (`shard.toml`)
+3.     : `ghost_capacity -= w  h  2`
 
 ---
 
-## 10. Контекстное меню (pipe-delimited protocol)
+## 10.   (pipe-delimited protocol)
 
-Плагин шлёт `OpenContextMenuEvent` с `action_id` в формате:
+  `OpenContextMenuEvent`  `action_id`  :
 ```
 node_editor.{action}|{param1}|{param2}|...
 ```
 
-| Action ID шаблон | Параметры | Описание |
+| Action ID  |  |  |
 |:---|:---|:---|
-| `delete_node\|{name}` | zone name | Удаление ноды |
-| `start_rename\|{name}` | zone name | Запуск inline-rename |
-| `start_rename_port\|{zone}\|{is_input}\|{port}` | zone, 0/1, port name | Rename порта |
-| `delete_port\|{zone}\|{is_input}\|{port}` | zone, 0/1, port name | Удаление IO порта |
-| `add_node\|{x}\|{y}` | canvas coords | Добавление ноды в позицию |
-| `add_env_rx\|{x}\|{y}` | canvas coords | Добавление Sensor |
-| `add_env_tx\|{x}\|{y}` | canvas coords | Добавление Motor |
-| `connect_matrix\|{from}\|{port}\|{to}\|{to_port}\|{z}` | zones, ports, voxel_z | DND 3D проекция |
-| `clear_graph` | — | Модалка очистки |
+| `delete_node\|{name}` | zone name |   |
+| `start_rename\|{name}` | zone name |  inline-rename |
+| `start_rename_port\|{zone}\|{is_input}\|{port}` | zone, 0/1, port name | Rename  |
+| `delete_port\|{zone}\|{is_input}\|{port}` | zone, 0/1, port name |  IO  |
+| `add_node\|{x}\|{y}` | canvas coords |     |
+| `add_env_rx\|{x}\|{y}` | canvas coords |  Sensor |
+| `add_env_tx\|{x}\|{y}` | canvas coords |  Motor |
+| `connect_matrix\|{from}\|{port}\|{to}\|{to_port}\|{z}` | zones, ports, voxel_z | DND 3D  |
+| `clear_graph` |  |   |
 
 > [!WARNING]
-> Символ `|` категорически запрещён в именах зон и портов, иначе парсинг через `.split('|')` сломается при DTO-роутинге интентов. Текстовые поля (TextEdit) обязаны фильтровать ввод: `rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');`.
+>  `|`       ,    `.split('|')`   DTO- .   (TextEdit)   : `rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');`.

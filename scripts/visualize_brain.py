@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Axicor / Genesis - Brain Topology Visualizer
+Axicor - Brain Topology Visualizer
 Parses brain.toml and generates a 2D cluster architecture diagram (zones and connections).
 Does not require engine runtime or Baker compilation.
 """
@@ -15,7 +15,7 @@ except ModuleNotFoundError:
     try:
         import tomli as tomllib
     except ImportError:
-        print("❌ ERROR: 'tomli' module not found. Run: pip install tomli")
+        print("[ERROR] ERROR: 'tomli' module not found. Run: pip install tomli")
         sys.exit(1)
 
 import networkx as nx
@@ -33,20 +33,20 @@ def find_brain_toml(search_path):
     return None
 
 def visualize_topology(toml_path, save_path=None):
-    print(f"🧠 Parsing Brain DNA from: {toml_path}")
+    print(f" Parsing Brain DNA from: {toml_path}")
     
     with open(toml_path, "rb") as f:
         try:
             brain_data = tomllib.load(f)
         except Exception as e:
-            print(f"❌ ERROR: Failed to parse TOML: {e}")
+            print(f"[ERROR] ERROR: Failed to parse TOML: {e}")
             sys.exit(1)
 
     zones = brain_data.get("zone", [])
     connections = brain_data.get("connection", [])
 
     if not zones:
-        print("⚠️ Warning: No zones found in this brain.toml")
+        print("[WARN] Warning: No zones found in this brain.toml")
         sys.exit(0)
 
     # Create a directed graph
@@ -79,7 +79,7 @@ def visualize_topology(toml_path, save_path=None):
         # Generate arrow label
         label = f"{matrix_name}\n{capacity}"
         if target_type and target_type != "All":
-            label += f"\n🎯 {target_type}"
+            label += f"\n {target_type}"
 
         G.add_edge(src, dst)
         edge_labels[(src, dst)] = label
@@ -115,9 +115,9 @@ def visualize_topology(toml_path, save_path=None):
 
     if save_path:
         plt.savefig(save_path, dpi=200, bbox_inches='tight', facecolor='#0d1117')
-        print(f"\n📸 Saved topology map to: {save_path}")
+        print(f"\n Saved topology map to: {save_path}")
     else:
-        print("\n🖥️  Opening interactive viewer...")
+        print("\n  Opening interactive viewer...")
         plt.show()
 
 if __name__ == "__main__":
@@ -130,12 +130,12 @@ if __name__ == "__main__":
     toml_path = find_brain_toml(args.path)
     
     if not toml_path:
-        # Try searching in Genesis-Models
-        fallback_path = os.path.join("Genesis-Models", args.path, "brain.toml")
+        # Try searching in Axicor-Models
+        fallback_path = os.path.join("Axicor-Models", args.path, "brain.toml")
         if os.path.exists(fallback_path):
             toml_path = fallback_path
         else:
-            print(f"❌ ERROR: Could not find brain.toml in '{args.path}' or 'Genesis-Models/{args.path}'")
+            print(f"[ERROR] ERROR: Could not find brain.toml in '{args.path}' or 'Axicor-Models/{args.path}'")
             sys.exit(1)
 
     visualize_topology(toml_path, args.save)

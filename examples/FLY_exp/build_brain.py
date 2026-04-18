@@ -9,20 +9,20 @@ import sys
 
 # Virtual environment activation check
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
-    print("❌ ERROR: Virtual environment not active!")
+    print("[ERROR] ERROR: Virtual environment not active!")
     print("Please run: source .venv/bin/activate")
     sys.exit(1)
 import subprocess
 
 # Add SDK path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../genesis-client")))
-from genesis.builder import BrainBuilder
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../axicor-client")))
+from axicor.builder import BrainBuilder
 
 def build_FLY_exp_brain():
-    print("🧠 Initializing FLY_exp connectome architect...")
+    print(" Initializing FLY_exp connectome architect...")
     
     gnm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../GNM-Library"))
-    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/FLY_exp"))
+    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Axicor-Models/FLY_exp"))
 
     builder = BrainBuilder(project_name="FLY_exp", output_dir=out_dir, gnm_lib_path=gnm_path)
 
@@ -85,7 +85,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 2. Ascending neurons | 21×21=441
+    # 2. Ascending neurons | 2121=441
     AN = builder.add_zone("AN", width_vox=41, depth_vox=41, height_vox=40)
     AN.add_layer("Main", height_pct=0.4, density=0.2)\
         .add_population(b_ach, 0.70)\
@@ -106,7 +106,7 @@ def build_FLY_exp_brain():
     
 #-------------------------------------------------------
 
-    # 3. Descending (Motor) neurons | 21×21=441
+    # 3. Descending (Motor) neurons | 2121=441
     DESCENDING = builder.add_zone("DESCENDING", width_vox=51, depth_vox=51, height_vox=40)
     DESCENDING.add_layer("Main", height_pct=0.4, density=0.2)\
         .add_population(b_ach, 0.70)\
@@ -128,7 +128,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 4. Visual Projection neurons (Vision) | 51×51=2601
+    # 4. Visual Projection neurons (Vision) | 5151=2601
     VP = builder.add_zone("VP", width_vox=81, depth_vox=81, height_vox=40)
     VP.add_layer("Medulla", height_pct=0.2, density=0.2)\
         .add_population(b_ach, 0.85)\
@@ -153,7 +153,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 5. Antenal Lobe Projection neurons | 19×19=361
+    # 5. Antenal Lobe Projection neurons | 1919=361
     ALPN = builder.add_zone("ALPN", width_vox=19, depth_vox=19, height_vox=30)
     ALPN.add_layer("Glomeruli", height_pct=0.4, density=0.2)\
         .add_population(b_ach, 0.70)\
@@ -172,7 +172,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 6. Central Complex neurons (Compass) | 21×21=441
+    # 6. Central Complex neurons (Compass) | 2121=441
     CX = builder.add_zone("CX", width_vox=41, depth_vox=41, height_vox=40)
     CX.add_layer("Fan_Shaped", height_pct=0.2, density=0.2)\
         .add_population(b_ach, 0.65)\
@@ -196,7 +196,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 7. Lateral Horn neurons (Instincts) | 17×17=289
+    # 7. Lateral Horn neurons (Instincts) | 1717=289
     LHLN = builder.add_zone("LHLN", width_vox=17, depth_vox=17, height_vox=10)
     LHLN.add_layer("Main", height_pct=0.4, density=0.2)\
         .add_population(b_glu, 0.65)\
@@ -216,7 +216,7 @@ def build_FLY_exp_brain():
 
 #-------------------------------------------------------
 
-    # 8. Antenal Lobe neurons (Local) | 16×16=256
+    # 8. Antenal Lobe neurons (Local) | 1616=256
     ALLN = builder.add_zone("ALLN", width_vox=16, depth_vox=16, height_vox=8)
     ALLN.add_layer("Local_Inh", height_pct=0.4, density=0.2)\
         .add_population(b_gaba, 0.35)\
@@ -240,7 +240,7 @@ def build_FLY_exp_brain():
 #               WIRING (Ghost Axons) INTER-ZONE CONNECTIONS
 #=================================================================================
 
-    # CENTRAL → (from top to bottom)
+    # CENTRAL  (from top to bottom)
     builder.connect(CENTRAL, AN, out_matrix="to_AN", in_width=16, in_height=16, entry_z="top", growth_steps=63)
     builder.connect(CENTRAL, DESCENDING, out_matrix="to_DESCENDING", in_width=12, in_height=12, entry_z="top", growth_steps=63)
     builder.connect(CENTRAL, VP, out_matrix="to_VP", in_width=10, in_height=10, entry_z="top", growth_steps=135)
@@ -249,7 +249,7 @@ def build_FLY_exp_brain():
     builder.connect(CENTRAL, LHLN, out_matrix="to_LHLN", in_width=6, in_height=6, entry_z="top", growth_steps=81)
     builder.connect(CENTRAL, ALLN, out_matrix="to_ALLN", in_width=5, in_height=5, entry_z="top", growth_steps=63)
 
-    # AN → (ascending, always from bottom)
+    # AN  (ascending, always from bottom)
     builder.connect(AN, CENTRAL, out_matrix="to_CENTRAL", in_width=17, in_height=17, entry_z="bottom", growth_steps=81)
     builder.connect(AN, DESCENDING, out_matrix="to_DESCENDING", in_width=5, in_height=5, entry_z="bottom", growth_steps=63)
     builder.connect(AN, VP, out_matrix="to_VP", in_width=4, in_height=4, entry_z="bottom", growth_steps=135)
@@ -258,7 +258,7 @@ def build_FLY_exp_brain():
     builder.connect(AN, LHLN, out_matrix="to_LHLN", in_width=4, in_height=4, entry_z="bottom", growth_steps=81)
     
 
-    # DESCENDING → (feedback loops, from bottom)
+    # DESCENDING  (feedback loops, from bottom)
     builder.connect(DESCENDING, CENTRAL, out_matrix="to_CENTRAL", in_width=17, in_height=17, entry_z="bottom", growth_steps=81)
     builder.connect(DESCENDING, AN, out_matrix="to_AN", in_width=6, in_height=6, entry_z="bottom", growth_steps=63)
     builder.connect(DESCENDING, VP, out_matrix="to_VP", in_width=4, in_height=4, entry_z="bottom", growth_steps=135)
@@ -267,7 +267,7 @@ def build_FLY_exp_brain():
     builder.connect(DESCENDING, LHLN, out_matrix="to_LHLN", in_width=4, in_height=4, entry_z="bottom", growth_steps=81)
     builder.connect(DESCENDING, ALLN, out_matrix="to_ALLN", in_width=4, in_height=4, entry_z="bottom", growth_steps=63)
 
-    # VP → (vision, from top)
+    # VP  (vision, from top)
     builder.connect(VP, CENTRAL, out_matrix="to_CENTRAL", in_width=43, in_height=43, entry_z="top", growth_steps=81)
     builder.connect(VP, AN, out_matrix="to_AN", in_width=15, in_height=15, entry_z="top", growth_steps=63)
     builder.connect(VP, DESCENDING, out_matrix="to_DESCENDING", in_width=12, in_height=12, entry_z="top", growth_steps=63)
@@ -276,7 +276,7 @@ def build_FLY_exp_brain():
     builder.connect(VP, ALLN, out_matrix="to_ALLN", in_width=6, in_height=6, entry_z="top", growth_steps=63)
     builder.connect(VP, LHLN, out_matrix="to_LHLN", in_width=6, in_height=6, entry_z="top", growth_steps=81)
 
-    # ALPN → (olfaction, from bottom)
+    # ALPN  (olfaction, from bottom)
     builder.connect(ALPN, CENTRAL, out_matrix="to_CENTRAL", in_width=16, in_height=16, entry_z="bottom", growth_steps=81)
     builder.connect(ALPN, AN, out_matrix="to_AN", in_width=6, in_height=6, entry_z="bottom", growth_steps=63)
     builder.connect(ALPN, DESCENDING, out_matrix="to_DESCENDING", in_width=4, in_height=4, entry_z="top", growth_steps=63)
@@ -285,7 +285,7 @@ def build_FLY_exp_brain():
     builder.connect(ALPN, LHLN, out_matrix="to_LHLN", in_width=4, in_height=4, entry_z="bottom", growth_steps=81)
     
 
-    # CX → (compass, from top)
+    # CX  (compass, from top)
     builder.connect(CX, CENTRAL, out_matrix="to_CENTRAL", in_width=18, in_height=18, entry_z="top", growth_steps=81)
     builder.connect(CX, AN, out_matrix="to_AN", in_width=6, in_height=6, entry_z="top", growth_steps=63)
     builder.connect(CX, DESCENDING, out_matrix="to_DESCENDING", in_width=5, in_height=5, entry_z="top", growth_steps=63)
@@ -294,7 +294,7 @@ def build_FLY_exp_brain():
     builder.connect(CX, ALPN, out_matrix="to_ALPN", in_width=4, in_height=4, entry_z="top", growth_steps=63)
     
 
-    # LHLN → (instincts)
+    # LHLN  (instincts)
     builder.connect(LHLN, CENTRAL, out_matrix="to_CENTRAL", in_width=14, in_height=14, entry_z="bottom", growth_steps=81)
     builder.connect(LHLN, AN, out_matrix="to_AN", in_width=5, in_height=5, entry_z="bottom", growth_steps=63)
     builder.connect(LHLN, DESCENDING, out_matrix="to_DESCENDING", in_width=4, in_height=4, entry_z="top", growth_steps=63)
@@ -302,7 +302,7 @@ def build_FLY_exp_brain():
     builder.connect(LHLN, CX, out_matrix="to_CX", in_width=4, in_height=4, entry_z="bottom", growth_steps=63)
     builder.connect(LHLN, ALPN, out_matrix="to_ALPN", in_width=4, in_height=4, entry_z="bottom", growth_steps=63)
 
-    # ALLN → (local olfaction, from bottom)
+    # ALLN  (local olfaction, from bottom)
     builder.connect(ALLN, CENTRAL, out_matrix="to_CENTRAL", in_width=13, in_height=13, entry_z="bottom", growth_steps=81)
     builder.connect(ALLN, AN, out_matrix="to_AN", in_width=5, in_height=5, entry_z="bottom", growth_steps=63)
     builder.connect(ALLN, DESCENDING, out_matrix="to_DESCENDING", in_width=4, in_height=4, entry_z="top", growth_steps=63)

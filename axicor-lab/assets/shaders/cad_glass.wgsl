@@ -38,14 +38,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(cam_pos - in.world_position);
     let normal = normalize(in.world_normal);
 
-    // Fresnel — рёбра светятся, центр прозрачный
+    // Fresnel   ,  
     let fresnel = pow(1.0 - abs(dot(normal, view_dir)), 3.0);
 
-    // Динамическая прозрачность из Rust (material.color.a)
+    //    Rust (material.color.a)
     let base_alpha = material.color.a;
     let alpha = clamp(base_alpha + fresnel * 0.5, 0.0, 1.0);
 
-    // Высветление рёбер с сохранением базового оттенка
+    //      
     let edge_highlight = vec3<f32>(1.0) * fresnel * 0.4;
     let col = material.color.rgb + edge_highlight;
 

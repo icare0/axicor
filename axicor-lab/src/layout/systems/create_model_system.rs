@@ -4,16 +4,16 @@ use std::path::PathBuf;
 use layout_api::CreateNewModelEvent;
 use axicor_core::config::sys::SystemMeta;
 
-/// Система-оркестратор: только создает фундамент модели
+/// -:    
 pub fn create_model_system(
     mut events: EventReader<CreateNewModelEvent>,
 ) {
     for ev in events.read() {
-        let base_dir = PathBuf::from("Genesis-Models").join(&ev.model_name);
+        let base_dir = PathBuf::from("Axicor-Models").join(&ev.model_name);
         let sim_path = base_dir.join("simulation.toml");
 
         if let Err(e) = fs::create_dir_all(&base_dir) {
-            error!("❌ [Orchestrator] Failed to create model directory: {}", e);
+            error!("[ERROR] [Orchestrator] Failed to create model directory: {}", e);
             continue;
         }
 
@@ -39,6 +39,6 @@ axon_growth_max_steps = 500
 "#, model_uuid);
 
         let _ = fs::write(&sim_path, sim_toml);
-        info!("🌟 [Orchestrator] Model {} initialized. Further nodes must be added manually.", ev.model_name);
+        info!(" [Orchestrator] Model {} initialized. Further nodes must be added manually.", ev.model_name);
     }
 }

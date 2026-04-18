@@ -4,11 +4,11 @@
 
 ## 1. Concept
 
-The external world and neighbor zones interact with a brain zone through **matrices** — 2D grids of fixed size `W×H`.
+The external world and neighbor zones interact with a brain zone through **matrices**  2D grids of fixed size `WH`.
 
 - **Input matrix:** Each pixel = a virtual axon inside the zone.
 - **Output matrix:** Each pixel = a bound soma inside the zone.
-- **Inter-zone connection:** Output matrix of Zone A → input matrix (ghost axons) of Zone B.
+- **Inter-zone connection:** Output matrix of Zone A  input matrix (ghost axons) of Zone B.
 
 Externally, all interfaces look identical: a flat array of IDs, addressed as `matrix[y * W + x]`.
 
@@ -33,7 +33,7 @@ To ensure 100% Coalesced Access in the GPU and prevent PCIe bus crashes, I/O mat
 
 ### 2.1. Placement
 
-A `W×H` matrix is **stretched** over the X-Y plane of the zone. Each pixel maps to a spatial region of the zone:
+A `WH` matrix is **stretched** over the X-Y plane of the zone. Each pixel maps to a spatial region of the zone:
 
 ```text
 region_x = pixel_x * (zone_width / W)
@@ -63,7 +63,7 @@ stride = 1                # 0 = snapshot (tick 0 only), 1 = every tick, 2 = ever
 ### 2.3. Growth
 
 From the spawn point, the virtual axon grows normally using the same Cone Tracing mechanism as local axons.
-**Cost:** A virtual axon = one entry in `axon_heads[]` (4 bytes). PropagateAxons = one IADD per axon (microseconds even for millions). Dendritic contacts are limited by somas × 128, not by axon count.
+**Cost:** A virtual axon = one entry in `axon_heads[]` (4 bytes). PropagateAxons = one IADD per axon (microseconds even for millions). Dendritic contacts are limited by somas  128, not by axon count.
 **Night Phase:** Virtual axons are immune to pruning. They are permanent infrastructure.
 
 ### 2.4. Spatial Mapping (UV-Projection)
@@ -87,7 +87,7 @@ Setting a bit = resetting `axon_heads[virtual_offset + pixel_id] = 0` (signal bi
 
 The input mask is not streamed per tick. The entire batch is loaded into VRAM via a single asynchronous `cudaMemcpyAsync` operation before computations begin. The GPU spins a 6-kernel Autonomous Loop completely independent of the host, using offset pointers (`tick_input_ptr`) internally in O(1).
 
-**Stride Parameter:** `stride = S` means the InjectInputs kernel receives an offset pointer to the mask every S ticks. Effective injections per batch = `⌈sync_batch_ticks / S⌉`.
+**Stride Parameter:** `stride = S` means the InjectInputs kernel receives an offset pointer to the mask every S ticks. Effective injections per batch = `sync_batch_ticks / S`.
 
 ### 2.7. Network Contract (C-ABI)
 
@@ -122,14 +122,14 @@ The client formats inputs asymmetrically relative to the environment frequency. 
 
 ### 3.1. Soma Capture
 
-Each pixel covers a spatial region containing multiple somas. Selection is deterministically random (`master_seed ^ fnv1a(output_name) ^ pixel_index`). Mapping is 1 pixel → 1 soma. Static, computed at Baking.
+Each pixel covers a spatial region containing multiple somas. Selection is deterministically random (`master_seed ^ fnv1a(output_name) ^ pixel_index`). Mapping is 1 pixel  1 soma. Static, computed at Baking.
 
 ### 3.2. Output Data
 
 Output = a deep spike batch of selected somas. Each spike takes exactly 1 byte (`u8`).
 
 -   **VRAM Layout (GPU):** `Output_History[tick][pixel_id] = is_spiking;`
--   **Network Layout (Zero-Copy Transpose):** Sending `[Tick][Pixel]` over the network forces the Python client to loop and rebuild data per-motor (destroying cache performance). Before sending the UDP packet, the Rust orchestrator performs an ultra-fast CPU-cache transpose: `[Tick][Pixel] → [Pixel][Tick]`. This allows decoders to use `memoryview.reshape((N, Batch))` in O(1) without heap allocations.
+-   **Network Layout (Zero-Copy Transpose):** Sending `[Tick][Pixel]` over the network forces the Python client to loop and rebuild data per-motor (destroying cache performance). Before sending the UDP packet, the Rust orchestrator performs an ultra-fast CPU-cache transpose: `[Tick][Pixel]  [Pixel][Tick]`. This allows decoders to use `memoryview.reshape((N, Batch))` in O(1) without heap allocations.
 
 ### 3.3. Moving Window (Control FPS)
 
@@ -153,7 +153,7 @@ target_type = "All"
 growth_steps = 750
 ```
 
-**Scaling:** If the output matrix (32×32) is larger than the projection (16×16), each ghost-pixel captures a group of output pixels (pooling). If smaller — upsampling. Mapping is deterministic.
+**Scaling:** If the output matrix (3232) is larger than the projection (1616), each ghost-pixel captures a group of output pixels (pooling). If smaller  upsampling. Mapping is deterministic.
 
 ---
 
@@ -161,7 +161,7 @@ growth_steps = 750
 
 Batch and matrix sizes are limited by network and memory physics.
 
--   **Max UDP Input:** `⌈total_virtual_axons / 32⌉ × 4 × effective_ticks` must be < 65507 (IP/UDP MTU limit). Requires host fragmentation or TCP/SHM for massive streams.
--   **Max UDP Output:** `∑(W×H for all [[output]]) × sync_batch_ticks` must be < 65507.
--   **Input Bitmask Buffer:** `virtual_axon_count / 32 × 4` (per tick) allocated in VRAM.
--   **Output History Buffer:** `∑ mapped_soma_ids × sync_batch_ticks` (typically ~256 KB) in VRAM.
+-   **Max UDP Input:** `total_virtual_axons / 32  4  effective_ticks` must be < 65507 (IP/UDP MTU limit). Requires host fragmentation or TCP/SHM for massive streams.
+-   **Max UDP Output:** `(WH for all [[output]])  sync_batch_ticks` must be < 65507.
+-   **Input Bitmask Buffer:** `virtual_axon_count / 32  4` (per tick) allocated in VRAM.
+-   **Output History Buffer:** ` mapped_soma_ids  sync_batch_ticks` (typically ~256 KB) in VRAM.

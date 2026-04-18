@@ -14,7 +14,7 @@ pub fn init_copilot_windows_system(
     for (entity, window) in query.iter() {
         if base_domain(&window.plugin_id) == DOMAIN_AI_COPILOT {
             let mut state = AiCopilotState::default();
-            // Загрузка локальных секретов (ignored by git)
+            //    (ignored by git)
             if let Ok(content) = std::fs::read_to_string("copilot.local.toml") {
                 if let Ok(cfg) = toml::from_str::<crate::domain::CopilotConfig>(&content) {
                     state.api_endpoint = cfg.api_endpoint;
@@ -35,7 +35,7 @@ pub fn render_copilot_system(
     for (window, mut state) in windows.iter_mut() {
         if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_AI_COPILOT { continue; }
 
-        // DOD FIX: Неблокирующее чтение ответа от фонового потока
+        // DOD FIX:      
         if let Ok(response) = state.rx.try_recv() {
             state.history.push(ChatMessage { role: ChatRole::Copilot, content: response });
             state.is_generating = false;
@@ -77,7 +77,7 @@ fn render_gear_button(ui: &mut egui::Ui, header_rect: egui::Rect, state: &mut Ai
         egui::vec2(25.0, 25.0),
     );
     ui.allocate_ui_at_rect(gear_rect, |ui| {
-        if ui.button("⚙").clicked() {
+        if ui.button("").clicked() {
             state.show_settings = !state.show_settings;
         }
     });
@@ -87,7 +87,7 @@ fn render_settings(ui: &mut egui::Ui, state: &mut AiCopilotState) {
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Copilot Settings").strong());
-            if ui.button("💾 Save Keys").clicked() {
+            if ui.button(" Save Keys").clicked() {
                 let cfg = crate::domain::CopilotConfig {
                     api_endpoint: state.api_endpoint.clone(),
                     api_key: state.api_key.clone(),
@@ -119,7 +119,7 @@ fn render_input_panel(ui: &mut egui::Ui, state: &mut AiCopilotState) {
                     && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
                 let btn_clicked = ui.add_enabled(
                     !state.is_generating,
-                    egui::Button::new("➤"),
+                    egui::Button::new(""),
                 ).clicked();
 
                 if (enter_pressed || btn_clicked) && !state.is_generating {
@@ -149,20 +149,20 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
     let (layout, bg_color, text_color) = match msg.role {
         ChatRole::User => (
             egui::Layout::right_to_left(egui::Align::TOP),
-            egui::Color32::from_rgb(35, 45, 65), // Слегка синий фон для юзера
+            egui::Color32::from_rgb(35, 45, 65), //     
             CLR_USER,
         ),
         ChatRole::Copilot => (
             egui::Layout::left_to_right(egui::Align::TOP),
-            egui::Color32::from_rgb(35, 38, 40), // Темно-серый фон для ИИ
+            egui::Color32::from_rgb(35, 38, 40), // -   
             CLR_COPILOT,
         ),
         _ => return,
     };
 
     ui.with_layout(layout, |ui| {
-        // DOD FIX: Ограничиваем ширину пузыря 85% от доступной ширины тайла,
-        // чтобы текст не улетал за горизонт и визуально читалось выравнивание.
+        // DOD FIX:    85%    ,
+        //          .
         let max_bubble_width = ui.available_width() * 0.85;
 
         bevy_egui::egui::Frame::none()
@@ -172,7 +172,7 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
             .show(ui, |ui| {
                 ui.set_max_width(max_bubble_width);
                 
-                // DOD FIX: Явное включение переноса слов!
+                // DOD FIX:    !
                 ui.add(
                     bevy_egui::egui::Label::new(
                         bevy_egui::egui::RichText::new(&msg.content).color(text_color)
@@ -182,17 +182,17 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
     });
 }
 
-/// Валидация и отправка — единственная точка входа для обоих триггеров
+///          
 fn try_send_message(state: &mut AiCopilotState) {
     if state.input_buffer.trim().is_empty() { return; }
     let msg = std::mem::take(&mut state.input_buffer);
     state.history.push(ChatMessage { role: ChatRole::User, content: msg });
     state.is_generating = true;
 
-    // Клонируем данные для отправки в фоновый поток
+    //       
     let tx = state.tx.clone();
-    // DOD FIX: Обязательно триммим невидимые символы (пробелы, \n), 
-    // которые могли попасть при ручном редактировании .toml файла
+    // DOD FIX:     (, \n), 
+    //       .toml 
     let endpoint = state.api_endpoint.trim().to_string();
     let api_key = state.api_key.trim().to_string();
     let system_prompt = state.system_prompt.clone();
@@ -215,7 +215,7 @@ fn try_send_message(state: &mut AiCopilotState) {
         }
 
         let body = serde_json::json!({
-            "model": "deepseek-chat", // Игнорируется локальным LM Studio, используется API DeepSeek
+            "model": "deepseek-chat", //   LM Studio,  API DeepSeek
             "messages": messages,
             "temperature": 0.3
         });
@@ -230,8 +230,8 @@ fn try_send_message(state: &mut AiCopilotState) {
         match res {
             Ok(response) => {
                 let status = response.status();
-                // DOD FIX: Сначала читаем сырой текст. Это позволит увидеть 
-                // HTML-ошибки Cloudflare (502) или текстовые ошибки авторизации (401)
+                // DOD FIX:    .    
+                // HTML- Cloudflare (502)     (401)
                 let text = response.text().unwrap_or_default();
 
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
@@ -243,7 +243,7 @@ fn try_send_message(state: &mut AiCopilotState) {
                         let _ = tx.send(format!("Unknown JSON format: {}", text));
                     }
                 } else {
-                    // Если сервер вернул не JSON (например, 404 или 502 HTML страницу)
+                    //     JSON (, 404  502 HTML )
                     let _ = tx.send(format!("HTTP {} - Raw response: {}", status, text));
                 }
             }

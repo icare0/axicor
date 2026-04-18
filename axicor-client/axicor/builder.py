@@ -40,7 +40,7 @@ class IoMatrixDesigner:
             self.bytes_per_tick = self.padded_pixels
 
     def fragment(self, sync_batch_ticks: int, mtu: int = 65507) -> list[dict]:
-        # 1. Useful payload (20 bytes — ExternalIoHeader)
+        # 1. Useful payload (20 bytes  ExternalIoHeader)
         max_payload = mtu - 20
         # 2. Bytes per tick (integer division)
         max_bytes_per_tick = max_payload // sync_batch_ticks
@@ -79,7 +79,7 @@ class IoMatrixDesigner:
         if mode == "Pie":
             return [0.0, 0.0, 1.0, 1.0]
         elif mode == "Canvas":
-            # Placeholder for "Canvas" mode (grid-based slicing) — to be implemented.
+            # Placeholder for "Canvas" mode (grid-based slicing)  to be implemented.
             pass
         return [0.0, 0.0, 1.0, 1.0]
 
@@ -107,7 +107,7 @@ class ZoneDesigner:
         self.vox_z = max(1, min(z, 63))
         
         if self.vox_x != x or self.vox_y != y or self.vox_z != z:
-            warnings.warn(f"[Builder] ⚠️ Zone '{self.name}' dimensions corrected from "
+            warnings.warn(f"[Builder] [WARN] Zone '{self.name}' dimensions corrected from "
                           f"({x}, {y}, {z}) to ({self.vox_x}, {self.vox_y}, {self.vox_z}) "
                           f"to fit 11/11/6-bit hardware constraints.")
             
@@ -282,7 +282,7 @@ class BrainBuilder:
                 in_width: int, in_height: int, entry_z: str = "top", target_type: str = "All", growth_steps: int = 1000):
         # Verify if the output matrix exists in the source zone
         if not any(out["name"] == out_matrix for out in from_zone.outputs):
-            warnings.warn(f"[Builder] ⚠️ Output matrix '{out_matrix}' not found in zone '{from_zone.name}'!")
+            warnings.warn(f"[Builder] [WARN] Output matrix '{out_matrix}' not found in zone '{from_zone.name}'!")
 
         self.connections.append({
             "from": from_zone.name,
@@ -311,7 +311,7 @@ class BrainBuilder:
             matches = glob.glob(search_pattern, recursive=True)
 
             if not matches:
-                raise FileNotFoundError(f"⚠️ Blueprint matching '{query}' not found in {self.gnm_lib_path}")
+                raise FileNotFoundError(f"[WARN] Blueprint matching '{query}' not found in {self.gnm_lib_path}")
             
             # [DOD FIX] Extract first element from glob array
             target_file = matches[0]
@@ -329,7 +329,7 @@ class BrainBuilder:
         [DOD] Strict C-ABI memory cost estimation.
         O(1) calculation of VRAM and /dev/shm consumption prior to TOML generation.
         """
-        report = [f"📊 Genesis Memory Estimator: {self.project_name}"]
+        report = [f" Genesis Memory Estimator: {self.project_name}"]
         total_vram = 0
         total_shm = 0
 
@@ -367,13 +367,13 @@ class BrainBuilder:
             total_vram += vram_bytes
             total_shm += shm_bytes
 
-            report.append(f"  🔹 Zone '{zone.name}':")
+            report.append(f"   Zone '{zone.name}':")
             report.append(f"      Neurons: ~{raw_neurons} (Padded: {padded_n})")
             report.append(f"      Axons: {total_axons} (Local: {padded_n}, Virtual: {virtual_axons}, GhostCap: {ghost_capacity})")
             report.append(f"      VRAM: {vram_bytes / (1024**2):.2f} MB | SHM: {shm_bytes / (1024**2):.2f} MB")
 
-        report.append(f"  🔻 TOTAL VRAM BUDGET: {total_vram / (1024**2):.2f} MB")
-        report.append(f"  🔻 TOTAL SHM BUDGET:  {total_shm / (1024**2):.2f} MB")
+        report.append(f"   TOTAL VRAM BUDGET: {total_vram / (1024**2):.2f} MB")
+        report.append(f"   TOTAL SHM BUDGET:  {total_shm / (1024**2):.2f} MB")
         return "\n".join(report)
 
     def build(self):
@@ -391,7 +391,7 @@ class BrainBuilder:
             # Interactive Auto-Fix
             import sys
             suggested_speed = (round(v_seg_raw) * v_size * s_len) / (1000 * (t_dur / 1000))
-            error_msg = (f"\n❌ [Builder] Physical Validation Failed: v_seg must be an integer.\n"
+            error_msg = (f"\n[ERROR] [Builder] Physical Validation Failed: v_seg must be an integer.\n"
                          f"Current v_seg: {v_seg_raw:.4f}\n"
                          f"To fix this, you can change signal_speed_m_s to {suggested_speed:.4f}")
             
@@ -400,7 +400,7 @@ class BrainBuilder:
                 val = input(f"Apply auto-fix (speed={suggested_speed:.4f})? [Y/n]: ").strip().lower()
                 if val in ("", "y", "yes"):
                     self.sim_params["signal_speed_m_s"] = suggested_speed
-                    print(f"✅ Auto-fix applied: signal_speed_m_s = {suggested_speed:.4f}")
+                    print(f"[OK] Auto-fix applied: signal_speed_m_s = {suggested_speed:.4f}")
                 else:
                     raise ValueError("Manual fix required for v_seg integrality.")
             else:
@@ -409,7 +409,7 @@ class BrainBuilder:
         # [DOD FIX] Output estimated graph cost prior to generation
         print(f"\n{self.dry_run_stats()}")
 
-        print(f"\n🧬 Generating Brain DNA: {self.project_name} ...")
+        print(f"\n Generating Brain DNA: {self.project_name} ...")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # 1. Generate simulation.toml (Physics Laws)
@@ -457,7 +457,7 @@ class BrainBuilder:
             anatomy_data = {"layer": []}
             total_height = sum(l.height_pct for l in zone.layers)
             if abs(total_height - 1.0) > 1e-4:
-                warnings.warn(f"[Builder] ⚠️ Zone '{zone.name}' layers height sum is {total_height:.2f}, not 1.0!")
+                warnings.warn(f"[Builder] [WARN] Zone '{zone.name}' layers height sum is {total_height:.2f}, not 1.0!")
             
             for layer in reversed(zone.layers):
                 # Blueprint registration
@@ -467,7 +467,7 @@ class BrainBuilder:
 
                 total_comp = sum(layer.composition.values())
                 if abs(total_comp - 1.0) > 1e-4:
-                    warnings.warn(f"[Builder] ⚠️ Layer '{layer.name}' composition sum is {total_comp:.2f}, not 1.0!")
+                    warnings.warn(f"[Builder] [WARN] Layer '{layer.name}' composition sum is {total_comp:.2f}, not 1.0!")
                     
                 anatomy_data["layer"].append({
                     "name": layer.name,
@@ -514,14 +514,14 @@ class BrainBuilder:
         with open(self.output_dir / "brain.toml", "w", encoding="utf-8") as f:
             toml.dump(brain_config, f)
 
-        print(f"✅ DNA successfully created at '{self.output_dir}'")
+        print(f"[OK] DNA successfully created at '{self.output_dir}'")
         return self  # [DOD FIX] Method chaining support
 
     def bake(self, clean: bool = False):
         """
         Invokes the axicor-baker Rust compiler to generate binary VRAM dumps.
         """
-        print("\n🔥 Starting Axicor Baker (CPU Compiler)...")
+        print("\n Starting Axicor Baker (CPU Compiler)...")
         brain_toml_path = self.output_dir / "brain.toml"
 
         cmd = ["cargo", "run", "--release", "-p", "axicor-baker"]
@@ -546,7 +546,7 @@ class BrainBuilder:
         result = subprocess.run(cmd)
 
         if result.returncode == 0:
-            print("\n✅ Model successfully baked and ready for GPU loading.")
+            print("\n[OK] Model successfully baked and ready for GPU loading.")
         else:
-            print("\n❌ Connectome compilation failed. Check Rust compiler logs.")
+            print("\n[ERROR] Connectome compilation failed. Check Rust compiler logs.")
             sys.exit(1)

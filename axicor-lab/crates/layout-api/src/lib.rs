@@ -13,7 +13,7 @@ pub const DOMAIN_BLUEPRINT_EDITOR: &str = "axicor.blueprint_editor";
 pub const DOMAIN_ANATOMY_SLICER: &str = "axicor.anatomy_slicer";
 pub const DOMAIN_MATRIX_EDITOR: &str = "axicor.matrix_editor";
 
-// [DOD FIX] Единый DTO-реестр доступных плагинов. Single Source of Truth.
+// [DOD FIX]  DTO-  . Single Source of Truth.
 pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_EXPLORER, "Project Explorer"),
     (DOMAIN_VIEWPORT, "Connectome Viewer"),
@@ -26,7 +26,7 @@ pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_MATRIX_EDITOR, "Matrix Editor"),
 ];
 
-// Отражает размер системного DND-якоря (6.5px offset + 25px width + 10px gap)
+//    DND- (6.5px offset + 25px width + 10px gap)
 use std::path::PathBuf;
 
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -99,14 +99,14 @@ pub struct PluginGeometry {
     pub size: Vec2,
 }
 
-// DOD FIX: Строго динамическая идентификация
+// DOD FIX:   
 #[derive(Component)]
 pub struct PluginWindow {
     pub plugin_id: String,
     pub texture: Option<Handle<Image>>,
     pub is_visible: bool,
-    pub id: egui::Id,      // DOD FIX: Уникальный ID для egui Area
-    pub rect: egui::Rect,  // DOD FIX: Прямые координаты для дочернего UI
+    pub id: egui::Id,      // DOD FIX:  ID  egui Area
+    pub rect: egui::Rect,  // DOD FIX:     UI
 }
 
 // --- Enums & Commands (API Contract) ---
@@ -227,56 +227,56 @@ impl ActiveBundle {
     }
 }
 
-// Унифицированная палитра
+//  
 pub const COLOR_HEADER_BG: egui::Color32 = egui::Color32::from_rgb(35, 35, 40);
 pub const COLOR_HEADER_LINE: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
 
-/// Отрисовывает унифицированный заголовок плагина и возвращает (Content_Rect, Toolbar_Rect)
+///       (Content_Rect, Toolbar_Rect)
 pub fn draw_unified_header(ui: &mut egui::Ui, rect: egui::Rect, title: &str) -> (egui::Rect, egui::Rect) {
     let mut header_rect = rect;
     header_rect.set_height(28.0);
 
-    // DOD FIX: Строгое скругление только верхних углов
+    // DOD FIX:     
     ui.painter().rect_filled(
         header_rect, 
         egui::Rounding { nw: 10.0, ne: 10.0, sw: 0.0, se: 0.0 }, 
         COLOR_HEADER_BG
     );
     
-    // Сепаратор 1px
+    //  1px
     ui.painter().line_segment(
         [header_rect.left_bottom(), header_rect.right_bottom()],
         egui::Stroke::new(1.0, COLOR_HEADER_LINE),
     );
 
-    // Текст названия плагина
+    //   
     let title_pos = header_rect.left_center() + egui::vec2(SYS_UI_SAFE_ZONE, 0.0);
     ui.painter().text(
         title_pos,
         egui::Align2::LEFT_CENTER,
         title,
         egui::FontId::proportional(14.0),
-        egui::Color32::from_rgb(130, 130, 130), // DOD FIX: Идеальное совпадение с APP_TITLE
+        egui::Color32::from_rgb(130, 130, 130), // DOD FIX:    APP_TITLE
     );
 
-    // Примерная ширина текста (защита от аллокации Font_Galley в горячем циклe)
+    //    (   Font_Galley   e)
     let text_width = title.len() as f32 * 8.0;
     let mut toolbar_rect = header_rect;
-    // DOD FIX: Строгий отступ 25px от конца текста до начала зоны кнопок
+    // DOD FIX:   25px       
     toolbar_rect.min.x = title_pos.x + text_width + 25.0; 
 
     let mut content_rect = rect;
-    content_rect.min.y = header_rect.max.y; // Основная рабочая зона
+    content_rect.min.y = header_rect.max.y; //   
 
     (content_rect, toolbar_rect)
 }
 
-/// Выделяет базовое имя плагина из составного ID (например, "axicor.explorer::123" -> "axicor.explorer")
+///       ID (, "axicor.explorer::123" -> "axicor.explorer")
 pub fn base_domain(plugin_id: &str) -> &str {
     plugin_id.split("::").next().unwrap_or(plugin_id)
 }
 
-/// Возвращает человекочитаемое название для домена
+///     
 pub fn domain_title(base: &str) -> &'static str {
     match base {
         DOMAIN_VIEWPORT => "Connectome",

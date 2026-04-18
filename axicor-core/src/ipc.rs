@@ -1,18 +1,18 @@
-/// Night Phase IPC — Shared Memory layout between genesis-runtime and
-/// genesis-baker-daemon.
+/// Night Phase IPC  Shared Memory layout between axicor-runtime and
+/// axicor-baker-daemon.
 ///
-/// SHM name: `/genesis_shard_{zone_hash:08X}`
+/// SHM name: `/axicor_shard_{zone_hash:08X}`
 /// Layout:
 ///   [0..64)   ShmHeader  (fixed, repr C, 64 bytes)
-///   [64..)    weights: i16 × 128 × padded_n  (little-endian)
-///             targets: u32 × 128 × padded_n  (little-endian)
+///   [64..)    weights: i16  128  padded_n  (little-endian)
+///             targets: u32  128  padded_n  (little-endian)
 ///
 /// State machine (single-writer invariant):
-///   IDLE       → runtime writes              → NIGHT_START
-///   NIGHT_START → daemon reads & begins work  → SPROUTING
-///   SPROUTING  → daemon writes result         → NIGHT_DONE
-///   NIGHT_DONE → runtime reads & resets       → IDLE
-///   Any state  → daemon panics               → ERROR
+///   IDLE        runtime writes               NIGHT_START
+///   NIGHT_START  daemon reads & begins work   SPROUTING
+///   SPROUTING   daemon writes result          NIGHT_DONE
+///   NIGHT_DONE  runtime reads & resets        IDLE
+///   Any state   daemon panics                ERROR
 
 /// Magic number at offset 0 of every SHM segment.
 pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
@@ -26,7 +26,7 @@ pub const MAX_PRUNES_PER_NIGHT: usize = 10_000; // [DOD FIX]
 use serde::{Serialize, Deserialize};
 
 /// Network packet for inter-zone axon transmission (Half-Duplex SHM Data Plane).
-/// MUST remain exactly 20 bytes — SHM layout depends on this.
+/// MUST remain exactly 20 bytes  SHM layout depends on this.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AxonHandoverEvent {
@@ -107,7 +107,7 @@ pub fn shm_posix_name(zone_hash: u32) -> String {
 pub fn default_socket_path(zone_hash: u32) -> String {
     #[cfg(unix)]
     {
-        format!("/tmp/genesis_baker_{:08X}.sock", zone_hash)
+        format!("/tmp/axicor_baker_{:08X}.sock", zone_hash)
     }
     #[cfg(windows)]
     {
@@ -277,7 +277,7 @@ pub struct BakeRequest {
 const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");
 
 // =============================================================================
-// §2  File-format IPC: baked binary blobs (.gxi / .gxo / .ghosts)
+// 2  File-format IPC: baked binary blobs (.gxi / .gxo / .ghosts)
 // =============================================================================
 
 /// Sentinel written to `mapped_soma_ids` for a GXO pixel that has no somas.
@@ -293,7 +293,7 @@ pub struct GxiHeader {
     pub zone_hash:    u32,       // FNV-1a of zone name
     pub matrix_hash:  u32,       // FNV-1a of matrix name
     pub input_count:  u32,       // Number of virtual axons
-    pub total_pixels: u32,       // W × H
+    pub total_pixels: u32,       // W  H
     pub _padding:     [u32; 3],  // Reserved; always zero
 }
 const _: () = assert!(std::mem::size_of::<GxiHeader>() == 32, "GxiHeader must be 32 bytes");
@@ -547,7 +547,7 @@ impl ExternalIoHeader {
     }
 }
 // ===========================================================================
-// §3 Self-Healing & Replication (Step 19)
+// 3 Self-Healing & Replication (Step 19)
 // ===========================================================================
 
 pub const SNAP_MAGIC: u32 = 0x50414E53; // "SNAP"

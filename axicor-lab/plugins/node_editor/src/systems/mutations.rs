@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation};
 
-/// Централизованная система применения мутаций топологии в RAM.
-/// Обрабатывает добавление и удаление узлов, синхронизируя кэш сессий.
+///       RAM.
+///     ,   .
 pub fn apply_topology_mutations_system(
     mut events: EventReader<TopologyMutation>,
     mut graph: ResMut<BrainTopologyGraph>,
@@ -11,8 +11,8 @@ pub fn apply_topology_mutations_system(
     for ev in events.read() {
         match ev {
             TopologyMutation::Create(_, _) => {
-                // [DOD FIX] RAM мутации для Create выполняются строго внутри `create_entity_system`,
-                // так как для них требуется генерация уникальных Lineage ID (UUID), недоступных здесь.
+                // [DOD FIX] RAM   Create    `create_entity_system`,
+                //        Lineage ID (UUID),  .
             }
 
             TopologyMutation::Delete(target, context_path) => {
@@ -123,7 +123,7 @@ pub fn apply_topology_mutations_system(
             }
 
             TopologyMutation::UpdateBlueprint { .. } | TopologyMutation::UpdateIo { .. } => {
-                // RAM мутации для UpdateBlueprint и UpdateIo не требуются, так как редактирование идет In-Place в `ResMut<BrainTopologyGraph>`
+                // RAM   UpdateBlueprint  UpdateIo  ,     In-Place  `ResMut<BrainTopologyGraph>`
             }
         }
     }
@@ -135,10 +135,10 @@ pub fn evict_deleted_entities_system(
     mut ui_states: Query<&mut crate::domain::NodeGraphUiState>,
 ) {
     for ev in events.read() {
-        // 1. O(N) вычищение всех зомби-сессий дочерних файлов
+        // 1. O(N)   -  
         graph.sessions.retain(|path, _| !path.starts_with(&ev.path));
 
-        // 2. Сброс активного пути, если он был удален
+        // 2.   ,    
         if let Some(active) = &graph.active_path {
             if active.starts_with(&ev.path) {
                 graph.active_path = None;
@@ -146,7 +146,7 @@ pub fn evict_deleted_entities_system(
             }
         }
 
-        // 3. Зачистка UI-состояний
+        // 3.  UI-
         if graph.active_path.is_none() {
             for mut ui in ui_states.iter_mut() {
                 ui.node_positions.clear();
@@ -161,13 +161,13 @@ pub fn hot_reload_io_system(
     mut graph: ResMut<crate::domain::BrainTopologyGraph>,
 ) {
     for ev in events.read() {
-        // Извлекаем ключи заранее, чтобы обойти ограничения borrow checker'а
+        //   ,    borrow checker'
         let paths: Vec<std::path::PathBuf> = graph.sessions.keys().cloned().collect();
         
         for path in paths {
             if path.to_string_lossy().contains(&ev.project_name) {
                 if let Some(session) = graph.sessions.get_mut(&path) {
-                    // [DOD FIX] Сквозное обновление портов из .Sandbox в RAM
+                    // [DOD FIX]     .Sandbox  RAM
                     crate::systems::io::utils::sync_io_ports_from_disk(&path, session);
                     info!("[NodeEditor] Hot-reloaded I/O ports for session {:?}", path);
                 }

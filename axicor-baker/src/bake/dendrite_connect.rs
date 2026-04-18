@@ -21,7 +21,7 @@ pub fn connect_dendrites(
     voxel_size_um: f32,
 ) -> usize {
     // 1. INVERSION: Build SpatialGrid from axon SEGMENTS.
-    // Optimal chunk size for hash grid = 2 voxels (~50 µm)
+    // Optimal chunk size for hash grid = 2 voxels (~50 m)
     let cell_size_vox = 2u32;
     let segment_grid = AxonSegmentGrid::build_from_axons(axons, cell_size_vox);
 

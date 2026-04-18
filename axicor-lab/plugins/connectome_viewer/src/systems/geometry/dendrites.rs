@@ -13,11 +13,11 @@ pub fn build_topology_graph(
 
     graph.padded_n = padded_n;
 
-    // Кэшируем маппинг аксонов (C-ABI: voltage(4) + flags(1) + thresh(4) + timers(1) = 10 bytes offset)
+    //    (C-ABI: voltage(4) + flags(1) + thresh(4) + timers(1) = 10 bytes offset)
     graph.soma_to_axon = state_bytes[soma_to_axon_offset .. targets_offset]
         .chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
 
-    // ДОБАВЛЕНО: Строим обратный маппинг (Axon ID -> Soma Dense ID)
+    // :    (Axon ID -> Soma Dense ID)
     let total_axons = axon_segments_lookup.len();
     let mut axon_to_soma = vec![usize::MAX; total_axons];
     for (soma_id, &axon_id) in graph.soma_to_axon.iter().enumerate() {
@@ -27,25 +27,25 @@ pub fn build_topology_graph(
     }
     graph.axon_to_soma = axon_to_soma;
 
-    // Кэшируем колонки дендритов (DOD: Columnar Memory Layout)
+    //    (DOD: Columnar Memory Layout)
     let dendrites_bytes = padded_n * 128 * 4;
     graph.targets = state_bytes[targets_offset .. targets_offset + dendrites_bytes]
         .chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
 
     graph.axon_segments = axon_segments_lookup.to_vec();
 
-    // Кэшируем позиции сом для мгновенной трассировки
+    //      
     let packed_positions: Vec<u32> = pos_data.chunks_exact(4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
 
     let mut somas = vec![Vec3::ZERO; padded_n];
-    let mut compact_to_dense = Vec::new(); // ДОБАВЛЕНО
+    let mut compact_to_dense = Vec::new(); // 
 
     for i in 0..padded_n {
         if i >= packed_positions.len() { break; }
         let packed = packed_positions[i];
         if packed != 0 {
-            compact_to_dense.push(i); // ДОБАВЛЕНО: Сохраняем реальный dense_id
+            compact_to_dense.push(i); // :   dense_id
             let x = (packed & 0x3FF) as f32 * 0.025;
             let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
             let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
@@ -53,5 +53,5 @@ pub fn build_topology_graph(
         }
     }
     graph.soma_positions = somas;
-    graph.compact_to_dense = compact_to_dense; // ДОБАВЛЕНО
+    graph.compact_to_dense = compact_to_dense; // 
 }

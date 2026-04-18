@@ -15,8 +15,8 @@ pub fn viewport_camera_control_system(
             }
         }
 
-        // DOD FIX: Защита от Ghost Mutations. 
-        // Если нет ввода — не трогаем mut transform, чтобы не триггерить is_changed() в рендере.
+        // DOD FIX:   Ghost Mutations. 
+        //       mut transform,    is_changed()  .
         let is_dragging = input.is_secondary_pressed || input.is_middle_pressed;
         let is_scrolling = input.scroll_delta.abs() > 0.0;
 
@@ -58,7 +58,7 @@ pub fn attach_camera_to_viewport_system(
 ) {
     for (entity, window) in query.iter() {
         if window.plugin_id.starts_with(layout_api::DOMAIN_VIEWPORT) {
-            // Ждем, пока WM (sync_plugin_geometry_system) аллоцирует VRAM текстуру
+            // ,  WM (sync_plugin_geometry_system)  VRAM 
             if let Some(tex_handle) = &window.texture {
                 commands.entity(entity).insert((
                     Camera3dBundle {
@@ -82,19 +82,19 @@ pub fn attach_camera_to_viewport_system(
 
 pub fn toggle_idle_cameras_system(
     window_query: Query<&layout_api::PluginWindow>,
-    // Убрали Ref<Transform> и NeuronInstances, они больше не нужны
+    //  Ref<Transform>  NeuronInstances,    
     mut camera_query: Query<(Entity, &mut Camera, &crate::domain::ViewportCamera)>,
     mut commands: Commands,
 ) {
     for (cam_entity, mut camera, vp_cam) in camera_query.iter_mut() {
-        // DOD FIX: Используем правильный ID окна (vp_cam.viewport), а не cam_entity!
+        // DOD FIX:   ID  (vp_cam.viewport),   cam_entity!
         if let Ok(_plugin_window) = window_query.get(vp_cam.viewport) {
-            // Откат: Камера всегда активна, если её окно существует. Никакой заморозки.
+            // :   ,    .  .
             if !camera.is_active {
                 camera.is_active = true;
             }
         } else {
-            // Окно было уничтожено оконным менеджером. Убиваем зомби-камеру.
+            //     .  -.
             commands.entity(cam_entity).despawn_recursive();
         }
     }

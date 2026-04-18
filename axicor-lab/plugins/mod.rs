@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy::app::PluginGroupBuilder;
 
-// DOD FIX: Строгий фасад. AllPlugins является единственной точкой входа.
-// Прямая зависимость от крейтов плагинов теперь только здесь.
+// DOD FIX:  . AllPlugins    .
+//        .
 
 pub struct AllPlugins;
 

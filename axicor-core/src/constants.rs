@@ -27,34 +27,34 @@ pub const GPU_WARP_SIZE: usize = 64;
 pub const GPU_WARP_SIZE: usize = 32;
 
 // ---------------------------------------------------------------------------
-// Physical constants (Spec 01 §1.6) — Fixed configuration
+// Physical constants (Spec 01 1.6)  Fixed configuration
 // Any changes to these require V_SEG recalculation and compiler check.
 // ---------------------------------------------------------------------------
 
-/// Time step: 100 µs = 0.1 ms.
+/// Time step: 100 s = 0.1 ms.
 pub const TICK_DURATION_US: u32 = 100;
 
-/// Voxel size in µm.
+/// Voxel size in m.
 pub const VOXEL_SIZE_UM: u32 = 25;
 
 /// Length of one axon segment in voxels.
 pub const SEGMENT_LENGTH_VOXELS: u32 = 2;
 
-/// Segment length in µm (= VOXEL_SIZE_UM × SEGMENT_LENGTH_VOXELS).
+/// Segment length in m (= VOXEL_SIZE_UM  SEGMENT_LENGTH_VOXELS).
 pub const SEGMENT_LENGTH_UM: u32 = VOXEL_SIZE_UM * SEGMENT_LENGTH_VOXELS; // 50
 
-/// Signal speed in µm/tick (0.5 m/s = 50 µm/tick).
+/// Signal speed in m/tick (0.5 m/s = 50 m/tick).
 pub const SIGNAL_SPEED_UM_TICK: u32 = 50;
 
 /// Discrete speed: segments per tick. MUST be an integer.
 pub const V_SEG: u32 = SIGNAL_SPEED_UM_TICK / SEGMENT_LENGTH_UM; // 1
 
-/// Invariant §1.6: signal_speed_um_tick MUST be divisible by segment_length_um without remainder.
+/// Invariant 1.6: signal_speed_um_tick MUST be divisible by segment_length_um without remainder.
 /// If v_seg is fractional, the GPU cannot operate without floats, violating Integer Physics.
 #[allow(clippy::eq_op)]
 const _: () = assert!(
     SIGNAL_SPEED_UM_TICK % SEGMENT_LENGTH_UM == 0,
-    "Spec 01 §1.6 violation: signal_speed_um_tick must be divisible by segment_length_um (v_seg must be integer)"
+    "Spec 01 1.6 violation: signal_speed_um_tick must be divisible by segment_length_um (v_seg must be integer)"
 );
 
 // ==========================================

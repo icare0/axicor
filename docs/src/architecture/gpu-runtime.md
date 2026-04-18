@@ -16,22 +16,22 @@ The engine does not parse data at startup. The `.state` and `.axons` binary file
 The global padding of `padded_n` to a multiple of 64 mathematically guarantees that the lengths of all internal SoA arrays (4N, 2N, 1N bytes) will be multiples of 64 bytes. This ensures every array perfectly aligns with a new L2 cache line without injecting dirty padding bytes into the blob. This is critical for Coalesced Access on AMD Wavefronts (64 threads) and eliminating L2 cache thrashing.
 
 **ShardVramPtrs Layout (Strict byte-for-byte order in `.state`):**
-*   `soma_voltage`       [N] × `i32`   (4N bytes)
-*   `soma_flags`         [N] × `u8`    (1N bytes)
-*   `threshold_offset`   [N] × `i32`   (4N bytes)
-*   `timers`             [N] × `u8`    (1N bytes)
-*   `soma_to_axon`       [N] × `u32`   (4N bytes)
-*   `dendrite_targets`   [128 × N] × `u32` (512N bytes)
-*   `dendrite_weights`   [128 × N] × `i32` (512N bytes)
-*   `dendrite_timers`    [128 × N] × `u8`  (128N bytes)
+*   `soma_voltage`       [N]  `i32`   (4N bytes)
+*   `soma_flags`         [N]  `u8`    (1N bytes)
+*   `threshold_offset`   [N]  `i32`   (4N bytes)
+*   `timers`             [N]  `u8`    (1N bytes)
+*   `soma_to_axon`       [N]  `u32`   (4N bytes)
+*   `dendrite_targets`   [128  N]  `u32` (512N bytes)
+*   `dendrite_weights`   [128  N]  `i32` (512N bytes)
+*   `dendrite_timers`    [128  N]  `u8`  (128N bytes)
 
 **The 1166-Byte Invariant:** Soma (14) + 128 * (Targets:4 + Weights:4 + Timers:1) = 1166 bytes per neuron.
 
 **Axons (`.axons` blob):**
-*   `axon_heads` [A] × `BurstHeads8` (32A bytes)
+*   `axon_heads` [A]  `BurstHeads8` (32A bytes)
 
 **[C-ABI] 32-Byte Axon Alignment Invariant:**
-The `BurstHeads8` structure must be strictly 32-byte aligned. 8 heads × 4 bytes = exactly 32 bytes. This guarantees that all heads are loaded in a single L1 cache transaction.
+The `BurstHeads8` structure must be strictly 32-byte aligned. 8 heads  4 bytes = exactly 32 bytes. This guarantees that all heads are loaded in a single L1 cache transaction.
 
 ```c
 // 32-byte alignment guarantees a perfect hit in a 32-byte L1 cache sector.
@@ -87,7 +87,7 @@ struct alignas(64) VariantParameters {
     uint8_t _pad[3];                          // 60..64 (Alignment)
 };
 
-struct GenesisConstantMemory {
+struct AxicorConstantMemory {
     VariantParameters variants[1];
 };
 ```
@@ -95,7 +95,7 @@ struct GenesisConstantMemory {
 ### 1.3. Cross-Platform IPC & Zero-Copy Mmap
 Zero-Copy DMA loading is platform-agnostic:
 
-- **Linux:** POSIX `shm_open()` → `/dev/shm/*.state.shm`
+- **Linux:** POSIX `shm_open()`  `/dev/shm/*.state.shm`
 - **Windows:** File-backed `mmap` via `CreateFileMapping` in `%TEMP%` enforcing strict 4096-byte OS Page Alignment.
 
 **[C-ABI] SHM Night Phase IPC v3 (Exchange):**

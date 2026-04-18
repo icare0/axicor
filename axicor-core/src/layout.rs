@@ -5,8 +5,8 @@ use bytemuck::{Pod, Zeroable};
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 
 /// Neuron type parameter structure.
-/// 64 bytes = 1 GPU L2 cache line. 16 types × 64B = 1024B = entire __constant__ buffer.
-/// Exactly one cache line per type → 100% Coalesced Access, zero False Sharing.
+/// 64 bytes = 1 GPU L2 cache line. 16 types  64B = 1024B = entire __constant__ buffer.
+/// Exactly one cache line per type  100% Coalesced Access, zero False Sharing.
 #[repr(C, align(64))]
 #[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 pub struct VariantParameters {
@@ -243,7 +243,7 @@ impl ShardStateSoA {
 }
 
 // ---------------------------------------------------------------------------
-// §1.3 Dendrite Target Packing (Preventing the Zero-Index Trap)
+// 1.3 Dendrite Target Packing (Preventing the Zero-Index Trap)
 // ---------------------------------------------------------------------------
 
 use crate::constants::{TARGET_AXON_MASK, TARGET_SEG_SHIFT};

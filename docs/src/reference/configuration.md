@@ -6,7 +6,7 @@
 
 Configurations are divided into three levels of responsibility. We separate them so that the "hardware" of the neuron can be changed without breaking the layer structure.
 
-**Laws of Physics → Zone Specification → Instance Parameters**
+**Laws of Physics  Zone Specification  Instance Parameters**
 
 ### 1.1. Global Physics (`simulation.toml`)
 Located in the root. These are constants that **cannot differ** between zones, otherwise spatial and temporal synchronization will break.
@@ -20,11 +20,11 @@ Located in the root. These are constants that **cannot differ** between zones, o
 
 **Memory Impact:** These are global `const` variables (Uniforms in CUDA). Loaded once, always in L1 cache.
 
-### 1.2. Zone Config (`Genesis_Models/{project}/zones/V1/`)
+### 1.2. Zone Config (`Axicor_Models/{project}/zones/V1/`)
 All files of a specific zone reside in its directory. This allows parallel loading of multiple zones in Runtime.
 Defines **what** we are building.
 
-1. **`anatomy.toml`** - Layers (L1–L6) in height percentages. Allows scaling (`world.height`) without rewriting the config.
+1. **`anatomy.toml`** - Layers (L1L6) in height percentages. Allows scaling (`world.height`) without rewriting the config.
 2. **`blueprints.toml`** - Neuron types: membrane parameters (threshold, leak) and connectivity rules (matrix).
 3. **`io.toml`** - Input/Output map.
 
@@ -48,10 +48,10 @@ Parameters affecting the behavior of a specific instance, but not the biological
 
 **[INVARIANT] The Engine (Runtime) NEVER reads TOML files directly.**
 
-Parsing text configs on the GPU destroys performance. The "Baking" stage separates "Human Configs" (TOML) and "Machine Data" (Binary Blobs). All results are saved in `Genesis_Models/`.
+Parsing text configs on the GPU destroys performance. The "Baking" stage separates "Human Configs" (TOML) and "Machine Data" (Binary Blobs). All results are saved in `Axicor_Models/`.
 
 ### 2.1. Pipeline
-`TOML Configs` ──→ `[Compiler Tool (CPU)]` ──→ `Binary Blobs` ──→ `[Runtime (GPU)]`
+`TOML Configs` -- `[Compiler Tool (CPU)]` -- `Binary Blobs` -- `[Runtime (GPU)]`
 
 - **Zero-Copy Loading:** The engine performs `mmap` or direct `cudaMemcpy` from the binary into VRAM. No parsing at startup.
 
@@ -91,20 +91,20 @@ pub struct ShardStateSoA {
     pub total_axons: usize,    // Local + Ghost + Virtual (aligned to 32)
 
     // Soma arrays (size = padded_n)
-    pub voltage: Vec<i32>,           // 4 bytes × N
-    pub flags: Vec<u8>,              // 1 byte × N (upper nibble: Type, bit 0: Is_Spiking)
-    pub threshold_offset: Vec<i32>,  // 4 bytes × N
-    pub refractory_counter: Vec<u8>, // 1 byte × N
-    pub soma_to_axon: Vec<u32>,      // 4 bytes × N (mapping Soma → Local Axon ID)
+    pub voltage: Vec<i32>,           // 4 bytes  N
+    pub flags: Vec<u8>,              // 1 byte  N (upper nibble: Type, bit 0: Is_Spiking)
+    pub threshold_offset: Vec<i32>,  // 4 bytes  N
+    pub refractory_counter: Vec<u8>, // 1 byte  N
+    pub soma_to_axon: Vec<u32>,      // 4 bytes  N (mapping Soma  Local Axon ID)
 
-    // Dendrite arrays - Columnar Layout (size = 128 × padded_n)
+    // Dendrite arrays - Columnar Layout (size = 128  padded_n)
     // CUDA access: data[slot * padded_n + tid]
-    pub dendrite_targets: Vec<u32>,  // 4 bytes × 128 × N (Packed: 22b Axon_ID | 10b Segment_Index)
-    pub dendrite_weights: Vec<i16>,  // 2 bytes × 128 × N (Signed: sign = E/I)
-    pub dendrite_timers: Vec<u8>,    // 1 byte × 128 × N
+    pub dendrite_targets: Vec<u32>,  // 4 bytes  128  N (Packed: 22b Axon_ID | 10b Segment_Index)
+    pub dendrite_weights: Vec<i16>,  // 2 bytes  128  N (Signed: sign = E/I)
+    pub dendrite_timers: Vec<u8>,    // 1 byte  128  N
 
     // Axon arrays (size = total_axons, NOT padded_n!)
-    pub axon_heads: Vec<u32>,        // 4 bytes × A (PropagateAxons: += v_seg)
+    pub axon_heads: Vec<u32>,        // 4 bytes  A (PropagateAxons: += v_seg)
 }
 ```
 
@@ -122,7 +122,7 @@ pub fn entity_seed(master_seed: u64, packed_pos: u32) -> u64 {
 Complete rejection of objects in GPU memory. This is not a recommendation, it is an architectural law.
 
 ### 3.1. The Problem: AoS (Array of Structures)
-If you read voltage for all neurons in an AoS pattern, the GPU loads `pos` and `type_id` into the cache — garbage that is not needed. Cache line payload ≈ 15%.
+If you read voltage for all neurons in an AoS pattern, the GPU loads `pos` and `type_id` into the cache  garbage that is not needed. Cache line payload  15%.
 
 ### 3.2. The Solution: SoA
 A GPU warp (32 threads) reads 32 consecutive f32 values in one memory transaction. Cache line payload = 100%.
@@ -133,7 +133,7 @@ The narrowest memory bottleneck: 128 dendrites per neuron.
 - Not `Neuron.Dendrites[0..127]` (row-major).
 - But `Column[Slot_K]` - K-th dendrite for all neurons consecutively (column-major).
 
-In the loop `for slot in 0..128`, all GPU threads access `Slot_K` — perfectly linear read. Bandwidth is utilized at 100%.
+In the loop `for slot in 0..128`, all GPU threads access `Slot_K`  perfectly linear read. Bandwidth is utilized at 100%.
 
 ---
 
@@ -274,8 +274,8 @@ pub fn compile_dds_heartbeat(period_ticks: u32) -> u16 {
 
 ### 6.4. Algorithmic Derivation of D1/D2 Receptors
 
-- `d1_affinity` (LTP-like): Is_Excitatory → High (1.5x), Is_Inhibitory → Low (0.5x).
-- `d2_affinity` (LTD-like): Is_Excitatory → Medium (1.0x), Is_Inhibitory → High (2.0x).
+- `d1_affinity` (LTP-like): Is_Excitatory  High (1.5x), Is_Inhibitory  Low (0.5x).
+- `d2_affinity` (LTD-like): Is_Excitatory  Medium (1.0x), Is_Inhibitory  High (2.0x).
 
 ---
 
@@ -283,15 +283,15 @@ pub fn compile_dds_heartbeat(period_ticks: u32) -> u16 {
 Defines the topology of the multi-zone brain: which zones are present and how they synchronize.
 
 ### 7.1. Structure and Hierarchy
-**Invariant:** Every zone references a `baked_dir` folder inside `Genesis_Models`. The absence of a file in `baked_dir` yields a critical initialization error (Must have: `.state`, `.axons`, `.gxo`).
+**Invariant:** Every zone references a `baked_dir` folder inside `Axicor_Models`. The absence of a file in `baked_dir` yields a critical initialization error (Must have: `.state`, `.axons`, `.gxo`).
 
 ### 7.3. `[[zone]]` Section
 
 ```toml
 [[zone]]
 name = "SensoryCortex"
-blueprints = "Genesis_Models/mouse_agent/zones/SensoryCortex/blueprints.toml"
-baked_dir = "Genesis_Models/mouse_agent/baked/SensoryCortex/"
+blueprints = "Axicor_Models/mouse_agent/zones/SensoryCortex/blueprints.toml"
+baked_dir = "Axicor_Models/mouse_agent/baked/SensoryCortex/"
 ```
 
 ### 7.4. `[[connection]]` Section: Inter-Zone Links

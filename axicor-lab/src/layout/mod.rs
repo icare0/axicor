@@ -5,6 +5,6 @@ pub mod systems;
 pub mod overlay;
 pub mod ui;
 
-// Реэкспорт для удобства внешних плагинов
+//     
 pub use domain::Pane;
 pub use plugin::WindowManagerPlugin;

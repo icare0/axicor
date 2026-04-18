@@ -78,7 +78,7 @@ fn draw_project_root<FLoad, FZone>(
         .id_source(&project.name)
         .default_open(is_project_active)
         .show(ui, |ui| {
-            // У корня проекта родителем для департаментов является путь к simulation.toml
+            //          simulation.toml
             let parent_path = find_simulation_node(&project.root_nodes).map(|n| n.path.clone()).unwrap_or_default();
             for node in &project.root_nodes {
                 draw_node_recursive(ui, &project.name, node, &parent_path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
@@ -102,7 +102,7 @@ fn draw_project_root<FLoad, FZone>(
                 position: pos,
                 actions: vec![layout_api::MenuAction {
                     action_id: format!("explorer.delete_model|{}", project.name),
-                    label: "🗑 Delete Model".into(),
+                    label: " Delete Model".into(),
                 }],
             });
         }
@@ -136,16 +136,16 @@ fn draw_node_recursive<FZone>(
     if is_active { label_text = label_text.strong(); }
     if is_strikethrough { label_text = label_text.strikethrough(); }
 
-    // ПРИОРИТЕТ: Используем node.id для идентификации в egui!
+    // :  node.id    egui!
     let id = ui.make_persistent_id(&node.id);
     let mut collapsing = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
     let mut response = None;
     ui.horizontal(|ui| {
         if !node.children.is_empty() {
-            // DOD FIX: Явно обрабатываем клик по кнопке переключения
+            // DOD FIX:      
             if collapsing.show_toggle_button(ui, egui::collapsing_header::paint_default_icon).clicked() {
-                // Ничего не делаем, show_toggle_button сам инвертирует состояние внутри collapsing
+                //   , show_toggle_button     collapsing
             }
         } else {
             ui.add_space(14.0); 
@@ -186,7 +186,7 @@ fn draw_node_recursive<FZone>(
                         if node.git_status != crate::domain::GitStatus::Deleted {
                             actions.push(layout_api::MenuAction {
                                 action_id: format!("explorer.delete_dept|{}|{}|{}", name, node.id, parent_path.display()),
-                                label: "🗑 Delete Department".into(),
+                                label: " Delete Department".into(),
                             });
                         }
                     }
@@ -195,7 +195,7 @@ fn draw_node_recursive<FZone>(
                         if node.git_status != crate::domain::GitStatus::Deleted {
                             actions.push(layout_api::MenuAction {
                                 action_id: format!("explorer.delete_shard|{}|{}|{}", name, node.id, parent_path.display()),
-                                label: "🗑 Delete Shard".into(),
+                                label: " Delete Shard".into(),
                             });
                         }
                     }
@@ -213,13 +213,13 @@ fn draw_node_recursive<FZone>(
         }
     }
 
-    // DOD FIX: ОБЯЗАТЕЛЬНО сохраняем состояние, иначе стрелка не будет работать!
+    // DOD FIX:   ,     !
     collapsing.store(ui.ctx());
 
     if collapsing.is_open() {
         ui.indent(id, |ui| {
             for child in &node.children {
-                // В рекурсии передаем путь текущего узла как родительский для детей
+                //          
                 draw_node_recursive(ui, project_name, child, &node.path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
             }
         });

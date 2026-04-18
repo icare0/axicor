@@ -18,7 +18,7 @@ pub fn draw_type_selector(ui: &mut egui::Ui, types: &[NeuronType], selected_idx:
         
         egui::ComboBox::from_id_source("type_selector")
             .selected_text(current_name)
-            .width(ui.available_width() - 60.0) // Оставляем место для кнопок
+            .width(ui.available_width() - 60.0) //    
             .show_ui(ui, |ui| {
                 for (i, t) in types.iter().enumerate() {
                     let text = format!("[{}] {}", i, t.name);
@@ -27,11 +27,11 @@ pub fn draw_type_selector(ui: &mut egui::Ui, types: &[NeuronType], selected_idx:
                 }
             });
 
-        // [DOD FIX] Аппаратные лимиты (макс 16, мин 1)
+        // [DOD FIX]   ( 16,  1)
         if ui.add_enabled(types.len() < 16, egui::Button::new("+")).on_hover_text("Add new type (Max 16)").clicked() {
             action = TypeAction::Add;
         }
-        if ui.add_enabled(types.len() > 1, egui::Button::new("🗑")).on_hover_text("Delete selected type").clicked() {
+        if ui.add_enabled(types.len() > 1, egui::Button::new("")).on_hover_text("Delete selected type").clicked() {
             action = TypeAction::Delete;
         }
     });

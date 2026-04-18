@@ -10,12 +10,12 @@ pub fn draw_breadcrumbs(
     state: &mut NodeGraphUiState,
     send_open: &mut impl FnMut(std::path::PathBuf),
 ) {
-    // Рисуем крошки строго по иерархии: Дед -> Батя -> Я
+    //     :  ->  -> 
     
-    // 1. Модель
+    // 1. 
     crumb_model_system::draw_model_crumb(ui, graph, state, &mut *send_open);
-    ui.label(egui::RichText::new("›").color(Color32::DARK_GRAY));
+    ui.label(egui::RichText::new("").color(Color32::DARK_GRAY));
 
-    // 2. Департамент
+    // 2. 
     crumb_department_system::draw_department_crumb(ui, graph, state, &mut *send_open);
 }

@@ -1,6 +1,6 @@
 <h1 align="center" style="color: red;">ДЕМОНСТРАЦИЯ РАБОТЫ "ЕКСПЕРИМЕНТАЛЬНО"</h1>
 
-# 🧠 Axicor Lite: Пошаговое руководство по запуску на ESP32
+# [BRAIN] Axicor Lite: Пошаговое руководство по запуску на ESP32
 
 Это руководство описывает процесс развертывания нейроморфного движка Axicor Lite на микроконтроллере (LilyGO T-Display или аналоги на базе ESP32/S3). 
 
@@ -32,8 +32,8 @@
 2.  **WTA-Дистилляция:** Запусти линковщик памяти. Он отберет ТОП-32 самых сильных синапса для каждого нейрона, внедрит C-ABI заголовок и выровняет бинарник по границе 64 КБ для аппаратного MMU:
     ```bash
     python3 genesis-lite/tools/distill_esp32.py \
-      Genesis-Models/CartPole-example/baked/SensoryCortex/shard.state \
-      Genesis-Models/CartPole-example/baked/SensoryCortex/shard.axons
+      Axicor-Models/CartPole-example/baked/SensoryCortex/shard.state \
+      Axicor-Models/CartPole-example/baked/SensoryCortex/shard.axons
     ```
     *Результат:* В корне проекта появятся файлы `shard.sram` (динамические веса) и `shard.flash` (топология).
 
@@ -86,7 +86,7 @@ idf.py -p /dev/ttyACM0 monitor
 
 ### Что ты должен увидеть:
 *   **Консоль:** MMU детектит заголовок "TOPO", автоопределяет 832 нейрона.
-*   **Core 1:** Начинает выдавать логи: `⚡ Tick X00 | Hot loop time: ~12000 us`. (Если время < 15мс — HFT бюджет соблюден).
+*   **Core 1:** Начинает выдавать логи: `[TICK] Tick X00 | Hot loop time: ~12000 us`. (Если время < 15мс - HFT бюджет соблюден).
 *   **Дисплей:** (Позже добавим) Отрисуется зеленый Lock-Free TUI с метриками:
     *   **TPS:** Количество тиков в секунду.
     *   **D:** Текущий уровень дофамина в системе.
