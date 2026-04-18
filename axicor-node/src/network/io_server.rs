@@ -124,10 +124,15 @@ impl ExternalIoServer {
     /// Runs the UDP receiver loop.
     pub async fn run_rx_loop(&self) {
         let mut buf = [0u8; 65536];
-        println!("[ExternalIO] UDP Receiver Loop Started on {}", self.socket.local_addr().unwrap());
+        let local_addr = self.socket.local_addr().unwrap();
+        println!("[ExternalIO] UDP Receiver Loop Started on {}", local_addr);
         loop {
-            if let Ok((len, _addr)) = self.socket.recv_from(&mut buf).await {
-                self.process_incoming_udp(&buf[..len]);
+            match self.socket.recv_from(&mut buf).await {
+                Ok((len, _addr)) => {
+                    self.process_incoming_udp(&buf[..len]);
+                }
+                Err(_e) => {
+                }
             }
         }
     }

@@ -97,7 +97,7 @@ def build_ant_connectome():
     brain_toml_path = os.path.join(out_dir, "brain.toml")
 
     result = subprocess.run([
-        "cargo", "run", "--release", "-p", "axicor-baker", "--bin", "baker", "--",
+        "cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker", "--",
         "--brain", brain_toml_path, "--clean"
     ], cwd=base_path)
 
