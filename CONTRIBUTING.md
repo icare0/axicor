@@ -1,27 +1,27 @@
-# Contributing to Genesis
+# Contributing to Axicor
 
-## Добро пожаловать
+## Welcome
 
-Любая помощь приветствуется - баги, идеи, код, документация.
+All forms of assistance are welcome - bug reports, feature ideas, code contributions, and documentation improvements.
 
-## Условие участия
+## Terms of Contribution
 
-**Отправляя Pull Request, вы соглашаетесь со следующим:**
+**By submitting a Pull Request, you agree to the following:**
 
-Вы предоставляете автору проекта (Alex) безотзывное, бессрочное, всемирное, безвозмездное право использовать, изменять, сублицензировать и распространять ваш вклад **на любых условиях**, включая коммерческие и проприетарные лицензии, без каких-либо обязательств перед вами.
+You grant the project lead (Alex) an irrevocable, perpetual, worldwide, royalty-free right to use, modify, sublicense, and distribute your contribution **on any terms**, including commercial and proprietary licenses, without any obligation to you.
 
-Вы сохраняете авторство своего кода, но не можете предъявлять прав на его использование или ограничение его распространения в любой форме в рамках этого проекта или его производных.
+You retain authorship of your code, but you may not claim rights to its use or restrict its distribution in any form within this project or its derivatives.
 
-Если вы не согласны с этим условием - не отправляйте PR.
+If you do not agree to these terms, please do not submit a Pull Request.
 
-## Как контрибьютить
+## Contribution Workflow
 
-1. Fork → ветка → PR
-2. Один PR = одна задача
-3. Код должен соответствовать архитектуре из `docs/specs/`
-4. Для крупных изменений - сначала открой Issue и обсуди
-5. PR может быть отклонён автором проекта на основании его личного опыта и понимания проекта и его архитектуры без каких-либо обязательств перед вами и объяснения причин.
+1. Fork the repository - Create a branch - Submit a PR.
+2. One PR should ideally address one specific task or issue.
+3. Contributions must adhere to the architectural standards defined in the `docs/` specifications and the Axicor Book.
+4. For major changes, please open an Issue to discuss the implementation plan first.
+5. Pull Requests may be rejected by the project lead based on personal experience and architectural vision without further explanation or obligation to the contributor.
 
-## Связь
+## Communication
 
-Issues и Discussions на GitHub.
+Please use **GitHub Issues** and **Discussions** for project-related communication.

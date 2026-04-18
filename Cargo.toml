@@ -19,7 +19,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
@@ -34,7 +34,7 @@ categories = ["science::neuroscience", "simulation"]
 
 [workspace.dependencies]
 # axicor-core is a local dep for the others
-axicor-core = { version = "0.1.0", path = "axicor-core" }
+axicor-core = { version = "0.0.1", path = "axicor-core" }
 wyhash = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"

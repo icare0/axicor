@@ -31,7 +31,7 @@ exclude = [
 
 [dependencies]
 axicor-core = { workspace = true }
-axicor-compute = { version = "0.1.0", path = "../axicor-compute" }
+axicor-compute = { version = "0.0.1", path = "../axicor-compute" }
 anyhow = "1"
 tokio = { version = "1.49.0", features = ["full"] }
 bincode = "1.3.3"
