@@ -1,11 +1,11 @@
 use crate::network::{SpikeEvent, SpikeBatchHeader};
+use axicor_core::ipc::SpikeBatchHeaderV2;
 use crate::network::bsp::BspBarrier;
 use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use bytemuck::{Pod, Zeroable};
 
 pub fn fnv1a_32(data: &[u8]) -> u32 {
     let mut hash_value: u32 = 0x811c9dc5;
@@ -18,23 +18,6 @@ pub fn fnv1a_32(data: &[u8]) -> u32 {
 
 pub struct RoutingTable {
     map_ptr: AtomicPtr<HashMap<u32, (SocketAddr, u16)>>,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub struct SpikeBatchHeaderV2 {
-    pub src_zone_hash: u32,
-    pub dst_zone_hash: u32,
-    pub epoch: u32,
-    pub chunk_idx: u16,    // 0xFFFF = ACK
-    pub total_chunks: u16, // 0 = Empty heartbeat / ACK
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub struct SpikeEventV2 {
-    pub ghost_id: u32,
-    pub tick_offset: u32, 
 }
 
 impl RoutingTable {

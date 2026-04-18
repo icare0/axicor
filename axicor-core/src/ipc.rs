@@ -166,7 +166,7 @@ pub struct ShmHeader {
 }
 
 
-const _: () = assert!(std::mem::size_of::<ShmHeader>() == 128, "ShmHeader MUST be 128 bytes");
+const _: () = assert!(std::mem::size_of::<ShmHeader>() == 128);
 
 impl ShmHeader {
     pub fn new(zone_hash: u32, padded_n: u32, total_axons: u32) -> Self {
@@ -433,6 +433,42 @@ pub struct SpikeEvent {
 }
 const _: () = assert!(std::mem::size_of::<SpikeEvent>() == 8, "SpikeEvent must be 8 bytes");
 
+pub const CTRL_MAGIC_DOPA: u32 = 0x41504F44; // "DOPA" in Little-Endian
+
+/// Header for inter-node spike batches (V2).
+/// Exactly 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct SpikeBatchHeaderV2 {
+    pub src_zone_hash: u32,
+    pub dst_zone_hash: u32,
+    pub epoch: u32,
+    pub chunk_idx: u16,    // 0xFFFF = ACK
+    pub total_chunks: u16, // 0 = Empty heartbeat / ACK
+}
+const _: () = assert!(std::mem::size_of::<SpikeBatchHeaderV2>() == 16);
+
+/// A single spike event (V2).
+/// Exactly 8 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct SpikeEventV2 {
+    pub ghost_id: u32,
+    pub tick_offset: u32, 
+}
+const _: () = assert!(std::mem::size_of::<SpikeEventV2>() == 8);
+
+/// Control Plane packet (aliases SpikeEventV2).
+/// Exactly 8 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct ControlPacket {
+    pub magic: u32,     // MUST be CTRL_MAGIC_DOPA
+    pub dopamine: i16,   // R-STDP injection (-32768..32767)
+    pub _pad: u16,      // Alignment to 8 bytes
+}
+const _: () = assert!(std::mem::size_of::<ControlPacket>() == 8);
+
 // ===========================================================================
 // IDE Telemetry (Step 14)
 // ===========================================================================
@@ -532,7 +568,7 @@ pub struct ExternalIoHeader {
     pub global_reward: i16, // [DOD] R-STDP Dopamine Modulator
     pub _padding:     u16,
 }
-const _: () = assert!(std::mem::size_of::<ExternalIoHeader>() == 20, "ExternalIoHeader must be 20 bytes");
+const _: () = assert!(std::mem::size_of::<ExternalIoHeader>() == 20);
 
 impl ExternalIoHeader {
     pub fn new(magic: u32, zone_hash: u32, matrix_hash: u32, payload_size: u32) -> Self {

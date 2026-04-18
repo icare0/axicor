@@ -44,7 +44,7 @@ pub struct VariantParameters {
     pub _pad: [u8; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64, "L1 Cache line size violation!");
+const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
 const _: () = assert!(std::mem::align_of::<VariantParameters>() == 64, "Alignment violation!");
 
 // [DOD] 32-byte alignment guarantees 8 heads are loaded in 1 L1 cache transaction.
