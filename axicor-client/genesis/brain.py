@@ -6,26 +6,26 @@ from .memory import GenesisMemory
 from .utils import fnv1a_32
 
 class Zone:
-    """Представляет одну зону мозга (например, SensoryCortex)."""
+    """Represents a single brain zone (e.g., SensoryCortex)."""
     def __init__(self, name: str, baked_dir: str):
         self.name = name
         self.hash = fnv1a_32(name.encode('utf-8'))
         
         self.manifest_path = os.path.join(baked_dir, "manifest.toml")
         
-        # Control Plane доступен всегда (даже если нода оффлайн)
+        # Control Plane is always available (even if the node is offline)
         self.control = GenesisControl(self.manifest_path)
         self._memory = None
 
     @property
     def memory(self) -> GenesisMemory:
-        """Ленивая инициализация Memory Plane (mmap). Упадет, если нода не запущена."""
+        """Lazy initialization of Memory Plane (mmap). Will fail if node is not running."""
         if self._memory is None:
             self._memory = GenesisMemory(self.hash)
         return self._memory
 
 class GenesisClusterControl:
-    """Глобальный контроллер: применяет команды ко всем зонам кластера одновременно."""
+    """Global controller: applies commands to all cluster zones simultaneously."""
     def __init__(self, zones: Dict[str, Zone]):
         self._zones = zones
 
@@ -47,8 +47,8 @@ class GenesisClusterControl:
 
 class GenesisBrain:
     """
-    Единая точка входа для управления мультизональным коннектомом.
-    Автоматически читает топологию из brain.toml.
+    Unified entry point for multi-zone connectome management.
+    Automatically reads topology from brain.toml.
     """
     def __init__(self, brain_toml_path: str):
         self.brain_toml_path = brain_toml_path
@@ -65,5 +65,5 @@ class GenesisBrain:
             baked_dir = zone_data.get("baked_dir", f"baked/{name}/")
             self.zones[name] = Zone(name, baked_dir)
 
-        # Интерфейс кластерного управления
+        # Cluster management interface
         self.control = GenesisClusterControl(self.zones)

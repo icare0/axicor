@@ -3,14 +3,14 @@ from enum import Enum
 from .control import GenesisControl
 
 class Phase(Enum):
-    EXPLORATION = 1   # Бурный рост, много дофамина, низкий порог прунинга
-    DISTILLATION = 2  # Выжигание шума, высокий порог прунинга, частый сон
-    CRYSTALLIZED = 3  # Чистый инференс, сон и пластичность отключены
+    EXPLORATION = 1   # Rapid growth, high dopamine, low pruning threshold
+    DISTILLATION = 2  # Noise burnout, high pruning threshold, frequent sleep
+    CRYSTALLIZED = 3  # Pure inference, sleep and plasticity disabled
 
 class GenesisAutoTuner:
     """
-    Production State Machine для автоматической дистилляции топологии.
-    Оперирует скользящим средним (SMA) метрик среды.
+    Production State Machine for automated topology distillation.
+    Operates on Simple Moving Average (SMA) of environment metrics.
     """
     def __init__(self, control: GenesisControl, target_score: float = 400.0, window_size: int = 15, **kwargs):
         self.control = control
@@ -21,22 +21,22 @@ class GenesisAutoTuner:
         
         self.target_score = 400.0
 
-        # Конфигурация параметров по фазам
+        # Phase-specific parameter configuration
         self.explore_params = self._extract_params(kwargs, "explore_")
         self.distill_params = self._extract_params(kwargs, "distill_")
         self.crystallized_params = self._extract_params(kwargs, "crystallized_")
 
-        # Инициализация фазы эксплорации
+        # Initialize exploration phase
         self._apply_phase_settings(self.explore_params)
 
     def _extract_params(self, kwargs: dict, prefix: str) -> dict:
-        """Извлекает ВСЕ параметры с данным префиксом. Любой параметр по умолчанию None."""
+        """Extracts ALL parameters with the given prefix. Defaults to None."""
         params = {}
         for key, value in kwargs.items():
             if key.startswith(prefix):
                 param_name = key[len(prefix):]
                 params[param_name] = value
-        # target_score -> target (для обратной совместимости)
+        # target_score -> target (for backward compatibility)
         if "target_score" in params:
             params["target"] = params.pop("target_score")
         if "target" not in params:
@@ -44,7 +44,7 @@ class GenesisAutoTuner:
         return params
 
     def _apply_phase_settings(self, p: dict):
-        """Пробрасывает параметры в манифест. Любой параметр может быть None — просто пропускается."""
+        """Propagates parameters to the manifest. Any parameter can be None — simply skipped."""
         if p.get("prune") is not None:
             self.control.set_prune_threshold(p["prune"])
         if p.get("night") is not None:
@@ -52,12 +52,12 @@ class GenesisAutoTuner:
         if p.get("sprouts") is not None:
             self.control.set_max_sprouts(p["sprouts"])
         
-        # Рецепторы (variant 0/1)
+        # Receptors (variant 0/1)
         if p.get("d1") is not None or p.get("d2") is not None:
             self.control.set_dopamine_receptors(0, p.get("d1"), p.get("d2"))
             self.control.set_dopamine_receptors(1, p.get("d1"), p.get("d2"))
         
-        # Физика
+        # Physics
         if p.get("leak") is not None or p.get("homeos_penalty") is not None or p.get("homeos_decay") is not None:
             l_base = p.get("leak")
             hp_base = p.get("homeos_penalty")
@@ -69,54 +69,54 @@ class GenesisAutoTuner:
             self.control.set_membrane_physics(0, l_base, hp_base, hd_base)
             self.control.set_membrane_physics(1, l_inh, hp_inh, hd_base)
 
-        # [DOD FIX] Плоское кэширование переменных для O(1) доступа в Hot Loop
+        # [DOD FIX] Flat caching of variables for O(1) access in Hot Loop
         if p.get("target") is not None: self.target_score = p["target"]
 
 
     def step(self, episode_score: float) -> Phase:
         """
-        Вызывается в конце каждого эпизода среды.
-        Возвращает текущую фазу для логирования.
+        Called at the end of each environment episode.
+        Returns the current phase for logging.
         """
         if self.phase == Phase.CRYSTALLIZED:
             return self.phase
             
         self.window.append(episode_score)
         if len(self.window) < self.window.maxlen:
-            return self.phase # Ждем накопления статистики
+            return self.phase # Wait for enough statistics
             
         sma_score = sum(self.window) / len(self.window)
         
         if self.phase == Phase.EXPLORATION:
-            # Сеть нащупала решение (например, стабильно 70% от таршета)
+            # Network found a potential solution (e.g., stable 70% of target)
             if sma_score >= self.target_score * 0.7:
                 self._transition_to_distillation()
                 
         elif self.phase == Phase.DISTILLATION:
-            # Сеть очистилась от шума и достигла идеала
+            # Network cleared noise and reached the ideal state
             if sma_score >= self.target_score:
                 self._transition_to_crystallization()
-            # Сеть забыла нужный навык из-за слишком жесткого прунинга
+            # Network lost the skill due to excessive pruning
             elif sma_score < self.target_score * 0.4:
                 self._transition_to_exploration()
                 
         return self.phase
 
     def _transition_to_distillation(self):
-        print("\n🔥 [AutoTuner] Переход в DISTILLATION: Выжигаем слабые связи и уточняем физику...")
+        print("\n🔥 [AutoTuner] Transitioning to DISTILLATION: Burning weak connections and refining physics...")
         self._apply_phase_settings(self.distill_params)
         self.phase = Phase.DISTILLATION
 
     def _transition_to_crystallization(self):
-        print("\n❄️ [AutoTuner] Переход в CRYSTALLIZED: Граф заморожен. Идеальный навык.")
+        print("\n❄️ [AutoTuner] Transitioning to CRYSTALLIZED: Graph frozen. Ideal skill level.")
         self._apply_phase_settings(self.crystallized_params)
         
-        # [DOD FIX] Аппаратное отключение электрической пластичности (GSOP)
+        # [DOD FIX] Hardware-level disabling of synaptic plasticity (GSOP)
         self.control.disable_all_plasticity() 
         self.phase = Phase.CRYSTALLIZED
 
     def _transition_to_exploration(self):
-        print("\n🌱 [AutoTuner] Откат в EXPLORATION: Навык утерян, возобновляем рост...")
+        print("\n🌱 [AutoTuner] Rolling back to EXPLORATION: Skill lost, resuming growth...")
         self._apply_phase_settings(self.explore_params)
         self.phase = Phase.EXPLORATION
-        self.window.clear() # Сбрасываем окно, чтобы не прыгать туда-сюда
+        self.window.clear() # Reset window to prevent oscillation

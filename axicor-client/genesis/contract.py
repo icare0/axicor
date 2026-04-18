@@ -6,19 +6,19 @@ from .builder import IoMatrixDesigner
 from .encoders import PopulationEncoder, PwmEncoder
 from .decoders import PwmDecoder, PopulationDecoder
 from .axic import AxicReader
-from .utils import fnv1a_32 # DOD FIX: Исправлен Circular Import
+from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
 
 class GenesisIoContract:
     def __init__(self, axic_path: str, zone_name: str):
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
         reader = AxicReader(axic_path)
         
-        # [DOD] SDK загружает манифест из архива. 
-        # Путь в архиве: {zone_name}/io.toml (копируется в BrainDNA при бакинге)
-        # UPDATE: Инструкция говорит f"{zone_name}/io.toml"
+        # [DOD] SDK loads the manifest from the archive. 
+        # Path in archive: {zone_name}/io.toml (copied to BrainDNA during baking)
+        # UPDATE: Instruction specifies f"{zone_name}/io.toml"
         io_bytes = reader.read_file(f"{zone_name}/io.toml")
         if not io_bytes:
-            # Попробуем альтернативный путь если первый не сработал (совместимость)
+            # Try alternative path for backward compatibility if the first one fails
             io_bytes = reader.read_file(f"baked/{zone_name}/BrainDNA/io.toml")
             
         if not io_bytes:
@@ -30,11 +30,11 @@ class GenesisIoContract:
         self.outputs = {out["name"]: out for out in self.data.get("output", [])}
 
     def get_client_config(self, batch_size: int) -> Dict[str, Any]:
-        """Возвращает kwargs для распаковки в GenesisMultiClient."""
+        """Returns kwargs for unpacking into GenesisMultiClient."""
         matrices = []
         rx_layout = []
 
-        # 1. TX: Входы (Битовые маски)
+        # 1. TX: Inputs (Bitmasks)
         for inp in self.inputs.values():
             designer = IoMatrixDesigner(inp["width"], inp["height"], is_input=True)
             matrices.append({
@@ -43,7 +43,7 @@ class GenesisIoContract:
                 "payload_size": designer.bytes_per_tick * batch_size
             })
 
-        # 2. RX: Выходы (Динамическая L7-фрагментация)
+        # 2. RX: Outputs (Dynamic L7 fragmentation)
         current_offset = 0
         for out in self.outputs.values():
             designer = IoMatrixDesigner(out["width"], out["height"], is_input=False)
@@ -67,12 +67,12 @@ class GenesisIoContract:
         return PopulationEncoder(vars_count, neurons_per_var, batch_size, sigma)
 
     def create_pwm_decoder(self, name: str, batch_size: int) -> PwmDecoder:
-        # Прямое совпадение (нефрагментированный выход)
+        # Direct match (unfragmented output)
         if name in self.outputs:
             out = self.outputs[name]
             return PwmDecoder(out["width"] * out["height"], batch_size)
         
-        # Поиск чанков: motor_out -> motor_out_chunk_0, motor_out_chunk_1, ...
+        # Search for chunks: motor_out -> motor_out_chunk_0, motor_out_chunk_1, ...
         total_neurons = 0
         found = False
         for out_name, out in self.outputs.items():
@@ -87,8 +87,8 @@ class GenesisIoContract:
 
     def create_input_facade(self, name: str, buffer: Any) -> Any:
         """
-        [DOD] Генерирует Zero-Cost фасад для входного преаллоцированного буфера.
-        Свойства класса жестко привязываются к индексам массива через замыкания (closures).
+        [DOD] Generates a Zero-Cost facade for a preallocated input buffer.
+        Class properties are strictly bound to array indices via closures.
         """
         if name not in self.inputs:
             raise KeyError(f"Input '{name}' not found in contract.")
@@ -99,7 +99,7 @@ class GenesisIoContract:
             def __init__(self, buf):
                 self.raw_buffer = buf
 
-        # Фабрика для жесткой фиксации индекса в области видимости лямбды
+        # Factory to strictly fix index in the lambda scope
         def make_prop(idx):
             return property(
                 lambda self: self.raw_buffer[idx], 
@@ -115,9 +115,9 @@ class GenesisIoContract:
 
     def create_output_facade(self, name: str, buffer: Any) -> Any:
         """
-        [DOD] Генерирует Read-Only фасад для выходного буфера моторов.
+        [DOD] Generates a Read-Only facade for the motor output buffer.
         """
-        # Учитываем, что выход может быть нефрагментированным или чанком 0
+        # Consider that the output may be unfragmented or chunk 0
         target_out = None
         if name in self.outputs:
             target_out = self.outputs[name]
@@ -133,7 +133,7 @@ class GenesisIoContract:
             def __init__(self, buf):
                 self.raw_buffer = buf
 
-        # Read-only фабрика
+        # Read-only factory
         def make_prop(idx):
             return property(lambda self: self.raw_buffer[idx])
 

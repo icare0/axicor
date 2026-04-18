@@ -7,16 +7,16 @@ from genesis.platform import get_shm_path
 
 def test_checkpointing():
     ZONE_HASH = 0xCAFEBABE
-    PADDED_N = 10_000 # Для теста 10к хватит
+    PADDED_N = 10_000 # 10k is sufficient for testing
     
-    # Расчет размеров
+    # Size calculation
     WEIGHTS_SIZE = PADDED_N * 128 * 4
     TARGETS_SIZE = PADDED_N * 128 * 4
     FLAGS_SIZE = PADDED_N * 1
     
     # 64 (Header) + Weights + Targets + Axons + Handovers + Prunes + Incoming + Flags
     # Flags offset: 64 + W + T + Axons(N*4) + Handovers(10000*20) + Prunes(10000*8) + Incoming(10000*4)
-    # Судя по GenesisMemory.SHM_HEADER_FMT, flags_offset это 17-й элемент (индекс 16)
+    # According to GenesisMemory.SHM_HEADER_FMT, flags_offset is the 17th element (index 16)
     
     axons_off = 64 + WEIGHTS_SIZE + TARGETS_SIZE
     handovers_off = axons_off + (PADDED_N * 4)
@@ -28,13 +28,13 @@ def test_checkpointing():
     
     shm_path = get_shm_path(ZONE_HASH)
     
-    # 1. Создаем фейковый дамп VRAM
+    # 1. Create fake VRAM dump
     with open(shm_path, "wb") as f:
         f.truncate(SHM_SIZE)
         
     with open(shm_path, "r+b") as f:
         mm = mmap.mmap(f.fileno(), 0)
-        # Заголовок C-ABI v2 (64 bytes)
+        # C-ABI Header v2 (64 bytes)
         struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
                          0x47454E53, 2, 0, 0,
                          PADDED_N, 128, 64, 64 + WEIGHTS_SIZE,
@@ -43,10 +43,10 @@ def test_checkpointing():
                          handovers_off, 0, ZONE_HASH, prunes_off, 0, 0, flags_off)
         mm.close()
 
-    # 2. Инициализируем память
+    # 2. Initialize memory
     mem = GenesisMemory(ZONE_HASH)
     
-    # 3. Записываем маркерные значения
+    # 3. Write marker values
     print("Writing marker values to memory...")
     mem.weights[0, 0] = 777
     mem.weights[127, PADDED_N-1] = -999
@@ -56,12 +56,12 @@ def test_checkpointing():
     mem.flags[0] = 123
     mem.flags[PADDED_N-1] = 255
     
-    # 4. Сохраняем чекпоинт
+    # 4. Save checkpoint
     checkpoint_file = "test_brain.npz"
     print(f"Saving checkpoint to {checkpoint_file}...")
     mem.save_checkpoint(checkpoint_file)
     
-    # 5. Обнуляем память
+    # 5. Reset memory
     print("Clearing memory (Zeroing weights, targets, flags)...")
     mem.clear_weights()
     mem.targets.fill(0)
@@ -70,11 +70,11 @@ def test_checkpointing():
     assert mem.weights[0, 0] == 0
     assert mem.flags[0] == 0
     
-    # 6. Загружаем чекпоинт
+    # 6. Load checkpoint
     print(f"Loading checkpoint from {checkpoint_file}...")
     mem.load_checkpoint(checkpoint_file)
     
-    # 7. Проверяем восстановление данных
+    # 7. Verify data restoration
     print("Validating restored values...")
     assert mem.weights[0, 0] == 777, f"Weight restoration failed: {mem.weights[0,0]}"
     assert mem.weights[127, PADDED_N-1] == -999
@@ -84,7 +84,7 @@ def test_checkpointing():
     
     print("✅ Zero-Copy Checkpointing confirmed!")
     
-    # Чистка
+    # Cleanup
     mem.close()
     if os.path.exists(checkpoint_file):
         os.remove(checkpoint_file)

@@ -15,12 +15,12 @@ def test_builder_io_integration():
     builder = BrainBuilder("TestProject", "out")
     zone = builder.add_zone("V1", 64, 64, 64)
     
-    # Дефолтные sync_batch_ticks = 100
-    # Для матрицы 256x256:
+    # Default sync_batch_ticks = 100
+    # For a 256x256 matrix:
     # payload = 65487. bytes_per_tick = 65487 // 100 = 654.
     # max_aligned_pixels = (654 // 4) * 32 = 163 * 32 = 5216.
     # 256 * 256 = 65536. 
-    # 65536 // 5216 = 12.5 -> должно быть около 13 чанков.
+    # 65536 // 5216 = 12.5 -> should be approximately 13 chunks.
     
     print("Adding fragmented input 'retina' (256x256)...")
     zone.add_input("retina", 256, 256)

@@ -3,22 +3,22 @@ import gc
 import numpy as np
 from genesis.encoders import PwmEncoder, PopulationEncoder
 
-# Константы C-ABI (20 байт заголовок, остальное - payload)
+# C-ABI Constants (20 bytes header, rest is payload)
 MAX_UDP_PAYLOAD = 65507
 HEADER_SIZE = 20
 
 def benchmark_encoder(name, encoder, iters=10_000):
-    # 1. Преаллокация буфера, имитирующего UDP-сокет (Zero-Copy Target)
+    # 1. Preallocation of buffer simulating a UDP socket (Zero-Copy Target)
     tx_buffer = bytearray(MAX_UDP_PAYLOAD)
     tx_view = memoryview(tx_buffer)
     
-    # 2. Преаллокация данных
+    # 2. Data preallocation
     if isinstance(encoder, PwmEncoder):
         data = np.random.rand(encoder.N).astype(np.float16)
     else:
         data = np.random.rand(encoder.V).astype(np.float16)
     
-    # Прогрев
+    # Warmup
     encoder.encode_into(data, tx_view, HEADER_SIZE)
     
     gc.collect()
@@ -37,7 +37,7 @@ def benchmark_encoder(name, encoder, iters=10_000):
     print(f"🗑 Objects in Gen 0: {count_after - count_before}")
     
     if duration_ms > 1.0:
-        print(f"❌ ПРОВАЛ: {name} нарушил бюджет в 1 миллисекунду!")
+        print(f"❌ FAILURE: {name} violated the 1ms budget!")
         return False
     
     print(f"✅ {name} Success: Zero-Allocation pipeline confirmed.\n")

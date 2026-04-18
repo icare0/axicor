@@ -10,7 +10,7 @@ def test_distillation():
     ZONE_HASH = 0xDEADBEEF
     PADDED_N = 100_000
     
-    # Эмуляция VRAM шарда на 100к нейронов
+    # VRAM shard emulation for 100k neurons
     # 64 (Header) + Weights (100k * 128 * 2) + Targets (100k * 128 * 4) + Handovers...
     WEIGHTS_SIZE = PADDED_N * 128 * 4
     TARGETS_SIZE = PADDED_N * 128 * 4
@@ -19,7 +19,7 @@ def test_distillation():
     
     shm_path = get_shm_path(ZONE_HASH)
     
-    # 1. Создаем фейковый дамп VRAM
+    # 1. Create fake VRAM dump
     with open(shm_path, "wb") as f:
         f.truncate(SHM_SIZE)
         
@@ -29,7 +29,7 @@ def test_distillation():
         weights_off = 64
         targets_off = 64 + WEIGHTS_SIZE
         
-        # Пишем строгий C-ABI Header v2
+        # Write strict C-ABI Header v2
         # magic(I), version(B), state(B), pad(H)
         # padded_n(I), dendrite_slots(I), weights_off(I), targets_off(I)
         # ... rest 64 bytes
@@ -46,47 +46,47 @@ def test_distillation():
                          0x47454E53, 2, 0, 0,
                          PADDED_N, 128, weights_off, targets_off,
                          0, # epoch
-                         PADDED_N, # total_axons (для теста равно padded_n)
+                         PADDED_N, # total_axons (set to padded_n for testing)
                          0, 0, ZONE_HASH, 0, 0, 0, 0)
         mm.close()
 
-    # 2. Подключаем Data-Oriented SDK
-    # По умолчанию теперь read_only=False, что нам и нужно.
+    # 2. Connect Data-Oriented SDK
+    # Default is now read_only=False, which is what we need.
     mem = GenesisMemory(ZONE_HASH)
     
-    # 3. Инжектируем тестовые данные (создаем 100 000 сильных и 100 000 слабых связей)
-    # Используем строгий C-ABI Packer (Zero-Index Trap Protection)
+    # 3. Inject test data (create 100,000 strong and 100,000 weak connections)
+    # Use strict C-ABI Packer (Zero-Index Trap Protection)
     mem.targets[0, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 4), np.zeros(PADDED_N)) 
-    mem.weights[0, :] = 100 << 16 # Сильная связь
+    mem.weights[0, :] = 100 << 16 # Strong connection
     
     mem.targets[1, :] = GenesisMemory.pack_targets(np.full(PADDED_N, 9), np.zeros(PADDED_N))
-    mem.weights[1, :] = 10 << 16 # Слабая связь (должна быть уничтожена)
+    mem.weights[1, :] = 10 << 16 # Weak connection (must be pruned)
     
-    # 4. Запуск дистилляции
-    print(f"🧠 Запуск дистилляции {PADDED_N} нейронов (Threshold = 15)...")
+    # 4. Start distillation
+    print(f"🧠 Starting distillation of {PADDED_N} neurons (Threshold = 15)...")
     start = time.perf_counter()
     
     killed = mem.distill_graph(prune_threshold=15)
     
     duration_ms = (time.perf_counter() - start) * 1000
     
-    print(f"⏱ Время дистилляции: {duration_ms:.3f} ms")
-    print(f"💀 Выжжено связей: {killed}")
+    print(f"⏱ Distillation time: {duration_ms:.3f} ms")
+    print(f"💀 Connections burned: {killed}")
     
-    # Проверки инвариантов
-    assert killed == PADDED_N, "Должны были умереть все связи во 2 слоте!"
-    assert np.all(mem.targets[1, :] == 0), "Слабые цели не обнулились!"
+    # Invariant checks
+    assert killed == PADDED_N, "All connections in slot 2 should have died!"
+    assert np.all(mem.targets[1, :] == 0), "Weak targets were not zeroed out!"
     
-    # Проверка распаковкой сильных целей
+    # Verify by unpacking strong targets
     strong_axon_ids, strong_seg_offsets = GenesisMemory.unpack_targets(mem.targets[0, :])
-    assert np.all(strong_axon_ids == 4), f"Сильные axon_id пострадали! Получено {strong_axon_ids[0]}"
-    assert np.all(strong_seg_offsets == 0), "Сильные смещения сегментов пострадали!"
+    assert np.all(strong_axon_ids == 4), f"Strong axon_ids were corrupted! Received {strong_axon_ids[0]}"
+    assert np.all(strong_seg_offsets == 0), "Strong segment offsets were corrupted!"
     
-    print("✅ Сильные связи подтверждены через Unpacker.")
+    print("✅ Strong connections verified via Unpacker.")
     
     mem.close()
     os.remove(shm_path)
-    print("✅ Zero-Copy дистилляция отработала безупречно.\n")
+    print("✅ Zero-Copy distillation completed flawlessly.\n")
 
 if __name__ == '__main__':
     test_distillation()

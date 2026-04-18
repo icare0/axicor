@@ -5,8 +5,8 @@ import cv2
 class RetinaEncoder:
     """
     [DOD] Event-Driven Vision Pipeline.
-    Конвертирует RGB-кадры в разреженные битовые маски признаков (DoG, Motion, Color) 
-    без единой аллокации в куче.
+    Converts RGB frames into sparse feature bitmasks (DoG, Motion, Color) 
+    without any heap allocations.
     """
     def __init__(self, width: int, height: int, batch_size: int, 
                  center_sigma: float = 1.0, surround_sigma: float = 2.0, base_threshold: float = 15.0):
@@ -19,7 +19,7 @@ class RetinaEncoder:
         self.surround_sigma = surround_sigma
         self.base_threshold = base_threshold
 
-        # C-ABI Warp Alignment (строго кратно 32 битам на каждый тик)
+        # C-ABI Warp Alignment (strictly multiple of 32 bits for each tick)
         self.padded_N = math.ceil(self.N / 64) * 64
         self.bytes_per_tick = self.padded_N // 8
         self.total_bytes = self.bytes_per_tick * self.B
@@ -49,38 +49,38 @@ class RetinaEncoder:
 
         # 0. Zero-allocation type cast (uint8 -> float32)
         self._frame_f32[:] = frame_bgr
-        self._batch_bool_buffer.fill(False) # Биологическая тишина по умолчанию
+        self._batch_bool_buffer.fill(False) # Default to biological silence
 
         # 1. Grayscale & Mean-Based Inhibition (Dynamic Threshold)
         cv2.cvtColor(self._frame_f32, cv2.COLOR_BGR2GRAY, dst=self._gray)
         mean_illum = cv2.mean(self._gray)[0]
         dynamic_thresh = self.base_threshold + (mean_illum * 0.1)
 
-        # --- TICK 0: Difference of Gaussians (Контуры) ---
+        # --- TICK 0: Difference of Gaussians (Contours) ---
         cv2.GaussianBlur(self._gray, (0, 0), self.center_sigma, dst=self._center)
         cv2.GaussianBlur(self._gray, (0, 0), self.surround_sigma, dst=self._surround)
         np.subtract(self._center, self._surround, out=self._dog)
         np.greater(self._dog.ravel(), dynamic_thresh, out=self._bool_buffer[:self.N])
         self._batch_bool_buffer[0, :] = self._bool_buffer
 
-        # --- TICK 1: Frame Delta (Движение) ---
+        # --- TICK 1: Frame Delta (Motion) ---
         cv2.absdiff(self._gray, self._prev_gray, dst=self._motion)
         np.greater(self._motion.ravel(), dynamic_thresh, out=self._bool_buffer[:self.N])
         self._batch_bool_buffer[1, :] = self._bool_buffer
         np.copyto(self._prev_gray, self._gray)
 
-        # --- TICK 2 & 3: Chromatic Opponents (Оппонентные цвета) ---
-        # Быстрое in-place извлечение каналов BGR (0=B, 1=G, 2=R)
+        # --- TICK 2 & 3: Chromatic Opponents ---
+        # Fast in-place extraction of BGR channels (0=B, 1=G, 2=R)
         cv2.extractChannel(self._frame_f32, 0, dst=self._b)
         cv2.extractChannel(self._frame_f32, 1, dst=self._g)
         cv2.extractChannel(self._frame_f32, 2, dst=self._r)
 
-        # Tick 2: R-G (Красный-Зеленый)
+        # Tick 2: R-G (Red-Green)
         np.subtract(self._r, self._g, out=self._rg_opp)
         np.greater(self._rg_opp.ravel(), dynamic_thresh, out=self._bool_buffer[:self.N])
         self._batch_bool_buffer[2, :] = self._bool_buffer
 
-        # Tick 3: B-Y (Синий-Желтый) -> Y = (R+G)/2
+        # Tick 3: B-Y (Blue-Yellow) -> Y = (R+G)/2
         np.add(self._r, self._g, out=self._yellow)
         np.multiply(self._yellow, 0.5, out=self._yellow)
         np.subtract(self._b, self._yellow, out=self._by_opp)

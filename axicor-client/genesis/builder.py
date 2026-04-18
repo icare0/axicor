@@ -10,15 +10,15 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 class NeuronBlueprint:
-    """Обертка над спарсенным TOML-файлом типа нейрона из GNM-Library."""
+    """Wrapper over a parsed GNM-Library neuron type TOML file."""
     def __init__(self, filepath: str, data: list):
         self.filepath = filepath
         self.data_list = data
-        # Берем имя первого нейрона для идентификации группы
+        # Use the first neuron's name to identify the group
         self.name = data[0].get("name", "Unknown") if data else "Unknown"
 
     def set_plasticity(self, pot: int, dep: int):
-        """HFT-тюнинг: динамическая смена параметров R-STDP."""
+        """HFT tuning: dynamic switching of R-STDP parameters."""
         for n_type in self.data_list:
             n_type["gsop_potentiation"] = pot
             n_type["gsop_depression"] = dep
@@ -31,31 +31,31 @@ class IoMatrixDesigner:
         self.is_input = is_input
 
         if self.is_input:
-            # 64-bit alignment (8 bytes) для битовых масок
+            # 64-bit alignment (8 bytes) for bitmasks
             self.padded_pixels = ((width * height + 63) // 64) * 64
             self.bytes_per_tick = self.padded_pixels // 8
         else:
-            # 64-byte alignment (L2 Cache Line) для сырых u8 массивов
+            # 64-byte alignment (L2 Cache Line) for raw u8 arrays
             self.padded_pixels = ((width * height + 63) // 64) * 64
             self.bytes_per_tick = self.padded_pixels
 
     def fragment(self, sync_batch_ticks: int, mtu: int = 65507) -> list[dict]:
-        # 1. Полезная нагрузка (20 байт — ExternalIoHeader)
+        # 1. Useful payload (20 bytes — ExternalIoHeader)
         max_payload = mtu - 20
-        # 2. Байт на тик (целочисленное деление)
+        # 2. Bytes per tick (integer division)
         max_bytes_per_tick = max_payload // sync_batch_ticks
         
-        # 3. Пикселей на чанк (кратность 64 бита / 8 байт для масок или L2 кэш для u8)
+        # 3. Pixels per chunk (multiple of 64 bits / 8 bytes for masks or L2 cache for u8)
         if self.is_input:
             max_aligned_pixels = (max_bytes_per_tick // 8) * 64
         else:
             max_aligned_pixels = (max_bytes_per_tick // 64) * 64
 
-        # 4. Проверка вместимости
+        # 4. Capacity check
         if self.padded_pixels <= max_aligned_pixels:
             return [{"width": self.width, "height": self.height, "uv_rect": [0.0, 0.0, 1.0, 1.0]}]
 
-        # 5. Нарезка (Row-based Slicing)
+        # 5. Row-based Slicing
         chunk_height = max_aligned_pixels // self.width
         if chunk_height == 0:
             raise ValueError(f"[IoMatrix] Matrix width {self.width} exceeds MTU {mtu} capacity for {sync_batch_ticks} ticks. "
@@ -79,7 +79,7 @@ class IoMatrixDesigner:
         if mode == "Pie":
             return [0.0, 0.0, 1.0, 1.0]
         elif mode == "Canvas":
-            # Заглушка под режим "Canvas" (нарезка сеткой) — реализуем на следующем шаге.
+            # Placeholder for "Canvas" mode (grid-based slicing) — to be implemented.
             pass
         return [0.0, 0.0, 1.0, 1.0]
 
@@ -101,7 +101,7 @@ class ZoneDesigner:
         self.builder = builder
         self.name = name
         
-        # 1. Автоисправление (Clamping) под аппаратные лимиты PackedPosition (11/11/6 bit)
+        # 1. Auto-correction (Clamping) to fit hardware PackedPosition limits (11/11/6 bit)
         self.vox_x = max(1, min(x, 2047))
         self.vox_y = max(1, min(y, 2047))
         self.vox_z = max(1, min(z, 63))
@@ -120,14 +120,14 @@ class ZoneDesigner:
         
     def add_input(self, name: str, width: int, height: int, target_type: str = "All", entry_z: str = "top", stride: int = 1, growth_steps: int = 1000, layout: list[str] = None, uv_rect: list[float] = None):
         import uuid
-        # 1. Валидация entry_z
+        # 1. entry_z validation
         if entry_z not in ["top", "mid", "bottom"]:
             try:
                 float(entry_z)
             except ValueError:
                 raise ValueError(f"Invalid entry_z: '{entry_z}'. Must be 'top', 'mid', 'bottom' or a float string.")
 
-        # 2. Фрагментация
+        # 2. Fragmentation
         designer = IoMatrixDesigner(width, height, is_input=True)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
@@ -141,7 +141,7 @@ class ZoneDesigner:
             "matrix_id_v1": {"id": matrix_id},
             "name": f"{name}_matrix",
             "entry_z": entry_z,
-            "pin": [] # В TOML сериализуется как [[input.pin]]
+            "pin": [] # Serialized as [[input.pin]] in TOML
         }
 
         matrix_suffix = matrix_id[-4:]
@@ -170,7 +170,7 @@ class ZoneDesigner:
 
     def add_output(self, name: str, width: int, height: int, target_type: str = "All", stride: int = 1, layout: list[str] = None, uv_rect: list[float] = None):
         import uuid
-        # 1. Фрагментация
+        # 1. Fragmentation
         designer = IoMatrixDesigner(width, height, is_input=False)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
         chunks = designer.fragment(sync_batch_ticks=batch_ticks)
@@ -183,7 +183,7 @@ class ZoneDesigner:
         matrix = {
             "matrix_id_v1": {"id": matrix_id},
             "name": f"{name}_matrix",
-            "entry_z": "bottom", # Outputs обычно на дне
+            "entry_z": "bottom", # Outputs are usually at the bottom
             "pin": []
         }
 
@@ -216,7 +216,7 @@ class ZoneDesigner:
         return layer
         
     def _register_blueprint(self, bp: NeuronBlueprint):
-        # Регистрируем все типы из файла
+        # Register all types from the file
         for n_type in bp.data_list:
             # [HFT FIX] Map period to DDS multiplier (heartbeat_m)
             if "spontaneous_firing_period_ticks" in n_type and n_type["spontaneous_firing_period_ticks"] > 0:
@@ -227,7 +227,7 @@ class ZoneDesigner:
 
             n_name = n_type.get("name")
             if n_name not in self.blueprints_registry:
-                # Защита от превышения лимита типов (4-битная маска = макс 16)
+                # Protection against exceeding type limit (4-bit mask = max 16)
                 if len(self.blueprints_registry) >= 16:
                     raise ValueError(f"Zone '{self.name}' exceeds the maximum of 16 neuron types!")
                 self.blueprints_registry[n_name] = n_type
@@ -240,7 +240,7 @@ class BrainBuilder:
         self.zones: List[ZoneDesigner] = []
         self.connections: List[Dict[str, Any]] = []
         
-        # Дефолтные параметры симуляции
+        # Default simulation parameters
         self.sim_params = {
             "tick_duration_us": 100,
             "total_ticks": 0,
@@ -252,25 +252,25 @@ class BrainBuilder:
             "axon_growth_max_steps": 250
         }
 
-        # Индексация библиотеки для O(1) поиска по внутреннему имени
+        # Library indexing for O(1) internal name lookup
         self._lib_index: Dict[str, str] = {}
         self._index_gnm_library()
 
     def _index_gnm_library(self):
-        """Сканирует библиотеку при старте и строит индекс по внутренним именам (O(1) поиск)."""
+        """Scans the library at startup and builds an index by internal names (O(1) search)."""
         search_pattern = f"{self.gnm_lib_path}/**/*.toml"
         for filepath in glob.glob(search_pattern, recursive=True):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = toml.load(f)
-                # [DOD FIX] `[[neuron_type]]` — это массив (list), а не словарь (dict).
+                # [DOD FIX] `[[neuron_type]]` is a list, not a dict.
                 if "neuron_type" in data and isinstance(data["neuron_type"], list) and len(data["neuron_type"]) > 0:
-                    # [DOD FIX] Берем нулевой индекс, так как [[neuron_type]] — это массив таблиц
+                    # [DOD FIX] Take index 0 as [[neuron_type]] is an array of tables
                     name = data["neuron_type"][0].get("name")
                     if name:
                         self._lib_index[name] = filepath
             except Exception as e:
-                # Жесткий логгинг. Мы не имеем права молча проглатывать ошибки структуры данных.
+                # Explicit logging. Struct error suppression is prohibited.
                 print(f"[Indexer Warning] Failed to parse {filepath}: {e}")
 
     def add_zone(self, name: str, width_vox: int, depth_vox: int, height_vox: int) -> ZoneDesigner:
@@ -280,7 +280,7 @@ class BrainBuilder:
 
     def connect(self, from_zone: ZoneDesigner, to_zone: ZoneDesigner, out_matrix: str, 
                 in_width: int, in_height: int, entry_z: str = "top", target_type: str = "All", growth_steps: int = 1000):
-        # Проверяем, существует ли такая выходная матрица в зоне-источнике
+        # Verify if the output matrix exists in the source zone
         if not any(out["name"] == out_matrix for out in from_zone.outputs):
             warnings.warn(f"[Builder] ⚠️ Output matrix '{out_matrix}' not found in zone '{from_zone.name}'!")
 
@@ -298,22 +298,22 @@ class BrainBuilder:
 
     def gnm_lib(self, query: str) -> NeuronBlueprint:
         """
-        Умный поиск по библиотеке.
-        Сначала ищет точное совпадение по внутреннему имени (name) внутри TOML.
-        Если не найдено — ищет совпадение по части пути к файлу.
+        Smart library search.
+        First looks for an exact internal name (name) match within TOML.
+        If not found, searches for a partial filename match.
         """
-        # 1. Поиск по внутреннему имени (O(1))
+        # 1. Search by internal name (O(1))
         if query in self._lib_index:
             target_file = self._lib_index[query]
         else:
-            # 2. Fallback: поиск по части пути файла
+            # 2. Fallback: search by partial filename
             search_pattern = f"{self.gnm_lib_path}/**/*{query}*.toml"
             matches = glob.glob(search_pattern, recursive=True)
 
             if not matches:
                 raise FileNotFoundError(f"⚠️ Blueprint matching '{query}' not found in {self.gnm_lib_path}")
             
-            # [DOD FIX] Извлекаем первый элемент из массива glob
+            # [DOD FIX] Extract first element from glob array
             target_file = matches[0]
 
         with open(target_file, "r", encoding="utf-8") as f:
@@ -327,7 +327,7 @@ class BrainBuilder:
     def dry_run_stats(self) -> str:
         """
         [DOD] Strict C-ABI memory cost estimation.
-        O(1) расчет потребления VRAM и /dev/shm до генерации TOML.
+        O(1) calculation of VRAM and /dev/shm consumption prior to TOML generation.
         """
         report = [f"📊 Genesis Memory Estimator: {self.project_name}"]
         total_vram = 0
@@ -337,7 +337,7 @@ class BrainBuilder:
             raw_neurons = 0
             cursor_pct = 0.0
 
-            # Зеркальное отражение логики genesis-baker/src/bake/neuron_placement.rs
+            # Reflects logic in genesis-baker/src/bake/neuron_placement.rs
             for layer in zone.layers:
                 z_start = int(cursor_pct * zone.vox_z)
                 z_end = min(255, int((cursor_pct + layer.height_pct) * zone.vox_z))
@@ -377,7 +377,7 @@ class BrainBuilder:
         return "\n".join(report)
 
     def build(self):
-        """Собирает ДНК мозга и генерирует все артефакты."""
+        """Assembles Brain DNA and generates all artifacts."""
         # [DOD FIX] Hard Physical Validation (Integer v_seg)
         # v_seg = (signal_speed_m_s * 1000 * (tick_duration_us / 1000)) / (voxel_size_um * segment_length_voxels)
         s_speed = self.sim_params["signal_speed_m_s"]
@@ -406,13 +406,13 @@ class BrainBuilder:
             else:
                 raise ValueError(error_msg)
 
-        # [DOD FIX] Вывод расчетной стоимости графа перед генерацией
+        # [DOD FIX] Output estimated graph cost prior to generation
         print(f"\n{self.dry_run_stats()}")
 
         print(f"\n🧬 Generating Brain DNA: {self.project_name} ...")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # 1. Генерируем simulation.toml (Законы Физики)
+        # 1. Generate simulation.toml (Physics Laws)
         max_w = max((z.vox_x for z in self.zones), default=40)
         max_d = max((z.vox_y for z in self.zones), default=40)
         max_h = max((z.vox_z for z in self.zones), default=63)
@@ -431,7 +431,7 @@ class BrainBuilder:
         with open(sim_path, "w", encoding="utf-8") as f:
             toml.dump(sim_config, f)
             
-        # 2. Генерируем brain.toml (Топология)
+        # 2. Generate brain.toml (Topology)
         brain_config = {
             "simulation": {"config": "simulation.toml"},
             "zone": [],
@@ -439,12 +439,12 @@ class BrainBuilder:
         }
         
         
-        # 3. Генерируем конфиги для каждой зоны
+        # 3. Generate configs for each zone
         for zone in self.zones:
             zone_dir = self.output_dir / zone.name
             zone_dir.mkdir(exist_ok=True)
             
-            # DOD FIX: Строгие относительные пути для портативности .axic архивов!
+            # DOD FIX: Strict relative paths for .axic archive portability!
             brain_config["zone"].append({
                 "name": zone.name,
                 "blueprints": f"{zone.name}/blueprints.toml",
@@ -460,9 +460,9 @@ class BrainBuilder:
                 warnings.warn(f"[Builder] ⚠️ Zone '{zone.name}' layers height sum is {total_height:.2f}, not 1.0!")
             
             for layer in reversed(zone.layers):
-                # Регистрация блюпринтов
+                # Blueprint registration
                 for bp_name in layer.composition.keys():
-                    # Нам нужно найти блюпринт по имени в объектах (упрощено: предполагаем регистрацию через gnm_lib)
+                    # Need to find blueprint by name in objects (simplified: assume gnm_lib registration)
                     pass
 
                 total_comp = sum(layer.composition.values())
@@ -479,10 +479,9 @@ class BrainBuilder:
             with open(zone_dir / "anatomy.toml", "w", encoding="utf-8") as f:
                 toml.dump(anatomy_data, f)
                 
-            # Сборка blueprints.toml
-            # Нужно гарантировать, что все блюпринты из слоев попали в registry
-            # В данном коде предполагается, что пользователь сам их регистрирует или они попадают туда через слои.
-            # Для надежности в коде пользователя они должны быть загружены через конструктор.
+            # blueprints.toml assembly
+            # Ensure all blueprints from layers are in the registry
+            # Here it is assumed they are registered manually or via layers.
             blueprints_data = {"neuron_type": list(zone.blueprints_registry.values())}
             with open(zone_dir / "blueprints.toml", "w", encoding="utf-8") as f:
                 toml.dump(blueprints_data, f)
@@ -505,10 +504,10 @@ class BrainBuilder:
             with open(zone_dir / "shard.toml", "w", encoding="utf-8") as f:
                 toml.dump(shard_data, f)
                 
-            # Сборка io.toml
+            # io.toml assembly
             io_data = {"input": zone.inputs, "output": zone.outputs}
             with open(zone_dir / "io.toml", "w", encoding="utf-8") as f:
-                # Очищаем пустые списки, чтобы TOML был чистым
+                # Clean up empty lists
                 clean_io = {k: v for k, v in io_data.items() if v}
                 toml.dump(clean_io, f)
                 
@@ -516,13 +515,13 @@ class BrainBuilder:
             toml.dump(brain_config, f)
 
         print(f"✅ DNA successfully created at '{self.output_dir}'")
-        return self  # [DOD FIX] Поддержка чейнинга методов
+        return self  # [DOD FIX] Method chaining support
 
     def bake(self, clean: bool = False):
         """
-        Вызывает Rust-компилятор genesis-baker для генерации бинарных VRAM-дампов.
+        Invokes the genesis-baker Rust compiler to generate binary VRAM dumps.
         """
-        print("\n🔥 Запускаем Genesis Baker (CPU Compiler)...")
+        print("\n🔥 Starting Genesis Baker (CPU Compiler)...")
         brain_toml_path = self.output_dir / "brain.toml"
 
         cmd = ["cargo", "run", "--release", "-p", "genesis-baker"]
@@ -543,11 +542,11 @@ class BrainBuilder:
         if clean:
             cmd.append("--clean")
             
-        # Запускаем процесс. Предполагается, что скрипт вызывается из корня workspace
+        # Run process. Assume script is called from workspace root.
         result = subprocess.run(cmd)
 
         if result.returncode == 0:
-            print("\n✅ Модель успешно запечена и готова к загрузке на GPU.")
+            print("\n✅ Model successfully baked and ready for GPU loading.")
         else:
-            print("\n❌ Ошибка компиляции коннектома. Проверьте логи Rust-компилятора.")
+            print("\n❌ Connectome compilation failed. Check Rust compiler logs.")
             sys.exit(1)
