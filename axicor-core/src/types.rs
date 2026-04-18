@@ -39,15 +39,27 @@ impl PackedPosition {
     }
 
     // Methods for GPU calculations (if required on CPU)
-    #[inline(always)] pub const fn type_id(&self) -> u8 { (self.0 >> 28) as u8 }
-    #[inline(always)] pub const fn x(&self) -> u16 { (self.0 & 0x3FF) as u16 }
-    #[inline(always)] pub const fn y(&self) -> u16 { ((self.0 >> 10) & 0x3FF) as u16 }
-    #[inline(always)] pub const fn z(&self) -> u8 { ((self.0 >> 20) & 0xFF) as u8 }
+    #[inline(always)]
+    pub const fn type_id(&self) -> u8 {
+        (self.0 >> 28) as u8
+    }
+    #[inline(always)]
+    pub const fn x(&self) -> u16 {
+        (self.0 & 0x3FF) as u16
+    }
+    #[inline(always)]
+    pub const fn y(&self) -> u16 {
+        ((self.0 >> 10) & 0x3FF) as u16
+    }
+    #[inline(always)]
+    pub const fn z(&self) -> u8 {
+        ((self.0 >> 20) & 0xFF) as u8
+    }
 }
 // --- GPU Runtime Flags ---
 
 pub const FLAG_IS_SPIKING: u8 = 0b0000_0001; // Bit 0
-pub const FLAG_TYPE_MASK: u8  = 0b1111_0000; // Bits 4-7
+pub const FLAG_TYPE_MASK: u8 = 0b1111_0000; // Bits 4-7
 
 /// Extracts Variant ID (Type ID) from memory flags.
 #[inline(always)]
@@ -72,7 +84,6 @@ pub type SegmentIndex = u32;
 
 /// Variant ID (0..15)
 pub type VariantId = u8;
-
 
 #[cfg(test)]
 mod tests {
@@ -116,7 +127,7 @@ mod tests {
     fn test_variant_parameters_layout() {
         use crate::layout::VariantParameters;
         // 64B per spec: 16 variants  64B = 1024B = exactly one CUDA __constant__ block
-        assert_eq!(std::mem::size_of::<VariantParameters>(),  64);
+        assert_eq!(std::mem::size_of::<VariantParameters>(), 64);
         assert_eq!(std::mem::align_of::<VariantParameters>(), 64);
     }
 
@@ -126,6 +137,9 @@ mod tests {
         let padded_n = 1024;
         let neuron_idx = 32;
         let slot = 1;
-        assert_eq!(ShardStateSoA::columnar_idx(padded_n, neuron_idx, slot), 1056);
+        assert_eq!(
+            ShardStateSoA::columnar_idx(padded_n, neuron_idx, slot),
+            1056
+        );
     }
 }

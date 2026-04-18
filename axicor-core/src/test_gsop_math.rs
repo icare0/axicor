@@ -1,6 +1,5 @@
 /// CPU emulation and tests for ApplyGSOP kernel math (Spec 1.3)
 /// Verifies formulas for potentiation, depression, clamp, spatial cooling, and inertia rank.
-
 use crate::config::blueprints::NeuronType;
 
 /// Full copy of branchless logic from `physics.cu -> apply_gsop_kernel`
@@ -9,7 +8,7 @@ fn emulate_gsop_math(
     dopamine: i16,
     dist_to_spike: Option<u32>,
     burst_count: u8,
-    p: &NeuronType, 
+    p: &NeuronType,
 ) -> i32 {
     let sign = if weight >= 0 { 1 } else { -1 };
     let abs_w = weight.abs();
@@ -26,7 +25,11 @@ fn emulate_gsop_math(
     let rank = (abs_w >> 27) as usize;
     let rank_safe = rank.min(15);
     let inertia = p.inertia_curve[rank_safe] as i32;
-    let burst_mult = if burst_count > 0 { burst_count as i32 } else { 1 };
+    let burst_mult = if burst_count > 0 {
+        burst_count as i32
+    } else {
+        1
+    };
 
     let delta_pot = (raw_pot * inertia * burst_mult) >> 7;
     let delta_dep = (final_dep * inertia * burst_mult) >> 7;
@@ -55,7 +58,7 @@ fn emulate_gsop_math(
     if new_abs > 2140000000 {
         new_abs = 2140000000;
     }
-    
+
     sign * new_abs
 }
 
@@ -65,7 +68,9 @@ fn test_neuron() -> NeuronType {
     nt.gsop_depression = 40;
     nt.d1_affinity = 128; // 1.0x
     nt.d2_affinity = 128; // 1.0x
-    nt.inertia_curve = [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8];
+    nt.inertia_curve = [
+        128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+    ];
     nt
 }
 

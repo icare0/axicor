@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::domain::{AnatomySlicerState, ShardCadEntity};
+use bevy::prelude::*;
 
 pub fn cleanup_cad_scene_system(
     mut commands: Commands,
@@ -11,18 +11,18 @@ pub fn cleanup_cad_scene_system(
         let current_zone = state.active_zone.clone();
 
         if *last_zone != current_zone {
-            //         3D 
+            //         3D
             if last_zone.is_some() {
                 for entity in entities.iter() {
                     commands.entity(entity).despawn_recursive();
                 }
                 info!("[Shard Slicer] 3D scene cleaned up due to zone transition");
-                
+
                 if current_zone.is_none() {
                     state.shard_rtt = None;
                 }
             }
-            
+
             *last_zone = current_zone;
         }
     }

@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::app::PluginGroupBuilder;
+use bevy::prelude::*;
 
 // DOD FIX: Static set of AllPlugins for the Bevy App.
 // Order of registration determines system execution order if not specified.

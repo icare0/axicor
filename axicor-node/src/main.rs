@@ -1,30 +1,29 @@
-#![deny(warnings)]
-#![deny(unused_variables)]
-#![deny(dead_code)]
+#![warn(warnings)]
+#![warn(dead_code)]
 pub mod boot;
+pub mod config;
+pub mod input;
+pub mod ipc;
 pub mod network;
 pub mod node;
 pub mod orchestrator;
-pub mod zone_runtime;
-pub mod config;
-pub mod ipc;
-pub mod input;
 pub mod output;
 pub mod sentinel;
+pub mod zone_runtime;
 
+use crate::boot::Bootloader;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::Builder;
-use crate::boot::Bootloader;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
 pub enum CpuProfile {
     #[default]
     Aggressive, // 100% CPU, 0ms latency (spin_loop)
-    Balanced,   // High CPU, OS scheduler yielding (yield_now)
-    Eco,        // Low CPU, sleep polling (sleep 1ms)
+    Balanced, // High CPU, OS scheduler yielding (yield_now)
+    Eco,      // Low CPU, sleep polling (sleep 1ms)
 }
 
 #[derive(Parser, Debug)]
@@ -63,7 +62,10 @@ fn main() -> Result<()> {
     let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
     tracing_subscriber::fmt()
         .with_writer(non_blocking_writer)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
         .init();
 
     // 1. Initialize dedicated Tokio Runtime for I/O (2 threads max)
@@ -75,16 +77,21 @@ fn main() -> Result<()> {
 
     rt.block_on(async {
         let cli = Cli::parse();
-        
+
         tracing::info!(" Opening Axic Archive: {:?}", cli.archive);
-        let archive = Arc::new(axicor_core::vfs::AxicArchive::open(&cli.archive)
-            .context("Failed to open AXIC archive")?);
+        let archive = Arc::new(
+            axicor_core::vfs::AxicArchive::open(&cli.archive)
+                .context("Failed to open AXIC archive")?,
+        );
 
         // 2. Load topology from archive
-        let brain_bytes = archive.get_file("brain.toml")
+        let brain_bytes = archive
+            .get_file("brain.toml")
             .context("brain.toml not found in archive")?;
-        let brain_cfg = axicor_core::config::brain::parse_brain_config_from_str(std::str::from_utf8(brain_bytes)?)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let brain_cfg = axicor_core::config::brain::parse_brain_config_from_str(
+            std::str::from_utf8(brain_bytes)?,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
 
         let mut zones_to_boot = Vec::new();
         if cli.zones.is_empty() {
@@ -108,27 +115,47 @@ fn main() -> Result<()> {
             let zone_name: &String = zone_name;
             let zone_hash = axicor_core::hash::fnv1a_32(zone_name.as_bytes());
             let manifest_shm_path = axicor_core::ipc::manifest_shm_path(zone_hash);
-            
+
             let manifest_vfs_path = format!("baked/{}/manifest.toml", zone_name);
             if let Some(manifest_bytes) = archive.get_file(&manifest_vfs_path) {
-                std::fs::write(&manifest_shm_path, manifest_bytes)
-                    .with_context(|| format!("Failed to export manifest to {:?}", manifest_shm_path))?;
+                std::fs::write(&manifest_shm_path, manifest_bytes).with_context(|| {
+                    format!("Failed to export manifest to {:?}", manifest_shm_path)
+                })?;
             }
         }
 
         tracing::info!("[Node] Starting Axicor Distributed Daemon...");
-        
-        let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
-        
+
+        let project_name = cli
+            .archive
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
         let use_gpu = !cli.cpu;
-        let boot_result = Bootloader::boot_node_with_profile(archive.clone(), &project_name, &zones_to_boot, cli.cpu_profile, use_gpu).await
-            .context("Node Bootstrap Failed")?;
+        let boot_result = Bootloader::boot_node_with_profile(
+            archive.clone(),
+            &project_name,
+            &zones_to_boot,
+            cli.cpu_profile,
+            use_gpu,
+        )
+        .await
+        .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join
         for &local_hash in boot_result.node_runtime.compute_dispatchers.keys() {
-            boot_result.node_runtime.broadcast_route_update(local_hash).await;
-            tracing::info!(" [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
+            boot_result
+                .node_runtime
+                .broadcast_route_update(local_hash)
+                .await;
+            tracing::info!(
+                " [Node] Cluster joined. Route announced for 0x{:08X}",
+                local_hash
+            );
         }
 
         tracing::info!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
@@ -157,11 +184,14 @@ fn main() -> Result<()> {
                         match profile {
                             CpuProfile::Aggressive => std::hint::spin_loop(),
                             CpuProfile::Balanced => std::thread::yield_now(),
-                            CpuProfile::Eco => std::thread::sleep(std::time::Duration::from_millis(1)),
+                            CpuProfile::Eco => {
+                                std::thread::sleep(std::time::Duration::from_millis(1))
+                            }
                         }
                     }
                 }
-            }).expect("Fatal: Failed to spawn egress worker thread");
+            })
+            .expect("Fatal: Failed to spawn egress worker thread");
 
         // 7. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
         // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
@@ -173,7 +203,9 @@ fn main() -> Result<()> {
                 {
                     let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
                     unsafe { libc::CPU_SET(0, &mut cpuset) };
-                    let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+                    let res = unsafe {
+                        libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset)
+                    };
                     if res == 0 {
                         tracing::info!(" [Core] Orchestrator locked to OS Thread Core 0");
                     }

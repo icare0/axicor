@@ -1,9 +1,9 @@
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
-use layout_api::{PluginWindow, base_domain, DOMAIN_EXPLORER, OpenFileEvent};
 use crate::domain::ProjectFsCache;
-use node_editor::domain::LoadGraphEvent;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts};
 use connectome_viewer::domain::ZoneSelectedEvent;
+use layout_api::{base_domain, OpenFileEvent, PluginWindow, DOMAIN_EXPLORER};
+use node_editor::domain::LoadGraphEvent;
 
 pub mod ui_components;
 
@@ -18,20 +18,28 @@ pub fn render_project_explorer_system(
     mut explorer_states: Query<&mut crate::domain::ProjectExplorerState>,
     mut commands: Commands,
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     for (window, entity) in window_query.iter() {
-        if !window.is_visible { continue; }
-        if base_domain(&window.plugin_id) != DOMAIN_EXPLORER { continue; }
+        if !window.is_visible {
+            continue;
+        }
+        if base_domain(&window.plugin_id) != DOMAIN_EXPLORER {
+            continue;
+        }
 
         let explorer_state = match explorer_states.get_mut(entity) {
             Ok(s) => Some(s),
             Err(_) => {
-                commands.entity(entity).insert(crate::domain::ProjectExplorerState::default());
+                commands
+                    .entity(entity)
+                    .insert(crate::domain::ProjectExplorerState::default());
                 None
             }
         };
-        
+
         //    (  insert  )  None
         let mut explorer_state = explorer_state;
         let active_file = explorer_state.as_mut().map(|s| &mut s.active_file);
@@ -44,28 +52,39 @@ pub fn render_project_explorer_system(
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 ui.set_clip_rect(rect);
-                // DOD FIX:       UI 
-                let (content_rect, _) = layout_api::draw_unified_header(ui, rect, "Project Explorer");
+                // DOD FIX:       UI
+                let (content_rect, _) =
+                    layout_api::draw_unified_header(ui, rect, "Project Explorer");
 
-                //  
+                //
                 let mut bundles = Vec::new();
                 let mut sources = Vec::new();
                 for project in &cache.projects {
-                    if project.is_bundle { bundles.push(project); } 
-                    else { sources.push(project); }
+                    if project.is_bundle {
+                        bundles.push(project);
+                    } else {
+                        sources.push(project);
+                    }
                 }
 
                 ui.allocate_ui_at_rect(content_rect, |ui| {
                     ui_components::draw_explorer_tree(
-                        ui, 
-                        &bundles, 
+                        ui,
+                        &bundles,
                         &sources,
                         &mut open_file_ev,
                         &mut ctx_menu_events,
                         entity,
                         active_file,
-                        |proj| { load_events.send(LoadGraphEvent { project_name: proj }); },
-                        |proj, shard| { zone_events.send(ZoneSelectedEvent { project_name: proj, shard_name: shard }); }
+                        |proj| {
+                            load_events.send(LoadGraphEvent { project_name: proj });
+                        },
+                        |proj, shard| {
+                            zone_events.send(ZoneSelectedEvent {
+                                project_name: proj,
+                                shard_name: shard,
+                            });
+                        },
                     );
                 });
             });

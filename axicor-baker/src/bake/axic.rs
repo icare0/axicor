@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Write, Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub fn pack_directory_to_axic(project_dir: &Path, out_file: &Path) -> anyhow::Result<()> {
@@ -7,14 +7,14 @@ pub fn pack_directory_to_axic(project_dir: &Path, out_file: &Path) -> anyhow::Re
     collect_files_recursive(project_dir, project_dir, &mut files);
 
     let mut file = File::create(out_file)?;
-    
+
     // 1. Header (12 bytes)
     file.write_all(b"AXIC")?;
     file.write_all(&1u32.to_le_bytes())?; // Version 1
     file.write_all(&(files.len() as u32).to_le_bytes())?; // File Count
 
     let toc_start = file.stream_position()?;
-    
+
     // 2. Dummy TOC reservation (272 bytes per file: 256 path + 8 offset + 8 size)
     let dummy_toc = vec![0u8; files.len() * 272];
     file.write_all(&dummy_toc)?;
@@ -24,7 +24,7 @@ pub fn pack_directory_to_axic(project_dir: &Path, out_file: &Path) -> anyhow::Re
     // 3. Write Payloads with Strict 4096-byte Page Alignment
     for (rel_path, abs_path) in files {
         let current_pos = file.stream_position()?;
-        
+
         // [DOD FIX] Align offset to 4096 boundary (OS Page Size).
         // This is vital for Zero-Copy mmap of a specific file from the archive!
         let padding = (4096 - (current_pos % 4096)) % 4096;
@@ -61,9 +61,13 @@ fn collect_files_recursive(dir: &Path, base: &Path, files: &mut Vec<(String, Pat
             if path.is_dir() {
                 collect_files_recursive(&path, base, files);
             } else {
-                let rel = path.strip_prefix(base).unwrap().to_string_lossy().to_string();
+                let rel = path
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
                 // Unify slashes for Windows/Linux compatibility
-                files.push((rel.replace("\\", "/"), path)); 
+                files.push((rel.replace("\\", "/"), path));
             }
         }
     }

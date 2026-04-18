@@ -1,6 +1,8 @@
 /// Physics recalculation pipeline tests (1.5 + 1.6).
 use super::*;
-use crate::constants::{SEGMENT_LENGTH_UM, V_SEG, VOXEL_SIZE_UM, SEGMENT_LENGTH_VOXELS, TICK_DURATION_US};
+use crate::constants::{
+    SEGMENT_LENGTH_UM, SEGMENT_LENGTH_VOXELS, TICK_DURATION_US, VOXEL_SIZE_UM, V_SEG,
+};
 
 /// Standard configuration from spec  v_seg = 1.
 #[test]
@@ -21,12 +23,17 @@ fn derived_matches_compile_time_constants() {
         TICK_DURATION_US,
         VOXEL_SIZE_UM as f32,
         SEGMENT_LENGTH_VOXELS,
-    ).unwrap();
+    )
+    .unwrap();
 
-    assert_eq!(p.v_seg, V_SEG,
-        "runtime v_seg must match compile-time V_SEG");
-    assert_eq!(p.segment_length_um, SEGMENT_LENGTH_UM,
-        "runtime segment_length_um must match SEGMENT_LENGTH_UM");
+    assert_eq!(
+        p.v_seg, V_SEG,
+        "runtime v_seg must match compile-time V_SEG"
+    );
+    assert_eq!(
+        p.segment_length_um, SEGMENT_LENGTH_UM,
+        "runtime segment_length_um must match SEGMENT_LENGTH_UM"
+    );
 }
 
 /// Violation of 1.6  fractional v_seg  Err.

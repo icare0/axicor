@@ -1,5 +1,5 @@
 use crate::network::ring_buffer::SpikeSchedule;
-use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 /// Max wait for peer data before forcing epoch advance. Prevents deadlock if sender dies.
 /// 500ms allows ~20 batches slack when sender at ~4k TPS (batch=25ms).
@@ -11,12 +11,12 @@ pub struct BspBarrier {
     pub schedule_a: SpikeSchedule,
     pub schedule_b: SpikeSchedule,
     /// If true, UDP server writes to B, and GPU reads from A.
-    pub writing_to_b: AtomicBool, 
+    pub writing_to_b: AtomicBool,
     // [DOD] Network synchronization
     pub expected_peers: usize,
-    pub current_epoch: AtomicU32,     // [DOD] Global Sync Clock
-    pub completed_peers: AtomicUsize, // [DOD] Count of is_last flags
-    pub timeout_log_counter: AtomicU32, // Throttle: log every 100th timeout
+    pub current_epoch: AtomicU32,         // [DOD] Global Sync Clock
+    pub completed_peers: AtomicUsize,     // [DOD] Count of is_last flags
+    pub timeout_log_counter: AtomicU32,   // Throttle: log every 100th timeout
     pub self_heal_log_counter: AtomicU32, // Throttle: log every 100th self-heal
     pub cpu_profile: crate::CpuProfile,
 }
@@ -75,7 +75,7 @@ impl BspBarrier {
             expected_epoch,
             next_epoch,
             Ordering::SeqCst,
-            Ordering::Relaxed
+            Ordering::Relaxed,
         ) {
             Ok(_) => {
                 self.completed_peers.store(0, Ordering::Release);
@@ -87,8 +87,8 @@ impl BspBarrier {
                     self.schedule_b.clear();
                 }
                 Ok(())
-            },
-            Err(actual) => Err(actual)
+            }
+            Err(actual) => Err(actual),
         }
     }
     /// Returns reference to buffer where network (Tokio) should currently write.
@@ -132,7 +132,7 @@ mod tests {
     fn test_bsp_barrier_apply_wait_strategy() {
         // Just verify that these do not panic
         let barrier = BspBarrier::new(100, 1);
-        
+
         let b = barrier.with_cpu_profile(CpuProfile::Aggressive);
         b.apply_wait_strategy();
 

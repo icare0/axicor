@@ -2,9 +2,9 @@
 use axicor_core::config::InstanceConfig;
 use std::sync::atomic::AtomicBool;
 // Removed PingPongSchedule as we use BspBarrier now
-use std::time::{Instant, Duration};
-use std::sync::Arc;
 use axicor_core::layout::VariantParameters;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub struct ZoneRuntime {
     pub const_mem: [VariantParameters; 16],
@@ -20,6 +20,6 @@ pub struct ZoneRuntime {
     pub hot_reload_queue: Arc<crossbeam::queue::SegQueue<[VariantParameters; 16]>>,
     pub inter_node_channels: Vec<crate::network::inter_node::InterNodeChannel>,
     pub intra_gpu_channels: Vec<crate::network::intra_gpu::IntraGpuChannel>,
-    pub spatial_grid: std::sync::Arc<std::sync::Mutex<crate::orchestrator::spatial_grid::SpatialGrid>>,
+    pub spatial_grid:
+        std::sync::Arc<std::sync::Mutex<crate::orchestrator::spatial_grid::SpatialGrid>>,
 }
-

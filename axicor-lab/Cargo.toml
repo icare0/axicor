@@ -1,5 +1,6 @@
 [package]
 name = "axicor-lab"
+description = "Neuromorphic simulation visualizer and connectome explorer"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

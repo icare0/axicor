@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use layout_api::{PluginWindow, base_domain, DOMAIN_BLUEPRINT_EDITOR};
-use connectome_viewer::domain::ZoneSelectedEvent;
 use crate::domain::BlueprintEditorState;
+use bevy::prelude::*;
+use connectome_viewer::domain::ZoneSelectedEvent;
+use layout_api::{base_domain, PluginWindow, DOMAIN_BLUEPRINT_EDITOR};
 
 pub fn init_blueprint_windows_system(
     mut commands: Commands,
@@ -9,7 +9,9 @@ pub fn init_blueprint_windows_system(
 ) {
     for (entity, window) in query.iter() {
         if base_domain(&window.plugin_id) == DOMAIN_BLUEPRINT_EDITOR {
-            commands.entity(entity).insert(BlueprintEditorState::default());
+            commands
+                .entity(entity)
+                .insert(BlueprintEditorState::default());
         }
     }
 }
@@ -34,7 +36,7 @@ pub fn debounce_save_blueprint_system(
     for mut state in query.iter_mut() {
         if state.is_dirty {
             state.debounce_timer += time.delta_seconds();
-            //  500     
+            //  500
             if state.debounce_timer > 0.5 {
                 state.is_dirty = false;
                 state.debounce_timer = 0.0;

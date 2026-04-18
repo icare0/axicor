@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
 use crate::layout::domain::WindowDragState;
-use layout_api::{WindowDragRequest, TopologyCache};
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts};
+use layout_api::{TopologyCache, WindowDragRequest};
 
 const BORDER_SHRINK: f32 = 3.0;
 
@@ -17,9 +17,9 @@ pub fn window_input_system(
         if let Some(pos) = pointer.interact_pos() {
             for (&tile_id, &rect) in &topology.tiles {
                 if edge_triggers(rect).iter().any(|t| t.contains(pos)) {
-                    drag_request.active      = true;
-                    drag_request.source      = layout_api::DragSource::EdgeTrigger;
-                    drag_request.start_pos   = pos;
+                    drag_request.active = true;
+                    drag_request.source = layout_api::DragSource::EdgeTrigger;
+                    drag_request.start_pos = pos;
                     drag_request.target_tile = Some(tile_id);
                     break;
                 }
@@ -37,7 +37,7 @@ pub fn window_input_system(
     }
 }
 
-// DOD FIX: - (8x8)    
+// DOD FIX: - (8x8)
 pub fn edge_triggers(rect: egui::Rect) -> [egui::Rect; 4] {
     let r = rect.shrink(BORDER_SHRINK);
     let s = 8.0;

@@ -1,10 +1,10 @@
-use axicor_core::constants::{MAX_DENDRITE_SLOTS, AXON_SENTINEL};
+use axicor_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
+use axicor_core::constants::{AXON_SENTINEL, MAX_DENDRITE_SLOTS};
 use axicor_core::layout::align_to_warp;
+use bytemuck::cast_slice;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::fs::File;
-use bytemuck::cast_slice;
-use axicor_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
 
 /// Strict contract for local shard data after Phase A (before inter-zone connections).
 pub struct CompiledShard {
@@ -41,7 +41,7 @@ pub struct ShardSoA {
     pub axon_heads: Vec<axicor_core::layout::BurstHeads8>,
     pub axon_tips_uvw: Vec<u32>, // PackedTip -> .geom
     pub axon_dirs_xyz: Vec<u32>, // PackedDir -> .geom
-    
+
     // NEW FIELDS
     pub axon_lengths: Vec<u8>, // size: total_axons
     pub axon_paths: Vec<u32>,  // size: total_axons * 256
@@ -76,7 +76,7 @@ impl ShardSoA {
             axon_heads: vec![axicor_core::layout::BurstHeads8::empty(AXON_SENTINEL); total_axons],
             axon_tips_uvw: vec![0; total_axons],
             axon_dirs_xyz: vec![0; total_axons],
-            
+
             axon_lengths: vec![0; total_axons],
             axon_paths: vec![0; total_axons * axicor_core::layout::MAX_SEGMENTS_PER_AXON],
 
@@ -106,15 +106,21 @@ impl ShardSoA {
             &self.dendrite_targets,
             &self.dendrite_weights,
             &self.dendrite_timers,
-        ).expect("Failed to write state blob");
+        )
+        .expect("Failed to write state blob");
 
         let axons_path = out_dir.join("shard.axons");
         write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write axons blob");
 
         // [DOD FIX] Geometry export for Night Phase
         let paths_path = out_dir.join("shard.paths");
-        write_paths_blob(&paths_path, self.axon_heads.len(), &self.axon_lengths, &self.axon_paths)
-            .expect("Failed to write paths blob");
+        write_paths_blob(
+            &paths_path,
+            self.axon_heads.len(),
+            &self.axon_lengths,
+            &self.axon_paths,
+        )
+        .expect("Failed to write paths blob");
 
         let pos_path = out_dir.join("shard.pos");
         std::fs::write(&pos_path, bytemuck::cast_slice(&self.soma_positions))
@@ -134,10 +140,10 @@ pub fn write_state_blob(
     soma_to_axon: &[u32],
     dendrite_targets: &[u32], // Length: padded_n * 128
     dendrite_weights: &[i32], // Length: padded_n * 128
-    dendrite_timers: &[u8],  // Length: padded_n * 128
+    dendrite_timers: &[u8],   // Length: padded_n * 128
 ) -> std::io::Result<()> {
     let (_, total_size) = calculate_state_blob_size(padded_n);
-    
+
     // Pre-allocate exact size to prevent memory reallocations
     let mut blob = Vec::with_capacity(total_size);
 
@@ -151,7 +157,11 @@ pub fn write_state_blob(
     blob.extend_from_slice(cast_slice(&dendrite_weights[..padded_n * MAX_DENDRITES]));
     blob.extend_from_slice(cast_slice(&dendrite_timers[..padded_n * MAX_DENDRITES]));
 
-    assert_eq!(blob.len(), total_size, "FATAL: State blob size mismatch before disk flush");
+    assert_eq!(
+        blob.len(),
+        total_size,
+        "FATAL: State blob size mismatch before disk flush"
+    );
 
     let mut file = File::create(path)?;
     file.write_all(&blob)?;
@@ -176,9 +186,9 @@ pub fn write_paths_blob(
 ) -> std::io::Result<()> {
     let total_size = axicor_core::layout::calculate_paths_file_size(total_axons);
     let matrix_offset = axicor_core::layout::calculate_paths_matrix_offset(total_axons);
-    
+
     let mut blob = vec![0u8; total_size];
-    
+
     // Header
     let header = axicor_core::layout::PathsFileHeader {
         magic: axicor_core::layout::PATHS_MAGIC,
@@ -186,27 +196,19 @@ pub fn write_paths_blob(
         total_axons: total_axons as u32,
         max_segments: axicor_core::layout::MAX_SEGMENTS_PER_AXON as u32,
     };
-    
+
     // Copying without allocations
     unsafe {
-        std::ptr::copy_nonoverlapping(
-            &header as *const _ as *const u8,
-            blob.as_mut_ptr(),
-            16,
-        );
-        
-        std::ptr::copy_nonoverlapping(
-            lengths.as_ptr(),
-            blob.as_mut_ptr().add(16),
-            total_axons,
-        );
-        
+        std::ptr::copy_nonoverlapping(&header as *const _ as *const u8, blob.as_mut_ptr(), 16);
+
+        std::ptr::copy_nonoverlapping(lengths.as_ptr(), blob.as_mut_ptr().add(16), total_axons);
+
         std::ptr::copy_nonoverlapping(
             paths_matrix.as_ptr() as *const u8,
             blob.as_mut_ptr().add(matrix_offset),
             total_axons * axicor_core::layout::MAX_SEGMENTS_PER_AXON * 4,
         );
     }
-    
+
     std::fs::write(path, &blob)
 }

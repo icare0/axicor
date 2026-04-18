@@ -26,27 +26,32 @@ pub type CudaStream = *mut c_void;
 #[derive(Debug, Clone, Copy)]
 pub struct ShardVramPtrs {
     // --- Soma State (Length = padded_n) ---
-    pub soma_voltage:      *mut i32,   // GLIF potential
-    pub soma_flags:        *mut u8,    // [7:4] Type | [0] is_spiking
-    pub threshold_offset:  *mut i32,   // Homeostasis (accumulated penalty)
-    pub timers:            *mut u8,    // Refractory counter
-    pub soma_to_axon:      *mut u32,   // Index of the first axon (in axon_heads)
+    pub soma_voltage: *mut i32,     // GLIF potential
+    pub soma_flags: *mut u8,        // [7:4] Type | [0] is_spiking
+    pub threshold_offset: *mut i32, // Homeostasis (accumulated penalty)
+    pub timers: *mut u8,            // Refractory counter
+    pub soma_to_axon: *mut u32,     // Index of the first axon (in axon_heads)
 
     // --- Columnar Dendrites (Length = padded_n * MAX_DENDRITES) ---
-    pub dendrite_targets:  *mut u32,   // Packed: DenseID + SegmentOffset
-    pub dendrite_weights:  *mut i32,   // Synaptic weight up to 2.1 billion
-    pub dendrite_timers:   *mut u8,    // Synaptic refractoriness
+    pub dendrite_targets: *mut u32, // Packed: DenseID + SegmentOffset
+    pub dendrite_weights: *mut i32, // Synaptic weight up to 2.1 billion
+    pub dendrite_timers: *mut u8,   // Synaptic refractoriness
 
     // --- Axon Heads (Length = total_axons: Local + Ghost + Virtual) ---
-    pub axon_heads:        *mut axicor_core::layout::BurstHeads8,
+    pub axon_heads: *mut axicor_core::layout::BurstHeads8,
 }
 
 unsafe impl Send for ShardVramPtrs {}
 unsafe impl Sync for ShardVramPtrs {}
 
-
-#[cfg_attr(all(not(feature = "mock-gpu"), not(feature = "amd")), link(name = "genesis_cuda", kind = "static"))]
-#[cfg_attr(all(not(feature = "mock-gpu"), feature = "amd"), link(name = "genesis_amd", kind = "static"))]
+#[cfg_attr(
+    all(not(feature = "mock-gpu"), not(feature = "amd")),
+    link(name = "genesis_cuda", kind = "static")
+)]
+#[cfg_attr(
+    all(not(feature = "mock-gpu"), feature = "amd"),
+    link(name = "genesis_amd", kind = "static")
+)]
 extern "C" {
     // =====================================================================
     //  New Zero-Cost contract (cu_* functions)
@@ -54,33 +59,25 @@ extern "C" {
 
     /// Allocates VRAM for a single shard and writes pointers to out_vram.
     /// Returns 0 on success, non-zero cudaError_t on error.
-    pub fn cu_allocate_shard(
-        padded_n:    u32,
-        total_axons: u32,
-        out_vram:    *mut ShardVramPtrs,
-    ) -> i32;
+    pub fn cu_allocate_shard(padded_n: u32, total_axons: u32, out_vram: *mut ShardVramPtrs) -> i32;
 
-    pub fn cu_reset_burst_counters(
-        ptrs: *const ShardVramPtrs,
-        padded_n: u32,
-        stream: CudaStream,
-    );
+    pub fn cu_reset_burst_counters(ptrs: *const ShardVramPtrs, padded_n: u32, stream: CudaStream);
 
     /// Zero-Cost DMA Upload: one cudaMemcpyAsync for the entire .state blob.
     /// state_blob  flat byte array in the order of ShardVramPtrs fields.
     /// Returns 0 on success.
     pub fn cu_upload_state_blob(
-        vram:        *const ShardVramPtrs,
-        state_blob:  *const c_void,
-        state_size:  usize,
+        vram: *const ShardVramPtrs,
+        state_blob: *const c_void,
+        state_size: usize,
     ) -> i32;
 
     /// Loads the .axons blob (flat [total_axons]u32) into axon_heads.
     /// Returns 0 on success.
     pub fn cu_upload_axons_blob(
-        vram:        *const ShardVramPtrs,
-        axons_blob:  *const c_void,
-        axons_size:  usize,
+        vram: *const ShardVramPtrs,
+        axons_blob: *const c_void,
+        axons_size: usize,
     ) -> i32;
 
     /// Frees all VRAM buffers associated with the shard.
@@ -149,20 +146,19 @@ extern "C" {
     pub fn gpu_stream_synchronize(stream: CudaStream);
     pub fn gpu_set_device(device_id: i32);
     pub fn gpu_device_synchronize();
-    
+
     /// Barrier: blocks CPU until all previous commands in the default stream are done.
     pub fn gpu_synchronize();
-    
+
     // Loading Blueprint parameters into GPU Constant Memory
     pub fn gpu_load_constants(host_ptr: *const c_void);
-    pub fn update_constant_memory_hot_reload(new_variants: *const VariantParameters, stream: CudaStream);
-
-    pub fn launch_sort_and_prune(
-        ptrs: *const ShardVramPtrs,
-        padded_n: u32,
-        prune_threshold: i16,
+    pub fn update_constant_memory_hot_reload(
+        new_variants: *const VariantParameters,
+        stream: CudaStream,
     );
-    
+
+    pub fn launch_sort_and_prune(ptrs: *const ShardVramPtrs, padded_n: u32, prune_threshold: i16);
+
     pub fn launch_extract_outgoing_spikes(
         axon_heads: *const axicor_core::layout::BurstHeads8,
         src_indices: *const u32,
@@ -174,7 +170,7 @@ extern "C" {
         out_count: *mut u32,
         stream: CudaStream,
     );
-    
+
     pub fn launch_ghost_sync(
         src_heads: *const axicor_core::layout::BurstHeads8,
         dst_heads: *mut axicor_core::layout::BurstHeads8,
@@ -208,22 +204,13 @@ extern "C" {
     );
 
     /// Kernel 3: Unconditional shift of all axon heads.
-    pub fn launch_propagate_axons(
-        vram: VramState,
-        v_seg: u32,
-    );
+    pub fn launch_propagate_axons(vram: VramState, v_seg: u32);
 
     /// Kernel 4: GLIF Physics, dendrite summation.
-    pub fn launch_update_neurons(
-        vram: VramState,
-        constants_ptr: *const c_void,
-        current_tick: u32,
-    );
+    pub fn launch_update_neurons(vram: VramState, constants_ptr: *const c_void, current_tick: u32);
 
     /// Kernel 5: GSOP Plasticity.
-    pub fn launch_apply_gsop(
-        vram: VramState,
-    );
+    pub fn launch_apply_gsop(vram: VramState);
 
     /// Kernel 6: Soma activity readout (RecordReadout).
     pub fn launch_record_readout(
@@ -243,7 +230,7 @@ extern "C" {
         out_ids_d: *mut u32,
         out_count_d: *mut u32,
         padded_n: u32,
-        stream: CudaStream
+        stream: CudaStream,
     );
 
     pub fn cu_allocate_io_buffers(

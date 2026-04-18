@@ -1,9 +1,15 @@
-use bevy::prelude::*;
 use crate::domain::ViewportCamera;
-use layout_api::{PluginInput, PluginGeometry, PluginWindow};
+use bevy::prelude::*;
+use layout_api::{PluginGeometry, PluginInput, PluginWindow};
 
 pub fn viewport_camera_control_system(
-    mut query: Query<(&mut Transform, &mut ViewportCamera, &PluginInput, &PluginGeometry, &mut Projection)>,
+    mut query: Query<(
+        &mut Transform,
+        &mut ViewportCamera,
+        &PluginInput,
+        &PluginGeometry,
+        &mut Projection,
+    )>,
 ) {
     for (mut transform, mut cam, input, geom, mut projection) in query.iter_mut() {
         if geom.size.x > 0.0 && geom.size.y > 0.0 {
@@ -15,7 +21,7 @@ pub fn viewport_camera_control_system(
             }
         }
 
-        // DOD FIX:   Ghost Mutations. 
+        // DOD FIX:   Ghost Mutations.
         //       mut transform,    is_changed()  .
         let is_dragging = input.is_secondary_pressed || input.is_middle_pressed;
         let is_scrolling = input.scroll_delta.abs() > 0.0;
@@ -33,7 +39,10 @@ pub fn viewport_camera_control_system(
         if input.is_secondary_pressed {
             cam.alpha -= input.cursor_delta.x * 0.005;
             cam.beta -= input.cursor_delta.y * 0.005;
-            cam.beta = cam.beta.clamp(-std::f32::consts::PI / 2.0 + 0.01, std::f32::consts::PI / 2.0 - 0.01);
+            cam.beta = cam.beta.clamp(
+                -std::f32::consts::PI / 2.0 + 0.01,
+                std::f32::consts::PI / 2.0 - 0.01,
+            );
         }
 
         if input.is_middle_pressed {
@@ -46,7 +55,7 @@ pub fn viewport_camera_control_system(
 
         let rotation = Quat::from_euler(EulerRot::YXZ, cam.alpha, cam.beta, 0.0);
         let offset = rotation * Vec3::new(0.0, 0.0, cam.radius);
-        
+
         transform.translation = cam.target + offset;
         transform.look_at(cam.target, Vec3::Y);
     }
@@ -58,7 +67,7 @@ pub fn attach_camera_to_viewport_system(
 ) {
     for (entity, window) in query.iter() {
         if window.plugin_id.starts_with(layout_api::DOMAIN_VIEWPORT) {
-            // ,  WM (sync_plugin_geometry_system)  VRAM 
+            // ,  WM (sync_plugin_geometry_system)  VRAM
             if let Some(tex_handle) = &window.texture {
                 commands.entity(entity).insert((
                     Camera3dBundle {
@@ -67,7 +76,8 @@ pub fn attach_camera_to_viewport_system(
                             clear_color: ClearColorConfig::Custom(Color::rgb(0.117, 0.117, 0.125)),
                             ..default()
                         },
-                        transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+                        transform: Transform::from_xyz(0.0, 0.0, 5.0)
+                            .looking_at(Vec3::ZERO, Vec3::Y),
                         ..default()
                     },
                     ViewportCamera {
@@ -82,7 +92,7 @@ pub fn attach_camera_to_viewport_system(
 
 pub fn toggle_idle_cameras_system(
     window_query: Query<&layout_api::PluginWindow>,
-    //  Ref<Transform>  NeuronInstances,    
+    //  Ref<Transform>  NeuronInstances,
     mut camera_query: Query<(Entity, &mut Camera, &crate::domain::ViewportCamera)>,
     mut commands: Commands,
 ) {

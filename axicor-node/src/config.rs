@@ -1,6 +1,6 @@
-use std::path::Path;
 use anyhow::Result;
-pub use axicor_core::config::instance::{InstanceConfig, Coordinate, Dimensions, Neighbors};
+pub use axicor_core::config::instance::{Coordinate, Dimensions, InstanceConfig, Neighbors};
+use std::path::Path;
 
 /// Parses an Instance Config (e.g. `shard_04.toml`) from disk.
 pub fn parse_shard_config(path: &Path) -> Result<InstanceConfig> {

@@ -63,14 +63,14 @@ pub fn compute_derived_physics(
             "1.6 violation: v_seg ({v_seg_f32:.4}) is not an integer. \
              Physically impossible for Integer Physics engine. \
              Check simulation.signal_speed_m_s ({} m/s) and simulation.voxel_size_um ({} um).",
-             signal_speed_m_s, voxel_size_um
+            signal_speed_m_s, voxel_size_um
         ));
     }
 
-    Ok(DerivedPhysics { 
-        signal_speed_um_tick: signal_speed_um_tick.round() as u32, 
-        segment_length_um: segment_length_um.round() as u32, 
-        v_seg 
+    Ok(DerivedPhysics {
+        signal_speed_um_tick: signal_speed_um_tick.round() as u32,
+        segment_length_um: segment_length_um.round() as u32,
+        v_seg,
     })
 }
 
@@ -133,7 +133,11 @@ pub const fn update_homeostasis(
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
     let rank = (abs_weight >> 27) as usize; // 2.14B >> 27 = 15
-    if rank > 15 { 15 } else { rank }
+    if rank > 15 {
+        15
+    } else {
+        rank
+    }
 }
 
 /// Calculates new synaptic weight value according to GSOP (STDP) algorithm.
@@ -171,7 +175,11 @@ pub fn compute_gsop_weight(
     // 3. Spatial Cooling
     // Farther spike from synapse = weaker LTP effect
     let is_active = dist_to_spike.is_some();
-    let min_dist = if let Some(d) = dist_to_spike { d } else { u32::MAX };
+    let min_dist = if let Some(d) = dist_to_spike {
+        d
+    } else {
+        u32::MAX
+    };
     let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
 
     // 4. Final delta
@@ -286,7 +294,10 @@ mod tests {
         // delta = 80 >> 0 = 80
         // decay = (80 * 128) >> 7 = 80
         // new_abs = 100 + 80 = 180
-        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 128), 180);
+        assert_eq!(
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 128),
+            180
+        );
     }
 
     #[test]
@@ -296,7 +307,10 @@ mod tests {
         // delta = -40
         // final_delta = (-40 * 128) >> 7 = -40
         // new_abs = 100 - 40 = 60
-        assert_eq!(compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 128), 60);
+        assert_eq!(
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 128),
+            60
+        );
     }
 
     #[test]
@@ -318,7 +332,10 @@ mod tests {
     fn test_gsop_sign_preservation_negative() {
         // Negative weight should NEVER become positive (Dale's Law)
         let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 128);
-        assert!(w <= 0, "Dale's Law violated: negative weight became positive: {w}");
+        assert!(
+            w <= 0,
+            "Dale's Law violated: negative weight became positive: {w}"
+        );
         assert_eq!(w, -460);
     }
 
@@ -344,7 +361,7 @@ mod tests {
         assert_eq!(inertia_rank(4095), 1);
         assert_eq!(inertia_rank(4096), 2);
         assert_eq!(inertia_rank(32767), 14);
-		assert_eq!(inertia_rank(40000), 14);
+        assert_eq!(inertia_rank(40000), 14);
     }
 
     #[test]
@@ -356,9 +373,9 @@ mod tests {
         // NOTE: With dist=64, delta becomes very small in integer math
         let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 128);
         let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 128);
-        
+
         assert!(w_close > w_far);
         assert_eq!(w_close, 1128); // 1000 + 128
-        assert_eq!(w_far, 1000);   // 1000 + 0 (cooled down to zero)
+        assert_eq!(w_far, 1000); // 1000 + 0 (cooled down to zero)
     }
 }

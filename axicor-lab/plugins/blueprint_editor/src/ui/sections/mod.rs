@@ -1,8 +1,8 @@
-pub mod membrane;
-pub mod timing;
-pub mod plasticity;
-pub mod homeostasis;
-pub mod growth;
-pub mod sprouting;
-pub mod inertia;
 pub mod dendrite_filter;
+pub mod growth;
+pub mod homeostasis;
+pub mod inertia;
+pub mod membrane;
+pub mod plasticity;
+pub mod sprouting;
+pub mod timing;

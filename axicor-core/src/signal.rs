@@ -24,7 +24,6 @@ pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_leng
     dist < (propagation_length as u32)
 }
 
-
 /// Checks if segment `segment_idx` is in the "active tail" for the current tick.
 ///
 /// # Arguments
@@ -35,11 +34,7 @@ pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_leng
 /// # Returns
 /// `true` if the segment is within the active tail `[head - propagation_length, head]`.
 #[inline]
-pub fn is_segment_active(
-    axon_head: AxonHead,
-    segment_idx: u32,
-    propagation_length: u32,
-) -> bool {
+pub fn is_segment_active(axon_head: AxonHead, segment_idx: u32, propagation_length: u32) -> bool {
     if axon_head == AXON_SENTINEL {
         return false;
     }

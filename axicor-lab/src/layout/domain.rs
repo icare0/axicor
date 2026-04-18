@@ -46,7 +46,6 @@ pub struct SavedLayout {
     pub trees: bevy::utils::HashMap<String, egui_tiles::Tree<Pane>>,
 }
 
-
 // 3. State Machine for Drag-and-Drop
 #[derive(Resource, Default)]
 pub struct WindowDragState {

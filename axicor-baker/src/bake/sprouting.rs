@@ -2,8 +2,6 @@ use axicor_core::config::blueprints::NeuronType;
 use rand::SeedableRng;
 use tracing::warn;
 
-
-
 /// Calculates the attraction score of a candidate soma for a growing axon.
 /// All math here legally uses f32 as this is the Night Phase.
 #[inline]
@@ -14,9 +12,9 @@ pub fn compute_sprouting_score(
     noise: f32,
 ) -> f32 {
     let dist_score = 1.0 / (distance + 1.0);
-    
-    dist_score * target_type.sprouting_weight_distance 
-        + power_index * target_type.sprouting_weight_power 
+
+    dist_score * target_type.sprouting_weight_distance
+        + power_index * target_type.sprouting_weight_power
         + noise * target_type.sprouting_weight_explore
 }
 
@@ -62,7 +60,9 @@ fn nudge_axon(
     zone_hash: u32, // <--- NEW PARAMETER
 ) {
     let packed_tip = tips[axon_id];
-    if packed_tip == 0 { return; } // Dead or departed axon
+    if packed_tip == 0 {
+        return;
+    } // Dead or departed axon
 
     let pos = axicor_core::types::PackedPosition(tips[axon_id]);
     let tx = pos.x() as u32;
@@ -75,16 +75,40 @@ fn nudge_axon(
     let dy = ((packed_dir >> 8) & 0xFF) as i8;
     let dz = ((packed_dir >> 16) & 0xFF) as i8;
 
-    let shift_x = if dx > 64 { 1 } else if dx < -64 { -1 } else { 0 };
-    let shift_y = if dy > 64 { 1 } else if dy < -64 { -1 } else { 0 };
-    let shift_z = if dz > 64 { 1 } else if dz < -64 { -1 } else { 0 };
+    let shift_x = if dx > 64 {
+        1
+    } else if dx < -64 {
+        -1
+    } else {
+        0
+    };
+    let shift_y = if dy > 64 {
+        1
+    } else if dy < -64 {
+        -1
+    } else {
+        0
+    };
+    let shift_z = if dz > 64 {
+        1
+    } else if dz < -64 {
+        -1
+    } else {
+        0
+    };
 
     let new_tx = tx as i32 + shift_x;
     let new_ty = ty as i32 + shift_y;
     let new_tz = tz as i32 + shift_z;
 
     // [DOD FIX] Handover Trigger: excursion outside shard boundaries
-    if new_tx < 0 || new_tx >= max_x as i32 || new_ty < 0 || new_ty >= max_y as i32 || new_tz < 0 || new_tz > 63 {
+    if new_tx < 0
+        || new_tx >= max_x as i32
+        || new_ty < 0
+        || new_ty >= max_y as i32
+        || new_tz < 0
+        || new_tz > 63
+    {
         if *handovers_count < axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             let len = lengths[axon_id] as u16;
             handovers[*handovers_count] = AxonHandoverEvent {
@@ -107,7 +131,13 @@ fn nudge_axon(
         return;
     }
 
-    let next_tip = axicor_core::types::PackedPosition::pack_raw(new_tx as u32, new_ty as u32, new_tz as u32, type_mask).0;
+    let next_tip = axicor_core::types::PackedPosition::pack_raw(
+        new_tx as u32,
+        new_ty as u32,
+        new_tz as u32,
+        type_mask,
+    )
+    .0;
     tips[axon_id] = next_tip;
 
     let len = lengths[axon_id] as usize;
@@ -123,7 +153,7 @@ pub fn run_sprouting_pass(
     flags: &[u8],
     ghost_origins: &[u32], // [DOD FIX] Origin Tracking
     handovers: &mut [AxonHandoverEvent],
-    incoming_handovers_count: usize, 
+    incoming_handovers_count: usize,
     axon_tips_uvw: &mut [u32],
     axon_dirs_xyz: &mut [u32],
     soma_to_axon: &[u32],
@@ -140,7 +170,7 @@ pub fn run_sprouting_pass(
     zone_hash: u32,
     max_sprouts_per_night: u16,
     prune_threshold: i16, // [DOD FIX] For initial weight protection
-    shm_ptr: *mut u8, // [DOD FIX] For prune writing
+    shm_ptr: *mut u8,     // [DOD FIX] For prune writing
 ) -> (usize, usize, Vec<axicor_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
     let ghost_start = padded_n;
@@ -148,7 +178,7 @@ pub fn run_sprouting_pass(
 
     // [DOD FIX] Axon Liveness Tracking (Reference Counting)
     let mut active_axons = vec![false; total_axons];
-    
+
     // 1. Mark existing connections as active
     for t in targets.iter() {
         if *t != 0 {
@@ -170,7 +200,7 @@ pub fn run_sprouting_pass(
 
     // 0. Absorption of incoming Ghost Axons (before SHM rewrite)
     let mut generated_acks = Vec::with_capacity(incoming_handovers_count);
-    
+
     let mut next_free_ghost = ghost_start;
     for i in 0..incoming_handovers_count {
         let ev = &handovers[i];
@@ -192,13 +222,13 @@ pub fn run_sprouting_pass(
         });
 
         let packed_tip = ((ev.type_mask as u32) << 28)
-                       | ((ev.entry_z as u32) << 22)
-                       | ((ev.entry_y as u32) << 11)
-                       | (ev.entry_x as u32);
-        
+            | ((ev.entry_z as u32) << 22)
+            | ((ev.entry_y as u32) << 11)
+            | (ev.entry_x as u32);
+
         let packed_dir = ((ev.vector_z as u8 as u32) << 16)
-                       | ((ev.vector_y as u8 as u32) << 8)
-                       | (ev.vector_x as u8 as u32);
+            | ((ev.vector_y as u8 as u32) << 8)
+            | (ev.vector_x as u8 as u32);
 
         axon_tips_uvw[next_free_ghost] = packed_tip;
         axon_dirs_xyz[next_free_ghost] = packed_dir;
@@ -221,8 +251,16 @@ pub fn run_sprouting_pass(
             let axon_id = soma_to_axon[soma_idx];
             if axon_id != u32::MAX && (axon_id as usize) < total_axons {
                 nudge_axon(
-                    axon_id as usize, axon_tips_uvw, axon_dirs_xyz, lengths, paths,
-                    handovers, &mut handovers_count, max_x, max_y, zone_hash
+                    axon_id as usize,
+                    axon_tips_uvw,
+                    axon_dirs_xyz,
+                    lengths,
+                    paths,
+                    handovers,
+                    &mut handovers_count,
+                    max_x,
+                    max_y,
+                    zone_hash,
                 );
             }
         }
@@ -232,8 +270,16 @@ pub fn run_sprouting_pass(
     let ghost_end = padded_n + total_ghosts;
     for axon_id in padded_n..ghost_end {
         nudge_axon(
-            axon_id, axon_tips_uvw, axon_dirs_xyz, lengths, paths,
-            handovers, &mut handovers_count, max_x, max_y, zone_hash
+            axon_id,
+            axon_tips_uvw,
+            axon_dirs_xyz,
+            lengths,
+            paths,
+            handovers,
+            &mut handovers_count,
+            max_x,
+            max_y,
+            zone_hash,
         );
     }
 
@@ -245,8 +291,10 @@ pub fn run_sprouting_pass(
 
     for i in 0..padded_n {
         let my_pos_raw = soma_positions[i];
-        if my_pos_raw == 0 { continue; }
-        
+        if my_pos_raw == 0 {
+            continue;
+        }
+
         // [DOD FIX] Check spike accumulator for the full batch (bits 3:1), not just the last microsecond
         let f = flags[i];
         let burst_count = (f >> 1) & 0x07;
@@ -258,7 +306,7 @@ pub fn run_sprouting_pass(
 
         let my_pos = PackedPosition(my_pos_raw);
         let my_type_idx = my_pos.type_id() as usize;
-        
+
         let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
 
         let mut sprouts_tonight = 0;
@@ -276,7 +324,9 @@ pub fn run_sprouting_pass(
 
             // O(K) candidate scan
             segment_grid.for_each_in_radius(&my_pos, 2, |seg_ref| {
-                if soma_to_axon[i] == seg_ref.axon_id { return; } // Self-connection guard
+                if soma_to_axon[i] == seg_ref.axon_id {
+                    return;
+                } // Self-connection guard
 
                 // Rule of Uniqueness
                 let mut is_dup = false;
@@ -287,15 +337,19 @@ pub fn run_sprouting_pass(
                         break;
                     }
                 }
-                if is_dup { return; }
+                if is_dup {
+                    return;
+                }
 
                 // [DOD FIX] Heuristic: Power Index + Type Affinity + Explore Noise
                 let cand_type_idx = seg_ref.type_idx as usize;
                 let is_same_type = (my_type_idx == cand_type_idx) as i32 as f32;
-                
+
                 // Deterministic noise based on axon and epoch
                 let noise = crate::bake::seed::random_f32(
-                    master_seed.wrapping_add(seg_ref.axon_id as u64).wrapping_add(_epoch)
+                    master_seed
+                        .wrapping_add(seg_ref.axon_id as u64)
+                        .wrapping_add(_epoch),
                 );
 
                 // [DOD FIX] O(1) Target Power calculation
@@ -322,7 +376,8 @@ pub fn run_sprouting_pass(
             });
 
             if let Some(seg) = best_candidate {
-                let new_target = axicor_core::layout::pack_dendrite_target(seg.axon_id, seg.seg_idx as u32);
+                let new_target =
+                    axicor_core::layout::pack_dendrite_target(seg.axon_id, seg.seg_idx as u32);
                 let type_id = seg.type_idx as usize;
 
                 let (is_inhibitory_src, initial_weight) = if let Some(bp) = blueprints {
@@ -331,18 +386,26 @@ pub fn run_sprouting_pass(
                         let mut start_w = (nt.initial_synapse_weight as i32) << 16;
                         // Shift prune threshold to match Mass Domain comparison
                         let prune_i32 = (prune_threshold.abs() as i32) << 16;
-                        
+
                         // Dead on Arrival protection
                         if start_w <= prune_i32 {
                             start_w = prune_i32 + start_w.max(100 << 16);
                         }
                         (nt.is_inhibitory, start_w)
-                    } else { (false, 74i32 << 16) }
-                } else { (false, 74i32 << 16) };
+                    } else {
+                        (false, 74i32 << 16)
+                    }
+                } else {
+                    (false, 74i32 << 16)
+                };
 
                 targets[col_idx] = new_target;
-                weights[col_idx] = if is_inhibitory_src { -initial_weight } else { initial_weight };
-                
+                weights[col_idx] = if is_inhibitory_src {
+                    -initial_weight
+                } else {
+                    initial_weight
+                };
+
                 // [DOD FIX] Axon received a new connection, it is alive
                 active_axons[seg.axon_id as usize] = true;
 
@@ -353,7 +416,7 @@ pub fn run_sprouting_pass(
                 // there won't be any for the others. Stop senseless memory scan.
                 break;
             }
-            
+
             if sprouts_tonight >= max_sprouts_per_night as i32 {
                 break;
             }
@@ -367,22 +430,22 @@ pub fn run_sprouting_pass(
             // Found a ghost without connections!
             let idx = ghost_id - ghost_start;
             let target_zone_hash = ghost_origins[idx];
-            
+
             if target_zone_hash != 0 {
                 // Register death in SHM
                 prunes.push(axicor_core::ipc::AxonHandoverPrune {
                     target_zone_hash,
                     dst_ghost_id: ghost_id as u32,
                 });
-                
+
                 // Physical kill: write sentinel into BurstHeads8 (axon_heads)
                 // AXON_SENTINEL = 0xFFFFFFFF
                 axon_tips_uvw[ghost_id] = 0; // On host
-                // In VRAM (via SHM won't work, wait for disk write or now?)
-                // We are in Baker, we write to our local Tips/Dirs structures.
-                // These structures will later be baked or synchronized.
-                // In this case we just zero out Tips, and nudge_axon(ghost_id) next night
-                // will just skip this axon.
+                                             // In VRAM (via SHM won't work, wait for disk write or now?)
+                                             // We are in Baker, we write to our local Tips/Dirs structures.
+                                             // These structures will later be baked or synchronized.
+                                             // In this case we just zero out Tips, and nudge_axon(ghost_id) next night
+                                             // will just skip this axon.
             }
         }
     }
@@ -403,7 +466,6 @@ pub fn run_sprouting_pass(
     (new_synapses, handovers_count, generated_acks)
 }
 
-
 /// Continues growth of axons that crossed the shard boundary (Ghost Axons).
 pub fn inject_ghost_axons(
     ghost_packets: &[crate::bake::axon_growth::GhostPacket],
@@ -412,11 +474,17 @@ pub fn inject_ghost_axons(
     sim: &crate::parser::simulation::SimulationConfig,
     shard_bounds: &crate::bake::axon_growth::ShardBounds,
     master_seed: u64,
-) -> (Vec<crate::bake::axon_growth::GrownAxon>, Vec<crate::bake::axon_growth::GhostPacket>) {
+) -> (
+    Vec<crate::bake::axon_growth::GrownAxon>,
+    Vec<crate::bake::axon_growth::GhostPacket>,
+) {
     let voxel_um = sim.simulation.voxel_size_um;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
-    let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
+    let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(
+        positions.to_vec(),
+        f32::max(1.0, max_search_radius_vox.ceil()) as u32,
+    );
     let mut grown = Vec::with_capacity(ghost_packets.len());
     let mut outgoing: Vec<crate::bake::axon_growth::GhostPacket> = Vec::new();
 
@@ -435,7 +503,7 @@ pub fn inject_ghost_axons(
         let ghost_seed = master_seed
             .wrapping_add(packet.soma_idx as u64)
             .wrapping_add(packet.origin_shard_id as u64);
-            
+
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(ghost_seed);
 
         use crate::bake::cone_tracing::ConeParams;
@@ -478,12 +546,16 @@ pub fn inject_ghost_axons(
         }
 
         if segments.is_empty() && !has_outgoing {
-            continue; 
+            continue;
         }
 
         let length_segments = segments.len() as u32;
         let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-            ((last & 0x7FF), ((last >> 11) & 0x7FF), ((last >> 22) & 0x3F))
+            (
+                (last & 0x7FF),
+                ((last >> 11) & 0x7FF),
+                ((last >> 22) & 0x3F),
+            )
         } else {
             (packet.entry_x, packet.entry_y, packet.entry_z)
         };

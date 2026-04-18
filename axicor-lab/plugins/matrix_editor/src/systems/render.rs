@@ -1,17 +1,21 @@
+use crate::domain::MatrixEditorState;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use layout_api::{PluginWindow, draw_unified_header, base_domain, DOMAIN_MATRIX_EDITOR};
-use crate::domain::MatrixEditorState;
+use layout_api::{base_domain, draw_unified_header, PluginWindow, DOMAIN_MATRIX_EDITOR};
 
 pub fn render_matrix_editor_system(
     mut contexts: EguiContexts,
     windows: Query<(Entity, &PluginWindow)>,
     _states: Query<&MatrixEditorState>,
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     for (_entity, window) in windows.iter() {
-        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_MATRIX_EDITOR { continue; }
+        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_MATRIX_EDITOR {
+            continue;
+        }
 
         egui::Area::new(window.id)
             .fixed_pos(window.rect.min)
@@ -25,7 +29,7 @@ pub fn render_matrix_editor_system(
                         ui.label(
                             egui::RichText::new(" UI in Quarantine \nWaiting for UX overhaul.")
                                 .color(egui::Color32::DARK_GRAY)
-                                .size(16.0)
+                                .size(16.0),
                         );
                     });
                 });

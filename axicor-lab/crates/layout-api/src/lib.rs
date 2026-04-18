@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
-use egui_tiles::{TileId, LinearDir};
+use egui_tiles::{LinearDir, TileId};
 use std::path::Path;
 
 pub const DOMAIN_VIEWPORT: &str = "axicor.viewport_3d";
 pub const DOMAIN_EXPLORER: &str = "axicor.explorer";
-pub const DOMAIN_NODE_ED:  &str = "axicor.node_editor";
+pub const DOMAIN_NODE_ED: &str = "axicor.node_editor";
 pub const DOMAIN_CODE_EDITOR: &str = "domain.code_editor";
 pub const DOMAIN_AI_COPILOT: &str = "domain.ai_copilot";
 pub const DOMAIN_IO_INSPECTOR: &str = "axicor.io_inspector";
@@ -17,7 +17,7 @@ pub const DOMAIN_MATRIX_EDITOR: &str = "axicor.matrix_editor";
 pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_EXPLORER, "Project Explorer"),
     (DOMAIN_VIEWPORT, "Connectome Viewer"),
-    (DOMAIN_NODE_ED,  "Node Editor"),
+    (DOMAIN_NODE_ED, "Node Editor"),
     (DOMAIN_CODE_EDITOR, "Code Editor"),
     (DOMAIN_AI_COPILOT, "AI Copilot"),
     (DOMAIN_IO_INSPECTOR, "I/O Router"),
@@ -30,7 +30,11 @@ pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
 use std::path::PathBuf;
 
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum ProjectStatus { Ready, Stale, Error }
+pub enum ProjectStatus {
+    Ready,
+    Stale,
+    Error,
+}
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum GitStatus {
@@ -61,7 +65,7 @@ pub struct ProjectNode {
 pub struct ProjectModel {
     pub name: String,
     pub status: ProjectStatus,
-    pub root_nodes: Vec<ProjectNode>, 
+    pub root_nodes: Vec<ProjectNode>,
     pub is_bundle: bool,
 }
 
@@ -105,8 +109,8 @@ pub struct PluginWindow {
     pub plugin_id: String,
     pub texture: Option<Handle<Image>>,
     pub is_visible: bool,
-    pub id: egui::Id,      // DOD FIX: Unique ID for egui Area
-    pub rect: egui::Rect,  // DOD FIX: Cached UI position
+    pub id: egui::Id,     // DOD FIX: Unique ID for egui Area
+    pub rect: egui::Rect, // DOD FIX: Cached UI position
 }
 
 // --- Enums & Commands (API Contract) ---
@@ -120,20 +124,29 @@ pub enum DragSource {
 
 #[derive(Resource, Default, Debug, Clone)] // Added Resource
 pub struct WindowDragRequest {
-    pub active:       bool,
-    pub start_pos:    egui::Pos2,
-    pub current_pos:  egui::Pos2,
-    pub target_tile:  Option<egui_tiles::TileId>,
-    pub source:       DragSource,
+    pub active: bool,
+    pub start_pos: egui::Pos2,
+    pub current_pos: egui::Pos2,
+    pub target_tile: Option<egui_tiles::TileId>,
+    pub source: DragSource,
 }
 
 #[derive(Default, PartialEq, Clone)]
 pub enum DragIntent {
     #[default]
     None,
-    Split { axis: egui_tiles::LinearDir, fraction: f32, insert_before: bool, plugin_id: String },
-    Merge { victim: egui_tiles::TileId },
-    Swap  { victim: egui_tiles::TileId },
+    Split {
+        axis: egui_tiles::LinearDir,
+        fraction: f32,
+        insert_before: bool,
+        plugin_id: String,
+    },
+    Merge {
+        victim: egui_tiles::TileId,
+    },
+    Swap {
+        victim: egui_tiles::TileId,
+    },
 }
 
 pub enum TreeCommand {
@@ -144,9 +157,18 @@ pub enum TreeCommand {
         insert_before: bool,
         plugin_id: String,
     },
-    Merge { survivor: TileId, victim: TileId },
-    SwapPanes { src: TileId, dst: TileId },
-    ChangeDomain { tile_id: TileId, new_domain: String },
+    Merge {
+        survivor: TileId,
+        victim: TileId,
+    },
+    SwapPanes {
+        src: TileId,
+        dst: TileId,
+    },
+    ChangeDomain {
+        tile_id: TileId,
+        new_domain: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -232,17 +254,26 @@ pub const COLOR_HEADER_BG: egui::Color32 = egui::Color32::from_rgb(35, 35, 40);
 pub const COLOR_HEADER_LINE: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
 
 /// Draws the standardized plugin header (Content_Rect, Toolbar_Rect)
-pub fn draw_unified_header(ui: &mut egui::Ui, rect: egui::Rect, title: &str) -> (egui::Rect, egui::Rect) {
+pub fn draw_unified_header(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    title: &str,
+) -> (egui::Rect, egui::Rect) {
     let mut header_rect = rect;
     header_rect.set_height(28.0);
 
     // DOD FIX: Rounded top corners
     ui.painter().rect_filled(
-        header_rect, 
-        egui::Rounding { nw: 10.0, ne: 10.0, sw: 0.0, se: 0.0 }, 
-        COLOR_HEADER_BG
+        header_rect,
+        egui::Rounding {
+            nw: 10.0,
+            ne: 10.0,
+            sw: 0.0,
+            se: 0.0,
+        },
+        COLOR_HEADER_BG,
     );
-    
+
     // Bottom border 1px
     ui.painter().line_segment(
         [header_rect.left_bottom(), header_rect.right_bottom()],
@@ -263,7 +294,7 @@ pub fn draw_unified_header(ui: &mut egui::Ui, rect: egui::Rect, title: &str) -> 
     let text_width = title.len() as f32 * 8.0;
     let mut toolbar_rect = header_rect;
     // DOD FIX: 25px offset from the title string
-    toolbar_rect.min.x = title_pos.x + text_width + 25.0; 
+    toolbar_rect.min.x = title_pos.x + text_width + 25.0;
 
     let mut content_rect = rect;
     content_rect.min.y = header_rect.max.y; // Starts below the header
@@ -281,21 +312,25 @@ pub fn domain_title(base: &str) -> &'static str {
     match base {
         DOMAIN_VIEWPORT => "Connectome",
         DOMAIN_EXPLORER => "Explorer",
-        DOMAIN_NODE_ED  => "Node Editor",
+        DOMAIN_NODE_ED => "Node Editor",
         DOMAIN_CODE_EDITOR => "Code Editor",
         DOMAIN_IO_INSPECTOR => "I/O Router",
         DOMAIN_BLUEPRINT_EDITOR => "Neuron Settings",
         DOMAIN_ANATOMY_SLICER => "Shard Slicer",
         DOMAIN_MATRIX_EDITOR => "Matrix Editor",
-        _               => "Plugin",
+        _ => "Plugin",
     }
 }
 
 pub fn resolve_sandbox_path(cold_path: &std::path::Path) -> std::path::PathBuf {
     let mut components = cold_path.components();
     let mut base = std::path::PathBuf::new();
-    if let Some(c1) = components.next() { base.push(c1.as_os_str()); }
-    if let Some(c2) = components.next() { base.push(c2.as_os_str()); }
+    if let Some(c1) = components.next() {
+        base.push(c1.as_os_str());
+    }
+    if let Some(c2) = components.next() {
+        base.push(c2.as_os_str());
+    }
 
     let rel_path = cold_path.strip_prefix(&base).unwrap_or(cold_path);
     base.join(".Sandbox").join(".tmp.autosave").join(rel_path)

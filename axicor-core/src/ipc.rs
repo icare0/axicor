@@ -23,7 +23,7 @@ pub const SHM_VERSION: u8 = 3;
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 pub const MAX_PRUNES_PER_NIGHT: usize = 10_000; // [DOD FIX]
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Network packet for inter-zone axon transmission (Half-Duplex SHM Data Plane).
 /// MUST remain exactly 20 bytes  SHM layout depends on this.
@@ -131,13 +131,22 @@ pub const fn shm_size(padded_n: usize) -> usize {
     let voltage_bytes = padded_n * 4;
     let threshold_bytes = padded_n * 4;
     let timers_bytes = (padded_n + 63) & !63; // Align to 64 bytes
-    
-    let total_bytes = 128 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes + voltage_bytes + threshold_bytes + timers_bytes;
+
+    let total_bytes = 128
+        + weights_bytes
+        + targets_bytes
+        + handovers_bytes
+        + prunes_bytes
+        + flags_bytes
+        + voltage_bytes
+        + threshold_bytes
+        + timers_bytes;
 
     // [DOD FIX] OS Page Alignment (4096 bytes) for strict memory mapping contracts
     (total_bytes + 4095) & !4095
 }
 
+#[rustfmt::skip]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShmHeader {
@@ -165,7 +174,6 @@ pub struct ShmHeader {
     pub _reserved: [u32; 13],         // 76..128
 }
 
-
 const _: () = assert!(std::mem::size_of::<ShmHeader>() == 128);
 
 impl ShmHeader {
@@ -175,7 +183,8 @@ impl ShmHeader {
         let targets_offset = weights_offset + weights_bytes;
         let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;
-        let handovers_bytes = (MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>()) as u32;
+        let handovers_bytes =
+            (MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>()) as u32;
         let prunes_offset = handovers_offset + handovers_bytes;
         let prunes_bytes = (MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>()) as u32;
         let flags_offset = prunes_offset + prunes_bytes;
@@ -259,7 +268,7 @@ impl ShmState {
 // Trigger-Only UDS IPC (Strike 3)
 // ---------------------------------------------------------------------------
 
-pub const BAKE_MAGIC: u32 = 0x42414B45;       // "BAKE"
+pub const BAKE_MAGIC: u32 = 0x42414B45; // "BAKE"
 pub const BAKE_READY_MAGIC: u32 = 0x424B4F4B; // "BKOK"
 
 /// Lightweight trigger for the Baker Daemon.
@@ -267,14 +276,17 @@ pub const BAKE_READY_MAGIC: u32 = 0x424B4F4B; // "BKOK"
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct BakeRequest {
-    pub magic: u32,           // BAKE_MAGIC
-    pub zone_hash: u32,       // FNV-1a of zone name
+    pub magic: u32,     // BAKE_MAGIC
+    pub zone_hash: u32, // FNV-1a of zone name
     pub current_tick: u32,
     pub prune_threshold: i16,
-    pub max_sprouts: u16,     // [DOD FIX] Dynamic limit of new connections per night
+    pub max_sprouts: u16, // [DOD FIX] Dynamic limit of new connections per night
 }
 
-const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");
+const _: () = assert!(
+    std::mem::size_of::<BakeRequest>() == 16,
+    "BakeRequest must be 16 bytes"
+);
 
 // =============================================================================
 // 2  File-format IPC: baked binary blobs (.gxi / .gxo / .ghosts)
@@ -289,24 +301,27 @@ pub const EMPTY_PIXEL: u32 = 0xFFFF_FFFF;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GxiHeader {
-    pub magic:        u32,       // GXI_MAGIC (0x47584900)
-    pub zone_hash:    u32,       // FNV-1a of zone name
-    pub matrix_hash:  u32,       // FNV-1a of matrix name
-    pub input_count:  u32,       // Number of virtual axons
-    pub total_pixels: u32,       // W  H
-    pub _padding:     [u32; 3],  // Reserved; always zero
+    pub magic: u32,         // GXI_MAGIC (0x47584900)
+    pub zone_hash: u32,     // FNV-1a of zone name
+    pub matrix_hash: u32,   // FNV-1a of matrix name
+    pub input_count: u32,   // Number of virtual axons
+    pub total_pixels: u32,  // W  H
+    pub _padding: [u32; 3], // Reserved; always zero
 }
-const _: () = assert!(std::mem::size_of::<GxiHeader>() == 32, "GxiHeader must be 32 bytes");
+const _: () = assert!(
+    std::mem::size_of::<GxiHeader>() == 32,
+    "GxiHeader must be 32 bytes"
+);
 
 impl GxiHeader {
     pub fn new(zone_hash: u32, matrix_hash: u32, total_pixels: u32) -> Self {
         Self {
-            magic:        crate::constants::GXI_MAGIC,
+            magic: crate::constants::GXI_MAGIC,
             zone_hash,
             matrix_hash,
-            input_count:  total_pixels,
+            input_count: total_pixels,
             total_pixels,
-            _padding:     [0; 3],
+            _padding: [0; 3],
         }
     }
 
@@ -326,13 +341,16 @@ impl GxiHeader {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GxoHeader {
-    pub magic:        u32,       // GXO_MAGIC (0x47584F00)
-    pub zone_hash:    u32,       // FNV-1a of zone name
-    pub matrix_hash:  u32,       // FNV-1a of matrix name
-    pub output_count: u32,       // Number of mapped somas (NOT sentinel-filled pixels)
-    pub _padding:     [u32; 4],  // Reserved; always zero
+    pub magic: u32,         // GXO_MAGIC (0x47584F00)
+    pub zone_hash: u32,     // FNV-1a of zone name
+    pub matrix_hash: u32,   // FNV-1a of matrix name
+    pub output_count: u32,  // Number of mapped somas (NOT sentinel-filled pixels)
+    pub _padding: [u32; 4], // Reserved; always zero
 }
-const _: () = assert!(std::mem::size_of::<GxoHeader>() == 32, "GxoHeader must be 32 bytes");
+const _: () = assert!(
+    std::mem::size_of::<GxoHeader>() == 32,
+    "GxoHeader must be 32 bytes"
+);
 
 impl GxoHeader {
     pub fn new(zone_hash: u32, matrix_hash: u32, output_count: u32) -> Self {
@@ -361,12 +379,15 @@ impl GxoHeader {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GhostsHeader {
-    pub magic:            u32,   // GHST_MAGIC (0x47485354)
-    pub from_zone_hash:   u32,   // FNV-1a of source zone name
-    pub to_zone_hash:     u32,   // FNV-1a of destination zone name
-    pub connection_count: u32,   // Length of the GhostConnection array that follows
+    pub magic: u32,            // GHST_MAGIC (0x47485354)
+    pub from_zone_hash: u32,   // FNV-1a of source zone name
+    pub to_zone_hash: u32,     // FNV-1a of destination zone name
+    pub connection_count: u32, // Length of the GhostConnection array that follows
 }
-const _: () = assert!(std::mem::size_of::<GhostsHeader>() == 16, "GhostsHeader must be 16 bytes");
+const _: () = assert!(
+    std::mem::size_of::<GhostsHeader>() == 16,
+    "GhostsHeader must be 16 bytes"
+);
 
 impl GhostsHeader {
     pub fn new(from_zone_hash: u32, to_zone_hash: u32, connection_count: u32) -> Self {
@@ -394,10 +415,13 @@ impl GhostsHeader {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GhostConnection {
-    pub src_soma_id:    u32,     // Dense ID of the soma in Zone A (from .gxo)
-    pub target_ghost_id: u32,   // Index of the ghost axon in Zone B
+    pub src_soma_id: u32,     // Dense ID of the soma in Zone A (from .gxo)
+    pub target_ghost_id: u32, // Index of the ghost axon in Zone B
 }
-const _: () = assert!(std::mem::size_of::<GhostConnection>() == 8, "GhostConnection must be 8 bytes");
+const _: () = assert!(
+    std::mem::size_of::<GhostConnection>() == 8,
+    "GhostConnection must be 8 bytes"
+);
 
 impl GhostConnection {
     #[inline(always)]
@@ -418,10 +442,13 @@ use bytemuck::{Pod, Zeroable};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct SpikeBatchHeader {
-    pub magic:    u32, // 0x5350494B ("SPIK")
+    pub magic: u32,    // 0x5350494B ("SPIK")
     pub batch_id: u32, // Batch counter for ordering
 }
-const _: () = assert!(std::mem::size_of::<SpikeBatchHeader>() == 8, "SpikeBatchHeader must be 8 bytes");
+const _: () = assert!(
+    std::mem::size_of::<SpikeBatchHeader>() == 8,
+    "SpikeBatchHeader must be 8 bytes"
+);
 
 /// A single spike event recorded for inter-zone transfer or readout.
 /// Exactly 8 bytes, repr(C) for Coalesced Access on GPU.
@@ -429,9 +456,12 @@ const _: () = assert!(std::mem::size_of::<SpikeBatchHeader>() == 8, "SpikeBatchH
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct SpikeEvent {
     pub ghost_axon_id: u32, // Direct index in axon_heads[] of receiver
-    pub tick_offset:   u32, // Offset within the batch
+    pub tick_offset: u32,   // Offset within the batch
 }
-const _: () = assert!(std::mem::size_of::<SpikeEvent>() == 8, "SpikeEvent must be 8 bytes");
+const _: () = assert!(
+    std::mem::size_of::<SpikeEvent>() == 8,
+    "SpikeEvent must be 8 bytes"
+);
 
 pub const CTRL_MAGIC_DOPA: u32 = 0x41504F44; // "DOPA" in Little-Endian
 
@@ -454,7 +484,7 @@ const _: () = assert!(std::mem::size_of::<SpikeBatchHeaderV2>() == 16);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct SpikeEventV2 {
     pub ghost_id: u32,
-    pub tick_offset: u32, 
+    pub tick_offset: u32,
 }
 const _: () = assert!(std::mem::size_of::<SpikeEventV2>() == 8);
 
@@ -463,9 +493,9 @@ const _: () = assert!(std::mem::size_of::<SpikeEventV2>() == 8);
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct ControlPacket {
-    pub magic: u32,     // MUST be CTRL_MAGIC_DOPA
-    pub dopamine: i16,   // R-STDP injection (-32768..32767)
-    pub _pad: u16,      // Alignment to 8 bytes
+    pub magic: u32,    // MUST be CTRL_MAGIC_DOPA
+    pub dopamine: i16, // R-STDP injection (-32768..32767)
+    pub _pad: u16,     // Alignment to 8 bytes
 }
 const _: () = assert!(std::mem::size_of::<ControlPacket>() == 8);
 
@@ -480,12 +510,15 @@ pub const TELE_MAGIC: u32 = 0x454C4554; // "TELE" in Little-Endian
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct TelemetryFrameHeader {
-    pub magic:        u32, // TELE_MAGIC
-    pub tick:         u32, // Simulation tick
+    pub magic: u32,        // TELE_MAGIC
+    pub tick: u32,         // Simulation tick
     pub spikes_count: u32, // Number of fired neurons in this frame
-    pub _padding:     u32, // 16-byte alignment
+    pub _padding: u32,     // 16-byte alignment
 }
-const _: () = assert!(std::mem::size_of::<TelemetryFrameHeader>() == 16, "TelemetryFrameHeader must be 16 bytes");
+const _: () = assert!(
+    std::mem::size_of::<TelemetryFrameHeader>() == 16,
+    "TelemetryFrameHeader must be 16 bytes"
+);
 
 /// Magic bytes for inter-zone ghost routing file.
 pub const GHST_MAGIC: u32 = 0x47485354; // "GHST"
@@ -496,9 +529,9 @@ mod file_ipc_tests {
 
     #[test]
     fn test_struct_sizes() {
-        assert_eq!(std::mem::size_of::<GxiHeader>(),     32);
-        assert_eq!(std::mem::size_of::<GxoHeader>(),     32);
-        assert_eq!(std::mem::size_of::<GhostsHeader>(),  16);
+        assert_eq!(std::mem::size_of::<GxiHeader>(), 32);
+        assert_eq!(std::mem::size_of::<GxoHeader>(), 32);
+        assert_eq!(std::mem::size_of::<GhostsHeader>(), 16);
         assert_eq!(std::mem::size_of::<GhostConnection>(), 8);
     }
 
@@ -544,8 +577,14 @@ mod file_ipc_tests {
     #[test]
     fn test_ghost_connection_slice_bytes() {
         let conns = [
-            GhostConnection { src_soma_id: 10, target_ghost_id: 20 },
-            GhostConnection { src_soma_id: 11, target_ghost_id: 21 },
+            GhostConnection {
+                src_soma_id: 10,
+                target_ghost_id: 20,
+            },
+            GhostConnection {
+                src_soma_id: 11,
+                target_ghost_id: 21,
+            },
         ];
         assert_eq!(GhostConnection::slice_as_bytes(&conns).len(), 16);
     }
@@ -561,12 +600,12 @@ mod file_ipc_tests {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 pub struct ExternalIoHeader {
-    pub magic:        u32, // GSIO_MAGIC or GSOO_MAGIC
-    pub zone_hash:    u32, // FNV-1a of zone name
-    pub matrix_hash:  u32, // FNV-1a of matrix name
-    pub payload_size: u32, // Length of data following this header
+    pub magic: u32,         // GSIO_MAGIC or GSOO_MAGIC
+    pub zone_hash: u32,     // FNV-1a of zone name
+    pub matrix_hash: u32,   // FNV-1a of matrix name
+    pub payload_size: u32,  // Length of data following this header
     pub global_reward: i16, // [DOD] R-STDP Dopamine Modulator
-    pub _padding:     u16,
+    pub _padding: u16,
 }
 const _: () = assert!(std::mem::size_of::<ExternalIoHeader>() == 20);
 
@@ -610,8 +649,8 @@ pub struct RouteUpdate {
     pub zone_hash: u32,
     pub new_ipv4: u32,
     pub new_port: u16,
-    pub mtu: u16,            // [DOD FIX] Dynamic MTU instead of padding
-    pub cluster_secret: u64, 
+    pub mtu: u16, // [DOD FIX] Dynamic MTU instead of padding
+    pub cluster_secret: u64,
 }
 
 const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 24);

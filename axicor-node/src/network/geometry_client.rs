@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use std::sync::Arc;
 use tracing::info;
 
 use super::slow_path::{GeometryRequest, GeometryResponse, SlowPathQueues};
@@ -12,7 +12,8 @@ pub async fn send_geometry_request(
     target_addr: SocketAddr,
     req: &GeometryRequest,
 ) -> Result<GeometryResponse> {
-    let mut stream = TcpStream::connect(target_addr).await
+    let mut stream = TcpStream::connect(target_addr)
+        .await
         .with_context(|| format!("Failed to connect to GeometryServer at {}", target_addr))?;
 
     // Serialize payload
@@ -27,17 +28,21 @@ pub async fn send_geometry_request(
 
     // Read Length-prefix of response
     let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await
+    stream
+        .read_exact(&mut len_buf)
+        .await
         .context("Failed to read length prefix from GeometryResponse")?;
     let resp_len = u32::from_le_bytes(len_buf) as usize;
 
     // Read payload
     let mut resp_buf = vec![0u8; resp_len];
-    stream.read_exact(&mut resp_buf).await
+    stream
+        .read_exact(&mut resp_buf)
+        .await
         .context("Failed to read payload from GeometryResponse")?;
 
-    let resp: GeometryResponse = bincode::deserialize(&resp_buf)
-        .context("Failed to deserialize GeometryResponse")?;
+    let resp: GeometryResponse =
+        bincode::deserialize(&resp_buf).context("Failed to deserialize GeometryResponse")?;
 
     Ok(resp)
 }
@@ -49,7 +54,7 @@ pub struct GeometryServer {
 
 impl GeometryServer {
     pub async fn bind(
-        addr: SocketAddr, 
+        addr: SocketAddr,
         shared_acks_queue: Arc<crossbeam::queue::SegQueue<super::slow_path::AxonHandoverAck>>,
         shared_prunes_queue: Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverPrune>>,
     ) -> Result<Self> {
@@ -57,7 +62,7 @@ impl GeometryServer {
         let mut queues = SlowPathQueues::new();
         queues.incoming_ack = shared_acks_queue;
         queues.incoming_prune = shared_prunes_queue;
-        Ok(Self { 
+        Ok(Self {
             listener,
             slow_path_queues: Arc::new(queues),
         })
@@ -66,10 +71,10 @@ impl GeometryServer {
     /// Spawns the server loop serving the provided u32 neuron data and parsing requests.
     pub fn spawn(self, geometry_data: Vec<u32>) {
         let num_neurons = geometry_data.len();
-        
+
         // Prepare legacy IDE telemetry payload
         let mut buf = Vec::with_capacity(8 + num_neurons * 4);
-        buf.extend_from_slice(b"GEOM"); 
+        buf.extend_from_slice(b"GEOM");
         buf.extend_from_slice(&(num_neurons as u32).to_le_bytes());
         for &u in &geometry_data {
             buf.extend_from_slice(&u.to_le_bytes());
@@ -79,19 +84,24 @@ impl GeometryServer {
         let slow_path_queues = self.slow_path_queues.clone();
 
         tokio::spawn(async move {
-            info!("[Geometry Server] Listening on TCP {}", self.listener.local_addr().unwrap());
+            info!(
+                "[Geometry Server] Listening on TCP {}",
+                self.listener.local_addr().unwrap()
+            );
             loop {
                 let (mut stream, _) = match self.listener.accept().await {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
-                
+
                 let data = shared_payload.clone();
                 let queues = slow_path_queues.clone();
-                
+
                 tokio::spawn(async move {
                     let mut len_buf = [0u8; 4];
-                    if stream.read_exact(&mut len_buf).await.is_err() { return; }
+                    if stream.read_exact(&mut len_buf).await.is_err() {
+                        return;
+                    }
 
                     // Legacy GEOM request from IDE
                     if &len_buf == b"GEOM" {
@@ -101,10 +111,14 @@ impl GeometryServer {
 
                     // BulkHandover request
                     let req_len = u32::from_le_bytes(len_buf) as usize;
-                    if req_len > 10_000_000 { return; } // Safety limit 10MB
-                    
+                    if req_len > 10_000_000 {
+                        return;
+                    } // Safety limit 10MB
+
                     let mut req_buf = vec![0u8; req_len];
-                    if stream.read_exact(&mut req_buf).await.is_err() { return; }
+                    if stream.read_exact(&mut req_buf).await.is_err() {
+                        return;
+                    }
 
                     if let Ok(req) = bincode::deserialize::<GeometryRequest>(&req_buf) {
                         match req {
@@ -116,14 +130,16 @@ impl GeometryServer {
                             GeometryRequest::BulkAck(acks) => {
                                 for ack in acks {
                                     // Push to Orchestrator's Lock-Free queue created in previous step!
-                                    queues.incoming_ack.push(ack); 
+                                    queues.incoming_ack.push(ack);
                                 }
                             }
                             GeometryRequest::Prune(ghost_id) => {
-                                queues.incoming_prune.push(axicor_core::ipc::AxonHandoverPrune {
-                                    target_zone_hash: 0, // Ignored on sender side
-                                    dst_ghost_id: ghost_id,
-                                });
+                                queues
+                                    .incoming_prune
+                                    .push(axicor_core::ipc::AxonHandoverPrune {
+                                        target_zone_hash: 0, // Ignored on sender side
+                                        dst_ghost_id: ghost_id,
+                                    });
                             }
                         }
 

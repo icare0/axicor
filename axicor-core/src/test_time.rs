@@ -27,7 +27,10 @@ fn ticks_to_ms_roundtrip() {
     let ms = 7.5f32;
     let ticks = ms_to_ticks(ms);
     let back = ticks_to_ms(ticks);
-    assert!((back - ms).abs() < 0.01, "roundtrip: {ms} ms  {ticks} ticks  {back} ms");
+    assert!(
+        (back - ms).abs() < 0.01,
+        "roundtrip: {ms} ms  {ticks} ticks  {back} ms"
+    );
 }
 
 #[test]

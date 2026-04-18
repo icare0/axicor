@@ -1,6 +1,6 @@
+use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::fs::File;
 
 /// FNV-1a for deterministic jitter
 fn hash_jitter(seed: u64, salt: u32) -> f32 {
@@ -11,7 +11,7 @@ fn hash_jitter(seed: u64, salt: u32) -> f32 {
     }
     hash ^= salt;
     hash = hash.wrapping_mul(0x01000193);
-    
+
     // Normalization to [-1.0 .. 1.0] range
     ((hash % 2000) as f32 / 1000.0) - 1.0
 }
@@ -29,7 +29,7 @@ pub fn bake_atlas_connection(
 ) -> u32 {
     let (grid_w, grid_h) = conn_grid;
     let count = (grid_w as u32) * (grid_h as u32);
-    
+
     let mut src_indices = Vec::with_capacity(count as usize);
     let mut dst_indices = Vec::with_capacity(count as usize);
 
@@ -57,9 +57,9 @@ pub fn bake_atlas_connection(
 
             for (dense_id, &packed) in src_packed_pos.iter().enumerate() {
                 // [DOD FIX] Recalculation: Voxel Coords (0..1024) -> Microns (0..25600)
-                let vx_um = (packed & 0x3FF) as f32 * 25.0; 
-                let vy_um = ((packed >> 10) & 0x3FF) as f32 * 25.0; 
-                
+                let vx_um = (packed & 0x3FF) as f32 * 25.0;
+                let vy_um = ((packed >> 10) & 0x3FF) as f32 * 25.0;
+
                 let dx = vx_um - target_x;
                 let dy = vy_um - target_y;
                 let dist_sq = dx * dx + dy * dy;
@@ -70,7 +70,11 @@ pub fn bake_atlas_connection(
                 }
             }
 
-            assert!(best_soma_id != u32::MAX, "Fatal: Topology is completely empty in {}", from_name);
+            assert!(
+                best_soma_id != u32::MAX,
+                "Fatal: Topology is completely empty in {}",
+                from_name
+            );
 
             src_indices.push(best_soma_id);
             dst_indices.push(dst_ghost_offset + (py as u32 * grid_w as u32) + px as u32);
@@ -80,15 +84,15 @@ pub fn bake_atlas_connection(
     // 5. Binary contract write (Zero-Copy Ready)
     let path = out_dir.join(format!("{}_{}.ghosts", from_name, to_name));
     let mut file = BufWriter::new(File::create(path).expect("Failed to create .ghosts file"));
-    
+
     // [DOD FIX] Using new C-ABI structures from ipc.rs
-    use axicor_core::ipc::{GhostsHeader, GhostConnection};
     use axicor_core::hash::fnv1a_32;
+    use axicor_core::ipc::{GhostConnection, GhostsHeader};
 
     let header = GhostsHeader::new(
         fnv1a_32(from_name.as_bytes()),
         fnv1a_32(to_name.as_bytes()),
-        count
+        count,
     );
     file.write_all(header.as_bytes()).unwrap();
 
@@ -100,7 +104,8 @@ pub fn bake_atlas_connection(
         });
     }
 
-    file.write_all(GhostConnection::slice_as_bytes(&connections)).unwrap();
+    file.write_all(GhostConnection::slice_as_bytes(&connections))
+        .unwrap();
 
     count
 }

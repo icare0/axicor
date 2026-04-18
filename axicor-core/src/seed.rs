@@ -48,7 +48,9 @@ pub const fn seed_from_str(s: &str) -> u64 {
 /// Guarantees O(1) computation of soma properties regardless of generation order.
 #[inline(always)]
 pub const fn entity_seed(master_seed: u64, entity_id: u32) -> u64 {
-    let seed = master_seed.wrapping_add(entity_id as u64).wrapping_add(0x60bee2bee120fc15);
+    let seed = master_seed
+        .wrapping_add(entity_id as u64)
+        .wrapping_add(0x60bee2bee120fc15);
     // Perform avalanche bit mixing
     let mut tmp = (seed as u128).wrapping_mul(0xa3b195354a39b70d);
     let m1 = (tmp >> 64) ^ tmp;

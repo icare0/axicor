@@ -2,8 +2,6 @@ use super::*;
 
 // use axicor_core::layout::VariantParameters;
 
-
-
 #[test]
 fn test_validate_physics_catches_panic() {
     // 0.6 m/s, 100 us, 25 um, 2 voxels -> v_seg = 1.2 (Panic!)

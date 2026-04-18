@@ -1,13 +1,13 @@
-use bevy::prelude::*;
 use crate::domain::CodeEditorState;
-use layout_api::{OpenFileEvent, PluginWindow, base_domain, DOMAIN_CODE_EDITOR}; 
+use bevy::prelude::*;
+use layout_api::{base_domain, OpenFileEvent, PluginWindow, DOMAIN_CODE_EDITOR};
 
 pub fn handle_open_file_system(
     mut events: EventReader<OpenFileEvent>,
     mut editors: Query<&mut CodeEditorState>,
 ) {
     for ev in events.read() {
-        //       
+        //
         if let Some(mut state) = editors.iter_mut().next() {
             if let Ok(content) = layout_api::overlay_read_to_string(&ev.path) {
                 state.current_file = Some(ev.path.clone());
@@ -24,7 +24,9 @@ pub fn init_editor_windows_system(
 ) {
     for (entity, window) in query.iter() {
         if base_domain(&window.plugin_id) == DOMAIN_CODE_EDITOR {
-            commands.entity(entity).insert(crate::domain::CodeEditorState::default());
+            commands
+                .entity(entity)
+                .insert(crate::domain::CodeEditorState::default());
         }
     }
 }

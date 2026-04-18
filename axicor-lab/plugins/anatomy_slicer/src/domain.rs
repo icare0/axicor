@@ -6,7 +6,7 @@ pub struct AnatomySlicerState {
     pub shard_rtt: Option<Handle<Image>>,
     pub cad_viewport_size: bevy_egui::egui::Vec2,
     pub cad_viewport_rect: Option<bevy_egui::egui::Rect>,
-    pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>, 
+    pub active_3d_hover: Option<(bevy_egui::egui::Pos2, u32)>,
 }
 
 #[derive(Component)]

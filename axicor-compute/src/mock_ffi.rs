@@ -1,11 +1,10 @@
-
-use axicor_core::layout::{VariantParameters, VramState};
 use crate::ffi::ShardVramPtrs;
+use crate::{bindings, cpu};
 use axicor_core::ipc::SpikeEvent;
-use std::sync::Mutex;
+use axicor_core::layout::{VariantParameters, VramState};
 use std::ffi::c_void;
 use std::ptr;
-use crate::{bindings, cpu};
+use std::sync::Mutex;
 
 // -----------------------------------------------------------------------------
 // TDD Call Logger
@@ -32,16 +31,22 @@ fn log_call(name: &str, ptr_addr: usize) {
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 
 unsafe fn mock_alloc_64(size: usize) -> *mut c_void {
-    if size == 0 { return std::ptr::null_mut(); }
+    if size == 0 {
+        return std::ptr::null_mut();
+    }
     let layout = Layout::from_size_align_unchecked(size + 64, 64);
     let ptr = alloc_zeroed(layout);
-    if ptr.is_null() { return std::ptr::null_mut(); }
+    if ptr.is_null() {
+        return std::ptr::null_mut();
+    }
     *(ptr as *mut usize) = size;
     ptr.add(64) as *mut c_void
 }
 
 unsafe fn mock_free_64(ptr: *mut c_void) {
-    if ptr.is_null() { return; }
+    if ptr.is_null() {
+        return;
+    }
     let real_ptr = (ptr as *mut u8).sub(64);
     let size = *(real_ptr as *const usize);
     let layout = Layout::from_size_align_unchecked(size + 64, 64);
@@ -74,7 +79,9 @@ pub extern "C" fn gpu_memcpy_host_to_device(
     src_host: *const c_void,
     size: usize,
 ) -> bool {
-    unsafe { ptr::copy_nonoverlapping(src_host as *const u8, dst_dev as *mut u8, size); }
+    unsafe {
+        ptr::copy_nonoverlapping(src_host as *const u8, dst_dev as *mut u8, size);
+    }
     true
 }
 
@@ -84,7 +91,9 @@ pub extern "C" fn gpu_memcpy_device_to_host(
     src_dev: *const c_void,
     size: usize,
 ) -> bool {
-    unsafe { ptr::copy_nonoverlapping(src_dev as *const u8, dst_host as *mut u8, size); }
+    unsafe {
+        ptr::copy_nonoverlapping(src_dev as *const u8, dst_host as *mut u8, size);
+    }
     true
 }
 
@@ -95,7 +104,9 @@ pub extern "C" fn gpu_memcpy_host_to_device_async(
     size: usize,
     _stream: *mut c_void,
 ) {
-    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+    unsafe {
+        ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size);
+    }
 }
 
 #[no_mangle]
@@ -105,7 +116,9 @@ pub extern "C" fn gpu_memcpy_device_to_host_async(
     size: usize,
     _stream: *mut c_void,
 ) {
-    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+    unsafe {
+        ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size);
+    }
 }
 
 #[no_mangle]
@@ -117,18 +130,28 @@ pub extern "C" fn gpu_memcpy_peer_async(
     size: usize,
     _stream: *mut c_void,
 ) -> bool {
-    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+    unsafe {
+        ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size);
+    }
     true
 }
 
-#[no_mangle] pub extern "C" fn gpu_stream_create(out_stream: *mut *mut c_void) -> i32 {
-    unsafe { *out_stream = std::ptr::null_mut(); }
+#[no_mangle]
+pub extern "C" fn gpu_stream_create(out_stream: *mut *mut c_void) -> i32 {
+    unsafe {
+        *out_stream = std::ptr::null_mut();
+    }
     0
 }
-#[no_mangle] pub extern "C" fn gpu_stream_destroy(_stream: *mut c_void) -> i32 { 0 }
+#[no_mangle]
+pub extern "C" fn gpu_stream_destroy(_stream: *mut c_void) -> i32 {
+    0
+}
 
-#[no_mangle] pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
-#[no_mangle] pub extern "C" fn gpu_synchronize() {}
+#[no_mangle]
+pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
+#[no_mangle]
+pub extern "C" fn gpu_synchronize() {}
 
 #[no_mangle]
 pub extern "C" fn gpu_set_device(_device_id: i32) {}
@@ -140,13 +163,16 @@ pub extern "C" fn gpu_device_synchronize() {}
 pub extern "C" fn gpu_load_constants(_host_ptr: *const c_void) {}
 
 #[no_mangle]
-pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool { true }
+pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool {
+    true
+}
 
 #[no_mangle]
 pub extern "C" fn update_constant_memory_hot_reload(
     _new_variants: *const axicor_core::layout::VariantParameters,
     _stream: *mut c_void,
-) {}
+) {
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn cu_allocate_shard(
@@ -289,10 +315,7 @@ pub extern "C" fn launch_update_neurons(
 }
 
 #[no_mangle]
-pub extern "C" fn launch_apply_gsop(
-    _vram: VramState,
-    _stream: *mut c_void,
-) -> i32 {
+pub extern "C" fn launch_apply_gsop(_vram: VramState, _stream: *mut c_void) -> i32 {
     log_call("ApplyGSOP", 0);
     0
 }
@@ -333,7 +356,9 @@ pub extern "C" fn launch_extract_outgoing_spikes(
     _out_events: *mut c_void,
     _out_count: *mut u32,
     _stream: *mut c_void,
-) -> i32 { 0 }
+) -> i32 {
+    0
+}
 
 #[no_mangle]
 pub extern "C" fn launch_ghost_sync(
@@ -345,7 +370,9 @@ pub extern "C" fn launch_ghost_sync(
     _sync_batch_ticks: u32,
     _v_seg: u32,
     _stream: *mut c_void,
-) -> i32 { 0 }
+) -> i32 {
+    0
+}
 
 #[no_mangle]
 pub extern "C" fn gpu_reset_telemetry_count(_count_d: *mut u32, _stream: *mut std::ffi::c_void) {}
@@ -356,7 +383,7 @@ pub extern "C" fn launch_extract_telemetry(
     out_ids_d: *mut u32,
     out_count_d: *mut u32,
     padded_n: u32,
-    _stream: *mut std::ffi::c_void
+    _stream: *mut std::ffi::c_void,
 ) {
     unsafe {
         let flags = std::slice::from_raw_parts(flags_d, padded_n as usize);
@@ -419,7 +446,11 @@ pub unsafe extern "C" fn cu_dma_h2d_io(
         ptr::copy_nonoverlapping(h_input_bitmask, d_input_bitmask, input_words as usize);
     }
     if !d_incoming_spikes.is_null() && !h_incoming_spikes.is_null() && schedule_capacity != 0 {
-        ptr::copy_nonoverlapping(h_incoming_spikes, d_incoming_spikes, schedule_capacity as usize);
+        ptr::copy_nonoverlapping(
+            h_incoming_spikes,
+            d_incoming_spikes,
+            schedule_capacity as usize,
+        );
     }
     0
 }

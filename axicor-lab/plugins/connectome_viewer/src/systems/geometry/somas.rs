@@ -1,6 +1,6 @@
+use crate::domain::{NeuronInstanceData, ATTRIBUTE_SPHERE_ID};
 use bevy::prelude::*;
 use bevy::render::{render_asset::RenderAssetUsages, render_resource::PrimitiveTopology};
-use crate::domain::{NeuronInstanceData, ATTRIBUTE_SPHERE_ID};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -36,7 +36,8 @@ pub fn build_soma_instances(
     }
 
     // DOD FIX:      Vec<u32>
-    let packed_positions_vec: Vec<u32> = shard_pos_data.chunks_exact(4)
+    let packed_positions_vec: Vec<u32> = shard_pos_data
+        .chunks_exact(4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
         .collect();
     let packed_positions = &packed_positions_vec;
@@ -44,10 +45,12 @@ pub fn build_soma_instances(
     let mut min_bounds = Vec3::splat(f32::MAX);
     let mut max_bounds = Vec3::splat(f32::MIN);
     let mut valid_count = 0;
-    
-    //    
+
+    //
     for &packed in packed_positions {
-        if packed == 0 { continue; }
+        if packed == 0 {
+            continue;
+        }
         let x = (packed & 0x3FF) as f32 * 0.025;
         let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
         let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
@@ -58,13 +61,17 @@ pub fn build_soma_instances(
         valid_count += 1;
     }
 
-    if valid_count == 0 { return None; }
+    if valid_count == 0 {
+        return None;
+    }
     let center = (min_bounds + max_bounds) * 0.5;
 
-    // 2.   
+    // 2.
     let mut instances = Vec::with_capacity(valid_count);
     for &packed in packed_positions {
-        if packed == 0 { continue; }
+        if packed == 0 {
+            continue;
+        }
         let x = (packed & 0x3FF) as f32 * 0.025;
         let y = ((packed >> 10) & 0x3FF) as f32 * 0.025;
         let z = ((packed >> 20) & 0xFF) as f32 * 0.025;
@@ -72,7 +79,7 @@ pub fn build_soma_instances(
 
         let pos = Vec3::new(x, z, -y) - center;
         let threshold = thresholds[type_id];
-        
+
         // DOD FIX:     .
         //  :   L5 (Threshold 42000)   10 .
         //       (R^2),
@@ -82,7 +89,7 @@ pub fn build_soma_instances(
 
         let radius_um = base_radius_um * (threshold as f32 / base_threshold).sqrt();
 
-        //       
+        //
         let clamped_radius_um = radius_um.clamp(3.0, 12.5);
 
         //      Bevy ( 1.0  = 1  = 1000 )
@@ -106,9 +113,15 @@ pub fn build_soma_instances(
     let base_sphere_mesh: Mesh = bevy::render::mesh::shape::Icosphere {
         radius: 1.0,
         subdivisions: 2,
-    }.try_into().unwrap();
+    }
+    .try_into()
+    .unwrap();
 
-    let base_positions = base_sphere_mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap();
+    let base_positions = base_sphere_mesh
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .unwrap()
+        .as_float3()
+        .unwrap();
     let base_indices = match base_sphere_mesh.indices().unwrap() {
         bevy::render::mesh::Indices::U32(vec) => vec.clone(),
         bevy::render::mesh::Indices::U16(vec) => vec.iter().map(|&i| i as u32).collect(),
@@ -131,7 +144,10 @@ pub fn build_soma_instances(
         }
     }
 
-    let mut instanced_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
+    let mut instanced_mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    );
     instanced_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, giant_positions);
     instanced_mesh.insert_attribute(ATTRIBUTE_SPHERE_ID, giant_sphere_ids);
     instanced_mesh.insert_indices(bevy::render::mesh::Indices::U32(giant_indices));

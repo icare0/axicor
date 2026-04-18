@@ -1,6 +1,6 @@
-use glam::Vec3;
-use axicor_core::types::PackedPosition;
 use crate::bake::spatial_grid::SpatialGrid;
+use axicor_core::types::PackedPosition;
+use glam::Vec3;
 
 pub struct ConeParams {
     pub radius_um: f32,
@@ -39,7 +39,9 @@ pub fn calculate_v_attract(
         let neighbor_pos = grid.get_position(dense_id);
 
         // Ignore self (coordinate collision)
-        if neighbor_pos.0 == origin_pos.0 { return; }
+        if neighbor_pos.0 == origin_pos.0 {
+            return;
+        }
 
         let target_vec = unpack_to_vec3(neighbor_pos, voxel_size_um);
         let diff = target_vec - origin_vec;
@@ -64,7 +66,8 @@ pub fn calculate_v_attract(
             // When is_same=0.0  use (1.0 - affinity)
             // 2.0: with affinity=0.5 the multiplier becomes 1.0 for all
             let affinity_mod = (is_same * params.type_affinity
-                + (1.0 - is_same) * (1.0 - params.type_affinity)) * 2.0;
+                + (1.0 - is_same) * (1.0 - params.type_affinity))
+                * 2.0;
 
             let weight = (1.0 / (dist_sq + 1.0)) * affinity_mod;
             v_attract += dir_to_target * weight;

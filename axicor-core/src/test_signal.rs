@@ -31,7 +31,6 @@ fn initial_head_is_not_sentinel() {
     assert_ne!(head, 0);
 }
 
-
 /// initial_axon_head starts such that head reaches AXON_SENTINEL after length ticks.
 /// In intermediate ticks (before SENTINEL) a segment in the tail must be active.
 #[test]
@@ -65,8 +64,10 @@ fn tail_width_equals_propagation_length() {
         .filter(|&s| is_segment_active(head, s, p))
         .count();
 
-    assert_eq!(active_count, p as usize,
-        "Active tail must cover exactly propagation_length={p} segments, got {active_count}");
+    assert_eq!(
+        active_count, p as usize,
+        "Active tail must cover exactly propagation_length={p} segments, got {active_count}"
+    );
 }
 
 /// Determinism: two calls with same arguments yield same result.
@@ -75,7 +76,10 @@ fn is_segment_active_is_pure() {
     let head = 42u32;
     let seg = 40u32;
     let p = 3u32;
-    assert_eq!(is_segment_active(head, seg, p), is_segment_active(head, seg, p));
+    assert_eq!(
+        is_segment_active(head, seg, p),
+        is_segment_active(head, seg, p)
+    );
 }
 
 /// Edge case: propagation_length = 0  no segment is ever active.
@@ -83,8 +87,10 @@ fn is_segment_active_is_pure() {
 fn zero_propagation_length_never_active() {
     let head = 100u32;
     for seg in 95..=105 {
-        assert!(!is_segment_active(head, seg, 0),
-            "propagation=0 must never be active, seg={seg}");
+        assert!(
+            !is_segment_active(head, seg, 0),
+            "propagation=0 must never be active, seg={seg}"
+        );
     }
 }
 
@@ -92,7 +98,9 @@ fn zero_propagation_length_never_active() {
 #[test]
 fn sentinel_always_dead() {
     for p in [0u32, 1, 10, u32::MAX] {
-        assert!(!is_segment_active(AXON_SENTINEL, 0, p),
-            "AXON_SENTINEL must be inactive for propagation={p}");
+        assert!(
+            !is_segment_active(AXON_SENTINEL, 0, p),
+            "AXON_SENTINEL must be inactive for propagation={p}"
+        );
     }
 }

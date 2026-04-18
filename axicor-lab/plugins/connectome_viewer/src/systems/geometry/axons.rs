@@ -1,7 +1,9 @@
+use axicor_core::layout::{
+    calculate_paths_matrix_offset, PathsFileHeader, MAX_SEGMENTS_PER_AXON, PATHS_MAGIC,
+};
+use axicor_core::types::PackedPosition;
 use bevy::prelude::*;
 use bevy::render::{render_asset::RenderAssetUsages, render_resource::PrimitiveTopology};
-use axicor_core::layout::{PathsFileHeader, PATHS_MAGIC, calculate_paths_matrix_offset, MAX_SEGMENTS_PER_AXON};
-use axicor_core::types::PackedPosition;
 
 pub struct AxonBuildResult {
     pub mesh: Mesh,
@@ -15,14 +17,18 @@ pub fn build_axon_lines(
     state_bytes: Option<&[u8]>,
 ) -> Option<AxonBuildResult> {
     let header = unsafe { &*(paths_bytes.as_ptr() as *const PathsFileHeader) };
-    if header.magic != PATHS_MAGIC { return None; }
+    if header.magic != PATHS_MAGIC {
+        return None;
+    }
 
     let total_axons = header.total_axons as usize;
-    let lengths_slice = &paths_bytes[std::mem::size_of::<PathsFileHeader>() .. std::mem::size_of::<PathsFileHeader>() + total_axons];
+    let lengths_slice = &paths_bytes[std::mem::size_of::<PathsFileHeader>()
+        ..std::mem::size_of::<PathsFileHeader>() + total_axons];
     let matrix_offset = calculate_paths_matrix_offset(total_axons);
-    
-    // DOD FIX:     
-    let matrix_vec: Vec<u32> = paths_bytes[matrix_offset..].chunks_exact(4)
+
+    // DOD FIX:
+    let matrix_vec: Vec<u32> = paths_bytes[matrix_offset..]
+        .chunks_exact(4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
         .collect();
     let matrix_slice = &matrix_vec;
@@ -34,16 +40,22 @@ pub fn build_axon_lines(
 
     for axon_id in 0..total_axons {
         let len = lengths_slice[axon_id] as usize;
-        if len == 0 { continue; } //     
+        if len == 0 {
+            continue;
+        } //
 
         let offset = axon_id * MAX_SEGMENTS_PER_AXON;
-        if offset + len > matrix_slice.len() { continue; }
-        let axon_path = &matrix_slice[offset .. offset + len];
+        if offset + len > matrix_slice.len() {
+            continue;
+        }
+        let axon_path = &matrix_slice[offset..offset + len];
 
         // 1.       ( 1:1   seg_idx)
         for i in 0..len {
             let p = PackedPosition(axon_path[i]);
-            if p.0 == 0 { continue; }
+            if p.0 == 0 {
+                continue;
+            }
 
             let v = Vec3::new(
                 (p.x() as f32 * 0.025) - center.x,
@@ -56,12 +68,12 @@ pub fn build_axon_lines(
         // 2.  3D-  (   >= 2)
         let points = &axon_segments_lookup[axon_id];
         if points.len() >= 2 {
-            //  Type ID      
+            //  Type ID
             let type_id = (axon_path[0] >> 28) & 0xF;
             let axon_color = if type_id % 2 != 0 {
-                [0.9, 0.2, 0.2, 0.15]  // Inh: 
+                [0.9, 0.2, 0.2, 0.15] // Inh:
             } else {
-                [1.0, 0.53, 0.0, 0.15] // Exc: 
+                [1.0, 0.53, 0.0, 0.15] // Exc:
             };
 
             for i in 0..(points.len() - 1) {
@@ -75,28 +87,33 @@ pub fn build_axon_lines(
 
     // DOD FIX:    (    )
     if let Some(state_data) = state_bytes {
-        // DOD FIX: shard.state is a headerless raw dump. 
+        // DOD FIX: shard.state is a headerless raw dump.
         // 1166 bytes per neuron invariant (14 bytes soma + 1152 bytes dendrites)
         let padded_n = state_data.len() / 1166;
-        
+
         // Offset for soma_to_axon: voltage(4) + flags(1) + thresh(4) + timers(1) = 10 bytes * N
         let soma_to_axon_offset = padded_n * 10;
         let targets_offset = padded_n * 14;
 
-        let s2a_vec: Vec<u32> = state_data[soma_to_axon_offset .. targets_offset]
+        let s2a_vec: Vec<u32> = state_data[soma_to_axon_offset..targets_offset]
             .chunks_exact(4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
             .collect();
 
         //        Dense ID
-        let packed_positions: Vec<u32> = pos_data.chunks_exact(4)
+        let packed_positions: Vec<u32> = pos_data
+            .chunks_exact(4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
             .collect();
 
         for dense_id in 0..padded_n {
-            if dense_id >= packed_positions.len() { break; }
+            if dense_id >= packed_positions.len() {
+                break;
+            }
             let packed = packed_positions[dense_id];
-            if packed == 0 { continue; } //  
+            if packed == 0 {
+                continue;
+            } //
 
             let local_axon_id = s2a_vec[dense_id] as usize;
 
@@ -110,12 +127,12 @@ pub fn build_axon_lines(
 
                 let first_segment_pos = axon_segments_lookup[local_axon_id][0];
 
-                //      
+                //
                 let type_id = (packed >> 28) & 0xF;
                 let root_color = if type_id % 2 != 0 {
-                    [0.9, 0.2, 0.2, 0.15]  // Inh: 
+                    [0.9, 0.2, 0.2, 0.15] // Inh:
                 } else {
-                    [1.0, 0.53, 0.0, 0.15] // Exc: 
+                    [1.0, 0.53, 0.0, 0.15] // Exc:
                 };
 
                 line_positions.push(soma_pos);
@@ -126,9 +143,14 @@ pub fn build_axon_lines(
         }
     }
 
-    if line_positions.is_empty() { return None; }
+    if line_positions.is_empty() {
+        return None;
+    }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::LineList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, line_positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, line_colors);
 

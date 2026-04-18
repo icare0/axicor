@@ -1,6 +1,8 @@
-use bevy::prelude::*;
 use crate::domain::NodeGraphUiState;
-use layout_api::{PluginWindow, ContextMenuActionTriggeredEvent, OpenFileEvent, base_domain, DOMAIN_NODE_ED};
+use bevy::prelude::*;
+use layout_api::{
+    base_domain, ContextMenuActionTriggeredEvent, OpenFileEvent, PluginWindow, DOMAIN_NODE_ED,
+};
 
 pub fn init_node_editor_windows_system(
     mut commands: Commands,
@@ -33,8 +35,12 @@ pub fn handle_node_editor_menu_triggers_system(
             let parts: Vec<&str> = ev.action_id.split('|').collect();
             if parts.len() == 2 {
                 let name = parts[1].to_string();
-                let Some(active_path) = graph.active_path.clone() else { continue };
-                let Some(session) = graph.sessions.get(&active_path) else { continue };
+                let Some(active_path) = graph.active_path.clone() else {
+                    continue;
+                };
+                let Some(session) = graph.sessions.get(&active_path) else {
+                    continue;
+                };
                 let id = session.zone_ids.get(&name).cloned().unwrap_or_default();
                 topo_events.send(crate::domain::TopologyMutation::Delete(
                     crate::domain::DeleteTarget::Zone { name, id },
@@ -50,7 +56,8 @@ pub fn handle_node_editor_menu_triggers_system(
         } else if ev.action_id.starts_with("node_editor.start_rename_port|") {
             let parts: Vec<&str> = ev.action_id.split('|').collect();
             if parts.len() == 4 {
-                state.renaming_port = Some((parts[1].to_string(), parts[2] == "1", parts[3].to_string()));
+                state.renaming_port =
+                    Some((parts[1].to_string(), parts[2] == "1", parts[3].to_string()));
                 state.rename_buffer = parts[3].to_string();
             }
         } else if ev.action_id.starts_with("node_editor.delete_port|") {
@@ -78,14 +85,22 @@ pub fn handle_node_editor_menu_triggers_system(
                 }
             }
 
-            let Some(active_path) = graph.active_path.clone() else { continue };
+            let Some(active_path) = graph.active_path.clone() else {
+                continue;
+            };
             if let Some(session) = graph.sessions.get(&active_path) {
                 let path_str = active_path.to_string_lossy();
                 if path_str.contains("simulation.toml") || path_str.ends_with(".toml") {
                     let (prefix, existing_names) = match action_type {
                         "node_editor.add_env_rx" => ("Sensor_", &session.env_rx_nodes),
                         "node_editor.add_env_tx" => ("Motor_", &session.env_tx_nodes),
-                        _ => if path_str.contains("simulation.toml") { ("Zone_", &session.zones) } else { ("Shard_", &session.zones) }
+                        _ => {
+                            if path_str.contains("simulation.toml") {
+                                ("Zone_", &session.zones)
+                            } else {
+                                ("Shard_", &session.zones)
+                            }
+                        }
                     };
 
                     let mut next_idx = existing_names.len();
@@ -101,12 +116,37 @@ pub fn handle_node_editor_menu_triggers_system(
                     }
 
                     match action_type {
-                        "node_editor.add_env_rx" => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::EnvRx { name: name.clone(), pos: spawn_pos }, None)),
-                        "node_editor.add_env_tx" => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::EnvTx { name: name.clone(), pos: spawn_pos }, None)),
-                        _ => topo_events.send(crate::domain::TopologyMutation::Create(crate::domain::CreateTarget::Zone { name: name.clone(), pos: spawn_pos }, None)),
+                        "node_editor.add_env_rx" => {
+                            topo_events.send(crate::domain::TopologyMutation::Create(
+                                crate::domain::CreateTarget::EnvRx {
+                                    name: name.clone(),
+                                    pos: spawn_pos,
+                                },
+                                None,
+                            ))
+                        }
+                        "node_editor.add_env_tx" => {
+                            topo_events.send(crate::domain::TopologyMutation::Create(
+                                crate::domain::CreateTarget::EnvTx {
+                                    name: name.clone(),
+                                    pos: spawn_pos,
+                                },
+                                None,
+                            ))
+                        }
+                        _ => topo_events.send(crate::domain::TopologyMutation::Create(
+                            crate::domain::CreateTarget::Zone {
+                                name: name.clone(),
+                                pos: spawn_pos,
+                            },
+                            None,
+                        )),
                     };
 
-                    info!("Node Editor: Intent '{}' -> Spawned {} at {:?}", action_type, name, spawn_pos);
+                    info!(
+                        "Node Editor: Intent '{}' -> Spawned {} at {:?}",
+                        action_type, name, spawn_pos
+                    );
                 }
             }
         } else if ev.action_id.starts_with("node_editor.connect_matrix|") {
@@ -129,8 +169,11 @@ pub fn handle_node_editor_menu_triggers_system(
                     },
                     None,
                 ));
-                
-                info!("Node Editor: DND matrix connected: {}.{} -> {}.{} (Z-Voxel: {:?})", from, from_port, to, to_port, voxel_z);
+
+                info!(
+                    "Node Editor: DND matrix connected: {}.{} -> {}.{} (Z-Voxel: {:?})",
+                    from, from_port, to, to_port, voxel_z
+                );
                 //       AST  io.toml
             }
         } else if ev.action_id.starts_with("node_editor.connect_global|") {
@@ -140,7 +183,7 @@ pub fn handle_node_editor_menu_triggers_system(
                 let from = parts[1].to_string();
                 let from_port = parts[2].to_string();
                 let to = parts[3].to_string();
-                let to_port = "in".to_string(); //      
+                let to_port = "in".to_string(); //
 
                 topo_events.send(crate::domain::TopologyMutation::Create(
                     crate::domain::CreateTarget::Connection {
@@ -152,14 +195,19 @@ pub fn handle_node_editor_menu_triggers_system(
                     },
                     None,
                 ));
-                
-                info!("Node Editor: Global Atlas connection created: {}.{} -> {}", from, from_port, to);
+
+                info!(
+                    "Node Editor: Global Atlas connection created: {}.{} -> {}",
+                    from, from_port, to
+                );
             }
         } else if ev.action_id == "node_editor.clear_graph" {
-            //  state,        
+            //  state,
             state.show_clear_modal = true;
             info!("Node Editor: Opening Clear Graph modal");
-        } else if !ev.action_id.starts_with("node_editor.delete_node|") && !ev.action_id.starts_with("node_editor.start_rename|") {
+        } else if !ev.action_id.starts_with("node_editor.delete_node|")
+            && !ev.action_id.starts_with("node_editor.start_rename|")
+        {
             warn!("Unknown node_editor action: {}", ev.action_id);
         }
     }
@@ -171,12 +219,21 @@ pub fn sync_smart_focus_system(
     graph: Res<crate::domain::BrainTopologyGraph>,
 ) {
     for ev in open_events.read() {
-        let Some(active_path) = &graph.active_path else { continue };
-        let Some(session) = graph.sessions.get(active_path) else { continue };
+        let Some(active_path) = &graph.active_path else {
+            continue;
+        };
+        let Some(session) = graph.sessions.get(active_path) else {
+            continue;
+        };
 
         let file_name = ev.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let node_name = if file_name == "shard.toml" || file_name == "io.toml" || file_name == "anatomy.toml" || file_name == "blueprints.toml" {
-            ev.path.parent()
+        let node_name = if file_name == "shard.toml"
+            || file_name == "io.toml"
+            || file_name == "anatomy.toml"
+            || file_name == "blueprints.toml"
+        {
+            ev.path
+                .parent()
                 .and_then(|p| p.file_name())
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
@@ -188,7 +245,10 @@ pub fn sync_smart_focus_system(
             for mut state in query.iter_mut() {
                 state.selected_node_id = Some(id.clone());
             }
-            info!("Smart Focus: Selected node {} ({}) based on file {:?}", node_name, id, ev.path);
+            info!(
+                "Smart Focus: Selected node {} ({}) based on file {:?}",
+                node_name, id, ev.path
+            );
         }
     }
 }

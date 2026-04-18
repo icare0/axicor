@@ -21,7 +21,7 @@ fn messy_string_test() {
     let messy = "   GENESIS   __ 2026      \n\t_!!   $#@%   ";
     let s = MasterSeed::from_str(messy);
     assert_ne!(s.raw(), 0, "Seed should not be 0 even for messy input");
-    
+
     // Hash is stable
     let s2 = MasterSeed::from_str(messy);
     assert_eq!(s.raw(), s2.raw());
@@ -38,9 +38,13 @@ fn empty_string_handled_safely() {
 #[test]
 fn raw_not_equal_to_literal() {
     // Bug demonstration: old hardcoded "GENESIS" bytes is not "GENESIS" passed through wyhash
-    let old_hardcode: u64 = 0x47454E455349530; 
+    let old_hardcode: u64 = 0x47454E455349530;
     let real_seed = MasterSeed::from_str("GENESIS");
-    assert_ne!(old_hardcode, real_seed.raw(), "Hardcoded string bytes do not equal wyhash hash!");
+    assert_ne!(
+        old_hardcode,
+        real_seed.raw(),
+        "Hardcoded string bytes do not equal wyhash hash!"
+    );
 }
 
 #[test]
@@ -56,10 +60,13 @@ fn test_avalanche_effect() {
     let master = 0x1234567890ABCDEF;
     let s1 = entity_seed(master, 10);
     let s2 = entity_seed(master, 11);
-    
+
     assert_ne!(s1, s2, "Adjacent IDs must have different seeds");
-    
+
     // Check that bits are thoroughly mixed (minimum 16 bits difference - heuristic)
     let diff_bits = (s1 ^ s2).count_ones();
-    assert!(diff_bits >= 16, "Avalanche effect too weak: only {diff_bits} bits differ");
+    assert!(
+        diff_bits >= 16,
+        "Avalanche effect too weak: only {diff_bits} bits differ"
+    );
 }

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use axicor_core::types::PackedPosition;
 use crate::bake::axon_growth::GrownAxon;
+use axicor_core::types::PackedPosition;
+use std::collections::HashMap;
 // [DOD] Adding Rayon for instant sorting of flat arrays
 use rayon::prelude::*;
 
@@ -29,7 +29,9 @@ impl SpatialGrid {
         let mut flat_cells = Vec::with_capacity(self.positions.len());
 
         for (dense_id, pos) in self.positions.iter().enumerate() {
-            if pos.0 == 0 { continue; }
+            if pos.0 == 0 {
+                continue;
+            }
 
             let cx = (pos.x() as u32) / self.cell_size;
             let cy = (pos.y() as u32) / self.cell_size;
@@ -72,11 +74,17 @@ impl SpatialGrid {
         let cz = (pos.z() as u32 / self.cell_size) as i32;
 
         for z in (cz - radius_cells)..=(cz + radius_cells) {
-            if z < 0 { continue; }
+            if z < 0 {
+                continue;
+            }
             for y in (cy - radius_cells)..=(cy + radius_cells) {
-                if y < 0 { continue; }
+                if y < 0 {
+                    continue;
+                }
                 for x in (cx - radius_cells)..=(cx + radius_cells) {
-                    if x < 0 { continue; }
+                    if x < 0 {
+                        continue;
+                    }
 
                     let hash = Self::hash_cell(x as u32, y as u32, z as u32);
                     // [DOD FIX] One lookup followed by slice and hardware Prefetching
@@ -115,7 +123,12 @@ pub struct AxonSegmentGrid {
 }
 
 impl AxonSegmentGrid {
-    pub fn build_from_paths(lengths: &[u8], paths: &[u32], total_axons: usize, cell_size_voxels: u32) -> Self {
+    pub fn build_from_paths(
+        lengths: &[u8],
+        paths: &[u32],
+        total_axons: usize,
+        cell_size_voxels: u32,
+    ) -> Self {
         let cell_size = cell_size_voxels.max(1);
         let mut flat_cells = Vec::with_capacity(total_axons * 10);
 
@@ -125,7 +138,9 @@ impl AxonSegmentGrid {
 
             for seg_idx in 0..len {
                 let packed = paths[offset + seg_idx];
-                if packed == 0 { continue; }
+                if packed == 0 {
+                    continue;
+                }
 
                 let pos = PackedPosition(packed);
                 let cx = (pos.x() as u32) / cell_size;
@@ -133,11 +148,14 @@ impl AxonSegmentGrid {
                 let cz = (pos.z() as u32) / cell_size;
 
                 let hash = SpatialGrid::hash_cell(cx, cy, cz);
-                flat_cells.push((hash, SegmentRef {
-                    axon_id: axon_id as u32,
-                    seg_idx: seg_idx as u16,
-                    type_idx: pos.type_id(),
-                }));
+                flat_cells.push((
+                    hash,
+                    SegmentRef {
+                        axon_id: axon_id as u32,
+                        seg_idx: seg_idx as u16,
+                        type_idx: pos.type_id(),
+                    },
+                ));
             }
         }
 
@@ -152,7 +170,11 @@ impl AxonSegmentGrid {
             }
         }
 
-        Self { cell_size, cell_index, flat_cells }
+        Self {
+            cell_size,
+            cell_index,
+            flat_cells,
+        }
     }
 
     pub fn build_from_axons(axons: &[GrownAxon], cell_size_voxels: u32) -> Self {
@@ -169,11 +191,14 @@ impl AxonSegmentGrid {
                 let cz = (pos.z() as u32) / cell_size;
 
                 let hash = SpatialGrid::hash_cell(cx, cy, cz);
-                flat_cells.push((hash, SegmentRef {
-                    axon_id: axon_id as u32,
-                    seg_idx: seg_idx as u16,
-                    type_idx,
-                }));
+                flat_cells.push((
+                    hash,
+                    SegmentRef {
+                        axon_id: axon_id as u32,
+                        seg_idx: seg_idx as u16,
+                        type_idx,
+                    },
+                ));
             }
         }
 
@@ -188,7 +213,11 @@ impl AxonSegmentGrid {
             }
         }
 
-        Self { cell_size, cell_index, flat_cells }
+        Self {
+            cell_size,
+            cell_index,
+            flat_cells,
+        }
     }
 
     #[inline(always)]
@@ -201,11 +230,17 @@ impl AxonSegmentGrid {
         let cz = (pos.z() as u32 / self.cell_size) as i32;
 
         for z in (cz - radius_cells)..=(cz + radius_cells) {
-            if z < 0 { continue; }
+            if z < 0 {
+                continue;
+            }
             for y in (cy - radius_cells)..=(cy + radius_cells) {
-                if y < 0 { continue; }
+                if y < 0 {
+                    continue;
+                }
                 for x in (cx - radius_cells)..=(cx + radius_cells) {
-                    if x < 0 { continue; }
+                    if x < 0 {
+                        continue;
+                    }
 
                     let hash = SpatialGrid::hash_cell(x as u32, y as u32, z as u32);
                     if let Some(range) = self.cell_index.get(&hash) {

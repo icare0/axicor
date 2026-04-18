@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use bevy_egui::EguiContexts;
 use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation};
 use crate::ui::modals::draw_clear_graph_modal;
+use bevy::prelude::*;
+use bevy_egui::EguiContexts;
 
 pub fn clear_graph_modal_system(
     mut contexts: EguiContexts,
@@ -9,14 +9,16 @@ pub fn clear_graph_modal_system(
     graph: Res<BrainTopologyGraph>,
     mut topo_events: EventWriter<TopologyMutation>,
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     for (window, mut state) in query.iter_mut() {
         if !window.is_visible || !state.show_clear_modal {
             continue;
         }
 
-        // 1.    
+        // 1.
         let confirmed = draw_clear_graph_modal(ctx, window.rect, &mut state);
 
         // 2.   (   egui)

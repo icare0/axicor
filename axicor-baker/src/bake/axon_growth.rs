@@ -1,10 +1,10 @@
-use axicor_core::types::PackedPosition;
 use crate::bake::seed::{entity_seed, random_f32};
+use crate::parser::anatomy::Anatomy;
+use crate::parser::simulation::SimulationConfig;
+use axicor_core::config::blueprints::NeuronType;
+use axicor_core::types::PackedPosition;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use axicor_core::config::blueprints::NeuronType;
-use crate::parser::simulation::SimulationConfig;
-use crate::parser::anatomy::Anatomy;
 
 /// Grown axon ready for writing to ShardStateSoA.
 #[derive(Debug, Clone)]
@@ -31,10 +31,10 @@ pub struct GrowthContext {
     pub current_pos_vox: Vec3,
     pub forward_dir: Vec3,
     pub target_pos: Option<Vec3>, // None for Ghost axons (fly by inertia)
-    
+
     pub remaining_steps: u32,
     pub owner_type_idx: u8,
-    pub soma_idx: usize,          // usize::MAX for Ghost axons
+    pub soma_idx: usize, // usize::MAX for Ghost axons
     pub origin_shard_id: u32,
 }
 
@@ -59,16 +59,11 @@ pub fn step_and_pack(
     // 1. V_noise: Escape from local minima (WyHash/ChaCha jitter)
     let theta = rng.gen_range(0.0..std::f32::consts::TAU);
     let phi = rng.gen_range(0.0..std::f32::consts::PI);
-    let v_noise = Vec3::new(
-        phi.sin() * theta.cos(),
-        phi.sin() * theta.sin(),
-        phi.cos()
-    );
+    let v_noise = Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
 
     // 2. Weighted steering mix
-    let mut v_final = (v_global * weights.global) 
-                    + (v_attract * weights.attract) 
-                    + (v_noise * weights.noise);
+    let mut v_final =
+        (v_global * weights.global) + (v_attract * weights.attract) + (v_noise * weights.noise);
 
     // Protection against mathematical zero
     if v_final.length_squared() < 0.0001 {
@@ -126,8 +121,9 @@ pub fn execute_growth_loop(
         if let Some(target) = ctx.target_pos {
             // H-axons or V-axons: check target achievement
             let is_growing_up = target.z >= ctx.current_pos_vox.z;
-            if (is_growing_up && ctx.current_pos_vox.z >= target.z) || 
-               (!is_growing_up && ctx.current_pos_vox.z <= target.z) {
+            if (is_growing_up && ctx.current_pos_vox.z >= target.z)
+                || (!is_growing_up && ctx.current_pos_vox.z <= target.z)
+            {
                 break;
             }
         }
@@ -137,17 +133,27 @@ pub fn execute_growth_loop(
             ctx.current_pos_vox.x.round() as u32,
             ctx.current_pos_vox.y.round() as u32,
             ctx.current_pos_vox.z.round() as u32,
-            ctx.owner_type_idx
+            ctx.owner_type_idx,
         );
-        
+
         let v_attract = calculate_v_attract(
-            current_packed, ctx.forward_dir, params, spatial_grid, voxel_size_um
+            current_packed,
+            ctx.forward_dir,
+            params,
+            spatial_grid,
+            voxel_size_um,
         );
 
         // 4. Steering & Step
         let (next_pos_um, next_packed) = step_and_pack(
-            ctx.current_pos_um, v_global, v_attract, weights, 
-            segment_length_um, ctx.owner_type_idx, &mut rng, voxel_size_um
+            ctx.current_pos_um,
+            v_global,
+            v_attract,
+            weights,
+            segment_length_um,
+            ctx.owner_type_idx,
+            &mut rng,
+            voxel_size_um,
         );
 
         ctx.current_pos_um = next_pos_um;
@@ -175,7 +181,7 @@ pub fn execute_growth_loop(
 
         // 6. Stagnation protection
         if segments.last().copied() == Some(next_packed.0) {
-            break; 
+            break;
         }
 
         segments.push(next_packed.0);
@@ -195,13 +201,16 @@ pub struct LayerZRange {
 
 /// Shard boundaries in world coordinates (voxels).
 /// Axons crossing this boundary become Ghost Axons in a neighboring shard.
-/// In mono-mode (single shard), pass `ShardBounds::full_world(&sim)` 
+/// In mono-mode (single shard), pass `ShardBounds::full_world(&sim)`
 /// crossing will never occur and behavior remains identical.
 #[derive(Debug, Clone)]
 pub struct ShardBounds {
-    pub x_start: u32, pub x_end: u32,
-    pub y_start: u32, pub y_end: u32,
-    pub z_start: u32, pub z_end: u32,
+    pub x_start: u32,
+    pub x_end: u32,
+    pub y_start: u32,
+    pub y_end: u32,
+    pub z_start: u32,
+    pub z_end: u32,
 }
 
 impl ShardBounds {
@@ -224,20 +233,23 @@ impl ShardBounds {
     pub fn from_config(cfg: &axicor_core::config::InstanceConfig) -> Self {
         Self {
             x_start: cfg.world_offset.x,
-            x_end:   cfg.world_offset.x + cfg.dimensions.w,
+            x_end: cfg.world_offset.x + cfg.dimensions.w,
             y_start: cfg.world_offset.y,
-            y_end:   cfg.world_offset.y + cfg.dimensions.d,
+            y_end: cfg.world_offset.y + cfg.dimensions.d,
             z_start: cfg.world_offset.z,
-            z_end:   cfg.world_offset.z + cfg.dimensions.h,
+            z_end: cfg.world_offset.z + cfg.dimensions.h,
         }
     }
 
     /// Checks if a point has exited shard boundaries.
     #[inline]
     pub fn is_outside(&self, x: u32, y: u32, z: u32) -> bool {
-        x < self.x_start || x >= self.x_end
-        || y < self.y_start || y >= self.y_end
-        || z < self.z_start || z >= self.z_end
+        x < self.x_start
+            || x >= self.x_end
+            || y < self.y_start
+            || y >= self.y_end
+            || z < self.z_start
+            || z >= self.z_end
     }
 }
 
@@ -313,7 +325,10 @@ pub fn grow_axons(
     use rayon::prelude::*;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
-    let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
+    let spatial_grid = SpatialGrid::new(
+        positions.to_vec(),
+        f32::max(1.0, max_search_radius_vox.ceil()) as u32,
+    );
 
     let results: Vec<(GrownAxon, Option<GhostPacket>)> = positions
         .par_iter()
@@ -326,12 +341,16 @@ pub fn grow_axons(
             let type_idx = pos.type_id();
 
             grow_single_axon(
-                soma_x, soma_y, soma_z,
+                soma_x,
+                soma_y,
+                soma_z,
                 soma_idx,
                 type_idx as u8,
                 types,
                 sim,
-                world_w_vox, world_d_vox, world_h_vox,
+                world_w_vox,
+                world_d_vox,
+                world_h_vox,
                 layer_ranges,
                 &spatial_grid,
                 shard_bounds,
@@ -348,12 +367,16 @@ pub fn grow_axons(
 
 #[allow(clippy::too_many_arguments)]
 pub fn grow_single_axon(
-    soma_x: u32, soma_y: u32, soma_z: u32,
+    soma_x: u32,
+    soma_y: u32,
+    soma_z: u32,
     soma_idx: usize,
     type_idx: u8,
     types: &[NeuronType],
     sim: &SimulationConfig,
-    world_w_vox: u32, world_d_vox: u32, world_h_vox: u32,
+    world_w_vox: u32,
+    world_d_vox: u32,
+    world_h_vox: u32,
     layer_ranges: &[LayerZRange],
     spatial_grid: &SpatialGrid,
     shard_bounds: &ShardBounds,
@@ -365,7 +388,9 @@ pub fn grow_single_axon(
     let type_params = &types[type_idx as usize];
 
     // 1. Find home layer (Index_home)
-    let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
+    let home_layer = layer_ranges
+        .iter()
+        .find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
     let (home_z_start, home_z_end) = match home_layer {
         Some(l) => (l.z_start_vox, l.z_end_vox),
         None => (soma_z, soma_z + 1), // fallback, if soma is outside defined layers
@@ -405,9 +430,10 @@ pub fn grow_single_axon(
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
     let cone_seed = entity_seed(master_seed, soma_idx as u32);
     let _owner_type_mask = type_idx; // 4-bit mask
-    
+
     let fov_cos = (type_params.steering_fov_deg / 2.0).to_radians().cos();
-    let _max_search_radius_vox = type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
+    let _max_search_radius_vox =
+        type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
     let weights = SteeringWeights {
         global: type_params.steering_weight_inertia,
         attract: type_params.steering_weight_sensor,
@@ -417,7 +443,6 @@ pub fn grow_single_axon(
     let bias = type_params.growth_vertical_bias;
     let type_idx_usize = type_idx as usize;
     let is_horizontal = bias < 0.1; // Only pure horizontal if bias is very low (e.g. 0.0)
-
 
     let current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
     let voxel_size_um = sim.simulation.voxel_size_um as f32;
@@ -430,7 +455,7 @@ pub fn grow_single_axon(
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
         let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2
         let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
-        
+
         // target_pos is not used to stop H-neurons, but is used
         // to generate constant v_global at each step.
         // Create target point far in the chosen direction.
@@ -439,17 +464,22 @@ pub fn grow_single_axon(
     } else {
         // Vertical target: target layer along Z
         let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
-        
+
         // Horizontal component (limited)
         let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
         let target_x = random_f32(horiz_seed) * world_w_vox as f32;
-        let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
+        let target_y =
+            random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
         let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
 
         let t_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
         let dir = (t_pos - current_pos).normalize_or_zero();
         let final_dir = if dir.length_squared() < 0.01 {
-            if is_growing_up { Vec3::Z } else { Vec3::NEG_Z }
+            if is_growing_up {
+                Vec3::Z
+            } else {
+                Vec3::NEG_Z
+            }
         } else {
             dir
         };
@@ -459,8 +489,8 @@ pub fn grow_single_axon(
     let params = ConeParams {
         radius_um: type_params.steering_radius_um,
         fov_cos,
-        owner_type: type_idx,                       // [DOD] Raw 4-bit type
-        type_affinity: type_params.type_affinity,   // Read from Blueprint
+        owner_type: type_idx,                     // [DOD] Raw 4-bit type
+        type_affinity: type_params.type_affinity, // Read from Blueprint
     };
 
     let mut ctx = GrowthContext {
@@ -535,7 +565,10 @@ pub fn inject_ghost_axons(
     let voxel_um = sim.simulation.voxel_size_um;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
-    let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
+    let spatial_grid = SpatialGrid::new(
+        positions.to_vec(),
+        f32::max(1.0, max_search_radius_vox.ceil()) as u32,
+    );
     let mut grown = Vec::with_capacity(ghost_packets.len());
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
@@ -598,7 +631,7 @@ pub fn inject_ghost_axons(
         }
 
         if segments.is_empty() && !has_outgoing {
-            continue; 
+            continue;
         }
 
         let length_segments = segments.len() as u32;
@@ -624,14 +657,11 @@ pub fn inject_ghost_axons(
     (grown, outgoing)
 }
 
-
-
 /// Generates fake "External" Ghost Axons that originate from other shards (Atlas Routing).
 /// They aren't attached to any local soma, so `soma_idx` is set to `usize::MAX`.
 // NOTE: grow_external_axons and grow_mock_retina have been removed.
 // They will be replaced by the new Input Map Builder in `input_map.rs`
 // as per Spec 05 2.1.
-
 
 #[cfg(test)]
 mod tests {
@@ -639,7 +669,14 @@ mod tests {
     use glam::Vec3;
 
     fn mock_bounds() -> ShardBounds {
-        ShardBounds { x_start: 0, x_end: 100, y_start: 0, y_end: 100, z_start: 0, z_end: 100 }
+        ShardBounds {
+            x_start: 0,
+            x_end: 100,
+            y_start: 0,
+            y_end: 100,
+            z_start: 0,
+            z_end: 100,
+        }
     }
 
     #[test]
@@ -665,7 +702,9 @@ mod tests {
             origin_shard_id: 1,
             soma_idx: usize::MAX,
             type_idx: 2,
-            entry_x: 10, entry_y: 20, entry_z: 30,
+            entry_x: 10,
+            entry_y: 20,
+            entry_z: 30,
             entry_dir: Vec3::Z,
             remaining_steps: 15,
         };
@@ -677,14 +716,20 @@ mod tests {
     #[test]
     fn test_inject_empty_packets() {
         let positions: Vec<PackedPosition> = vec![];
-        use axicor_core::layout::{VariantParameters};
-        use axicor_core::config::blueprints::{GenesisConstantMemory};
+        use axicor_core::config::blueprints::GenesisConstantMemory;
+        use axicor_core::layout::VariantParameters;
         let _empty_const_mem = GenesisConstantMemory {
             variants: [VariantParameters {
-                threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
-                gsop_potentiation: 0, gsop_depression: 0, homeostasis_decay: 0,
+                threshold: 0,
+                rest_potential: 0,
+                leak_rate: 0,
+                homeostasis_penalty: 0,
+                gsop_potentiation: 0,
+                gsop_depression: 0,
+                homeostasis_decay: 0,
                 signal_propagation_length: 0,
-                refractory_period: 0, synapse_refractory_period: 0,
+                refractory_period: 0,
+                synapse_refractory_period: 0,
                 ..VariantParameters::default()
             }; 16],
         };
@@ -705,17 +750,11 @@ mod tests {
             axon_growth_max_steps = 100
         "#;
         let sim = SimulationConfig::parse(toml).unwrap();
-        
+
         let dummy_types = vec![];
 
-        let (grown, outgoing) = inject_ghost_axons(
-            &[],
-            &positions,
-            &dummy_types,
-            &sim,
-            &mock_bounds(),
-            0,
-        );
+        let (grown, outgoing) =
+            inject_ghost_axons(&[], &positions, &dummy_types, &sim, &mock_bounds(), 0);
         assert!(grown.is_empty());
         assert!(outgoing.is_empty());
     }
@@ -742,7 +781,9 @@ pub fn inject_handover_events(
 
     let voxel_um = sim.simulation.voxel_size_um;
     // SpatialGrid for attraction to existing neurons
-    let search_r = (sim.simulation.segment_length_voxels as f32 * 3.0).max(1.0).ceil() as u32;
+    let search_r = (sim.simulation.segment_length_voxels as f32 * 3.0)
+        .max(1.0)
+        .ceil() as u32;
     let spatial_grid = crate::bake::spatial_grid::SpatialGrid::new(positions.to_vec(), search_r);
 
     let mut grown_axons = Vec::with_capacity(handovers.len());
@@ -760,10 +801,12 @@ pub fn inject_handover_events(
         // Entry point in global coordinates
         let entry_x = ev.entry_x as u32 + shard_bounds.x_start;
         let entry_y = ev.entry_y as u32 + shard_bounds.y_start;
-        let entry_z = ev.entry_z as u32 + shard_bounds.z_start; 
+        let entry_z = ev.entry_z as u32 + shard_bounds.z_start;
 
         // Deterministic seed
-        let ghost_seed = master_seed.wrapping_add(idx as u64).wrapping_add(0x4748_5354_0000_0000);
+        let ghost_seed = master_seed
+            .wrapping_add(idx as u64)
+            .wrapping_add(0x4748_5354_0000_0000);
 
         let entry_dir = if raw_dir.length_squared() > 0.001 {
             raw_dir.normalize()
@@ -772,12 +815,13 @@ pub fn inject_handover_events(
         };
 
         let mut ctx = GrowthContext {
-            current_pos_um: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32) * voxel_um as f32,
+            current_pos_um: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32)
+                * voxel_um as f32,
             current_pos_vox: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32),
             forward_dir: entry_dir,
             target_pos: None,
             // [DOD FIX] Extract remaining growth resource from the network event!
-            remaining_steps: ev.remaining_length as u32, 
+            remaining_steps: ev.remaining_length as u32,
             owner_type_idx: type_idx as u8,
             soma_idx: usize::MAX,
             origin_shard_id: 0, // Routing hash is used at orchestrator level

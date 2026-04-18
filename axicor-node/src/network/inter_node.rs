@@ -33,9 +33,18 @@ impl Drop for InterNodeChannel {
 }
 
 impl InterNodeChannel {
-    pub unsafe fn new(src_zone_hash: u32, target_zone_hash: u32, src_indices: &[u32], dst_ghost_ids: &[u32], capacity: u32) -> Self {
+    pub unsafe fn new(
+        src_zone_hash: u32,
+        target_zone_hash: u32,
+        src_indices: &[u32],
+        dst_ghost_ids: &[u32],
+        capacity: u32,
+    ) -> Self {
         let count = src_indices.len() as u32;
-        assert!(count <= capacity, "FATAL: Initial connections exceed capacity");
+        assert!(
+            count <= capacity,
+            "FATAL: Initial connections exceed capacity"
+        );
 
         // Allocate for MAX CAPACITY, not current count
         let bytes_capacity = (capacity as usize) * 4;
@@ -45,8 +54,18 @@ impl InterNodeChannel {
         // Copy only REAL data
         if count > 0 {
             let bytes_active = (count as usize) * 4;
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices.as_ptr() as *const _, bytes_active, ptr::null_mut());
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_ghost_ids.as_ptr() as *const _, bytes_active, ptr::null_mut());
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                src_d as *mut _,
+                src_indices.as_ptr() as *const _,
+                bytes_active,
+                ptr::null_mut(),
+            );
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                dst_d as *mut _,
+                dst_ghost_ids.as_ptr() as *const _,
+                bytes_active,
+                ptr::null_mut(),
+            );
         }
 
         // Max 8 spikes per axon per batch. Limit derived from Capacity.
@@ -72,8 +91,16 @@ impl InterNodeChannel {
         }
     }
 
-    pub unsafe fn extract_spikes(&self, axon_heads: *const axicor_core::layout::BurstHeads8, sync_batch_ticks: u32, v_seg: u32, stream: axicor_compute::ffi::CudaStream) {
-        if self.count == 0 { return; }
+    pub unsafe fn extract_spikes(
+        &self,
+        axon_heads: *const axicor_core::layout::BurstHeads8,
+        sync_batch_ticks: u32,
+        v_seg: u32,
+        stream: axicor_compute::ffi::CudaStream,
+    ) {
+        if self.count == 0 {
+            return;
+        }
         axicor_compute::ffi::launch_extract_outgoing_spikes(
             axon_heads,
             self.src_indices_d,
@@ -83,13 +110,21 @@ impl InterNodeChannel {
             v_seg,
             self.out_events_pinned as *mut std::ffi::c_void,
             self.out_count_pinned,
-            stream
+            stream,
         );
     }
 
     /// O(1) addition of new inter-zone link (Hot-Patching)
-    pub unsafe fn push_route(&mut self, src_axon: u32, dst_ghost: u32, stream: axicor_compute::ffi::CudaStream) {
-        assert!(self.count < self.capacity, "FATAL: Routing capacity exceeded. Increase ghost_capacity.");
+    pub unsafe fn push_route(
+        &mut self,
+        src_axon: u32,
+        dst_ghost: u32,
+        stream: axicor_compute::ffi::CudaStream,
+    ) {
+        assert!(
+            self.count < self.capacity,
+            "FATAL: Routing capacity exceeded. Increase ghost_capacity."
+        );
         let idx = self.count as usize;
 
         self.src_indices_host.push(src_axon);
@@ -103,22 +138,30 @@ impl InterNodeChannel {
             self.src_indices_d.add(idx) as *mut _,
             src_ptr as *const _,
             4,
-            stream
+            stream,
         );
         axicor_compute::ffi::gpu_memcpy_host_to_device_async(
             self.dst_ghost_ids_d.add(idx) as *mut _,
             dst_ptr as *const _,
             4,
-            stream
+            stream,
         );
 
         self.count += 1;
     }
 
     /// O(1) link removal via Swap-and-Pop
-    pub unsafe fn prune_route(&mut self, target_ghost_id: u32, stream: axicor_compute::ffi::CudaStream) {
+    pub unsafe fn prune_route(
+        &mut self,
+        target_ghost_id: u32,
+        stream: axicor_compute::ffi::CudaStream,
+    ) {
         // O(N) host search is acceptable as it runs only in Night Phase
-        let Some(idx) = self.dst_ghost_ids_host.iter().position(|&g| g == target_ghost_id) else {
+        let Some(idx) = self
+            .dst_ghost_ids_host
+            .iter()
+            .position(|&g| g == target_ghost_id)
+        else {
             return; // Link already removed
         };
 
@@ -141,13 +184,13 @@ impl InterNodeChannel {
                 self.src_indices_d.add(idx) as *mut _,
                 src_ptr as *const _,
                 4,
-                stream
+                stream,
             );
             axicor_compute::ffi::gpu_memcpy_host_to_device_async(
                 self.dst_ghost_ids_d.add(idx) as *mut _,
                 dst_ptr as *const _,
                 4,
-                stream
+                stream,
             );
         }
 

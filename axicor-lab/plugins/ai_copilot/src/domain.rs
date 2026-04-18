@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use serde::{Serialize, Deserialize};
-use crossbeam_channel::{unbounded, Sender, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct CopilotConfig {
@@ -9,7 +9,11 @@ pub struct CopilotConfig {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum ChatRole { User, Copilot, System }
+pub enum ChatRole {
+    User,
+    Copilot,
+    System,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ChatMessage {

@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use layout_api::{PluginWindow, base_domain, DOMAIN_MATRIX_EDITOR};
-use connectome_viewer::domain::ZoneSelectedEvent;
 use crate::domain::MatrixEditorState;
+use bevy::prelude::*;
+use connectome_viewer::domain::ZoneSelectedEvent;
+use layout_api::{base_domain, PluginWindow, DOMAIN_MATRIX_EDITOR};
 
 pub fn init_matrix_editor_windows_system(
     mut commands: Commands,

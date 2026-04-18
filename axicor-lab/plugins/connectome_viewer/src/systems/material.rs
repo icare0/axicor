@@ -1,10 +1,10 @@
+use crate::domain::NeuronInstanceData;
 use bevy::prelude::*;
 use bevy::render::render_resource::*;
-use crate::domain::NeuronInstanceData;
 
-use bevy::render::mesh::MeshVertexBufferLayout;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use crate::domain::ATTRIBUTE_SPHERE_ID;
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::render::mesh::MeshVertexBufferLayout;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct NeuronInstanceMaterial {
@@ -33,7 +33,7 @@ impl Material for NeuronInstanceMaterial {
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             ATTRIBUTE_SPHERE_ID.at_shader_location(1),
         ])?;
-        
+
         descriptor.vertex.buffers = vec![vertex_layout];
         Ok(())
     }

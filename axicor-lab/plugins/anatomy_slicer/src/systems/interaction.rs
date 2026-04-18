@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use layout_api::{PluginWindow, base_domain, DOMAIN_ANATOMY_SLICER};
-use connectome_viewer::domain::ZoneSelectedEvent;
 use crate::domain::AnatomySlicerState;
+use bevy::prelude::*;
+use connectome_viewer::domain::ZoneSelectedEvent;
+use layout_api::{base_domain, PluginWindow, DOMAIN_ANATOMY_SLICER};
 
 pub fn init_slicer_windows_system(
     mut commands: Commands,
@@ -9,7 +9,9 @@ pub fn init_slicer_windows_system(
 ) {
     for (entity, window) in query.iter() {
         if base_domain(&window.plugin_id) == DOMAIN_ANATOMY_SLICER {
-            commands.entity(entity).insert(AnatomySlicerState::default());
+            commands
+                .entity(entity)
+                .insert(AnatomySlicerState::default());
         }
     }
 }

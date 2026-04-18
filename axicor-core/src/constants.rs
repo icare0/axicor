@@ -4,17 +4,17 @@ pub const MAX_SPIKES_PER_TICK: usize = 1024;
 /// LTM / WM boundary slot index.
 pub const WM_SLOT_START: usize = 80;
 
-/// Hard Constraint: Exactly 128 dendrites per soma. 
+/// Hard Constraint: Exactly 128 dendrites per soma.
 /// Guarantees memory alignment (Columnar Layout) and 100% L1 cache line utilization.
 pub const MAX_DENDRITE_SLOTS: usize = 128;
 
-/// Sentinel value for inactive axons. 
+/// Sentinel value for inactive axons.
 /// When shifted (0x80000000 - seg_idx) yields a negative number, disabling the Active Tail.
 pub const AXON_SENTINEL: u32 = 0x80000000;
 
 /// Trigger for Maintenance Pipeline: reset overflowed axons (every ~50 simulation hours)
-pub const SENTINEL_REFRESH_TICKS: u64 = 1_800_000_000; 
-pub const SENTINEL_DANGER_THRESHOLD: u32 = 0x7000_0000; 
+pub const SENTINEL_REFRESH_TICKS: u64 = 1_800_000_000;
+pub const SENTINEL_DANGER_THRESHOLD: u32 = 0x7000_0000;
 
 /// target_packed bit layout: [31..24] Segment_Offset (8 bits) | [23..0] Axon_ID + 1 (24 bits)
 pub const TARGET_AXON_MASK: u32 = 0x00FF_FFFF;

@@ -24,13 +24,9 @@ mod tests {
     }
 
     /// Direct channel sync: reads src heads and writes to dst heads (mock-mode).
-    fn manual_sync(
-        channel: &IntraGpuChannel,
-        src_heads: *const u32,
-        dst_heads: *mut u32,
-    ) {
+    fn manual_sync(channel: &IntraGpuChannel, src_heads: *const u32, dst_heads: *mut u32) {
         for i in 0..channel.count as usize {
-            let src_axon  = channel.src_indices_host[i];
+            let src_axon = channel.src_indices_host[i];
             let dst_ghost = channel.dst_indices_host[i];
             unsafe {
                 let val = get(src_heads, src_axon);
@@ -47,16 +43,18 @@ mod tests {
             let h1 = make_heads(100);
 
             let channel = IntraGpuChannel::from_slices(
-                0, 1, // src_hash, target_hash
-                &[10], &[60], // src_indices, dst_indices
-                10 // capacity
+                0,
+                1, // src_hash, target_hash
+                &[10],
+                &[60], // src_indices, dst_indices
+                10,    // capacity
             );
 
             set(h0, 10, 42);
             manual_sync(&channel, h0, h1);
 
             assert_eq!(get(h1, 60), 42);
-            assert_eq!(get(h1, 61), 0);  // Adjacent slot untouched
+            assert_eq!(get(h1, 61), 0); // Adjacent slot untouched
 
             axicor_compute::ffi::gpu_free(h0 as *mut _);
             axicor_compute::ffi::gpu_free(h1 as *mut _);
@@ -70,11 +68,7 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            let channel = IntraGpuChannel::from_slices(
-                0, 1,
-                &[5, 5, 5], &[50, 51, 52],
-                10
-            );
+            let channel = IntraGpuChannel::from_slices(0, 1, &[5, 5, 5], &[50, 51, 52], 10);
 
             set(h0, 5, 99);
             manual_sync(&channel, h0, h1);
@@ -102,7 +96,7 @@ mod tests {
 
             set(h0, 1, 111);
             set(h1, 2, 222);
-            
+
             manual_sync(&ch_fwd, h0, h1);
             manual_sync(&ch_bwd, h1, h0);
 

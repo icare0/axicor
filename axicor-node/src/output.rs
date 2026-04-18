@@ -19,7 +19,7 @@ pub struct GxoFile {
 impl GxoFile {
     pub fn load_from_bytes(bytes: &[u8]) -> Self {
         assert!(bytes.len() >= 12, "Fatal: .gxo data too small");
-                
+
         unsafe {
             let ptr = bytes.as_ptr();
             let magic = *(ptr as *const u32);
@@ -46,10 +46,18 @@ impl GxoFile {
 
             let payload_ptr = descriptors_ptr.add(num_matrices * 16) as *const u32;
             let mut soma_ids = Vec::with_capacity(total_pixels as usize);
-            std::ptr::copy_nonoverlapping(payload_ptr, soma_ids.as_mut_ptr(), total_pixels as usize);
+            std::ptr::copy_nonoverlapping(
+                payload_ptr,
+                soma_ids.as_mut_ptr(),
+                total_pixels as usize,
+            );
             soma_ids.set_len(total_pixels as usize);
 
-            Self { total_pixels, matrices, soma_ids }
+            Self {
+                total_pixels,
+                matrices,
+                soma_ids,
+            }
         }
     }
 }

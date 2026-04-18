@@ -21,16 +21,16 @@ pub struct NeuronInstances {
 #[derive(Resource, Default)]
 pub struct TopologyGraph {
     pub padded_n: usize,
-    pub targets: Vec<u32>,              //   dendrite_targets (Columnar)
-    pub soma_to_axon: Vec<u32>,         //  soma_id -> axon_id
-    pub axon_segments: Vec<Vec<Vec3>>,  //    
-    pub soma_positions: Vec<Vec3>,      //  3D  
-    pub traced_entity: Option<Entity>,  // ID    
-    pub last_selected: Option<usize>,   //   
-    pub compact_to_dense: Vec<usize>,   // :  UI-  RAM-
-    pub axon_to_soma: Vec<usize>,      // :    
-    pub global_axon_mat: Handle<StandardMaterial>, // : Handle     X-Ray 
-    pub soma_mat: Handle<crate::systems::material::NeuronInstanceMaterial>, // : Handle  
+    pub targets: Vec<u32>,             //   dendrite_targets (Columnar)
+    pub soma_to_axon: Vec<u32>,        //  soma_id -> axon_id
+    pub axon_segments: Vec<Vec<Vec3>>, //
+    pub soma_positions: Vec<Vec3>,     //  3D
+    pub traced_entity: Option<Entity>, // ID
+    pub last_selected: Option<usize>,  //
+    pub compact_to_dense: Vec<usize>,  // :  UI-  RAM-
+    pub axon_to_soma: Vec<usize>,      // :
+    pub global_axon_mat: Handle<StandardMaterial>, // : Handle     X-Ray
+    pub soma_mat: Handle<crate::systems::material::NeuronInstanceMaterial>, // : Handle
 }
 
 #[derive(Component)]

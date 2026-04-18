@@ -90,7 +90,13 @@ impl ShardEngine {
                 telemetry_count_pinned_h = crate::ffi::gpu_host_alloc(4) as *mut u32;
             }
 
-            Self::Gpu(GpuEngine { vram, stream, telemetry_ids_d, telemetry_count_d, telemetry_count_pinned_h })
+            Self::Gpu(GpuEngine {
+                vram,
+                stream,
+                telemetry_ids_d,
+                telemetry_count_d,
+                telemetry_count_pinned_h,
+            })
         } else {
             Self::Cpu(CpuEngine {
                 vram,
@@ -124,31 +130,74 @@ impl ShardEngine {
                         crate::ffi::cu_dma_h2d_io(
                             b.d_input_bitmask,
                             h_input_bitmask.map_or(ptr::null(), |s| s.as_ptr()),
-                            if h_input_bitmask.is_some() { total_input_words } else { 0 },
+                            if h_input_bitmask.is_some() {
+                                total_input_words
+                            } else {
+                                0
+                            },
                             b.d_incoming_spikes,
                             h_incoming_spikes.map_or(ptr::null(), |s| s.as_ptr()),
-                            if h_incoming_spikes.is_some() { total_schedule_capacity } else { 0 },
+                            if h_incoming_spikes.is_some() {
+                                total_schedule_capacity
+                            } else {
+                                0
+                            },
                             gpu.stream,
                         );
-                        
-                        crate::ffi::cu_reset_burst_counters(&gpu.vram.ptrs, gpu.vram.padded_n, gpu.stream);
+
+                        crate::ffi::cu_reset_burst_counters(
+                            &gpu.vram.ptrs,
+                            gpu.vram.padded_n,
+                            gpu.stream,
+                        );
                         crate::ffi::gpu_reset_telemetry_count(gpu.telemetry_count_d, gpu.stream);
 
                         for tick in 0..sync_batch_ticks {
                             let global_tick = tick_base + tick;
-                            let tick_input_ptr = if b.d_input_bitmask.is_null() { ptr::null() } else { b.d_input_bitmask.add((tick * io_buffers.input_words_per_tick) as usize) };
-                            let tick_spikes_ptr = if b.d_incoming_spikes.is_null() { ptr::null() } else { b.d_incoming_spikes.add((tick * io_buffers.max_spikes_per_tick) as usize) };
-                            let tick_output_ptr = if b.d_output_history.is_null() { ptr::null_mut() } else { b.d_output_history.add((tick * io_buffers.num_outputs) as usize) };
+                            let tick_input_ptr = if b.d_input_bitmask.is_null() {
+                                ptr::null()
+                            } else {
+                                b.d_input_bitmask
+                                    .add((tick * io_buffers.input_words_per_tick) as usize)
+                            };
+                            let tick_spikes_ptr = if b.d_incoming_spikes.is_null() {
+                                ptr::null()
+                            } else {
+                                b.d_incoming_spikes
+                                    .add((tick * io_buffers.max_spikes_per_tick) as usize)
+                            };
+                            let tick_output_ptr = if b.d_output_history.is_null() {
+                                ptr::null_mut()
+                            } else {
+                                b.d_output_history
+                                    .add((tick * io_buffers.num_outputs) as usize)
+                            };
 
                             crate::ffi::cu_step_day_phase(
-                                &gpu.vram.ptrs, gpu.vram.padded_n, gpu.vram.total_axons, v_seg, global_tick,
-                                tick_input_ptr, virtual_offset, num_virtual_axons,
-                                tick_spikes_ptr, h_spike_counts[tick as usize],
+                                &gpu.vram.ptrs,
+                                gpu.vram.padded_n,
+                                gpu.vram.total_axons,
+                                v_seg,
+                                global_tick,
+                                tick_input_ptr,
+                                virtual_offset,
+                                num_virtual_axons,
+                                tick_spikes_ptr,
+                                h_spike_counts[tick as usize],
                                 mapped_soma_ids_device,
-                                tick_output_ptr, io_buffers.num_outputs, dopamine, gpu.stream
+                                tick_output_ptr,
+                                io_buffers.num_outputs,
+                                dopamine,
+                                gpu.stream,
                             );
 
-                            crate::ffi::launch_extract_telemetry(gpu.vram.ptrs.soma_flags, gpu.telemetry_ids_d, gpu.telemetry_count_d, gpu.vram.padded_n, gpu.stream);
+                            crate::ffi::launch_extract_telemetry(
+                                gpu.vram.ptrs.soma_flags,
+                                gpu.telemetry_ids_d,
+                                gpu.telemetry_count_d,
+                                gpu.vram.padded_n,
+                                gpu.stream,
+                            );
                         }
                     }
                 }
@@ -159,19 +208,36 @@ impl ShardEngine {
                     //       .    -    (Data-Oriented  ),
                     //    .
                     if let Some(mask) = h_input_bitmask {
-                        let expected_mask_len = (io_buffers.input_words_per_tick * sync_batch_ticks) as usize;
-                        assert_eq!(mask.len(), expected_mask_len, "FATAL: Input bitmask size violation");
+                        let expected_mask_len =
+                            (io_buffers.input_words_per_tick * sync_batch_ticks) as usize;
+                        assert_eq!(
+                            mask.len(),
+                            expected_mask_len,
+                            "FATAL: Input bitmask size violation"
+                        );
                     }
                     if let Some(spikes) = h_incoming_spikes {
-                        let expected_spikes_len = (io_buffers.max_spikes_per_tick * sync_batch_ticks) as usize;
-                        assert_eq!(spikes.len(), expected_spikes_len, "FATAL: Incoming spikes capacity violation");
+                        let expected_spikes_len =
+                            (io_buffers.max_spikes_per_tick * sync_batch_ticks) as usize;
+                        assert_eq!(
+                            spikes.len(),
+                            expected_spikes_len,
+                            "FATAL: Incoming spikes capacity violation"
+                        );
                     }
-                    assert_eq!(h_spike_counts.len(), sync_batch_ticks as usize, "FATAL: Spike counts size violation");
+                    assert_eq!(
+                        h_spike_counts.len(),
+                        sync_batch_ticks as usize,
+                        "FATAL: Spike counts size violation"
+                    );
 
                     // 1.5. Hardware Integrity Check: ,       capacity
                     let max_spikes = io_buffers.max_spikes_per_tick;
                     for &c in h_spike_counts {
-                        assert!(c <= max_spikes, "FATAL: Network provided spike count exceeding tick capacity");
+                        assert!(
+                            c <= max_spikes,
+                            "FATAL: Network provided spike count exceeding tick capacity"
+                        );
                     }
 
                     for tick in 0..sync_batch_ticks {
@@ -184,48 +250,97 @@ impl ShardEngine {
                             let len = io_buffers.input_words_per_tick as usize;
                             unsafe {
                                 // bounds   -,  raw pointer math
-                                let tick_mask = std::slice::from_raw_parts(mask.as_ptr().add(start), len);
-                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                crate::cpu::physics::cpu_inject_inputs(axon_heads, tick_mask, virtual_offset, num_virtual_axons, v_seg);
+                                let tick_mask =
+                                    std::slice::from_raw_parts(mask.as_ptr().add(start), len);
+                                let axon_heads = std::slice::from_raw_parts_mut(
+                                    cpu.vram.ptrs.axon_heads,
+                                    cpu.vram.total_axons as usize,
+                                );
+                                crate::cpu::physics::cpu_inject_inputs(
+                                    axon_heads,
+                                    tick_mask,
+                                    virtual_offset,
+                                    num_virtual_axons,
+                                    v_seg,
+                                );
                             }
                         }
-                        
+
                         // 1. Inject Network Spikes - ZERO COST SLICING
                         if let Some(spikes) = h_incoming_spikes {
                             let start = tick_idx * io_buffers.max_spikes_per_tick as usize;
                             unsafe {
-                                // get_unchecked   
+                                // get_unchecked
                                 let count = *h_spike_counts.get_unchecked(tick_idx) as usize;
                                 debug_assert!(count <= io_buffers.max_spikes_per_tick as usize);
-                                
-                                let tick_spikes = std::slice::from_raw_parts(spikes.as_ptr().add(start), count);
-                                let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
-                                crate::cpu::physics::cpu_apply_spike_batch(axon_heads, tick_spikes, v_seg);
+
+                                let tick_spikes =
+                                    std::slice::from_raw_parts(spikes.as_ptr().add(start), count);
+                                let axon_heads = std::slice::from_raw_parts_mut(
+                                    cpu.vram.ptrs.axon_heads,
+                                    cpu.vram.total_axons as usize,
+                                );
+                                crate::cpu::physics::cpu_apply_spike_batch(
+                                    axon_heads,
+                                    tick_spikes,
+                                    v_seg,
+                                );
                             }
                         }
-                        
+
                         unsafe {
-                            let axon_heads = std::slice::from_raw_parts_mut(cpu.vram.ptrs.axon_heads, cpu.vram.total_axons as usize);
+                            let axon_heads = std::slice::from_raw_parts_mut(
+                                cpu.vram.ptrs.axon_heads,
+                                cpu.vram.total_axons as usize,
+                            );
                             crate::cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
                         }
 
                         // 2. GLIF Physics
                         unsafe {
-                            crate::cpu::physics::cpu_update_neurons(&cpu.vram.ptrs, cpu.vram.padded_n, global_tick, v_seg);
+                            crate::cpu::physics::cpu_update_neurons(
+                                &cpu.vram.ptrs,
+                                cpu.vram.padded_n,
+                                global_tick,
+                                v_seg,
+                            );
                         }
 
                         // 3. Plasticity
                         unsafe {
-                            crate::cpu::physics::cpu_apply_gsop(&cpu.vram.ptrs, cpu.vram.padded_n, dopamine);
+                            crate::cpu::physics::cpu_apply_gsop(
+                                &cpu.vram.ptrs,
+                                cpu.vram.padded_n,
+                                dopamine,
+                            );
                         }
 
                         // 4. Output History
-                        let soma_flags = unsafe { std::slice::from_raw_parts(cpu.vram.ptrs.soma_flags, cpu.vram.padded_n as usize) };
-                        let mapped_ids = unsafe { std::slice::from_raw_parts(mapped_soma_ids_device, io_buffers.num_outputs as usize) };
-                        crate::cpu::physics::cpu_record_outputs(soma_flags, mapped_ids, &mut b.h_output_history, tick, io_buffers.num_outputs);
+                        let soma_flags = unsafe {
+                            std::slice::from_raw_parts(
+                                cpu.vram.ptrs.soma_flags,
+                                cpu.vram.padded_n as usize,
+                            )
+                        };
+                        let mapped_ids = unsafe {
+                            std::slice::from_raw_parts(
+                                mapped_soma_ids_device,
+                                io_buffers.num_outputs as usize,
+                            )
+                        };
+                        crate::cpu::physics::cpu_record_outputs(
+                            soma_flags,
+                            mapped_ids,
+                            &mut b.h_output_history,
+                            tick,
+                            io_buffers.num_outputs,
+                        );
 
                         // 5. Telemetry
-                        cpu.telemetry_count = crate::cpu::physics::cpu_extract_telemetry(soma_flags, &mut cpu.telemetry_ids);
+                        cpu.telemetry_count = crate::cpu::physics::cpu_extract_telemetry(
+                            soma_flags,
+                            &mut cpu.telemetry_ids,
+                        );
                     }
                 }
             }
@@ -285,17 +400,21 @@ mod tests {
         let mut d_input = std::ptr::null_mut();
         let mut d_spikes = std::ptr::null_mut();
         let mut d_output = std::ptr::null_mut();
-        
+
         unsafe {
             let err = crate::ffi::cu_allocate_io_buffers(
-                10, 20, 30,
-                &mut d_input, &mut d_spikes, &mut d_output
+                10,
+                20,
+                30,
+                &mut d_input,
+                &mut d_spikes,
+                &mut d_output,
             );
             assert_eq!(err, 0);
             assert!(!d_input.is_null());
             assert!(!d_spikes.is_null());
             assert!(!d_output.is_null());
-            
+
             crate::ffi::cu_free_io_buffers(d_input, d_spikes, d_output);
         }
     }
@@ -340,9 +459,12 @@ mod tests {
             None,
             None,
             &spike_counts,
-            0, 0,
+            0,
+            0,
             std::ptr::null(),
-            0, 0, 0
+            0,
+            0,
+            0,
         );
     }
 
@@ -389,9 +511,12 @@ mod tests {
             Some(&bad_mask),
             None,
             &spike_counts,
-            0, 0,
+            0,
+            0,
             std::ptr::null(),
-            0, 0, 0
+            0,
+            0,
+            0,
         );
     }
 }

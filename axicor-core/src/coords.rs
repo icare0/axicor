@@ -68,6 +68,8 @@ pub fn pack_target(axon_id: u32, segment_idx: u32) -> PackedTarget {
 /// Returns `None` if `t == 0` (empty dendrite slot).
 #[inline]
 pub fn unpack_target(t: PackedTarget) -> Option<(u32, u32)> {
-    if t == 0 { return None; }
+    if t == 0 {
+        return None;
+    }
     Some((unpack_axon_id(t), unpack_segment_offset(t)))
 }

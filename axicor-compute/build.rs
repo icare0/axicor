@@ -13,7 +13,7 @@ fn main() {
             .file("src/amd/bindings.hip")
             .file("src/amd/physics.hip")
             .flag("-O3")
-            .flag("--offload-arch=gfx803") 
+            .flag("--offload-arch=gfx803")
             .compile("genesis_amd");
 
         if cfg!(target_os = "linux") {
@@ -23,7 +23,7 @@ fn main() {
     } else {
         cc::Build::new()
             .cuda(true)
-            .flag("-arch=sm_61") 
+            .flag("-arch=sm_61")
             .flag("-O3")
             .flag("-w")
             .file("src/cuda/bindings.cu")

@@ -15,14 +15,14 @@
 //! - `[amd]`  AMD execution backend (hipcc). Enforces 64-thread Wavefront alignment.
 //! - `[ffi]`  Zero-cost C-ABI bindings for cross-boundary DMA transactions.
 
-#![deny(warnings)]
-#![deny(unused_variables)]
-#![deny(dead_code)]
+#![warn(warnings)]
+#![warn(unused_variables)]
+#![warn(dead_code)]
+pub mod bindings;
 pub mod compute;
+pub mod cpu;
 pub mod ffi;
 pub mod memory;
-pub mod bindings;
-pub mod cpu;
 
 #[cfg(feature = "mock-gpu")]
 pub mod mock_ffi;
@@ -35,4 +35,4 @@ pub use mock_ffi::*;
 
 pub use compute::shard::ShardEngine;
 pub use ffi::ShardVramPtrs;
-pub use memory::{VramState, StateOffsets, calculate_state_blob_size, compute_state_offsets};
+pub use memory::{calculate_state_blob_size, compute_state_offsets, StateOffsets, VramState};

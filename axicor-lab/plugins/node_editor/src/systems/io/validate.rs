@@ -1,8 +1,8 @@
+use crate::domain::ProjectSession;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use toml_edit::DocumentMut;
-use crate::domain::ProjectSession;
 
 pub struct ValidationReport {
     pub pruned_ports: usize,
@@ -17,18 +17,30 @@ pub fn validate_project(
     base_dir: &Path,
     sessions: &std::collections::HashMap<std::path::PathBuf, ProjectSession>,
 ) -> ValidationReport {
-    let mut report = ValidationReport { pruned_ports: 0, deduped_ports: 0 };
+    let mut report = ValidationReport {
+        pruned_ports: 0,
+        deduped_ports: 0,
+    };
 
-    bevy::log::info!(" [Validator] Scanning {} sessions, base_dir={}", sessions.len(), base_dir.display());
+    bevy::log::info!(
+        " [Validator] Scanning {} sessions, base_dir={}",
+        sessions.len(),
+        base_dir.display()
+    );
 
     for (session_path, session) in sessions {
-        let file_name = session_path.file_name()
+        let file_name = session_path
+            .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
 
-        bevy::log::info!(" [Validator] Session: {} | zones: {:?} | connections: {}", 
-            file_name, session.zones, session.connections.len());
+        bevy::log::info!(
+            " [Validator] Session: {} | zones: {:?} | connections: {}",
+            file_name,
+            session.zones,
+            session.connections.len()
+        );
 
         if file_name == "simulation.toml" {
             // Model-level: department io.toml
@@ -55,16 +67,16 @@ pub fn validate_project(
 ///   model-level:
 ///   -  output-: prune    output_matrix   connection
 ///   -  input-: prune    input_matrix   connection
-///   -  "in"/"out": 
-fn validate_model_level(
-    base_dir: &Path,
-    session: &ProjectSession,
-    report: &mut ValidationReport,
-) {
+///   -  "in"/"out":
+fn validate_model_level(base_dir: &Path, session: &ProjectSession, report: &mut ValidationReport) {
     for zone_name in &session.zones {
         let io_path = base_dir.join(zone_name).join("io.toml");
 
-        bevy::log::info!(" [Validator/Model] Zone '{}'  checking {}", zone_name, io_path.display());
+        bevy::log::info!(
+            " [Validator/Model] Zone '{}'  checking {}",
+            zone_name,
+            io_path.display()
+        );
 
         if !io_path.exists() {
             bevy::log::info!(" [Validator/Model] Not found, skipping.");
@@ -74,9 +86,9 @@ fn validate_model_level(
         //     connections
         let mut used_outputs: HashSet<String> = HashSet::new();
         let mut used_inputs: HashSet<String> = HashSet::new();
-        
-        for &p in PROTECTED_PORTS { 
-            used_outputs.insert(p.to_string()); 
+
+        for &p in PROTECTED_PORTS {
+            used_outputs.insert(p.to_string());
             used_inputs.insert(p.to_string());
         }
 
@@ -89,8 +101,12 @@ fn validate_model_level(
             }
         }
 
-        let Ok(content) = fs::read_to_string(&io_path) else { continue };
-        let Ok(mut doc) = content.parse::<DocumentMut>() else { continue };
+        let Ok(content) = fs::read_to_string(&io_path) else {
+            continue;
+        };
+        let Ok(mut doc) = content.parse::<DocumentMut>() else {
+            continue;
+        };
 
         let mut changed = false;
         changed |= sanitize_port_table(&mut doc, "input", zone_name, &used_inputs, report);
@@ -98,7 +114,11 @@ fn validate_model_level(
 
         if changed {
             if let Err(e) = fs::write(&io_path, doc.to_string()) {
-                bevy::log::error!("[ERROR] [Validator] Failed to write {}: {}", io_path.display(), e);
+                bevy::log::error!(
+                    "[ERROR] [Validator] Failed to write {}: {}",
+                    io_path.display(),
+                    e
+                );
             } else {
                 bevy::log::info!(" [Validator] Sanitized dept io: {}", io_path.display());
             }
@@ -114,22 +134,36 @@ fn validate_department_level(
     report: &mut ValidationReport,
 ) {
     let dept_dir = base_dir.join(dept_name);
-    if !dept_dir.exists() { return; }
+    if !dept_dir.exists() {
+        return;
+    }
 
     for zone_name in &session.zones {
         let io_path = dept_dir.join(zone_name).join("io.toml");
-        if !io_path.exists() { continue; }
-
-        let mut used_ports: HashSet<String> = HashSet::new();
-        for &p in PROTECTED_PORTS { used_ports.insert(p.to_string()); }
-
-        for (from_zone, from_port, to_zone, to_port) in &session.connections {
-            if from_zone == zone_name { used_ports.insert(from_port.clone()); }
-            if to_zone == zone_name   { used_ports.insert(to_port.clone()); }
+        if !io_path.exists() {
+            continue;
         }
 
-        let Ok(content) = fs::read_to_string(&io_path) else { continue };
-        let Ok(mut doc) = content.parse::<DocumentMut>() else { continue };
+        let mut used_ports: HashSet<String> = HashSet::new();
+        for &p in PROTECTED_PORTS {
+            used_ports.insert(p.to_string());
+        }
+
+        for (from_zone, from_port, to_zone, to_port) in &session.connections {
+            if from_zone == zone_name {
+                used_ports.insert(from_port.clone());
+            }
+            if to_zone == zone_name {
+                used_ports.insert(to_port.clone());
+            }
+        }
+
+        let Ok(content) = fs::read_to_string(&io_path) else {
+            continue;
+        };
+        let Ok(mut doc) = content.parse::<DocumentMut>() else {
+            continue;
+        };
 
         let mut changed = false;
         changed |= sanitize_port_table(&mut doc, "input", zone_name, &used_ports, report);
@@ -137,7 +171,11 @@ fn validate_department_level(
 
         if changed {
             if let Err(e) = fs::write(&io_path, doc.to_string()) {
-                bevy::log::error!("[ERROR] [Validator] Failed to write {}: {}", io_path.display(), e);
+                bevy::log::error!(
+                    "[ERROR] [Validator] Failed to write {}: {}",
+                    io_path.display(),
+                    e
+                );
             } else {
                 bevy::log::info!(" [Validator] Sanitized shard io: {}", io_path.display());
             }
@@ -156,10 +194,16 @@ fn sanitize_port_table(
     let mut matrices_to_remove = Vec::new();
     let mut changed = false;
 
-    if let Some(matrices) = doc.get_mut(array_key).and_then(|i| i.as_array_of_tables_mut()) {
+    if let Some(matrices) = doc
+        .get_mut(array_key)
+        .and_then(|i| i.as_array_of_tables_mut())
+    {
         for (m_idx, matrix) in matrices.iter_mut().enumerate() {
             let mut pins_to_remove = Vec::new();
-            if let Some(pins) = matrix.get_mut("pin").and_then(|p| p.as_array_of_tables_mut()) {
+            if let Some(pins) = matrix
+                .get_mut("pin")
+                .and_then(|p| p.as_array_of_tables_mut())
+            {
                 for (p_idx, pin) in pins.iter().enumerate() {
                     if let Some(name) = pin.get("name").and_then(|v| v.as_str()) {
                         let name_str = name.to_string();
@@ -186,7 +230,7 @@ fn sanitize_port_table(
                     matrices_to_remove.push(m_idx);
                 }
             } else {
-                //     
+                //
                 matrices_to_remove.push(m_idx);
             }
         }

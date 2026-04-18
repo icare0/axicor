@@ -1,7 +1,7 @@
+use crate::layout::ui::context_menu::ContextMenuState;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use layout_api::{OpenContextMenuEvent, ContextMenuActionTriggeredEvent, MenuAction};
-use crate::layout::ui::context_menu::ContextMenuState;
+use layout_api::{ContextMenuActionTriggeredEvent, MenuAction, OpenContextMenuEvent};
 
 ///       Window Manager.
 ///   OpenContextMenuEvent   MenuAction,
@@ -12,7 +12,7 @@ pub fn render_context_menu_system(
     mut open_events: EventReader<OpenContextMenuEvent>,
     mut trigger_writer: EventWriter<ContextMenuActionTriggeredEvent>,
 ) {
-    // 1.    
+    // 1.
     let mut just_opened = false;
     for ev in open_events.read() {
         state.open = true;
@@ -20,7 +20,7 @@ pub fn render_context_menu_system(
         state.position = ev.position;
         state.actions = ev.actions.clone();
 
-        // WM     
+        // WM
         state.actions.push(MenuAction {
             action_id: "wm.create_file".into(),
             label: "Create File (Global)".into(),
@@ -43,14 +43,13 @@ pub fn render_context_menu_system(
         .fixed_pos(state.position)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            egui::Frame::menu(&ctx.style())
-                .show(ui, |ui| {
-                    for action in &actions_snapshot {
-                        if ui.button(&action.label).clicked() {
-                            clicked_action = Some(action.action_id.clone());
-                        }
+            egui::Frame::menu(&ctx.style()).show(ui, |ui| {
+                for action in &actions_snapshot {
+                    if ui.button(&action.label).clicked() {
+                        clicked_action = Some(action.action_id.clone());
                     }
-                });
+                }
+            });
         });
 
     //    ( borrow scope)

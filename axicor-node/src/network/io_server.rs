@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
-use tokio::net::UdpSocket;
-use axicor_core::ipc::{ExternalIoHeader, RouteUpdate};
-use axicor_core::constants::{GSIO_MAGIC, GSOO_MAGIC};
-use axicor_compute::memory::PinnedBuffer;
 use crate::network::router::RoutingTable;
 use anyhow::Result;
+use axicor_compute::memory::PinnedBuffer;
+use axicor_core::constants::{GSIO_MAGIC, GSOO_MAGIC};
+use axicor_core::ipc::{ExternalIoHeader, RouteUpdate};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
 /// I/O Context for specific zone. Contains dedicated InputSwapchain.
@@ -25,7 +25,7 @@ pub struct InputSwapchain {
     back_buffer: AtomicPtr<u8>,
     /// [DOD] Size of allocated Pinned RAM. Hard barrier against network overflow.
     capacity: usize,
-    
+
     // Ownership of the underlying pinned memory
     _buffer_a: PinnedBuffer<u8>,
     _buffer_b: PinnedBuffer<u8>,
@@ -35,7 +35,7 @@ impl InputSwapchain {
     pub fn new(capacity: usize) -> Result<Self> {
         let buffer_a = PinnedBuffer::new(capacity)?;
         let buffer_b = PinnedBuffer::new(capacity)?;
-        
+
         // Ensure buffers are zeroed initially
         unsafe {
             std::ptr::write_bytes(buffer_a.as_mut_ptr(), 0, capacity);
@@ -55,12 +55,14 @@ impl InputSwapchain {
     /// Does NOT swap the buffer - caller must call .swap() explicitly (e.g. at the end of a tick).
     pub fn write_incoming_at(&self, offset: usize, payload: &[u8]) {
         let back = self.back_buffer.load(Ordering::Relaxed);
-        
+
         // [DOD] Hard barrier: panic on CPU is 100x better than silent VRAM corruption
         assert!(
             offset + payload.len() <= self.capacity,
             "FATAL DMA BUFFER OVERFLOW: {} bytes at offset {} into buffer of {} bytes",
-            payload.len(), offset, self.capacity
+            payload.len(),
+            offset,
+            self.capacity
         );
 
         unsafe {
@@ -88,10 +90,10 @@ pub struct ExternalIoServer {
     pub oversized_skips: AtomicU64,
     pub routing_table: Arc<RoutingTable>,
     pub socket: Arc<UdpSocket>,
-    
+
     /// [DOD] Flat array of zone contexts. O(N) linear search is optimal for N < 10.
     pub io_contexts: Vec<(u32, ZoneIoContext)>,
-    
+
     // Validation hashes (Deprecated for multi-zone, use io_contexts)
     // pub zone_hash: u32,
     // pub matrix_hash: u32,
@@ -104,7 +106,7 @@ pub struct ExternalIoServer {
 
 impl ExternalIoServer {
     pub fn new(
-        is_sleeping: Arc<AtomicBool>, 
+        is_sleeping: Arc<AtomicBool>,
         io_contexts: Vec<(u32, ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
@@ -132,8 +134,7 @@ impl ExternalIoServer {
                 Ok((len, _addr)) => {
                     self.process_incoming_udp(&buf[..len]);
                 }
-                Err(_e) => {
-                }
+                Err(_e) => {}
             }
         }
     }
@@ -159,29 +160,36 @@ impl ExternalIoServer {
         }
 
         // [DOD FIX] Safe unaligned stack read. Prevents SIGBUS on ARM/Xtensa.
-        let header = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const ExternalIoHeader) };
+        let header =
+            unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const ExternalIoHeader) };
 
         if header.magic == axicor_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
-                let update = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
-                
+                let update =
+                    unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
+
                 // [DOD FIX] O(1) Zero-Cost Auth
                 if update.cluster_secret != self.cluster_secret {
                     warn!("[WARN] [Security] Unauthorized ROUT_MAGIC from unknown source");
                     return;
                 }
-                
+
                 // 1. Copy current table
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
-                
+
                 // 2. Patch route
                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                 new_map.insert(update.zone_hash, (new_addr, update.mtu));
-                
+
                 // 3. RCU Swap
-                unsafe { self.routing_table.update_routes(new_map); }
-                info!(" [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                unsafe {
+                    self.routing_table.update_routes(new_map);
+                }
+                info!(
+                    " [RCU] Dynamic Route Update: 0x{:08X} moved to {}",
+                    update.zone_hash, new_addr
+                );
             }
             return;
         }
@@ -192,10 +200,17 @@ impl ExternalIoServer {
         }
 
         // [DOD FIX] Zero-Cost Routing with diagnostics
-        let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
+        let ctx = match self
+            .io_contexts
+            .iter()
+            .find(|(h, _)| *h == header.zone_hash)
+        {
             Some((_, ctx)) => ctx,
             None => {
-                warn!("[WARN] [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                warn!(
+                    "[WARN] [I/O Drop] Unknown zone hash 0x{:08X}",
+                    header.zone_hash
+                );
                 return;
             }
         };
@@ -203,7 +218,10 @@ impl ExternalIoServer {
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
             None => {
-                warn!("[WARN] [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                warn!(
+                    "[WARN] [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}",
+                    header.matrix_hash, header.zone_hash
+                );
                 return;
             }
         };
@@ -212,7 +230,11 @@ impl ExternalIoServer {
         let payload_data = &payload[payload_start..];
 
         if payload_data.len() != header.payload_size as usize {
-            warn!("[WARN] [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            warn!(
+                "[WARN] [I/O Drop] Size mismatch. Header expects {}, actual payload is {}",
+                header.payload_size,
+                payload_data.len()
+            );
             return;
         }
 
@@ -220,24 +242,29 @@ impl ExternalIoServer {
         ctx.swapchain.write_incoming_at(offset, payload_data);
 
         // Update global dopamine reward for R-STDP
-        self.global_dopamine.store(header.global_reward as i32, Ordering::Relaxed);
+        self.global_dopamine
+            .store(header.global_reward as i32, Ordering::Relaxed);
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
-                info!(" [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
+                info!(
+                    " [Dopamine] Reward Received: {} ({} packets)",
+                    header.global_reward,
+                    n + 1
+                );
             }
         }
     }
 
     /// Send Output_History (Called by orchestrator after RecordReadout)
     pub async fn send_output_batch(
-        &self, 
-        target_addr: &str, 
-        zone_hash: u32, 
-        matrix_hash: u32, 
-        pinned_output_addr: usize, 
+        &self,
+        target_addr: &str,
+        zone_hash: u32,
+        matrix_hash: u32,
+        pinned_output_addr: usize,
         output_bytes: usize,
-        tx_buffer: &mut [u8] // [DOD] Reusable buffer from Caller
+        tx_buffer: &mut [u8], // [DOD] Reusable buffer from Caller
     ) {
         let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
         if total_size > 65535 || total_size > tx_buffer.len() {
@@ -255,12 +282,17 @@ impl ExternalIoServer {
 
             std::ptr::copy_nonoverlapping(
                 pinned_output_addr as *const u8,
-                tx_buffer.as_mut_ptr().add(std::mem::size_of::<ExternalIoHeader>()),
-                output_bytes
+                tx_buffer
+                    .as_mut_ptr()
+                    .add(std::mem::size_of::<ExternalIoHeader>()),
+                output_bytes,
             );
         }
 
-        let _ = self.socket.send_to(&tx_buffer[..total_size], target_addr).await;
+        let _ = self
+            .socket
+            .send_to(&tx_buffer[..total_size], target_addr)
+            .await;
         // info!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
     }
     /// O(1) Send Output_History via Lock-Free Egress Pool
@@ -272,10 +304,12 @@ impl ExternalIoServer {
         matrix_hash: u32,
         payload: &[u8], // [DOD FIX] Take safe slice
     ) {
-        let Ok(target_addr) = target_addr_str.parse::<std::net::SocketAddr>() else { return; };
+        let Ok(target_addr) = target_addr_str.parse::<std::net::SocketAddr>() else {
+            return;
+        };
         let output_bytes = payload.len();
         let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
-        
+
         if total_size > axicor_core::constants::MAX_UDP_PAYLOAD {
             panic!("Output batch exceeds UDP MTU.");
         }
@@ -289,7 +323,7 @@ impl ExternalIoServer {
 
         unsafe {
             let header = msg.buffer.as_mut_ptr() as *mut ExternalIoHeader;
-            (*header).magic = GSOO_MAGIC; 
+            (*header).magic = GSOO_MAGIC;
             (*header).zone_hash = zone_hash;
             (*header).matrix_hash = matrix_hash;
             (*header).payload_size = output_bytes as u32;
@@ -298,8 +332,10 @@ impl ExternalIoServer {
 
             std::ptr::copy_nonoverlapping(
                 payload.as_ptr(),
-                msg.buffer.as_mut_ptr().add(std::mem::size_of::<ExternalIoHeader>()),
-                output_bytes
+                msg.buffer
+                    .as_mut_ptr()
+                    .add(std::mem::size_of::<ExternalIoHeader>()),
+                output_bytes,
             );
         }
 
@@ -311,9 +347,9 @@ impl ExternalIoServer {
     pub async fn run_input_loop(self: Arc<Self>, addr: &str) -> std::io::Result<()> {
         let socket = UdpSocket::bind(addr).await?;
         info!("[I/O Server] Listening on UDP {}", addr);
-        
+
         let mut buf = vec![0u8; 65536]; // MTU + buffer
-        
+
         loop {
             let (len, _) = socket.recv_from(&mut buf).await?;
             self.process_incoming_udp(&buf[..len]);

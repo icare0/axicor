@@ -1,16 +1,18 @@
-use axicor_core::config::blueprints::{GenesisConstantMemory, BlueprintsConfig, NeuronType};
-use axicor_core::layout::{VariantParameters};
+use axicor_core::config::blueprints::{BlueprintsConfig, GenesisConstantMemory, NeuronType};
+use axicor_core::layout::VariantParameters;
 use std::collections::HashMap;
 
-pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<NeuronType>, HashMap<String, u8>) {
-    let config = BlueprintsConfig::parse(toml_content)
-        .expect("Fatal: Failed to parse blueprints.toml");
+pub fn parse_blueprints(
+    toml_content: &str,
+) -> (GenesisConstantMemory, Vec<NeuronType>, HashMap<String, u8>) {
+    let config =
+        BlueprintsConfig::parse(toml_content).expect("Fatal: Failed to parse blueprints.toml");
 
     let num_types = config.neuron_types.len();
     if num_types > 16 {
         panic!(
             "Fatal: Architecture hard limit exceeded. Max 16 neuron types allowed, got {}. \
-            (4-bit type_mask index constraint)", 
+            (4-bit type_mask index constraint)",
             num_types
         );
     }

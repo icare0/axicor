@@ -1,8 +1,11 @@
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
-use layout_api::{PluginWindow, base_domain, DOMAIN_NODE_ED, OpenContextMenuEvent};
-use crate::domain::{BrainTopologyGraph, NodeGraphUiState, TopologyMutation, SaveProjectEvent, CompileGraphEvent, BakeProjectEvent};
+use crate::domain::{
+    BakeProjectEvent, BrainTopologyGraph, CompileGraphEvent, NodeGraphUiState, SaveProjectEvent,
+    TopologyMutation,
+};
 use crate::ui::render_editor_ui;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts};
+use layout_api::{base_domain, OpenContextMenuEvent, PluginWindow, DOMAIN_NODE_ED};
 
 pub fn render_node_editor_system(
     mut contexts: EguiContexts,
@@ -17,11 +20,19 @@ pub fn render_node_editor_system(
     mut ctx_menu_events: EventWriter<OpenContextMenuEvent>,
 ) {
     for (window, entity) in window_query.iter() {
-        if !window.is_visible { continue; }
-        if base_domain(&window.plugin_id) != DOMAIN_NODE_ED { continue; }
-        let Ok(mut ui_state) = ui_states.get_mut(entity) else { continue };
+        if !window.is_visible {
+            continue;
+        }
+        if base_domain(&window.plugin_id) != DOMAIN_NODE_ED {
+            continue;
+        }
+        let Ok(mut ui_state) = ui_states.get_mut(entity) else {
+            continue;
+        };
 
-        let Some(ctx) = contexts.try_ctx_mut() else { continue };
+        let Some(ctx) = contexts.try_ctx_mut() else {
+            continue;
+        };
 
         egui::Area::new(egui::Id::new(&window.plugin_id))
             .fixed_pos(window.rect.min)
@@ -35,12 +46,24 @@ pub fn render_node_editor_system(
                     window.rect,
                     &mut graph,
                     &mut ui_state,
-                    |ev| { mut_events.send(ev); },
-                    ||   { save_events.send(SaveProjectEvent); },
-                    ||   { compile_events.send(CompileGraphEvent); },
-                    ||   { bake_events.send(BakeProjectEvent); },
-                    |path| { open_file_events.send(layout_api::OpenFileEvent { path }); },
-                    |ev| { ctx_menu_events.send(ev); },
+                    |ev| {
+                        mut_events.send(ev);
+                    },
+                    || {
+                        save_events.send(SaveProjectEvent);
+                    },
+                    || {
+                        compile_events.send(CompileGraphEvent);
+                    },
+                    || {
+                        bake_events.send(BakeProjectEvent);
+                    },
+                    |path| {
+                        open_file_events.send(layout_api::OpenFileEvent { path });
+                    },
+                    |ev| {
+                        ctx_menu_events.send(ev);
+                    },
                     entity,
                     None,
                 );

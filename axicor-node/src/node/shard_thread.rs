@@ -1,16 +1,16 @@
-use std::sync::Arc;
-use std::thread;
-use std::ptr;
-use crossbeam::channel::Receiver;
-use axicor_compute::ShardEngine;
-use axicor_core::config::InstanceConfig;
-use axicor_core::ipc::{AxonHandoverEvent, shm_size, ShmHeader};
-use memmap2::MmapMut;
-use std::fs::OpenOptions;
+use super::{ComputeCommand, ComputeFeedback};
 use crate::network::bsp::BspBarrier;
 use crate::network::io_server::InputSwapchain;
-use super::{ComputeCommand, ComputeFeedback};
-use tracing::{info, warn, error};
+use axicor_compute::ShardEngine;
+use axicor_core::config::InstanceConfig;
+use axicor_core::ipc::{shm_size, AxonHandoverEvent, ShmHeader};
+use crossbeam::channel::Receiver;
+use memmap2::MmapMut;
+use std::fs::OpenOptions;
+use std::ptr;
+use std::sync::Arc;
+use std::thread;
+use tracing::{error, info, warn};
 
 /// [Phase 23] Static shard geometry/physics owns all per-shard data.
 pub struct ShardDescriptor {
@@ -26,9 +26,9 @@ pub struct ShardDescriptor {
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
 
-use std::sync::atomic::{AtomicU64, AtomicI16, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicI16, AtomicU16, AtomicU64, Ordering};
 
-// TODO: Find ideal balance for linear stable growth, then approximate and 
+// TODO: Find ideal balance for linear stable growth, then approximate and
 // embed neurogenesis calculation for each shard automatically based on internal types.
 pub struct ShardAtomicSettings {
     pub night_interval_ticks: AtomicU64,
@@ -58,7 +58,7 @@ pub struct ThreadWorkspace {
     pub shm_buffer: MmapMut,
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Buffer for Active Tails
-    pub ghost_origins: Vec<u32>, // [DOD FIX] O(1) Origin Tracking
+    pub ghost_origins: Vec<u32>,          // [DOD FIX] O(1) Origin Tracking
 }
 
 impl ThreadWorkspace {
@@ -109,10 +109,14 @@ impl ThreadWorkspace {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        panic!("SHM file {:?} not ready after 3s (is axicor-baker-daemon running?)", path);
+        panic!(
+            "SHM file {:?} not ready after 3s (is axicor-baker-daemon running?)",
+            path
+        );
     }
 
-    pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i32] { // [DOD FIX] i32
+    pub fn weights_slice_mut(&mut self, padded_n: usize) -> &mut [i32] {
+        // [DOD FIX] i32
         let len = padded_n * 128;
         unsafe {
             std::slice::from_raw_parts_mut(
@@ -153,7 +157,9 @@ impl ThreadWorkspace {
     pub fn threshold_offset_slice_mut(&mut self, padded_n: usize) -> &mut [i32] {
         unsafe {
             std::slice::from_raw_parts_mut(
-                self.shm_buffer.as_mut_ptr().add(self.threshold_offset_offset) as *mut i32,
+                self.shm_buffer
+                    .as_mut_ptr()
+                    .add(self.threshold_offset_offset) as *mut i32,
                 padded_n,
             )
         }
@@ -183,19 +189,22 @@ fn execute_day_phase(
     mapped_soma_ids: *const u32,
     v_seg: u32,
     _batch_counter: u64,
-    tick_base: u32, 
+    tick_base: u32,
 ) {
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
 
     let schedule = bsp_barrier.get_read_schedule();
-    
+
     // [DOD FIX] Zero-cost, 100% safe slice extraction from Pinned RAM
     let incoming_slice = schedule.ghost_ids.as_slice();
     let counts_slice_atomic = schedule.counts.as_slice();
     let counts_slice = unsafe {
         // AtomicU32 and u32 have identical memory layout.
-        std::slice::from_raw_parts(counts_slice_atomic.as_ptr() as *const u32, counts_slice_atomic.len())
+        std::slice::from_raw_parts(
+            counts_slice_atomic.as_ptr() as *const u32,
+            counts_slice_atomic.len(),
+        )
     };
 
     let input_ptr = my_io_ctx.consume_for_gpu();
@@ -265,34 +274,38 @@ fn download_outputs(
 // PHASE 3: Periodic disk flush (I/O)
 #[inline(always)]
 fn save_hot_checkpoint(
-    shard: &ShardEngine, 
-    _hash: u32, 
-    baked_dir: &std::path::Path, 
-    state_buf: &mut [u8], 
-    axons_buf: &mut [u8]
+    shard: &ShardEngine,
+    _hash: u32,
+    baked_dir: &std::path::Path,
+    state_buf: &mut [u8],
+    axons_buf: &mut [u8],
 ) {
     match shard {
-        ShardEngine::Gpu(gpu) => {
-            unsafe {
-                axicor_compute::ffi::gpu_memcpy_device_to_host(
-                    state_buf.as_mut_ptr() as *mut _,
-                    gpu.vram.ptrs.soma_voltage as *const _,
-                    state_buf.len(),
-                );
-                axicor_compute::ffi::gpu_memcpy_device_to_host(
-                    axons_buf.as_mut_ptr() as *mut _,
-                    gpu.vram.ptrs.axon_heads as *const _,
-                    axons_buf.len(),
-                );
-                axicor_compute::ffi::gpu_device_synchronize(); 
-            }
-        }
-        ShardEngine::Cpu(cpu) => {
-            unsafe {
-                std::ptr::copy_nonoverlapping(cpu.vram.ptrs.soma_voltage as *const u8, state_buf.as_mut_ptr(), state_buf.len());
-                std::ptr::copy_nonoverlapping(cpu.vram.ptrs.axon_heads as *const u8, axons_buf.as_mut_ptr(), axons_buf.len());
-            }
-        }
+        ShardEngine::Gpu(gpu) => unsafe {
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                state_buf.as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.soma_voltage as *const _,
+                state_buf.len(),
+            );
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                axons_buf.as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.axon_heads as *const _,
+                axons_buf.len(),
+            );
+            axicor_compute::ffi::gpu_device_synchronize();
+        },
+        ShardEngine::Cpu(cpu) => unsafe {
+            std::ptr::copy_nonoverlapping(
+                cpu.vram.ptrs.soma_voltage as *const u8,
+                state_buf.as_mut_ptr(),
+                state_buf.len(),
+            );
+            std::ptr::copy_nonoverlapping(
+                cpu.vram.ptrs.axon_heads as *const u8,
+                axons_buf.as_mut_ptr(),
+                axons_buf.len(),
+            );
+        },
     }
 
     let chk_state = baked_dir.join("shard.state");
@@ -301,7 +314,9 @@ fn save_hot_checkpoint(
     let tmp_axons = baked_dir.join("shard.axons.tmp");
 
     // 2. Atomic disk write
-    if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {
+    if std::fs::write(&tmp_state, state_buf).is_ok()
+        && std::fs::write(&tmp_axons, axons_buf).is_ok()
+    {
         let _ = std::fs::rename(&tmp_state, &chk_state);
         let _ = std::fs::rename(&tmp_axons, &chk_axons);
     }
@@ -318,7 +333,7 @@ fn execute_night_phase(
     shard_config: &InstanceConfig,
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
-    prune_threshold: i16, 
+    prune_threshold: i16,
     max_sprouts: u16,
     routing_table: &Arc<crate::network::router::RoutingTable>,
 ) {
@@ -330,31 +345,79 @@ fn execute_night_phase(
     let dendrites_count = padded_n * axicor_core::constants::MAX_DENDRITE_SLOTS;
 
     match shard {
-        ShardEngine::Gpu(ref mut gpu) => {
-            unsafe {
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.soma_flags as *const _, padded_n);
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.soma_voltage as *const _, padded_n * 4);
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.threshold_offset as *const _, padded_n * 4);
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.timers_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.timers as *const _, padded_n);
-                
-                axicor_compute::ffi::launch_sort_and_prune(&gpu.vram.ptrs, gpu.vram.padded_n, prune_threshold);
-                axicor_compute::ffi::gpu_device_synchronize();
+        ShardEngine::Gpu(ref mut gpu) => unsafe {
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.soma_flags as *const _,
+                padded_n,
+            );
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.soma_voltage as *const _,
+                padded_n * 4,
+            );
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.threshold_offset as *const _,
+                padded_n * 4,
+            );
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.timers_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.timers as *const _,
+                padded_n,
+            );
 
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.dendrite_weights as *const _, dendrites_count * 4);
-                axicor_compute::ffi::gpu_memcpy_device_to_host(workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _, gpu.vram.ptrs.dendrite_targets as *const _, dendrites_count * 4);
-            }
-        }
-        ShardEngine::Cpu(ref mut _cpu) => {
-            unsafe {
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.soma_flags, workspace.flags_slice_mut(padded_n).as_mut_ptr(), padded_n);
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.soma_voltage as *const u8, workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.threshold_offset as *const u8, workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.timers, workspace.timers_slice_mut(padded_n).as_mut_ptr(), padded_n);
-                
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_weights as *const u8, workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
-                std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_targets as *const u8, workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
-            }
-        }
+            axicor_compute::ffi::launch_sort_and_prune(
+                &gpu.vram.ptrs,
+                gpu.vram.padded_n,
+                prune_threshold,
+            );
+            axicor_compute::ffi::gpu_device_synchronize();
+
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.dendrite_weights as *const _,
+                dendrites_count * 4,
+            );
+            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                gpu.vram.ptrs.dendrite_targets as *const _,
+                dendrites_count * 4,
+            );
+        },
+        ShardEngine::Cpu(ref mut _cpu) => unsafe {
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.soma_flags,
+                workspace.flags_slice_mut(padded_n).as_mut_ptr(),
+                padded_n,
+            );
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.soma_voltage as *const u8,
+                workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut u8,
+                padded_n * 4,
+            );
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.threshold_offset as *const u8,
+                workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut u8,
+                padded_n * 4,
+            );
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.timers,
+                workspace.timers_slice_mut(padded_n).as_mut_ptr(),
+                padded_n,
+            );
+
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.dendrite_weights as *const u8,
+                workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut u8,
+                dendrites_count * 4,
+            );
+            std::ptr::copy_nonoverlapping(
+                _cpu.vram.ptrs.dendrite_targets as *const u8,
+                workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut u8,
+                dendrites_count * 4,
+            );
+        },
     }
 
     // 3. Sprouting (Late Binding)
@@ -381,55 +444,75 @@ fn execute_night_phase(
         ) {
             Ok(acks) => {
                 match shard {
-                    ShardEngine::Gpu(gpu) => {
-                        unsafe {
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.dendrite_targets as *mut _,
-                                workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
-                                dendrites_count * std::mem::size_of::<u32>(),
-                            );
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.dendrite_weights as *mut _,
-                                workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
-                                dendrites_count * std::mem::size_of::<i16>(),
-                            );
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.soma_voltage as *mut _,
-                                workspace.voltage_slice_mut(padded_n).as_ptr() as *const _,
-                                padded_n * std::mem::size_of::<i32>(),
-                            );
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.soma_flags as *mut _,
-                                workspace.flags_slice_mut(padded_n).as_ptr() as *const _,
-                                padded_n * std::mem::size_of::<u8>(),
-                            );
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.threshold_offset as *mut _,
-                                workspace.threshold_offset_slice_mut(padded_n).as_ptr() as *const _,
-                                padded_n * std::mem::size_of::<i32>(),
-                            );
-                            axicor_compute::ffi::gpu_memcpy_host_to_device(
-                                gpu.vram.ptrs.timers as *mut _,
-                                workspace.timers_slice_mut(padded_n).as_ptr() as *const _,
-                                padded_n * std::mem::size_of::<u8>(),
-                            );
-                            axicor_compute::ffi::gpu_device_synchronize();
-                        }
-                    }
-                    ShardEngine::Cpu(cpu) => {
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(workspace.targets_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.dendrite_targets, dendrites_count);
-                            std::ptr::copy_nonoverlapping(workspace.weights_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.dendrite_weights, dendrites_count);
-                            std::ptr::copy_nonoverlapping(workspace.voltage_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.soma_voltage, padded_n);
-                            std::ptr::copy_nonoverlapping(workspace.flags_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.soma_flags, padded_n);
-                            std::ptr::copy_nonoverlapping(workspace.threshold_offset_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.threshold_offset, padded_n);
-                            std::ptr::copy_nonoverlapping(workspace.timers_slice_mut(padded_n).as_ptr(), cpu.vram.ptrs.timers, padded_n);
-                        }
-                    }
+                    ShardEngine::Gpu(gpu) => unsafe {
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.dendrite_targets as *mut _,
+                            workspace.targets_slice_mut(padded_n).as_ptr() as *const _,
+                            dendrites_count * std::mem::size_of::<u32>(),
+                        );
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.dendrite_weights as *mut _,
+                            workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
+                            dendrites_count * std::mem::size_of::<i16>(),
+                        );
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.soma_voltage as *mut _,
+                            workspace.voltage_slice_mut(padded_n).as_ptr() as *const _,
+                            padded_n * std::mem::size_of::<i32>(),
+                        );
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.soma_flags as *mut _,
+                            workspace.flags_slice_mut(padded_n).as_ptr() as *const _,
+                            padded_n * std::mem::size_of::<u8>(),
+                        );
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.threshold_offset as *mut _,
+                            workspace.threshold_offset_slice_mut(padded_n).as_ptr() as *const _,
+                            padded_n * std::mem::size_of::<i32>(),
+                        );
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(
+                            gpu.vram.ptrs.timers as *mut _,
+                            workspace.timers_slice_mut(padded_n).as_ptr() as *const _,
+                            padded_n * std::mem::size_of::<u8>(),
+                        );
+                        axicor_compute::ffi::gpu_device_synchronize();
+                    },
+                    ShardEngine::Cpu(cpu) => unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            workspace.targets_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.dendrite_targets,
+                            dendrites_count,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            workspace.weights_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.dendrite_weights,
+                            dendrites_count,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            workspace.voltage_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.soma_voltage,
+                            padded_n,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            workspace.flags_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.soma_flags,
+                            padded_n,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            workspace.threshold_offset_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.threshold_offset,
+                            padded_n,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            workspace.timers_slice_mut(padded_n).as_ptr(),
+                            cpu.vram.ptrs.timers,
+                            padded_n,
+                        );
+                    },
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
-                
+
                 // [DOD FIX] Fill ghost owners map (Origin Tracking)
                 for ack in &acks {
                     let idx = (ack.dst_ghost_id as usize).saturating_sub(padded_n);
@@ -437,11 +520,18 @@ fn execute_night_phase(
                         workspace.ghost_origins[idx] = ack.target_zone_hash;
                     }
                 }
-                
-                dispatch_acks(acks, rt_handle, routing_table); 
-                
+
+                dispatch_acks(acks, rt_handle, routing_table);
+
                 // [DOD FIX] Read GC cleans from SHM and route deaths
-                dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
+                dispatch_prunes(
+                    shard,
+                    client,
+                    &workspace.ghost_origins,
+                    padded_n,
+                    rt_handle,
+                    routing_table,
+                );
 
                 info!(" [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
@@ -465,7 +555,8 @@ fn dispatch_handovers(
     let shm_hdr = unsafe { std::ptr::read(client.shm_ptr as *const axicor_core::ipc::ShmHeader) };
     let handovers_slice = unsafe {
         std::slice::from_raw_parts(
-            client.shm_ptr.add(shm_hdr.handovers_offset as usize) as *const crate::network::slow_path::AxonHandoverEvent,
+            client.shm_ptr.add(shm_hdr.handovers_offset as usize)
+                as *const crate::network::slow_path::AxonHandoverEvent,
             shm_hdr.handovers_count as usize,
         )
     };
@@ -474,7 +565,7 @@ fn dispatch_handovers(
     let mut x_minus = Vec::new();
     let mut y_plus = Vec::new();
     let mut y_minus = Vec::new();
-    let mut z_plus = Vec::new(); 
+    let mut z_plus = Vec::new();
     let mut z_minus = Vec::new();
 
     let max_x = shard_config.dimensions.w as u16;
@@ -497,7 +588,8 @@ fn dispatch_handovers(
         }
     }
 
-    let mut routes_to_execute: Vec<(String, Vec<crate::network::slow_path::AxonHandoverEvent>)> = Vec::new();
+    let mut routes_to_execute: Vec<(String, Vec<crate::network::slow_path::AxonHandoverEvent>)> =
+        Vec::new();
     let neighbors = &shard_config.neighbors;
     if !x_plus.is_empty() {
         if let Some(ref addr) = neighbors.x_plus {
@@ -541,13 +633,16 @@ fn dispatch_handovers(
 }
 
 fn dispatch_acks(
-    acks: Vec<axicor_core::ipc::AxonHandoverAck>, 
+    acks: Vec<axicor_core::ipc::AxonHandoverAck>,
     rt_handle: &tokio::runtime::Handle,
-    routing_table: &Arc<crate::network::router::RoutingTable>
+    routing_table: &Arc<crate::network::router::RoutingTable>,
 ) {
-    if acks.is_empty() { return; }
+    if acks.is_empty() {
+        return;
+    }
 
-    let mut grouped: std::collections::HashMap<u32, Vec<axicor_core::ipc::AxonHandoverAck>> = std::collections::HashMap::new();
+    let mut grouped: std::collections::HashMap<u32, Vec<axicor_core::ipc::AxonHandoverAck>> =
+        std::collections::HashMap::new();
     for ack in acks {
         grouped.entry(ack.target_zone_hash).or_default().push(ack);
     }
@@ -571,11 +666,14 @@ fn dispatch_prunes(
     routing_table: &Arc<crate::network::router::RoutingTable>,
 ) {
     let shm_hdr = unsafe { std::ptr::read(client.shm_ptr as *const ShmHeader) };
-    if shm_hdr.prunes_count == 0 { return; }
+    if shm_hdr.prunes_count == 0 {
+        return;
+    }
 
     let prunes_slice = unsafe {
         std::slice::from_raw_parts(
-            client.shm_ptr.add(shm_hdr.prunes_offset as usize) as *const axicor_core::ipc::AxonHandoverPrune,
+            client.shm_ptr.add(shm_hdr.prunes_offset as usize)
+                as *const axicor_core::ipc::AxonHandoverPrune,
             shm_hdr.prunes_count as usize,
         )
     };
@@ -584,22 +682,19 @@ fn dispatch_prunes(
         let ghost_id = prune.dst_ghost_id as usize;
         let idx = ghost_id.saturating_sub(padded_n);
 
-        let empty_burst = axicor_core::layout::BurstHeads8::empty(axicor_core::constants::AXON_SENTINEL);
+        let empty_burst =
+            axicor_core::layout::BurstHeads8::empty(axicor_core::constants::AXON_SENTINEL);
         match shard {
-            ShardEngine::Gpu(gpu) => {
-                unsafe {
-                    axicor_compute::ffi::gpu_memcpy_host_to_device(
-                        gpu.vram.ptrs.axon_heads.add(ghost_id) as *mut _,
-                        &empty_burst as *const _ as *const _,
-                        32,
-                    );
-                }
-            }
-            ShardEngine::Cpu(cpu) => {
-                unsafe {
-                    *cpu.vram.ptrs.axon_heads.add(ghost_id) = empty_burst;
-                }
-            }
+            ShardEngine::Gpu(gpu) => unsafe {
+                axicor_compute::ffi::gpu_memcpy_host_to_device(
+                    gpu.vram.ptrs.axon_heads.add(ghost_id) as *mut _,
+                    &empty_burst as *const _ as *const _,
+                    32,
+                );
+            },
+            ShardEngine::Cpu(cpu) => unsafe {
+                *cpu.vram.ptrs.axon_heads.add(ghost_id) = empty_burst;
+            },
         }
 
         if idx < ghost_origins.len() {
@@ -609,7 +704,8 @@ fn dispatch_prunes(
                     let gid = prune.dst_ghost_id;
                     rt_handle.spawn(async move {
                         let req = crate::network::slow_path::GeometryRequest::Prune(gid);
-                        let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
+                        let _ = crate::network::geometry_client::send_geometry_request(addr, &req)
+                            .await;
                     });
                 }
             }
@@ -640,22 +736,29 @@ fn init_io_buffers(
             );
         }
         axicor_compute::compute::shard::IoBuffers {
-            backend: axicor_compute::compute::shard::IoBackend::Gpu(axicor_compute::compute::shard::GpuIoBuffers {
-                d_input_bitmask: d_input,
-                d_incoming_spikes: d_spikes,
-                d_output_history: d_output,
-            }),
+            backend: axicor_compute::compute::shard::IoBackend::Gpu(
+                axicor_compute::compute::shard::GpuIoBuffers {
+                    d_input_bitmask: d_input,
+                    d_incoming_spikes: d_spikes,
+                    d_output_history: d_output,
+                },
+            ),
             max_spikes_per_tick,
             input_words_per_tick,
             num_outputs,
         }
     } else {
         axicor_compute::compute::shard::IoBuffers {
-            backend: axicor_compute::compute::shard::IoBackend::Cpu(axicor_compute::compute::shard::CpuIoBuffers {
-                h_input_bitmask: vec![0u32; (input_words_per_tick * sync_batch_ticks) as usize],
-                h_incoming_spikes: vec![0u32; (max_spikes_per_tick * sync_batch_ticks) as usize],
-                h_output_history: vec![0u8; (num_outputs * sync_batch_ticks) as usize],
-            }),
+            backend: axicor_compute::compute::shard::IoBackend::Cpu(
+                axicor_compute::compute::shard::CpuIoBuffers {
+                    h_input_bitmask: vec![0u32; (input_words_per_tick * sync_batch_ticks) as usize],
+                    h_incoming_spikes: vec![
+                        0u32;
+                        (max_spikes_per_tick * sync_batch_ticks) as usize
+                    ],
+                    h_output_history: vec![0u8; (num_outputs * sync_batch_ticks) as usize],
+                },
+            ),
             max_spikes_per_tick,
             input_words_per_tick,
             num_outputs,

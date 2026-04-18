@@ -1,8 +1,8 @@
-use axicor_core::layout::{BurstHeads8, VariantParameters};
 use crate::ffi::ShardVramPtrs;
 use axicor_core::constants::AXON_SENTINEL;
-use std::ffi::c_void;
+use axicor_core::layout::{BurstHeads8, VariantParameters};
 use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::ffi::c_void;
 
 // =============================================================================
 //  Size-Prefixed Allocator (DOD workaround for Layout loss)
@@ -10,17 +10,21 @@ use std::alloc::{alloc_zeroed, dealloc, Layout};
 unsafe fn alloc_aligned_with_prefix(size: usize, align: usize) -> *mut u8 {
     let layout = Layout::from_size_align_unchecked(size + align, align);
     let ptr = alloc_zeroed(layout);
-    if ptr.is_null() { return std::ptr::null_mut(); }
-    
+    if ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+
     // Write size at the very beginning (metadata)
     *(ptr as *mut usize) = size;
-    
+
     // Return shifted pointer, perfectly aligned to L1/L2 cache line
     ptr.add(align)
 }
 
 unsafe fn free_aligned_with_prefix(ptr: *mut u8, align: usize) {
-    if ptr.is_null() { return; }
+    if ptr.is_null() {
+        return;
+    }
     let real_ptr = ptr.sub(align);
     let size = *(real_ptr as *const usize);
     let layout = Layout::from_size_align_unchecked(size + align, align);
@@ -40,7 +44,11 @@ pub static mut VARIANT_LUT: CpuConstantMemory = unsafe { std::mem::zeroed() };
 
 pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
     let src = std::slice::from_raw_parts(lut, 16);
-    std::ptr::copy_nonoverlapping(src.as_ptr(), std::ptr::addr_of_mut!(VARIANT_LUT.variants) as *mut VariantParameters, 16);
+    std::ptr::copy_nonoverlapping(
+        src.as_ptr(),
+        std::ptr::addr_of_mut!(VARIANT_LUT.variants) as *mut VariantParameters,
+        16,
+    );
 }
 
 // =============================================================================
@@ -57,21 +65,23 @@ pub unsafe fn cpu_allocate_shard(
 
     // Base .state pointer is strictly 64-byte aligned
     let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
-    if base_ptr.is_null() { return -1; }
+    if base_ptr.is_null() {
+        return -1;
+    }
 
-    (*out_vram).soma_voltage      = base_ptr.add(0) as *mut i32;
-    (*out_vram).soma_flags        = base_ptr.add(4 * n) as *mut u8;
-    (*out_vram).threshold_offset  = base_ptr.add(5 * n) as *mut i32;
-    (*out_vram).timers            = base_ptr.add(9 * n) as *mut u8;
-    (*out_vram).soma_to_axon      = base_ptr.add(10 * n) as *mut u32;
-    (*out_vram).dendrite_targets  = base_ptr.add(14 * n) as *mut u32;
-    (*out_vram).dendrite_weights  = base_ptr.add(526 * n) as *mut i32;
-    (*out_vram).dendrite_timers   = base_ptr.add(1038 * n) as *mut u8;
+    (*out_vram).soma_voltage = base_ptr.add(0) as *mut i32;
+    (*out_vram).soma_flags = base_ptr.add(4 * n) as *mut u8;
+    (*out_vram).threshold_offset = base_ptr.add(5 * n) as *mut i32;
+    (*out_vram).timers = base_ptr.add(9 * n) as *mut u8;
+    (*out_vram).soma_to_axon = base_ptr.add(10 * n) as *mut u32;
+    (*out_vram).dendrite_targets = base_ptr.add(14 * n) as *mut u32;
+    (*out_vram).dendrite_weights = base_ptr.add(526 * n) as *mut i32;
+    (*out_vram).dendrite_timers = base_ptr.add(1038 * n) as *mut u8;
 
     std::ptr::write_bytes((*out_vram).soma_to_axon as *mut u8, 0xFF, n * 4);
 
     let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
-    
+
     // Axons are strictly 32-byte aligned for Burst Architecture
     let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
     if axons_ptr.is_null() {
@@ -79,7 +89,8 @@ pub unsafe fn cpu_allocate_shard(
         return -1;
     }
 
-    let axon_slice = std::slice::from_raw_parts_mut(axons_ptr as *mut BurstHeads8, total_axons as usize);
+    let axon_slice =
+        std::slice::from_raw_parts_mut(axons_ptr as *mut BurstHeads8, total_axons as usize);
     axon_slice.fill(BurstHeads8::empty(AXON_SENTINEL));
 
     (*out_vram).axon_heads = axons_ptr as *mut BurstHeads8;
@@ -110,7 +121,9 @@ pub unsafe fn cpu_upload_axons_blob(
 }
 
 pub unsafe fn cpu_free_shard(vram: *mut ShardVramPtrs) {
-    if vram.is_null() { return; }
+    if vram.is_null() {
+        return;
+    }
 
     let ptrs = &mut *vram;
 
@@ -141,21 +154,21 @@ mod tests {
         let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
         let padded_n = 64;
         let total_axons = 100;
-        
+
         let res = unsafe { cpu_allocate_shard(padded_n, total_axons, &mut ptrs) };
         assert_eq!(res, 0);
-        
+
         let base_addr = ptrs.soma_voltage as usize;
         assert_eq!(base_addr % 64, 0);
-        
+
         let targets_addr = ptrs.dendrite_targets as usize;
         assert_eq!(targets_addr - base_addr, 14 * 64);
-        
+
         unsafe {
             let first_head = *ptrs.axon_heads;
             assert_eq!(first_head.h0, AXON_SENTINEL);
         }
-        
+
         unsafe { cpu_free_shard(&mut ptrs) };
         assert!(ptrs.soma_voltage.is_null());
         assert!(ptrs.axon_heads.is_null());

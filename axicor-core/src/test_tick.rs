@@ -57,8 +57,15 @@ fn emulate_update_neuron(
     let mut v = soma.voltage;
     let leaked = v - p.leak_rate;
     // max(rest, leaked)
-    v = if leaked > p.rest_potential { leaked } else { p.rest_potential };
-    println!("DEBUG: v after leak={}, leaked={}, rest={}", v, leaked, p.rest_potential);
+    v = if leaked > p.rest_potential {
+        leaked
+    } else {
+        p.rest_potential
+    };
+    println!(
+        "DEBUG: v after leak={}, leaked={}, rest={}",
+        v, leaked, p.rest_potential
+    );
 
     // 5. Dendrite loop
     for d in dendrites.iter_mut() {
@@ -76,7 +83,10 @@ fn emulate_update_neuron(
         let head = axon_heads[axon_id as usize];
         let dist = head.wrapping_sub(seg_idx);
 
-        println!("DEBUG: checking slot. head={}, seg={}, dist={}, p_len={}", head, seg_idx, dist, p.signal_propagation_length);
+        println!(
+            "DEBUG: checking slot. head={}, seg={}, dist={}, p_len={}",
+            head, seg_idx, dist, p.signal_propagation_length
+        );
 
         // Invariant 1.6 (exclusive, synced with CUDA in this iteration)
         if dist < p.signal_propagation_length as u32 {
@@ -153,10 +163,13 @@ fn test_propagate_sentinel_stays() {
 #[test]
 fn test_glif_leak_clamps_at_rest() {
     let p = test_neuron();
-    let mut soma = SomaState { voltage: 5, ..Default::default() };
+    let mut soma = SomaState {
+        voltage: 5,
+        ..Default::default()
+    };
     let mut dendrites = [];
     let mut heads = [];
-    
+
     // leak=10, voltage=5. Expected: max(0, 5-10) = 0
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
     assert_eq!(soma.voltage, 0);
@@ -170,10 +183,14 @@ fn test_glif_leak_clamps_at_rest() {
 #[test]
 fn test_refractory_blocks_integration() {
     let p = test_neuron();
-    let mut soma = SomaState { voltage: 100, refractory_timer: 2, ..Default::default() };
+    let mut soma = SomaState {
+        voltage: 100,
+        refractory_timer: 2,
+        ..Default::default()
+    };
     let mut dendrites = [];
     let mut heads = [];
-    
+
     // While refractory > 0, voltage doesn't leak or integrate
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
     assert_eq!(soma.refractory_timer, 1);
@@ -184,10 +201,13 @@ fn test_refractory_blocks_integration() {
 #[test]
 fn test_homeostasis_decay_clamps_zero() {
     let p = test_neuron();
-    let mut soma = SomaState { threshold_offset: 2, ..Default::default() };
+    let mut soma = SomaState {
+        threshold_offset: 2,
+        ..Default::default()
+    };
     let mut dendrites = [];
     let mut heads = [];
-    
+
     // decay = 5. offset = 2. Expected: max(0, 2-5) = 0
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
     assert_eq!(soma.threshold_offset, 0);
@@ -199,29 +219,43 @@ fn test_active_tail_triggers_voltage() {
     // propagation_length = 3
     // Leak = 10. If starting with 0, leak will make voltage 0 (clamp rest).
     // Set initial 10, leak will make it 0, dendrite adds 150 -> final 150.
-    let mut soma = SomaState { voltage: 10, ..Default::default() };
+    let mut soma = SomaState {
+        voltage: 10,
+        ..Default::default()
+    };
     let mut dendrites = [
         // axon 1, seg 0 -> target_packed = (0 << 24) | (1 + 1) = 2
-        DendriteState { target_packed: 2, weight: 150, timer: 0 }
+        DendriteState {
+            target_packed: 2,
+            weight: 150,
+            timer: 0,
+        },
     ];
     let mut heads = [0, 2]; // axon 0 (dummy), axon 1 (head=2)
-    
+
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    assert_eq!(soma.voltage, 150); 
+    assert_eq!(soma.voltage, 150);
     assert_eq!(dendrites[0].timer, p.synapse_refractory_period);
 }
 
 #[test]
 fn test_dendrite_refractory_skips_slot() {
     let p = test_neuron();
-    let mut soma = SomaState { voltage: 0, ..Default::default() };
+    let mut soma = SomaState {
+        voltage: 0,
+        ..Default::default()
+    };
     let mut dendrites = [
-        DendriteState { target_packed: 0, weight: 150, timer: 1 } // Refractory!
+        DendriteState {
+            target_packed: 0,
+            weight: 150,
+            timer: 1,
+        }, // Refractory!
     ];
     let mut heads = [2]; // dist < 3
-    
+
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    
+
     // Weight should NOT be added
     assert_eq!(soma.voltage, 0);
     // Timer should tick down
@@ -231,14 +265,17 @@ fn test_dendrite_refractory_skips_slot() {
 #[test]
 fn test_fire_resets_head_to_zero_and_applies_penalties() {
     let p = test_neuron(); // thresh=200, rest=0, h_pen=50
-    let mut soma = SomaState { voltage: 250, ..Default::default() }; // will fire
+    let mut soma = SomaState {
+        voltage: 250,
+        ..Default::default()
+    }; // will fire
     let mut dendrites = [];
     let mut heads = [50];
-    
+
     emulate_update_neuron(&mut soma, &mut dendrites, Some(0), &mut heads, &p);
-    
+
     assert_eq!(soma.flags & 1, 1); // Spiking
-    assert_eq!(soma.voltage, 0);   // Reset to rest
+    assert_eq!(soma.voltage, 0); // Reset to rest
     assert_eq!(soma.threshold_offset, 50); // Penalty
     assert_eq!(soma.refractory_timer, p.refractory_period);
     assert_eq!(heads[0], 0); // Axon head reset
@@ -248,18 +285,20 @@ fn test_fire_resets_head_to_zero_and_applies_penalties() {
 fn test_full_spike_cycle() {
     let p = test_neuron(); // thresh=200, prop_len=3
     let mut soma = SomaState::default();
-    let mut dendrites = [
-        DendriteState { target_packed: (5 << 24) | (1 + 1) /* axon 1, seg 5 */, weight: 210, timer: 0 }
-    ];
+    let mut dendrites = [DendriteState {
+        target_packed: (5 << 24) | (1 + 1), /* axon 1, seg 5 */
+        weight: 210,
+        timer: 0,
+    }];
     let mut heads = [AXON_SENTINEL, 4]; // My axon is 0, target is 1
-    
+
     // Tick 1: head=4, seg=5 -> dist wraps -> inactive
     emulate_update_neuron(&mut soma, &mut dendrites, Some(0), &mut heads, &p);
     assert_eq!(soma.voltage, 0);
-    
+
     // Propagate
     emulate_propagate_axons(&mut heads, V_SEG); // heads = [AXON_SENTINEL, 5]
-    
+
     // Tick 2: head=5, seg=5 -> dist=0 < 3 -> ACTIVE!
     emulate_update_neuron(&mut soma, &mut dendrites, Some(0), &mut heads, &p);
     // v = 0 -> leak to 0 -> +210 = 210. 210 >= 200 -> SPK!

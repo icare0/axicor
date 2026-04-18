@@ -1,14 +1,14 @@
+use crate::layout::domain::{Pane, SavedLayout, WorkspaceState};
 use bevy::prelude::*;
+use layout_api::{DOMAIN_EXPLORER, DOMAIN_NODE_ED, DOMAIN_VIEWPORT};
 use std::fs;
-use crate::layout::domain::{WorkspaceState, Pane, SavedLayout};
-use layout_api::{DOMAIN_VIEWPORT, DOMAIN_EXPLORER, DOMAIN_NODE_ED};
 
 const LAYOUT_FILE: &str = "config/default_layout.ron";
 
 pub fn boot_layout_system(mut commands: Commands) {
     info!("[WM] Booting Layout Manager");
 
-    //    
+    //
     if let Ok(content) = fs::read_to_string(LAYOUT_FILE) {
         if let Ok(saved) = ron::from_str::<SavedLayout>(&content) {
             info!("[WM] Loaded custom layout from {}", LAYOUT_FILE);
@@ -21,7 +21,10 @@ pub fn boot_layout_system(mut commands: Commands) {
             });
             return;
         } else {
-            warn!("[WM] Failed to parse {}. Falling back to factory default.", LAYOUT_FILE);
+            warn!(
+                "[WM] Failed to parse {}. Falling back to factory default.",
+                LAYOUT_FILE
+            );
         }
     }
 
@@ -41,17 +44,20 @@ pub fn boot_layout_system(mut commands: Commands) {
 
 fn build_default_tree() -> egui_tiles::Tree<Pane> {
     let mut tiles = egui_tiles::Tiles::default();
-    let pe = tiles.insert_pane(pane(DOMAIN_EXPLORER,  "Explorer"));
-    let vp = tiles.insert_pane(pane(DOMAIN_VIEWPORT,  "Connectome"));
-    let ne = tiles.insert_pane(pane(DOMAIN_NODE_ED,   "Topology Editor"));
+    let pe = tiles.insert_pane(pane(DOMAIN_EXPLORER, "Explorer"));
+    let vp = tiles.insert_pane(pane(DOMAIN_VIEWPORT, "Connectome"));
+    let ne = tiles.insert_pane(pane(DOMAIN_NODE_ED, "Topology Editor"));
 
     let right = tiles.insert_vertical_tile(vec![vp, ne]);
-    let root  = tiles.insert_horizontal_tile(vec![pe, right]);
+    let root = tiles.insert_horizontal_tile(vec![pe, right]);
 
     egui_tiles::Tree::new("axicor_main", root, tiles)
 }
 
 #[inline]
 fn pane(plugin_id: &str, title: &str) -> Pane {
-    Pane { plugin_id: plugin_id.into(), title: title.into() }
+    Pane {
+        plugin_id: plugin_id.into(),
+        title: title.into(),
+    }
 }

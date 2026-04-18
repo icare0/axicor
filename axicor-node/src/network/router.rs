@@ -1,11 +1,11 @@
-use crate::network::{SpikeEvent, SpikeBatchHeader};
-use axicor_core::ipc::SpikeBatchHeaderV2;
 use crate::network::bsp::BspBarrier;
+use crate::network::{SpikeBatchHeader, SpikeEvent};
+use axicor_core::ipc::SpikeBatchHeaderV2;
 use std::collections::HashMap;
-use tokio::net::UdpSocket;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
 pub fn fnv1a_32(data: &[u8]) -> u32 {
@@ -31,7 +31,9 @@ impl RoutingTable {
 
     pub fn get_address(&self, zone_hash: u32) -> Option<(SocketAddr, u16)> {
         let ptr = self.map_ptr.load(Ordering::Acquire);
-        if ptr.is_null() { return None; }
+        if ptr.is_null() {
+            return None;
+        }
         unsafe { (*ptr).get(&zone_hash).copied() }
     }
 
@@ -45,14 +47,16 @@ impl RoutingTable {
         let new_ptr = Box::into_raw(boxed);
 
         // Atomic pointer swap (Release order guarantees data visibility for readers)
-        let old_ptr = self.map_ptr.swap(new_ptr, std::sync::atomic::Ordering::Release);
+        let old_ptr = self
+            .map_ptr
+            .swap(new_ptr, std::sync::atomic::Ordering::Release);
 
         if !old_ptr.is_null() {
             let old_ptr_usize = old_ptr as usize;
             // Deferred deletion: give 100ms for all Egress threads to finish reading old table
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, (SocketAddr, u16)>); 
+                let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, (SocketAddr, u16)>);
                 info!("[RCU] Old routing table deallocated safely.");
             });
         }
@@ -84,7 +88,9 @@ impl InterNodeRouter {
     }
 
     pub async fn flush_outgoing_batch(&self, target_node_id: u32, events: &[SpikeEvent]) {
-        if events.is_empty() { return; }
+        if events.is_empty() {
+            return;
+        }
 
         let Some((addr, _mtu)) = self.routing_table.get_address(target_node_id) else {
             return; // Node not found or isolated
@@ -113,7 +119,9 @@ impl InterNodeRouter {
         events: &[crate::network::SpikeEvent],
         epoch: u32,
     ) {
-        let Some((target_addr, peer_mtu)) = self.routing_table.get_address(target_zone_hash) else { return; };
+        let Some((target_addr, peer_mtu)) = self.routing_table.get_address(target_zone_hash) else {
+            return;
+        };
 
         let safe_mtu = std::cmp::max(peer_mtu as usize, 1400); // 1400 is the minimum safe MTU for ESP32
         let max_events_per_packet: usize = (safe_mtu - 16) / 8;
@@ -121,7 +129,9 @@ impl InterNodeRouter {
         // Send empty Heartbeat if no spikes
         if events.is_empty() {
             let mut msg = loop {
-                if let Some(m) = pool.free_queue.pop() { break m; }
+                if let Some(m) = pool.free_queue.pop() {
+                    break m;
+                }
                 std::hint::spin_loop();
             };
             unsafe {
@@ -144,7 +154,9 @@ impl InterNodeRouter {
 
         for (i, chunk) in chunks.enumerate() {
             let mut msg = loop {
-                if let Some(m) = pool.free_queue.pop() { break m; }
+                if let Some(m) = pool.free_queue.pop() {
+                    break m;
+                }
                 std::hint::spin_loop();
             };
 
@@ -160,7 +172,7 @@ impl InterNodeRouter {
                 std::ptr::copy_nonoverlapping(
                     events_bytes.as_ptr(),
                     msg.buffer.as_mut_ptr().add(16),
-                    events_bytes.len()
+                    events_bytes.len(),
                 );
                 msg.size = 16 + events_bytes.len();
             }
@@ -179,8 +191,10 @@ impl InterNodeRouter {
         cluster_secret: u64, // [DOD FIX] Forward secret for RCU authentication
     ) {
         // [DOD FIX] Listen on all interfaces (0.0.0.0) to receive spikes from other physical nodes
-        let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
-        
+        let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port))
+            .await
+            .expect("FATAL: Ghost Bind failed");
+
         #[derive(Clone, Copy)]
         struct PeerState {
             hash: u32,
@@ -188,26 +202,42 @@ impl InterNodeRouter {
             received_chunks: u16,
             chunk_mask: [u64; 16], // Bitmask for 1024 chunks (~65MB max batch)
         }
-        
+
         tokio::spawn(async move {
-            let mut peers = [PeerState { hash: 0, epoch: 0, received_chunks: 0, chunk_mask: [0; 16] }; 32];
+            let mut peers = [PeerState {
+                hash: 0,
+                epoch: 0,
+                received_chunks: 0,
+                chunk_mask: [0; 16],
+            }; 32];
             let mut buf = vec![0u8; 65507];
             loop {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
-                    if size < 16 { continue; }
+                    if size < 16 {
+                        continue;
+                    }
 
                     // [DOD FIX] Intercept Control Plane packets (ROUT_MAGIC) before Data Plane parsing
                     let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
                     if magic == axicor_core::ipc::ROUT_MAGIC {
                         if size >= std::mem::size_of::<axicor_core::ipc::RouteUpdate>() {
-                            let update = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const axicor_core::ipc::RouteUpdate) };
+                            let update = unsafe {
+                                std::ptr::read_unaligned(
+                                    buf.as_ptr() as *const axicor_core::ipc::RouteUpdate
+                                )
+                            };
                             if update.cluster_secret == cluster_secret {
                                 let mut new_map = unsafe { (*routing_table.get_map_ptr()).clone() };
                                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
                                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                                 new_map.insert(update.zone_hash, (new_addr, update.mtu));
-                                unsafe { routing_table.update_routes(new_map); }
-                                info!(" [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                                unsafe {
+                                    routing_table.update_routes(new_map);
+                                }
+                                info!(
+                                    " [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}",
+                                    update.zone_hash, new_addr
+                                );
                             } else {
                                 warn!("[WARN] [Security] Unauthorized ROUT_MAGIC on Fast-Path");
                             }
@@ -215,8 +245,12 @@ impl InterNodeRouter {
                         continue;
                     }
 
-                    let header = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeaderV2) };
-                    let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
+                    let header = unsafe {
+                        std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeaderV2)
+                    };
+                    let current_epoch = bsp_barrier
+                        .current_epoch
+                        .load(std::sync::atomic::Ordering::Acquire);
 
                     // 1. Biological Amnesia: Ignore packets from the past
                     if header.epoch < current_epoch {
@@ -225,28 +259,45 @@ impl InterNodeRouter {
 
                     // 2. Self-Healing: Jump to the future (2.8.1 distributed.md)
                     if header.epoch > current_epoch {
-                        let n = bsp_barrier.self_heal_log_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let n = bsp_barrier
+                            .self_heal_log_counter
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if n % 100 == 0 {
                             warn!("[BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
                         }
-                        bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
-                        bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
+                        bsp_barrier
+                            .current_epoch
+                            .store(header.epoch, std::sync::atomic::Ordering::Release);
+                        bsp_barrier
+                            .completed_peers
+                            .store(0, std::sync::atomic::Ordering::Release);
                         bsp_barrier.get_write_schedule().clear(); // Reset garbage from the past
                     }
 
                     // 3. Process ACK packet
                     if header.chunk_idx == 0xFFFF {
-                        bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        bsp_barrier
+                            .completed_peers
+                            .fetch_add(1, std::sync::atomic::Ordering::Release);
                         continue;
                     }
 
                     // 4. Zero-Cost O(1) Deduplication State
                     let mut peer_idx = 32;
                     for i in 0..32 {
-                        if peers[i].hash == header.src_zone_hash { peer_idx = i; break; }
-                        if peers[i].hash == 0 { peers[i].hash = header.src_zone_hash; peer_idx = i; break; }
+                        if peers[i].hash == header.src_zone_hash {
+                            peer_idx = i;
+                            break;
+                        }
+                        if peers[i].hash == 0 {
+                            peers[i].hash = header.src_zone_hash;
+                            peer_idx = i;
+                            break;
+                        }
                     }
-                    if peer_idx == 32 { continue; } // Protection against peer overflow
+                    if peer_idx == 32 {
+                        continue;
+                    } // Protection against peer overflow
 
                     let peer = &mut peers[peer_idx];
 
@@ -282,18 +333,24 @@ impl InterNodeRouter {
                             let schedule = bsp_barrier.get_write_schedule();
                             for chunk in payload_bytes.chunks_exact(8) {
                                 let ghost_id = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
-                                let tick_offset = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
+                                let tick_offset =
+                                    u32::from_le_bytes(chunk[4..8].try_into().unwrap());
                                 schedule.push_spike(tick_offset as usize, ghost_id);
                             }
                         }
                     }
 
                     // 5. Trigger barrier and send ACK
-                    let is_complete = header.total_chunks == 0 || peer.received_chunks == header.total_chunks;
+                    let is_complete =
+                        header.total_chunks == 0 || peer.received_chunks == header.total_chunks;
                     if is_complete {
-                        bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        bsp_barrier
+                            .completed_peers
+                            .fetch_add(1, std::sync::atomic::Ordering::Release);
 
-                        if let Some((src_addr, _mtu)) = routing_table.get_address(header.src_zone_hash) {
+                        if let Some((src_addr, _mtu)) =
+                            routing_table.get_address(header.src_zone_hash)
+                        {
                             let ack = SpikeBatchHeaderV2 {
                                 src_zone_hash: header.dst_zone_hash,
                                 dst_zone_hash: header.src_zone_hash,
@@ -318,9 +375,9 @@ mod tests {
     async fn test_lock_free_routing() {
         let mut initial_map = HashMap::new();
         initial_map.insert(0x1111, ("127.0.0.1:8080".parse().unwrap(), 65507));
-        
+
         let table = Arc::new(RoutingTable::new(initial_map));
-        
+
         let mut readers = Vec::new();
         for _ in 0..100 {
             let table_clone = table.clone();
@@ -337,8 +394,10 @@ mod tests {
             let mut new_map = HashMap::new();
             new_map.insert(0x1111, ("127.0.0.1:8081".parse().unwrap(), 65507));
             new_map.insert(0x2222, ("127.0.0.1:8082".parse().unwrap(), 65507));
-            
-            unsafe { table_clone.update_routes(new_map); }
+
+            unsafe {
+                table_clone.update_routes(new_map);
+            }
         });
 
         writer.await.unwrap();
@@ -346,6 +405,9 @@ mod tests {
             r.await.unwrap();
         }
 
-        assert_eq!(table.get_address(0x2222).unwrap().0, "127.0.0.1:8082".parse::<SocketAddr>().unwrap());
+        assert_eq!(
+            table.get_address(0x2222).unwrap().0,
+            "127.0.0.1:8082".parse::<SocketAddr>().unwrap()
+        );
     }
 }

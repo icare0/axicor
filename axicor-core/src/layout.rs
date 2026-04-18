@@ -1,5 +1,5 @@
-use crate::types::{Voltage, Weight};
 use crate::constants::MAX_DENDRITE_SLOTS;
+use crate::types::{Voltage, Weight};
 use bytemuck::{Pod, Zeroable};
 
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
@@ -7,6 +7,7 @@ pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 /// Neuron type parameter structure.
 /// 64 bytes = 1 GPU L2 cache line. 16 types  64B = 1024B = entire __constant__ buffer.
 /// Exactly one cache line per type  100% Coalesced Access, zero False Sharing.
+#[rustfmt::skip]
 #[repr(C, align(64))]
 #[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 pub struct VariantParameters {
@@ -45,7 +46,10 @@ pub struct VariantParameters {
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
-const _: () = assert!(std::mem::align_of::<VariantParameters>() == 64, "Alignment violation!");
+const _: () = assert!(
+    std::mem::align_of::<VariantParameters>() == 64,
+    "Alignment violation!"
+);
 
 // [DOD] 32-byte alignment guarantees 8 heads are loaded in 1 L1 cache transaction.
 #[repr(C, align(32))]
@@ -64,8 +68,14 @@ pub struct BurstHeads8 {
 impl BurstHeads8 {
     pub const fn empty(sentinel: u32) -> Self {
         Self {
-            h0: sentinel, h1: sentinel, h2: sentinel, h3: sentinel,
-            h4: sentinel, h5: sentinel, h6: sentinel, h7: sentinel,
+            h0: sentinel,
+            h1: sentinel,
+            h2: sentinel,
+            h3: sentinel,
+            h4: sentinel,
+            h5: sentinel,
+            h6: sentinel,
+            h7: sentinel,
         }
     }
 }
@@ -83,7 +93,7 @@ pub fn align_to_warp(n: usize) -> usize {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StateFileHeader {
-    pub magic: [u8; 4],     // "GSNS" (Genesis State)
+    pub magic: [u8; 4], // "GSNS" (Genesis State)
     pub version: u32,
     pub padded_n: u32,
     pub total_axons: u32,
@@ -109,7 +119,9 @@ impl StateFileHeader {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Option<&Self> {
-        if bytes.len() < std::mem::size_of::<Self>() { return None; }
+        if bytes.len() < std::mem::size_of::<Self>() {
+            return None;
+        }
         unsafe { Some(&*(bytes.as_ptr() as *const Self)) }
     }
 }
@@ -121,7 +133,7 @@ const _: () = assert!(std::mem::size_of::<StateFileHeader>() == 16);
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AxonsFileHeader {
-    pub magic: [u8; 4],     // "GSAX" (Genesis Axons)
+    pub magic: [u8; 4], // "GSAX" (Genesis Axons)
     pub version: u32,
     pub total_axons: u32,
     pub _padding: u32,
@@ -149,7 +161,9 @@ impl AxonsFileHeader {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Option<&Self> {
-        if bytes.len() < std::mem::size_of::<Self>() { return None; }
+        if bytes.len() < std::mem::size_of::<Self>() {
+            return None;
+        }
         unsafe { Some(&*(bytes.as_ptr() as *const Self)) }
     }
 }
@@ -166,19 +180,22 @@ pub struct PathsFileHeader {
     pub max_segments: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<PathsFileHeader>() == 16, "PathsFileHeader must be 16 bytes");
+const _: () = assert!(
+    std::mem::size_of::<PathsFileHeader>() == 16,
+    "PathsFileHeader must be 16 bytes"
+);
 
 /// Calculates exact size of `shard.paths` file.
 /// Guarantees the segments matrix starts at an address multiple of 64 bytes.
 pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
     let header_sz = std::mem::size_of::<PathsFileHeader>(); // 16
     let lengths_sz = total_axons;
-    
+
     // Align to 64 bytes
     let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
-    
+
     let matrix_sz = total_axons * MAX_SEGMENTS_PER_AXON * 4; // 4 bytes per PackedPosition
-    
+
     header_sz + lengths_sz + padding + matrix_sz
 }
 
@@ -210,7 +227,7 @@ pub struct ShardStateSoA {
     pub dendrite_timers: Vec<u8>,
 
     // --- Axon Heads (Size = total_axons) ---
-    pub axon_heads: Vec<BurstHeads8>, 
+    pub axon_heads: Vec<BurstHeads8>,
 }
 
 impl ShardStateSoA {
@@ -218,19 +235,22 @@ impl ShardStateSoA {
     /// - `padded_n`: number of neurons (multiple of 32).
     /// - `total_axons`: total axons (local + ghost + virtual).
     pub fn new(padded_n: usize, total_axons: usize) -> Self {
-        assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
-        
+        assert!(
+            padded_n % 32 == 0,
+            "padded_n must be warp-aligned (multiple of 32)"
+        );
+
         Self {
             padded_n,
             voltage: vec![0; padded_n],
             flags: vec![0; padded_n],
             threshold_offset: vec![0; padded_n],
             refractory_timer: vec![0; padded_n],
-            
+
             dendrite_targets: vec![0; MAX_DENDRITES * padded_n],
             dendrite_weights: vec![0; MAX_DENDRITES * padded_n],
             dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
-            
+
             axon_heads: vec![BurstHeads8::empty(0); total_axons],
         }
     }
@@ -261,7 +281,7 @@ pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
     if segment_offset >= 256 {
         panic!("CRITICAL: Segment offset exceeds 8 bits");
     }
-    
+
     // Shift axon_id by +1
     (segment_offset << TARGET_SEG_SHIFT) | ((axon_id + 1) & TARGET_AXON_MASK)
 }
@@ -285,7 +305,7 @@ pub const fn unpack_segment_offset(target_packed: u32) -> u32 {
 pub struct VramState {
     pub padded_n: u32,
     pub total_axons: u32,
-    
+
     // Soma Hot State
     pub voltage: *mut i32,
     pub flags: *mut u8,
@@ -317,7 +337,7 @@ impl VramState {
         Self {
             padded_n: soa.padded_n as u32,
             total_axons: soa.axon_heads.len() as u32,
-            
+
             voltage: soa.voltage.as_mut_ptr(),
             flags: soa.flags.as_mut_ptr(),
             threshold_offset: soa.threshold_offset.as_mut_ptr(),
@@ -347,7 +367,7 @@ mod tests {
         let n = 1024;
         let axons = 5000;
         let soa = ShardStateSoA::new(n, axons);
-        
+
         assert_eq!(soa.padded_n, n);
         assert_eq!(soa.voltage.len(), n);
         assert_eq!(soa.dendrite_weights.len(), n * 128);
@@ -359,7 +379,7 @@ mod tests {
         let mut soa = ShardStateSoA::new(32, 100);
         soa.voltage[0] = 42;
         soa.axon_heads[99] = BurstHeads8::empty(123);
-        
+
         unsafe {
             let vram = VramState::from_soa(&mut soa);
             assert_eq!(vram.padded_n, 32);
@@ -398,7 +418,7 @@ mod tests {
         let t_max = pack_dendrite_target(0x00FF_FFFE, 255);
         assert_eq!(unpack_axon_id(t_max), 0x00FF_FFFE);
         assert_eq!(unpack_segment_offset(t_max), 255);
-        
+
         // Check mask isolation
         let t_mix = pack_dendrite_target(0x123456, 0xAB);
         assert_eq!(unpack_axon_id(t_mix), 0x123456);

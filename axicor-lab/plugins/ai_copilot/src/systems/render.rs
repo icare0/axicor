@@ -1,10 +1,10 @@
+use crate::domain::{AiCopilotState, ChatMessage, ChatRole};
 use bevy::prelude::*;
 use bevy_egui::egui;
-use layout_api::{PluginWindow, DOMAIN_AI_COPILOT, base_domain};
-use crate::domain::{AiCopilotState, ChatMessage, ChatRole};
+use layout_api::{base_domain, PluginWindow, DOMAIN_AI_COPILOT};
 
-const CHAT_BG:    egui::Color32 = egui::Color32::from_rgb(25, 25, 28);
-const CLR_USER:   egui::Color32 = egui::Color32::LIGHT_BLUE;
+const CHAT_BG: egui::Color32 = egui::Color32::from_rgb(25, 25, 28);
+const CLR_USER: egui::Color32 = egui::Color32::LIGHT_BLUE;
 const CLR_COPILOT: egui::Color32 = egui::Color32::from_rgb(200, 220, 200);
 
 pub fn init_copilot_windows_system(
@@ -30,14 +30,21 @@ pub fn render_copilot_system(
     mut contexts: bevy_egui::EguiContexts,
     mut windows: Query<(&PluginWindow, &mut AiCopilotState)>,
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     for (window, mut state) in windows.iter_mut() {
-        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_AI_COPILOT { continue; }
+        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_AI_COPILOT {
+            continue;
+        }
 
-        // DOD FIX:      
+        // DOD FIX:
         if let Ok(response) = state.rx.try_recv() {
-            state.history.push(ChatMessage { role: ChatRole::Copilot, content: response });
+            state.history.push(ChatMessage {
+                role: ChatRole::Copilot,
+                content: response,
+            });
             state.is_generating = false;
         }
 
@@ -49,7 +56,8 @@ pub fn render_copilot_system(
                 ui.set_clip_rect(window.rect);
                 ui.set_min_size(window.rect.size());
 
-                let (content_rect, header_rect) = layout_api::draw_unified_header(ui, window.rect, "AI Copilot");
+                let (content_rect, header_rect) =
+                    layout_api::draw_unified_header(ui, window.rect, "AI Copilot");
 
                 render_gear_button(ui, header_rect, &mut state);
 
@@ -97,8 +105,14 @@ fn render_settings(ui: &mut egui::Ui, state: &mut AiCopilotState) {
                 }
             }
         });
-        ui.horizontal(|ui| { ui.label("Endpoint:"); ui.text_edit_singleline(&mut state.api_endpoint); });
-        ui.horizontal(|ui| { ui.label("API Key:");  ui.text_edit_singleline(&mut state.api_key); });
+        ui.horizontal(|ui| {
+            ui.label("Endpoint:");
+            ui.text_edit_singleline(&mut state.api_endpoint);
+        });
+        ui.horizontal(|ui| {
+            ui.label("API Key:");
+            ui.text_edit_singleline(&mut state.api_key);
+        });
     });
     ui.add_space(5.0);
 }
@@ -117,10 +131,9 @@ fn render_input_panel(ui: &mut egui::Ui, state: &mut AiCopilotState) {
 
                 let enter_pressed = response.lost_focus()
                     && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-                let btn_clicked = ui.add_enabled(
-                    !state.is_generating,
-                    egui::Button::new(""),
-                ).clicked();
+                let btn_clicked = ui
+                    .add_enabled(!state.is_generating, egui::Button::new(""))
+                    .clicked();
 
                 if (enter_pressed || btn_clicked) && !state.is_generating {
                     try_send_message(state);
@@ -133,15 +146,21 @@ fn render_chat_history(ui: &mut egui::Ui, state: &AiCopilotState) {
     egui::CentralPanel::default()
         .frame(egui::Frame::none())
         .show_inside(ui, |ui| {
-            egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-                for msg in &state.history {
-                    render_message(ui, msg);
-                    ui.add_space(8.0);
-                }
-                if state.is_generating {
-                    ui.label(egui::RichText::new("Generating...").italics().color(egui::Color32::GRAY));
-                }
-            });
+            egui::ScrollArea::vertical()
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for msg in &state.history {
+                        render_message(ui, msg);
+                        ui.add_space(8.0);
+                    }
+                    if state.is_generating {
+                        ui.label(
+                            egui::RichText::new("Generating...")
+                                .italics()
+                                .color(egui::Color32::GRAY),
+                        );
+                    }
+                });
         });
 }
 
@@ -149,12 +168,12 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
     let (layout, bg_color, text_color) = match msg.role {
         ChatRole::User => (
             egui::Layout::right_to_left(egui::Align::TOP),
-            egui::Color32::from_rgb(35, 45, 65), //     
+            egui::Color32::from_rgb(35, 45, 65), //
             CLR_USER,
         ),
         ChatRole::Copilot => (
             egui::Layout::left_to_right(egui::Align::TOP),
-            egui::Color32::from_rgb(35, 38, 40), // -   
+            egui::Color32::from_rgb(35, 38, 40), // -
             CLR_COPILOT,
         ),
         _ => return,
@@ -171,12 +190,13 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.set_max_width(max_bubble_width);
-                
+
                 // DOD FIX:    !
                 ui.add(
                     bevy_egui::egui::Label::new(
-                        bevy_egui::egui::RichText::new(&msg.content).color(text_color)
-                    ).wrap(true)
+                        bevy_egui::egui::RichText::new(&msg.content).color(text_color),
+                    )
+                    .wrap(true),
                 );
             });
     });
@@ -184,15 +204,20 @@ fn render_message(ui: &mut egui::Ui, msg: &ChatMessage) {
 
 ///          
 fn try_send_message(state: &mut AiCopilotState) {
-    if state.input_buffer.trim().is_empty() { return; }
+    if state.input_buffer.trim().is_empty() {
+        return;
+    }
     let msg = std::mem::take(&mut state.input_buffer);
-    state.history.push(ChatMessage { role: ChatRole::User, content: msg });
+    state.history.push(ChatMessage {
+        role: ChatRole::User,
+        content: msg,
+    });
     state.is_generating = true;
 
-    //       
+    //
     let tx = state.tx.clone();
-    // DOD FIX:     (, \n), 
-    //       .toml 
+    // DOD FIX:     (, \n),
+    //       .toml
     let endpoint = state.api_endpoint.trim().to_string();
     let api_key = state.api_key.trim().to_string();
     let system_prompt = state.system_prompt.clone();
@@ -201,9 +226,7 @@ fn try_send_message(state: &mut AiCopilotState) {
     std::thread::spawn(move || {
         let client = reqwest::blocking::Client::new();
 
-        let mut messages = vec![
-            serde_json::json!({"role": "system", "content": system_prompt})
-        ];
+        let mut messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
 
         for h in &history {
             let role_str = match h.role {
@@ -220,9 +243,14 @@ fn try_send_message(state: &mut AiCopilotState) {
             "temperature": 0.3
         });
 
-        let url = if endpoint.ends_with('/') { format!("{}chat/completions", endpoint) } else { format!("{}/chat/completions", endpoint) };
+        let url = if endpoint.ends_with('/') {
+            format!("{}chat/completions", endpoint)
+        } else {
+            format!("{}/chat/completions", endpoint)
+        };
 
-        let res = client.post(&url)
+        let res = client
+            .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .json(&body)
             .send();
@@ -230,7 +258,7 @@ fn try_send_message(state: &mut AiCopilotState) {
         match res {
             Ok(response) => {
                 let status = response.status();
-                // DOD FIX:    .    
+                // DOD FIX:    .
                 // HTML- Cloudflare (502)     (401)
                 let text = response.text().unwrap_or_default();
 

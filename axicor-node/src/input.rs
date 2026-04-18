@@ -37,9 +37,11 @@ impl GxiFile {
 
             let expected_size = 12 + (num_matrices * 16) + (total_pixels as usize * 4);
             assert_eq!(
-                bytes.len(), expected_size,
+                bytes.len(),
+                expected_size,
                 "Fatal: .gxi file size mismatch: got {} expected {}",
-                bytes.len(), expected_size
+                bytes.len(),
+                expected_size
             );
 
             // Matrix descriptors (16 bytes each):
@@ -55,20 +57,28 @@ impl GxiFile {
                 let d = descs_ptr.add(i * 16);
                 matrices.push(GxiMatrix {
                     name_hash: u32::from_le_bytes(*(d as *const [u8; 4])),
-                    offset:    u32::from_le_bytes(*(d.add(4) as *const [u8; 4])),
-                    width:     u16::from_le_bytes(*(d.add(8) as *const [u8; 2])),
-                    height:    u16::from_le_bytes(*(d.add(10) as *const [u8; 2])),
-                    stride:    *d.add(12),
+                    offset: u32::from_le_bytes(*(d.add(4) as *const [u8; 4])),
+                    width: u16::from_le_bytes(*(d.add(8) as *const [u8; 2])),
+                    height: u16::from_le_bytes(*(d.add(10) as *const [u8; 2])),
+                    stride: *d.add(12),
                 });
             }
 
             // Payload: flat [total_pixels] u32 axon IDs
             let payload_ptr = descs_ptr.add(num_matrices * 16) as *const u32;
             let mut axon_ids = Vec::with_capacity(total_pixels as usize);
-            std::ptr::copy_nonoverlapping(payload_ptr, axon_ids.as_mut_ptr(), total_pixels as usize);
+            std::ptr::copy_nonoverlapping(
+                payload_ptr,
+                axon_ids.as_mut_ptr(),
+                total_pixels as usize,
+            );
             axon_ids.set_len(total_pixels as usize);
 
-            Self { total_pixels, matrices, axon_ids }
+            Self {
+                total_pixels,
+                matrices,
+                axon_ids,
+            }
         }
     }
 }

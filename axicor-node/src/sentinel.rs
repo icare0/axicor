@@ -36,8 +36,7 @@ impl SentinelManager {
         if current_tick - self.last_refresh_tick >= SENTINEL_REFRESH_INTERVAL_TICKS {
             info!(
                 "[Sentinel] Refresh triggered at tick {}. Scanning {} axons...",
-                current_tick,
-                vram.total_axons
+                current_tick, vram.total_axons
             );
 
             let start = std::time::Instant::now();
@@ -72,15 +71,39 @@ impl SentinelManager {
         let mut reset_count = 0;
         for burst in host_axon_heads.iter_mut() {
             let mut changed = false;
-            
-            if burst.h0 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h0 = AXON_SENTINEL; changed = true; }
-            if burst.h1 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h1 = AXON_SENTINEL; changed = true; }
-            if burst.h2 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h2 = AXON_SENTINEL; changed = true; }
-            if burst.h3 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h3 = AXON_SENTINEL; changed = true; }
-            if burst.h4 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h4 = AXON_SENTINEL; changed = true; }
-            if burst.h5 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h5 = AXON_SENTINEL; changed = true; }
-            if burst.h6 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h6 = AXON_SENTINEL; changed = true; }
-            if burst.h7 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h7 = AXON_SENTINEL; changed = true; }
+
+            if burst.h0 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h0 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h1 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h1 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h2 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h2 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h3 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h3 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h4 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h4 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h5 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h5 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h6 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h6 = AXON_SENTINEL;
+                changed = true;
+            }
+            if burst.h7 >= SENTINEL_OVERFLOW_THRESHOLD {
+                burst.h7 = AXON_SENTINEL;
+                changed = true;
+            }
 
             if changed {
                 reset_count += 1;

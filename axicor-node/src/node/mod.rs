@@ -1,17 +1,17 @@
-use std::sync::{Arc, Mutex};
+use crate::network::bsp::BspBarrier;
+use crate::network::io_server::ExternalIoServer;
+use crate::network::router::InterNodeRouter;
+use crate::network::router::RoutingTable;
+use crate::node::shard_thread::ShardAtomicSettings;
+use crossbeam::channel::{bounded, Receiver, Sender};
 use std::collections::HashMap;
-use std::process::{Command, Child};
 use std::env;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU32, Ordering};
-use crossbeam::channel::{bounded, Sender, Receiver};
-use crate::network::io_server::ExternalIoServer;
-use crate::network::bsp::BspBarrier;
-use crate::network::router::RoutingTable;
-use crate::network::router::InterNodeRouter;
-use crate::node::shard_thread::ShardAtomicSettings;
-use tracing::{info, warn, error};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use tracing::{error, info, warn};
 
 pub struct ShardMetadata {
     pub manifest_path: PathBuf, // Still used for reporting/display
@@ -44,13 +44,21 @@ pub enum ComputeFeedback {
 
 /// [Phase 23] Network channel topology ~ raw pointers, inter/intra GPU channels.
 pub struct NetworkTopology {
-    pub intra_gpu_channels: Vec<(*mut axicor_core::layout::BurstHeads8, *mut axicor_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
-    pub inter_node_channels: Vec<(*mut axicor_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
+    pub intra_gpu_channels: Vec<(
+        *mut axicor_core::layout::BurstHeads8,
+        *mut axicor_core::layout::BurstHeads8,
+        crate::network::intra_gpu::IntraGpuChannel,
+    )>,
+    pub inter_node_channels: Vec<(
+        *mut axicor_core::layout::BurstHeads8,
+        crate::network::inter_node::InterNodeChannel,
+    )>,
     pub inter_node_router: Arc<crate::network::router::InterNodeRouter>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
     pub axon_head_ptrs: HashMap<u32, *mut axicor_core::layout::BurstHeads8>,
     pub routing_acks: std::sync::Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverAck>>,
-    pub routing_prunes: std::sync::Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverPrune>>,
+    pub routing_prunes:
+        std::sync::Arc<crossbeam::queue::SegQueue<axicor_core::ipc::AxonHandoverPrune>>,
 }
 
 // Safety: raw pointers in NetworkTopology are pinned GPU pointers owned by ShardEngine.
@@ -104,8 +112,15 @@ impl NodeRuntime {
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>>,
-        intra_gpu_channels: Vec<(*mut axicor_core::layout::BurstHeads8, *mut axicor_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
-        inter_node_channels: Vec<(*mut axicor_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
+        intra_gpu_channels: Vec<(
+            *mut axicor_core::layout::BurstHeads8,
+            *mut axicor_core::layout::BurstHeads8,
+            crate::network::intra_gpu::IntraGpuChannel,
+        )>,
+        inter_node_channels: Vec<(
+            *mut axicor_core::layout::BurstHeads8,
+            crate::network::inter_node::InterNodeChannel,
+        )>,
         inter_node_router: Arc<crate::network::router::InterNodeRouter>,
         axon_head_ptrs: HashMap<u32, *mut axicor_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
@@ -119,7 +134,12 @@ impl NodeRuntime {
         let total_ticks = Arc::new(AtomicU32::new(0));
 
         let bsp_listener_clone = bsp_barrier.clone();
-        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone, routing_table.clone(), cluster_secret));
+        tokio::spawn(InterNodeRouter::spawn_ghost_listener(
+            local_port,
+            bsp_listener_clone,
+            routing_table.clone(),
+            cluster_secret,
+        ));
 
         // [DOD] Structured Concurrency: Orchestrator spawns daemons itself
         let daemons = Self::spawn_baker_daemons(&shards);
@@ -136,7 +156,7 @@ impl NodeRuntime {
         }
 
         let rt_handle = tokio::runtime::Handle::current();
-        
+
         let mut zone_v_segs = HashMap::new();
         let mut virtual_offset_map = HashMap::new();
 
@@ -149,13 +169,17 @@ impl NodeRuntime {
             let rx = shard_receivers.remove(&hash).unwrap();
             zone_v_segs.insert(hash, v_seg);
             virtual_offset_map.insert(hash, v_offset);
-            
-            let my_io_ctx = io_server.io_contexts.iter()
+
+            let my_io_ctx = io_server
+                .io_contexts
+                .iter()
                 .find(|(h, _)| *h == hash)
                 .map(|(_, ctx)| ctx.swapchain.clone())
                 .expect("FATAL: IO Context for zone not found");
 
-            let metadata = manifest_metadata.get(&hash).expect("FATAL: Metadata for zone not found");
+            let metadata = manifest_metadata
+                .get(&hash)
+                .expect("FATAL: Metadata for zone not found");
 
             let ctx = crate::node::shard_thread::NodeContext {
                 bsp_barrier: bsp_barrier.clone(),
@@ -165,9 +189,14 @@ impl NodeRuntime {
                 incoming_grow: desc.incoming_grow.clone(),
                 routing_table: routing_table.clone(), // [DOD FIX]
             };
-                
+
             crate::node::shard_thread::spawn_shard_thread(
-                desc, ctx, rx, feedback_tx.clone(), core_id, sync_batch_ticks
+                desc,
+                ctx,
+                rx,
+                feedback_tx.clone(),
+                core_id,
+                sync_batch_ticks,
             );
             core_id += 1;
         }
@@ -207,44 +236,61 @@ impl NodeRuntime {
     }
 
     fn patch_routing_tables(&mut self) {
-        let stream = std::ptr::null_mut(); 
+        let stream = std::ptr::null_mut();
 
         while let Some(ack) = self.network.routing_acks.pop() {
             // Find Inter-Node channel (if neighbor is on another machine)
-            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
-                .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash) 
+            if let Some((_, channel)) = self
+                .network
+                .inter_node_channels
+                .iter_mut()
+                .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash)
             {
-                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+                unsafe {
+                    channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream);
+                }
             }
             // Find Intra-GPU channel (if both zones reside in our VRAM)
-            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
+            else if let Some((_, _, channel)) = self
+                .network
+                .intra_gpu_channels
+                .iter_mut()
                 // [DOD FIX] Exact hash matching without magic stubs!
-                .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash) 
+                .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash)
             {
-                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+                unsafe {
+                    channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream);
+                }
             }
         }
 
         while let Some(prune) = self.network.routing_prunes.pop() {
-            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
-                .find(|(_, c)| c.target_zone_hash == prune.target_zone_hash) 
+            if let Some((_, channel)) = self
+                .network
+                .inter_node_channels
+                .iter_mut()
+                .find(|(_, c)| c.target_zone_hash == prune.target_zone_hash)
             {
-                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
-            }
-            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
-                .find(|(_, _, c)| c.target_zone_hash == prune.target_zone_hash) 
+                unsafe {
+                    channel.prune_route(prune.dst_ghost_id, stream);
+                }
+            } else if let Some((_, _, channel)) = self
+                .network
+                .intra_gpu_channels
+                .iter_mut()
+                .find(|(_, _, c)| c.target_zone_hash == prune.target_zone_hash)
             {
-                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
+                unsafe {
+                    channel.prune_route(prune.dst_ghost_id, stream);
+                }
             }
         }
     }
 
-    fn spawn_baker_daemons(
-        shards: &[crate::node::shard_thread::ShardDescriptor],
-    ) -> Vec<Child> {
+    fn spawn_baker_daemons(shards: &[crate::node::shard_thread::ShardDescriptor]) -> Vec<Child> {
         let mut daemons = Vec::with_capacity(shards.len());
         let exe_path = env::current_exe().expect("FATAL: Failed to get current exe path");
-        
+
         #[cfg(target_os = "windows")]
         let daemon_path = exe_path.with_file_name("axicor-baker-daemon.exe");
         #[cfg(not(target_os = "windows"))]
@@ -258,9 +304,13 @@ impl NodeRuntime {
             // [DOD FIX] Shard threads use manifests from /dev/shm
             let manifest_shm_path = axicor_core::ipc::manifest_shm_path(desc.hash);
 
-            info!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
+            info!(
+                "[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})",
+                desc.hash, socket_addr
+            );
             let child = Command::new(&daemon_path)
-                .arg("--manifest").arg(&manifest_shm_path)
+                .arg("--manifest")
+                .arg(&manifest_shm_path)
                 .arg("--zone-hash")
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
@@ -270,7 +320,7 @@ impl NodeRuntime {
                 .stderr(std::process::Stdio::inherit())
                 .spawn()
                 .expect("FATAL: Failed to spawn axicor-baker-daemon. Was it compiled?");
-            
+
             daemons.push(child);
         }
         daemons
@@ -283,7 +333,9 @@ impl NodeRuntime {
         let mut batch_counter: u64 = 0;
 
         // [DOD FIX] Strict binding of orchestrator OS thread to hardware context
-        unsafe { axicor_compute::ffi::gpu_set_device(0); }
+        unsafe {
+            axicor_compute::ffi::gpu_set_device(0);
+        }
 
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; axicor_core::constants::MAX_UDP_PAYLOAD];
@@ -300,7 +352,11 @@ impl NodeRuntime {
             }
 
             // 2. Dispatch batches to compute shards
-            let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
+            let current_dopamine = self
+                .services
+                .io_server
+                .global_dopamine
+                .load(Ordering::Relaxed) as i16;
 
             let num_dispatchers = self.compute_dispatchers.len();
             if num_dispatchers == 0 {
@@ -320,12 +376,20 @@ impl NodeRuntime {
             for _ in 0..num_dispatchers {
                 if let Ok(feedback) = self.feedback_receiver.recv() {
                     match feedback {
-                        ComputeFeedback::BatchComplete { ticks_processed: _, zone_hash, pinned_out_ptr, mut output_bytes, is_warmup } => {
+                        ComputeFeedback::BatchComplete {
+                            ticks_processed: _,
+                            zone_hash,
+                            pinned_out_ptr,
+                            mut output_bytes,
+                            is_warmup,
+                        } => {
                             // [DOD] Hardware Gating: Mute all outgoing traffic during Warmup
                             if is_warmup {
                                 for (_, channel) in &self.network.inter_node_channels {
                                     if channel.src_zone_hash == zone_hash {
-                                        unsafe { std::ptr::write_volatile(channel.out_count_pinned, 0); }
+                                        unsafe {
+                                            std::ptr::write_volatile(channel.out_count_pinned, 0);
+                                        }
                                     }
                                 }
                                 output_bytes = 0; // Mute external IO motors
@@ -340,13 +404,17 @@ impl NodeRuntime {
             }
 
             // [DOD] GPU Hardware Barrier ~ wait for all streams to finish
-            unsafe { axicor_compute::ffi::gpu_device_synchronize(); }
+            unsafe {
+                axicor_compute::ffi::gpu_device_synchronize();
+            }
 
             // Ship outputs to network targets ONLY POST SYNC!
             for (zone_hash, pinned_out_ptr, output_bytes) in pending_outputs {
                 let batch_size_usize = batch_size as usize;
                 let total_pixels = output_bytes / batch_size_usize;
-                let pinned_out_slice = unsafe { std::slice::from_raw_parts(pinned_out_ptr as *const u8, output_bytes) };
+                let pinned_out_slice = unsafe {
+                    std::slice::from_raw_parts(pinned_out_ptr as *const u8, output_bytes)
+                };
 
                 // 160 KB copied in L1/L2 processor cache in nanoseconds. No allocations and memset!
                 unsafe {
@@ -357,10 +425,11 @@ impl NodeRuntime {
                     // Now shift is safe
                     self.egress_transpose_buffer.set_len(output_bytes);
                 }
-                
+
                 for t in 0..batch_size_usize {
                     for p in 0..total_pixels {
-                        self.egress_transpose_buffer[p * batch_size_usize + t] = pinned_out_slice[t * total_pixels + p];
+                        self.egress_transpose_buffer[p * batch_size_usize + t] =
+                            pinned_out_slice[t * total_pixels + p];
                     }
                 }
 
@@ -369,7 +438,8 @@ impl NodeRuntime {
                     for (addr, m_hash, pixel_offset, chunk_pixels) in routes {
                         let byte_offset = pixel_offset * batch_size_usize;
                         let byte_size = chunk_pixels * batch_size_usize;
-                        let payload = &self.egress_transpose_buffer[byte_offset .. byte_offset + byte_size];
+                        let payload =
+                            &self.egress_transpose_buffer[byte_offset..byte_offset + byte_size];
 
                         self.services.io_server.send_output_batch_pool(
                             &self.network.egress_pool,
@@ -385,20 +455,38 @@ impl NodeRuntime {
 
             // [DOD] 4. Intra-GPU Ghost Sync
             for (src_ptr, dst_ptr, channel) in &self.network.intra_gpu_channels {
-                unsafe { 
-                    let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
-                    channel.sync_ghosts(*src_ptr, *dst_ptr, batch_size, v_seg, std::ptr::null_mut()); 
+                unsafe {
+                    let v_seg = self
+                        .zone_v_segs
+                        .get(&channel.src_zone_hash)
+                        .copied()
+                        .unwrap_or(1);
+                    channel.sync_ghosts(
+                        *src_ptr,
+                        *dst_ptr,
+                        batch_size,
+                        v_seg,
+                        std::ptr::null_mut(),
+                    );
                 }
             }
 
             for (src_ptr, channel) in &self.network.inter_node_channels {
                 // v_seg must be passed for accurate spike timing extraction
-                let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
-                unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
+                let v_seg = self
+                    .zone_v_segs
+                    .get(&channel.src_zone_hash)
+                    .copied()
+                    .unwrap_or(1);
+                unsafe {
+                    channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut());
+                }
             }
 
             // [DOD] 5. GPU Barrier Sync (wait for sync_ghosts in default stream)
-            unsafe { axicor_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
+            unsafe {
+                axicor_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut());
+            }
 
             // [DOD] 6. Inter-Node Fast Path (Egress)
             for (_, channel) in &self.network.inter_node_channels {
@@ -413,26 +501,33 @@ impl NodeRuntime {
                     channel.src_zone_hash,
                     channel.target_zone_hash,
                     events_slice,
-                    (batch_counter & 0xFFFFFFFF) as u32
+                    (batch_counter & 0xFFFFFFFF) as u32,
                 );
             }
 
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             self.services.bsp_barrier.wait_for_data_sync();
 
-            if let Err(actual_epoch) = self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32) {
+            if let Err(actual_epoch) = self
+                .services
+                .bsp_barrier
+                .sync_and_swap((batch_counter & 0xFFFFFFFF) as u32)
+            {
                 let delta = actual_epoch.saturating_sub((batch_counter & 0xFFFFFFFF) as u32);
                 if delta > 0 {
-                    warn!("[AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
-                    
+                    warn!(
+                        "[AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches",
+                        delta
+                    );
+
                     // Hardware Fast-Forward
                     batch_counter += delta as u64;
                     current_tick += (delta * batch_size) as u64;
-                    
-                    // Mandatory cleanup of hanging read_schedule, otherwise GPU 
+
+                    // Mandatory cleanup of hanging read_schedule, otherwise GPU
                     // will read ghosts from distant past on next tick.
                     self.services.bsp_barrier.get_read_schedule().clear();
-                    
+
                     // Skip remainder of cycle (routing patching etc.) and start a clean new batch
                     continue;
                 }
@@ -443,10 +538,14 @@ impl NodeRuntime {
             while let Some(prune) = self.network.routing_prunes.pop() {
                 // Find owner channel and remove route
                 for (_, channel) in &mut self.network.inter_node_channels {
-                    unsafe { channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut()); }
+                    unsafe {
+                        channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut());
+                    }
                 }
                 for (_, _, channel) in &mut self.network.intra_gpu_channels {
-                    unsafe { channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut()); }
+                    unsafe {
+                        channel.prune_route(prune.dst_ghost_id, std::ptr::null_mut());
+                    }
                 }
             }
             self.patch_routing_tables();

@@ -21,15 +21,22 @@ impl EgressPool {
         for _ in 0..capacity {
             let mut buffer = Vec::with_capacity(axicor_core::constants::MAX_UDP_PAYLOAD);
             // [DOD FIX] Fix length. We will NEVER call push() or resize() again
-            unsafe { buffer.set_len(axicor_core::constants::MAX_UDP_PAYLOAD); }
+            unsafe {
+                buffer.set_len(axicor_core::constants::MAX_UDP_PAYLOAD);
+            }
 
-            free_queue.push(EgressMessage {
-                buffer,
-                size: 0,
-                target: "0.0.0.0:0".parse().unwrap(),
-            }).unwrap();
+            free_queue
+                .push(EgressMessage {
+                    buffer,
+                    size: 0,
+                    target: "0.0.0.0:0".parse().unwrap(),
+                })
+                .unwrap();
         }
 
-        Self { free_queue, ready_queue }
+        Self {
+            free_queue,
+            ready_queue,
+        }
     }
 }

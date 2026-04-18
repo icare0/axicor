@@ -1,7 +1,7 @@
+use crate::domain::BlueprintEditorState;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use layout_api::{PluginWindow, draw_unified_header, base_domain, DOMAIN_BLUEPRINT_EDITOR};
-use crate::domain::BlueprintEditorState;
+use layout_api::{base_domain, draw_unified_header, PluginWindow, DOMAIN_BLUEPRINT_EDITOR};
 use node_editor::domain::BrainTopologyGraph;
 
 pub fn render_blueprint_editor_system(
@@ -10,11 +10,17 @@ pub fn render_blueprint_editor_system(
     mut states: Query<&mut BlueprintEditorState>,
     mut graph: ResMut<BrainTopologyGraph>, // [DOD FIX] Mut access for In-Place edits
 ) {
-    let Some(ctx) = contexts.try_ctx_mut() else { return };
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     for (entity, window) in windows.iter() {
-        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_BLUEPRINT_EDITOR { continue; }
-        let Ok(mut state) = states.get_mut(entity) else { continue };
+        if !window.is_visible || base_domain(&window.plugin_id) != DOMAIN_BLUEPRINT_EDITOR {
+            continue;
+        }
+        let Ok(mut state) = states.get_mut(entity) else {
+            continue;
+        };
 
         egui::Area::new(window.id)
             .fixed_pos(window.rect.min)

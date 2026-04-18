@@ -1,5 +1,5 @@
+use crate::layout::domain::{SaveDefaultLayoutEvent, SavedLayout, WorkspaceState};
 use bevy::prelude::*;
-use crate::layout::domain::{SaveDefaultLayoutEvent, WorkspaceState, SavedLayout};
 
 const LAYOUT_FILE: &str = "config/default_layout.ron";
 
@@ -19,10 +19,8 @@ pub fn save_layout_system(
             trees: workspace.trees.clone(),
         };
 
-        let serialized = ron::ser::to_string_pretty(
-            &layout,
-            ron::ser::PrettyConfig::default()
-        ).expect("FATAL: Failed to serialize window topology");
+        let serialized = ron::ser::to_string_pretty(&layout, ron::ser::PrettyConfig::default())
+            .expect("FATAL: Failed to serialize window topology");
 
         if let Err(e) = std::fs::write(LAYOUT_FILE, serialized) {
             error!("[WM] [ERROR] Failed to write layout to disk: {}", e);

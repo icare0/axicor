@@ -1,5 +1,5 @@
-use bevy_egui::egui;
 use crate::domain::NodeGraphUiState;
+use bevy_egui::egui;
 
 pub fn draw_clear_graph_modal(
     ctx: &egui::Context,
@@ -10,7 +10,8 @@ pub fn draw_clear_graph_modal(
     let mut close = false;
 
     // Area for the modal
-    let area_id = egui::Id::new("clear_modal_area").with((window_rect.min.x.to_bits(), window_rect.min.y.to_bits()));
+    let area_id = egui::Id::new("clear_modal_area")
+        .with((window_rect.min.x.to_bits(), window_rect.min.y.to_bits()));
     egui::Area::new(area_id)
         .fixed_pos(window_rect.min)
         .order(egui::Order::Foreground)

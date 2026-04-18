@@ -1,5 +1,5 @@
-use bevy_egui::egui;
 use crate::domain::{ProjectModel, ProjectNode, ProjectNodeType};
+use bevy_egui::egui;
 
 const EXPLORER_MIN_WIDTH: f32 = 200.0;
 const EXPLORER_MAX_WIDTH: f32 = 300.0;
@@ -21,17 +21,28 @@ pub fn draw_explorer_tree<FLoad, FZone>(
     FZone: FnMut(String, String),
 {
     if ui.input(|i| i.pointer.any_released()) {
-        ui.memory_mut(|mem| mem.data.remove_temp::<std::path::PathBuf>(egui::Id::new("dnd_path")));
+        ui.memory_mut(|mem| {
+            mem.data
+                .remove_temp::<std::path::PathBuf>(egui::Id::new("dnd_path"))
+        });
     }
-// 2. Project List
-egui::ScrollArea::vertical().show(ui, |ui| {
-
+    // 2. Project List
+    egui::ScrollArea::vertical().show(ui, |ui| {
         ui.set_min_width(EXPLORER_MIN_WIDTH);
         ui.set_max_width(EXPLORER_MAX_WIDTH);
         ui.add_space(3.0);
 
         for project in bundles {
-            draw_project_root(ui, project, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), &mut on_load, &mut on_zone);
+            draw_project_root(
+                ui,
+                project,
+                open_file_ev,
+                ctx_menu_events,
+                target_window,
+                active_file.as_deref_mut(),
+                &mut on_load,
+                &mut on_zone,
+            );
             ui.add_space(SECTION_SPACING);
         }
 
@@ -40,7 +51,16 @@ egui::ScrollArea::vertical().show(ui, |ui| {
         }
 
         for project in sources {
-            draw_project_root(ui, project, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), &mut on_load, &mut on_zone);
+            draw_project_root(
+                ui,
+                project,
+                open_file_ev,
+                ctx_menu_events,
+                target_window,
+                active_file.as_deref_mut(),
+                &mut on_load,
+                &mut on_zone,
+            );
             ui.add_space(SECTION_SPACING);
         }
     });
@@ -59,9 +79,13 @@ fn draw_project_root<FLoad, FZone>(
     FLoad: FnMut(String),
     FZone: FnMut(String, String),
 {
-    let is_project_active = active_file.as_ref().and_then(|af| af.as_ref()).map_or(false, |p| {
-        p.to_string_lossy().contains(&project.name.replace(" (Source)", ""))
-    });
+    let is_project_active = active_file
+        .as_ref()
+        .and_then(|af| af.as_ref())
+        .map_or(false, |p| {
+            p.to_string_lossy()
+                .contains(&project.name.replace(" (Source)", ""))
+        });
 
     let label = if project.is_bundle {
         format!("[Model] {}", project.name)
@@ -70,7 +94,9 @@ fn draw_project_root<FLoad, FZone>(
     };
 
     let header_text = if is_project_active {
-        egui::RichText::new(label).color(egui::Color32::LIGHT_BLUE).strong()
+        egui::RichText::new(label)
+            .color(egui::Color32::LIGHT_BLUE)
+            .strong()
     } else {
         egui::RichText::new(label)
     };
@@ -80,9 +106,21 @@ fn draw_project_root<FLoad, FZone>(
         .default_open(is_project_active)
         .show(ui, |ui| {
             // Model-wide simulation.toml
-            let parent_path = find_simulation_node(&project.root_nodes).map(|n| n.path.clone()).unwrap_or_default();
+            let parent_path = find_simulation_node(&project.root_nodes)
+                .map(|n| n.path.clone())
+                .unwrap_or_default();
             for node in &project.root_nodes {
-                draw_node_recursive(ui, &project.name, node, &parent_path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
+                draw_node_recursive(
+                    ui,
+                    &project.name,
+                    node,
+                    &parent_path,
+                    open_file_ev,
+                    ctx_menu_events,
+                    target_window,
+                    active_file.as_deref_mut(),
+                    on_zone,
+                );
             }
         });
 
@@ -91,7 +129,9 @@ fn draw_project_root<FLoad, FZone>(
             if let Some(ref mut af) = active_file {
                 **af = Some(sim_node.path.clone());
             }
-            open_file_ev.send(layout_api::OpenFileEvent { path: sim_node.path.clone() });
+            open_file_ev.send(layout_api::OpenFileEvent {
+                path: sim_node.path.clone(),
+            });
         }
         on_load(project.name.clone());
     }
@@ -124,37 +164,53 @@ fn draw_node_recursive<FZone>(
     FZone: FnMut(String, String),
 {
     let is_active = active_file.as_ref().and_then(|af| af.as_ref()) == Some(&node.path);
-    
+
     let (label_color, is_strikethrough) = match node.git_status {
         crate::domain::GitStatus::Added => (egui::Color32::from_rgb(100, 255, 100), false),
         crate::domain::GitStatus::Deleted => (egui::Color32::from_rgb(255, 100, 100), true),
         crate::domain::GitStatus::Unmodified => {
-            if is_active { (egui::Color32::WHITE, false) } else { (egui::Color32::GRAY, false) }
+            if is_active {
+                (egui::Color32::WHITE, false)
+            } else {
+                (egui::Color32::GRAY, false)
+            }
         }
     };
 
     let mut label_text = egui::RichText::new(&node.name).color(label_color);
-    if is_active { label_text = label_text.strong(); }
-    if is_strikethrough { label_text = label_text.strikethrough(); }
+    if is_active {
+        label_text = label_text.strong();
+    }
+    if is_strikethrough {
+        label_text = label_text.strikethrough();
+    }
 
     // WARN: Use persistent node.id for egui!
     let id = ui.make_persistent_id(&node.id);
-    let mut collapsing = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+    let mut collapsing =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
     let mut response = None;
     ui.horizontal(|ui| {
         if !node.children.is_empty() {
             // DOD FIX: Manual toggle button
-            if collapsing.show_toggle_button(ui, egui::collapsing_header::paint_default_icon).clicked() {
+            if collapsing
+                .show_toggle_button(ui, egui::collapsing_header::paint_default_icon)
+                .clicked()
+            {
                 // UI interaction only, show_toggle_button mutates collapsing state
             }
         } else {
-            ui.add_space(14.0); 
+            ui.add_space(14.0);
         }
 
         if node.git_status != crate::domain::GitStatus::Unmodified {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 14.0), egui::Sense::hover());
-            ui.painter().vline(rect.center().x, rect.y_range(), egui::Stroke::new(2.0, label_color));
+            ui.painter().vline(
+                rect.center().x,
+                rect.y_range(),
+                egui::Stroke::new(2.0, label_color),
+            );
         }
 
         let resp = ui.selectable_label(is_active, label_text);
@@ -162,8 +218,10 @@ fn draw_node_recursive<FZone>(
             if let Some(ref mut af) = active_file {
                 **af = Some(node.path.clone());
             }
-            open_file_ev.send(layout_api::OpenFileEvent { path: node.path.clone() });
-            
+            open_file_ev.send(layout_api::OpenFileEvent {
+                path: node.path.clone(),
+            });
+
             if node.node_type == ProjectNodeType::Shard {
                 let zone_name = node.name.replace("Zone: ", "").replace("Shard: ", "");
                 on_zone(project_name.to_string(), zone_name);
@@ -171,7 +229,10 @@ fn draw_node_recursive<FZone>(
         }
 
         if resp.dragged() && node.git_status != crate::domain::GitStatus::Deleted {
-            ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("dnd_path"), node.path.clone()));
+            ui.memory_mut(|mem| {
+                mem.data
+                    .insert_temp(egui::Id::new("dnd_path"), node.path.clone())
+            });
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         response = Some(resp);
@@ -186,7 +247,12 @@ fn draw_node_recursive<FZone>(
                         let name = node.name.replace(".toml", "");
                         if node.git_status != crate::domain::GitStatus::Deleted {
                             actions.push(layout_api::MenuAction {
-                                action_id: format!("explorer.delete_dept|{}|{}|{}", name, node.id, parent_path.display()),
+                                action_id: format!(
+                                    "explorer.delete_dept|{}|{}|{}",
+                                    name,
+                                    node.id,
+                                    parent_path.display()
+                                ),
                                 label: " Delete Department".into(),
                             });
                         }
@@ -195,14 +261,19 @@ fn draw_node_recursive<FZone>(
                         let name = node.name.replace(".toml", "");
                         if node.git_status != crate::domain::GitStatus::Deleted {
                             actions.push(layout_api::MenuAction {
-                                action_id: format!("explorer.delete_shard|{}|{}|{}", name, node.id, parent_path.display()),
+                                action_id: format!(
+                                    "explorer.delete_shard|{}|{}|{}",
+                                    name,
+                                    node.id,
+                                    parent_path.display()
+                                ),
                                 label: " Delete Shard".into(),
                             });
                         }
                     }
                     _ => {}
                 }
-                
+
                 if !actions.is_empty() {
                     ctx_menu_events.send(layout_api::OpenContextMenuEvent {
                         target_window,
@@ -221,15 +292,32 @@ fn draw_node_recursive<FZone>(
         ui.indent(id, |ui| {
             for child in &node.children {
                 // Recursively draw subnodes
-                draw_node_recursive(ui, project_name, child, &node.path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
+                draw_node_recursive(
+                    ui,
+                    project_name,
+                    child,
+                    &node.path,
+                    open_file_ev,
+                    ctx_menu_events,
+                    target_window,
+                    active_file.as_deref_mut(),
+                    on_zone,
+                );
             }
         });
     }
 }
 
 fn find_simulation_node(nodes: &[ProjectNode]) -> Option<&ProjectNode> {
-    nodes.iter().find(|n| n.node_type == ProjectNodeType::Simulation)
-        .or_else(|| nodes.iter().find(|n| !n.children.is_empty()).and_then(|n| find_simulation_node(&n.children)))
+    nodes
+        .iter()
+        .find(|n| n.node_type == ProjectNodeType::Simulation)
+        .or_else(|| {
+            nodes
+                .iter()
+                .find(|n| !n.children.is_empty())
+                .and_then(|n| find_simulation_node(&n.children))
+        })
 }
 
 fn draw_separator(ui: &mut egui::Ui) {
@@ -240,7 +328,11 @@ fn draw_separator(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.add_space(pad);
         let (rect, _) = ui.allocate_exact_size(egui::vec2(line_w, 1.0), egui::Sense::hover());
-        ui.painter().hline(rect.x_range(), rect.center().y, egui::Stroke::new(1.0, egui::Color32::from_gray(60)));
+        ui.painter().hline(
+            rect.x_range(),
+            rect.center().y,
+            egui::Stroke::new(1.0, egui::Color32::from_gray(60)),
+        );
     });
     ui.add_space(2.0);
 }

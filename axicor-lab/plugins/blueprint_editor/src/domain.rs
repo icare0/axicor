@@ -6,6 +6,6 @@ pub struct BlueprintEditorState {
     pub selected_type_idx: usize,
     pub is_dirty: bool,
     pub debounce_timer: f32,
-    pub show_delete_modal: bool,       // [DOD FIX]  
-    pub type_to_delete: Option<usize>, // [DOD FIX]   
+    pub show_delete_modal: bool,       // [DOD FIX]
+    pub type_to_delete: Option<usize>, // [DOD FIX]
 }

@@ -3,22 +3,22 @@
 // Phase A: Input Matrix / Virtual Axons (GXI)
 // Specification: 08_io_matrix.md 2.1 / 09_baking_pipeline.md 2.1
 
-use axicor_core::hash::fnv1a_32;
-use axicor_core::constants::GXI_MAGIC;
 use axicor_core::config::io::IoConfig;
-use std::path::Path;
+use axicor_core::constants::GXI_MAGIC;
+use axicor_core::hash::fnv1a_32;
 use std::io::Write;
+use std::path::Path;
 
 /// Descriptor of a single matrix in a .gxi file (16 bytes)
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GxiMatrixDescriptor {
     pub name_hash: u32,
-    pub offset:    u32, // Index in Axon Array
-    pub width:     u16,
-    pub height:    u16,
-    pub stride:    u8,
-    pub _padding:  [u8; 3],
+    pub offset: u32, // Index in Axon Array
+    pub width: u16,
+    pub height: u16,
+    pub stride: u8,
+    pub _padding: [u8; 3],
 }
 
 /// Result of baking a single input matrix.
@@ -42,7 +42,7 @@ pub fn build_gxi_mappings(
         for pin in &matrix.pin {
             let total_pixels = pin.width * pin.height;
             let axon_ids: Vec<u32> = (0..total_pixels).map(|i| base_axon_id + i).collect();
-            
+
             gxi_matrices.push(BakedGxi {
                 name_hash: fnv1a_32(pin.name.as_bytes()), // PIN-BASED ROUTING
                 width: pin.width as u16,
@@ -50,7 +50,7 @@ pub fn build_gxi_mappings(
                 stride: pin.stride as u8,
                 axon_ids,
             });
-            
+
             base_axon_id += total_pixels;
         }
     }
@@ -64,8 +64,8 @@ pub fn write_gxi_file(out_dir: &Path, matrices: &[BakedGxi]) {
     let total_pixels: u32 = matrices.iter().map(|m| m.axon_ids.len() as u32).sum();
     let num_matrices = matrices.len() as u16;
 
-    file.write_all(&GXI_MAGIC.to_le_bytes()).unwrap(); 
-    file.write_all(&[1u8, 0u8]).unwrap();              
+    file.write_all(&GXI_MAGIC.to_le_bytes()).unwrap();
+    file.write_all(&[1u8, 0u8]).unwrap();
     file.write_all(&num_matrices.to_le_bytes()).unwrap();
     file.write_all(&total_pixels.to_le_bytes()).unwrap();
 
@@ -82,7 +82,7 @@ pub fn write_gxi_file(out_dir: &Path, matrices: &[BakedGxi]) {
         unsafe {
             let bytes = std::slice::from_raw_parts(
                 (&desc as *const GxiMatrixDescriptor) as *const u8,
-                std::mem::size_of::<GxiMatrixDescriptor>()
+                std::mem::size_of::<GxiMatrixDescriptor>(),
             );
             file.write_all(bytes).unwrap();
         }
@@ -96,6 +96,7 @@ pub fn write_gxi_file(out_dir: &Path, matrices: &[BakedGxi]) {
                 m.axon_ids.len() * std::mem::size_of::<u32>(),
             )
         };
-        file.write_all(payload_bytes).expect("Failed to write axon IDs");
+        file.write_all(payload_bytes)
+            .expect("Failed to write axon IDs");
     }
 }

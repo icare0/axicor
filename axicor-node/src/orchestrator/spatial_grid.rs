@@ -19,7 +19,9 @@ pub struct SpatialGrid {
 
 impl SpatialGrid {
     pub fn new() -> Self {
-        Self { cells: HashMap::with_capacity(1000) }
+        Self {
+            cells: HashMap::with_capacity(1000),
+        }
     }
 
     pub fn clear(&mut self) {
@@ -30,7 +32,14 @@ impl SpatialGrid {
         let cx = (x / CELL_SIZE) as i32;
         let cy = (y / CELL_SIZE) as i32;
         let cz = (z / CELL_SIZE) as i32;
-        self.cells.entry(GridCell { x: cx, y: cy, z: cz }).or_default().push(axon_id);
+        self.cells
+            .entry(GridCell {
+                x: cx,
+                y: cy,
+                z: cz,
+            })
+            .or_default()
+            .push(axon_id);
     }
 
     /// Returns a random candidate axon within the neighborhood of the given position.
@@ -44,7 +53,11 @@ impl SpatialGrid {
         for dx in -1..=1 {
             for dy in -1..=1 {
                 for dz in -1..=1 {
-                    if let Some(ids) = self.cells.get(&GridCell { x: cx + dx, y: cy + dy, z: cz + dz }) {
+                    if let Some(ids) = self.cells.get(&GridCell {
+                        x: cx + dx,
+                        y: cy + dy,
+                        z: cz + dz,
+                    }) {
                         candidates.extend_from_slice(ids);
                     }
                 }

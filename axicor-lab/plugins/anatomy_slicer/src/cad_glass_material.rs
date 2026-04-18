@@ -1,9 +1,9 @@
 use bevy::{
+    pbr::{MaterialPipeline, MaterialPipelineKey},
     prelude::*,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, ShaderRef},
-    pbr::{MaterialPipeline, MaterialPipelineKey},
     render::mesh::MeshVertexBufferLayout,
+    render::render_resource::{AsBindGroup, ShaderRef},
 };
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
@@ -23,7 +23,7 @@ impl Material for CadGlassMaterial {
         AlphaMode::Blend
     }
 
-    // [DOD FIX]       
+    // [DOD FIX]
     fn specialize(
         _pipeline: &MaterialPipeline<Self>,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,

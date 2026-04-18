@@ -14,7 +14,7 @@ pub fn validate_all(
         anyhow::bail!(
             "CRITICAL: simulation.axon_growth_max_steps ({}) exceeds 8-bit limit (255). 
              PackedTarget memory layout cannot store segment offsets larger than 255.",
-             sim.simulation.axon_growth_max_steps
+            sim.simulation.axon_growth_max_steps
         );
     }
 
@@ -24,23 +24,31 @@ pub fn validate_all(
         sim.simulation.tick_duration_us,
         sim.simulation.voxel_size_um,
         sim.simulation.segment_length_voxels,
-    ).map_err(|e| anyhow::anyhow!(e))?;
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     // 2. 16-Types Invariant
-    let types_count = const_mem.variants.iter().filter(|v| v.signal_propagation_length > 0 || v.threshold != 0).count();
+    let types_count = const_mem
+        .variants
+        .iter()
+        .filter(|v| v.signal_propagation_length > 0 || v.threshold != 0)
+        .count();
     validate_blueprints(types_count).map_err(|e| anyhow::anyhow!(e))?;
 
     // 3. Strict Quota Invariant
     check_layer_heights(anatomy)?;
     check_composition_quotas(anatomy)?;
-    
+
     run_all_checks(const_mem)?;
     Ok(())
 }
 
 /// Catches panic from axicor-core to issue a formatted error.
 pub fn validate_physics_constraints(
-    speed_m_s: f32, tick_us: u32, voxel_um: f32, seg_voxels: u32
+    speed_m_s: f32,
+    tick_us: u32,
+    voxel_um: f32,
+    seg_voxels: u32,
 ) -> Result<u32, String> {
     std::panic::catch_unwind(|| {
         PhysicalMetrics::compute_v_seg(speed_m_s, tick_us, voxel_um, seg_voxels)
@@ -53,7 +61,10 @@ pub fn validate_physics_constraints(
 
 pub fn validate_blueprints(types_count: usize) -> Result<(), String> {
     if types_count > 16 {
-        return Err(format!("Max 16 neuron types allowed (4-bit mask). Found: {}", types_count));
+        return Err(format!(
+            "Max 16 neuron types allowed (4-bit mask). Found: {}",
+            types_count
+        ));
     }
     Ok(())
 }

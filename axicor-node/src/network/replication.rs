@@ -1,8 +1,8 @@
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::AsyncWriteExt;
-use std::path::PathBuf;
 use axicor_core::ipc::{ShardStateHeader, SNAP_MAGIC};
-use tracing::{info, error};
+use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{error, info};
 
 pub struct ReplicationServer {
     listen_addr: String,
@@ -37,11 +37,14 @@ impl ReplicationServer {
     }
 }
 
-async fn handle_replication_stream(mut socket: TcpStream, replica_dir: PathBuf) -> anyhow::Result<()> {
+async fn handle_replication_stream(
+    mut socket: TcpStream,
+    replica_dir: PathBuf,
+) -> anyhow::Result<()> {
     // 1. Read ShardStateHeader
     let mut header_buf = [0u8; 32];
     tokio::io::AsyncReadExt::read_exact(&mut socket, &mut header_buf).await?;
-    
+
     let header = unsafe { &*(header_buf.as_ptr() as *const ShardStateHeader) };
     if header.magic != SNAP_MAGIC {
         anyhow::bail!("Invalid snapshot magic: 0x{:08X}", header.magic);
@@ -49,7 +52,7 @@ async fn handle_replication_stream(mut socket: TcpStream, replica_dir: PathBuf) 
 
     let zone_hash = header.zone_hash;
     let file_path = replica_dir.join(format!("{}_weights.bin", zone_hash));
-    
+
     // 2. Direct write to disk
     let mut file = tokio::fs::File::create(&file_path).await?;
     file.write_all(&header_buf).await?;
@@ -57,10 +60,13 @@ async fn handle_replication_stream(mut socket: TcpStream, replica_dir: PathBuf) 
     // 3. Optimized copy from socket to file
     // On Linux, tokio::io::copy uses splice internally if possible, providing zero-copy-ish performance.
     tokio::io::copy(&mut socket, &mut file).await?;
-    
+
     file.flush().await?;
-    info!("[Replication] Saved replica for zone 0x{:08X} to {:?}", zone_hash, file_path);
-    
+    info!(
+        "[Replication] Saved replica for zone 0x{:08X} to {:?}",
+        zone_hash, file_path
+    );
+
     Ok(())
 }
 
@@ -70,13 +76,13 @@ pub async fn send_checkpoint_zerocopy(
     checkpoint_path: PathBuf,
 ) -> anyhow::Result<()> {
     use tokio::fs::File;
-    
+
     let mut stream = TcpStream::connect(target_addr).await?;
     let mut file = File::open(&checkpoint_path).await?;
-    
+
     // tokio::io::copy on Linux will use sendfile/splice for TcpStream <-> File
     tokio::io::copy(&mut file, &mut stream).await?;
-    
+
     stream.flush().await?;
     Ok(())
 }

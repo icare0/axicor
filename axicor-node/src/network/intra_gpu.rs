@@ -34,15 +34,18 @@ impl Drop for IntraGpuChannel {
 
 impl IntraGpuChannel {
     pub unsafe fn from_slices(
-        src_zone_hash: u32, 
-        target_zone_hash: u32, 
-        src_indices: &[u32], 
-        dst_indices: &[u32], 
-        capacity: u32
+        src_zone_hash: u32,
+        target_zone_hash: u32,
+        src_indices: &[u32],
+        dst_indices: &[u32],
+        capacity: u32,
     ) -> Self {
         assert_eq!(src_indices.len(), dst_indices.len());
         let count = src_indices.len() as u32;
-        assert!(count <= capacity, "FATAL: Initial connections exceed capacity");
+        assert!(
+            count <= capacity,
+            "FATAL: Initial connections exceed capacity"
+        );
 
         let bytes_capacity = (capacity as usize) * 4;
         let src_d = axicor_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
@@ -51,8 +54,18 @@ impl IntraGpuChannel {
         let stream = ptr::null_mut();
         if count > 0 {
             let bytes_active = (count as usize) * 4;
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices.as_ptr() as *const _, bytes_active, stream);
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_indices.as_ptr() as *const _, bytes_active, stream);
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                src_d as *mut _,
+                src_indices.as_ptr() as *const _,
+                bytes_active,
+                stream,
+            );
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                dst_d as *mut _,
+                dst_indices.as_ptr() as *const _,
+                bytes_active,
+                stream,
+            );
         }
 
         let mut src_host = Vec::with_capacity(capacity as usize);
@@ -82,14 +95,16 @@ impl IntraGpuChannel {
 
     /// GPU-side sync: calls CUDA kernel launch_ghost_sync (production).
     pub unsafe fn sync_ghosts(
-        &self, 
-        src_heads: *const axicor_core::layout::BurstHeads8, 
-        dst_heads: *mut axicor_core::layout::BurstHeads8, 
-        sync_batch_ticks: u32, 
-        v_seg: u32, 
-        stream: ffi::CudaStream
+        &self,
+        src_heads: *const axicor_core::layout::BurstHeads8,
+        dst_heads: *mut axicor_core::layout::BurstHeads8,
+        sync_batch_ticks: u32,
+        v_seg: u32,
+        stream: ffi::CudaStream,
     ) {
-        if self.count == 0 { return; }
+        if self.count == 0 {
+            return;
+        }
         ffi::launch_ghost_sync(
             src_heads,
             dst_heads,
@@ -98,13 +113,21 @@ impl IntraGpuChannel {
             self.count,
             sync_batch_ticks,
             v_seg,
-            stream
+            stream,
         );
     }
 
     // Drop src_zone_idx and dst_zone_idx from push_route
-    pub unsafe fn push_route(&mut self, src_axon: u32, dst_ghost: u32, stream: axicor_compute::ffi::CudaStream) {
-        assert!(self.count < self.capacity, "FATAL: IntraGPU Routing capacity exceeded.");
+    pub unsafe fn push_route(
+        &mut self,
+        src_axon: u32,
+        dst_ghost: u32,
+        stream: axicor_compute::ffi::CudaStream,
+    ) {
+        assert!(
+            self.count < self.capacity,
+            "FATAL: IntraGPU Routing capacity exceeded."
+        );
         let idx = self.count as usize;
 
         self.src_indices_host.push(src_axon);
@@ -113,14 +136,34 @@ impl IntraGpuChannel {
         let src_ptr = self.src_indices_host.as_ptr().add(idx);
         let dst_ptr = self.dst_indices_host.as_ptr().add(idx);
 
-        axicor_compute::ffi::gpu_memcpy_host_to_device_async(self.src_indices_d.add(idx) as *mut _, src_ptr as *const _, 4, stream);
-        axicor_compute::ffi::gpu_memcpy_host_to_device_async(self.dst_indices_d.add(idx) as *mut _, dst_ptr as *const _, 4, stream);
+        axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+            self.src_indices_d.add(idx) as *mut _,
+            src_ptr as *const _,
+            4,
+            stream,
+        );
+        axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+            self.dst_indices_d.add(idx) as *mut _,
+            dst_ptr as *const _,
+            4,
+            stream,
+        );
 
         self.count += 1;
     }
 
-    pub unsafe fn prune_route(&mut self, target_ghost_id: u32, stream: axicor_compute::ffi::CudaStream) {
-        let Some(idx) = self.dst_indices_host.iter().position(|&g| g == target_ghost_id) else { return; };
+    pub unsafe fn prune_route(
+        &mut self,
+        target_ghost_id: u32,
+        stream: axicor_compute::ffi::CudaStream,
+    ) {
+        let Some(idx) = self
+            .dst_indices_host
+            .iter()
+            .position(|&g| g == target_ghost_id)
+        else {
+            return;
+        };
         let last_idx = (self.count - 1) as usize;
 
         self.src_indices_host.swap(idx, last_idx);
@@ -133,8 +176,18 @@ impl IntraGpuChannel {
             let src_ptr = self.src_indices_host.as_ptr().add(idx);
             let dst_ptr = self.dst_indices_host.as_ptr().add(idx);
 
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(self.src_indices_d.add(idx) as *mut _, src_ptr as *const _, 4, stream);
-            axicor_compute::ffi::gpu_memcpy_host_to_device_async(self.dst_indices_d.add(idx) as *mut _, dst_ptr as *const _, 4, stream);
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                self.src_indices_d.add(idx) as *mut _,
+                src_ptr as *const _,
+                4,
+                stream,
+            );
+            axicor_compute::ffi::gpu_memcpy_host_to_device_async(
+                self.dst_indices_d.add(idx) as *mut _,
+                dst_ptr as *const _,
+                4,
+                stream,
+            );
         }
 
         self.count -= 1;

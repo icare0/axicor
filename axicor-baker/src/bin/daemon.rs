@@ -1,13 +1,10 @@
+use clap::Parser;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use clap::Parser;
 
-use axicor_core::ipc::{
-    shm_file_path, ShmHeader,
-    default_socket_path,
-};
-use axicor_core::config::manifest::ZoneManifest;
 use axicor_core::config::blueprints::BlueprintsConfig;
+use axicor_core::config::manifest::ZoneManifest;
+use axicor_core::ipc::{default_socket_path, shm_file_path, ShmHeader};
 
 struct NightPhaseContext {
     _baked_dir: PathBuf,
@@ -39,14 +36,17 @@ struct Cli {
     baked_dir: PathBuf,
     // [DOD FIX] Accepting manifest from /dev/shm
     #[arg(long)]
-    manifest: PathBuf, 
+    manifest: PathBuf,
 }
 
 fn main() {
     let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
     tracing_subscriber::fmt()
         .with_writer(non_blocking_writer)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
         .init();
 
     let cli = Cli::parse();
@@ -54,11 +54,14 @@ fn main() {
 
     // 1. Read shard manifest from /dev/shm
     let manifest_path = &cli.manifest;
-    let manifest_str = std::fs::read_to_string(manifest_path).expect("Failed to read manifest.toml");
+    let manifest_str =
+        std::fs::read_to_string(manifest_path).expect("Failed to read manifest.toml");
     let manifest: ZoneManifest = toml::from_str(&manifest_str).expect("Failed to parse manifest");
 
     let padded_n = manifest.memory.padded_n as u32;
-    let total_axons = (manifest.memory.virtual_axons + manifest.memory.ghost_capacity + manifest.memory.padded_n) as u32;
+    let total_axons = (manifest.memory.virtual_axons
+        + manifest.memory.ghost_capacity
+        + manifest.memory.padded_n) as u32;
 
     // 2. Calculate SHM size
     let shm_len = axicor_core::ipc::shm_size(padded_n as usize);
@@ -72,7 +75,8 @@ fn main() {
         .truncate(true)
         .open(&shm_path)
         .expect("Daemon failed to create SHM file");
-    file.set_len(shm_len as u64).expect("Failed to set SHM size");
+    file.set_len(shm_len as u64)
+        .expect("Failed to set SHM size");
 
     let mut mmap = unsafe { memmap2::MmapMut::map_mut(&file).expect("Daemon failed to mmap SHM") };
 
@@ -80,13 +84,27 @@ fn main() {
     let header = ShmHeader::new(cli.zone_hash, padded_n, total_axons);
     unsafe { std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header) };
 
-    tracing::info!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
+    tracing::info!(
+        "[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...",
+        cli.zone_hash,
+        shm_len / 1024 / 1024,
+        shm_path
+    );
 
     // Load blueprints.toml from SRAM folder
     let blueprints = load_blueprints(&cli.baked_dir);
 
-    tracing::info!(" Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
-    tracing::info!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
+    tracing::info!(
+        " Axicor Baker Daemon starting (zone_hash={:08X})",
+        zone_hash
+    );
+    tracing::info!(
+        "   Loaded {} neuron types",
+        blueprints
+            .as_ref()
+            .map(|b| b.neuron_types.len())
+            .unwrap_or(0)
+    );
 
     // Cache configs
     let mut night_ctx = build_night_context(&cli.baked_dir, &cli.manifest, zone_hash);
@@ -104,7 +122,13 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(
+                        s,
+                        zone_hash,
+                        blueprints.as_ref(),
+                        night_ctx.as_mut(),
+                        mmap.as_mut_ptr() as *mut u8,
+                    ) {
                         tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
                 }
@@ -122,7 +146,13 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(
+                        s,
+                        zone_hash,
+                        blueprints.as_ref(),
+                        night_ctx.as_mut(),
+                        mmap.as_mut_ptr() as *mut u8,
+                    ) {
                         tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
                 }
@@ -140,7 +170,11 @@ fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
                 tracing::info!("   Blueprints loaded from {:?}", bp_path);
                 return Some(bp);
             }
-            Err(e) => tracing::warn!("[WARN]  Failed to load blueprints from {:?}: {}", bp_path, e),
+            Err(e) => tracing::warn!(
+                "[WARN]  Failed to load blueprints from {:?}: {}",
+                bp_path,
+                e
+            ),
         }
     } else {
         tracing::warn!("[WARN]  blueprints.toml not found at {:?}", bp_path);
@@ -148,26 +182,41 @@ fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
     None
 }
 
-fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path::PathBuf, _zone_hash: u32) -> Option<NightPhaseContext> {
+fn build_night_context(
+    baked_dir: &std::path::PathBuf,
+    manifest_path: &std::path::PathBuf,
+    _zone_hash: u32,
+) -> Option<NightPhaseContext> {
     use axicor_baker::bake::axon_growth::{compute_layer_ranges, ShardBounds};
     use axicor_baker::parser::simulation::SimulationConfig;
 
     let dna_dir = baked_dir.join("BrainDNA");
-    let shard_cfg = axicor_core::config::InstanceConfig::load(&dna_dir.join("shard.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load shard.toml: {}", e)).ok()?;
-    let sim_config = SimulationConfig::load(&dna_dir.join("simulation.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
+    let shard_cfg = axicor_core::config::InstanceConfig::load(&dna_dir.join("shard.toml"))
+        .map_err(|e| tracing::error!("[Daemon] Cannot load shard.toml: {}", e))
+        .ok()?;
+    let sim_config = SimulationConfig::load(&dna_dir.join("simulation.toml"))
+        .map_err(|e| tracing::error!("[Daemon] Cannot load simulation.toml: {}", e))
+        .ok()?;
     let bp = load_blueprints(baked_dir)?;
     let neuron_types = bp.neuron_types.clone();
-    let anatomy = axicor_baker::parser::anatomy::Anatomy::load(&dna_dir.join("anatomy.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load anatomy.toml: {}", e)).ok()?;
+    let anatomy = axicor_baker::parser::anatomy::Anatomy::load(&dna_dir.join("anatomy.toml"))
+        .map_err(|e| tracing::error!("[Daemon] Cannot load anatomy.toml: {}", e))
+        .ok()?;
 
     let layer_ranges = compute_layer_ranges(&anatomy, &sim_config);
     let shard_bounds = ShardBounds::from_config(&shard_cfg);
     let master_seed = axicor_core::seed::MasterSeed::from_str("GENESIS").raw();
 
-    let manifest_str = std::fs::read_to_string(manifest_path).map_err(|e| tracing::error!("[Daemon] Cannot read manifest.toml: {}", e)).ok()?;
-    let manifest: axicor_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str).map_err(|e| tracing::error!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
+    let manifest_str = std::fs::read_to_string(manifest_path)
+        .map_err(|e| tracing::error!("[Daemon] Cannot read manifest.toml: {}", e))
+        .ok()?;
+    let manifest: axicor_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str)
+        .map_err(|e| tracing::error!("[Daemon] Cannot parse manifest.toml: {}", e))
+        .ok()?;
 
     let padded_n = manifest.memory.padded_n as u32;
-    let raw_axons = manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity;
+    let raw_axons =
+        manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity;
     let total_axons_max = ((raw_axons + 31) & !31) as u32;
 
     let chk_state = baked_dir.join("checkpoint.state");
@@ -203,7 +252,10 @@ fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path
             if !axons_mmap.is_empty() {
                 bytemuck::cast_slice(&axons_mmap[..]).to_vec()
             } else {
-                vec![axicor_core::layout::BurstHeads8::empty(axicor_core::constants::AXON_SENTINEL); total_axons_max as usize]
+                vec![
+                    axicor_core::layout::BurstHeads8::empty(axicor_core::constants::AXON_SENTINEL);
+                    total_axons_max as usize
+                ]
             }
         };
         axon_heads.truncate(total_axons_max as usize);
@@ -212,7 +264,8 @@ fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path
         let state_size = data.len();
 
         let s2a = if state_size > 0 {
-            let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + axicor_core::constants::MAX_DENDRITE_SLOTS * (4 + 4 + 1);
+            let bytes_per_neuron =
+                4 + 1 + 4 + 1 + 4 + axicor_core::constants::MAX_DENDRITE_SLOTS * (4 + 4 + 1);
 
             if state_size % bytes_per_neuron != 0 {
                 panic!(
@@ -248,13 +301,25 @@ fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path
     let max_y = shard_cfg.dimensions.d;
 
     let geom_path = baked_dir.join("shard.geom");
-    let geom_file = std::fs::OpenOptions::new().read(true).write(true).open(&geom_path).ok()?;
+    let geom_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&geom_path)
+        .ok()?;
     let geom_mmap = unsafe { memmap2::MmapMut::map_mut(&geom_file).ok()? };
 
-    tracing::info!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
+    tracing::info!(
+        "[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})",
+        total_axons_max,
+        padded_n
+    );
 
     let paths_path = baked_dir.join("shard.paths");
-    let paths_file = std::fs::OpenOptions::new().read(true).write(true).open(&paths_path).ok()?;
+    let paths_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&paths_path)
+        .ok()?;
     let paths_mmap = unsafe { memmap2::MmapMut::map_mut(&paths_file).ok()? };
 
     let pos_path = baked_dir.join("shard.pos");
@@ -297,7 +362,12 @@ fn run_night_phase<S: Read + Write>(
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
 
-    tracing::info!(" Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
+    tracing::info!(
+        " Night Phase trigger received (tick={}, prune={}, max_sprouts={})",
+        req.current_tick,
+        req.prune_threshold,
+        req.max_sprouts
+    );
 
     // [DOD FIX] Read ghost owner map (Origin Tracking)
     let total_ghosts = ctx.as_ref().map(|c| c._total_ghosts as usize).unwrap_or(0);
@@ -312,7 +382,8 @@ fn run_night_phase<S: Read + Write>(
     // 2. Validate SHM Header
     let hdr_ptr = shm_ptr as *mut ShmHeader;
     let hdr = unsafe { &mut *hdr_ptr };
-    hdr.validate().map_err(|e| format!("SHM validation failed: {}", e))?;
+    hdr.validate()
+        .map_err(|e| format!("SHM validation failed: {}", e))?;
 
     let padded_n = hdr.padded_n as usize;
     let w_off = hdr.weights_offset as usize;
@@ -341,64 +412,64 @@ fn run_night_phase<S: Read + Write>(
     // 4. CPU Sprouting & Living Axons (Zero-Copy)
     let (_new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
         // Cast header and compute offsets
-        let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const axicor_core::layout::PathsFileHeader) };
+        let paths_hdr =
+            unsafe { &*(ctx._paths_mmap.as_ptr() as *const axicor_core::layout::PathsFileHeader) };
         let paths_total_axons = paths_hdr.total_axons as usize;
 
         let lengths_slice = unsafe {
-            std::slice::from_raw_parts_mut(
-                ctx._paths_mmap.as_mut_ptr().add(16),
-                paths_total_axons
-            )
+            std::slice::from_raw_parts_mut(ctx._paths_mmap.as_mut_ptr().add(16), paths_total_axons)
         };
 
         let matrix_offset = axicor_core::layout::calculate_paths_matrix_offset(paths_total_axons);
         let paths_slice = unsafe {
             std::slice::from_raw_parts_mut(
                 ctx._paths_mmap.as_mut_ptr().add(matrix_offset) as *mut u32,
-                paths_total_axons * 256
+                paths_total_axons * 256,
             )
         };
 
-        let soma_positions = unsafe {
-            std::slice::from_raw_parts(
-                ctx._pos_mmap.as_ptr() as *const u32,
-                padded_n
-            )
-        };
+        let soma_positions =
+            unsafe { std::slice::from_raw_parts(ctx._pos_mmap.as_ptr() as *const u32, padded_n) };
 
         // Extract tips and dirs from _geom_mmap
         let geom_total_axons = ctx._total_axons_max as usize;
         let tips_slice = unsafe {
-            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr() as *mut u32, geom_total_axons)
+            std::slice::from_raw_parts_mut(
+                ctx._geom_mmap.as_mut_ptr() as *mut u32,
+                geom_total_axons,
+            )
         };
         let dirs_slice = unsafe {
-            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr().add(geom_total_axons * 4) as *mut u32, geom_total_axons)
+            std::slice::from_raw_parts_mut(
+                ctx._geom_mmap.as_mut_ptr().add(geom_total_axons * 4) as *mut u32,
+                geom_total_axons,
+            )
         };
 
         axicor_baker::bake::sprouting::run_sprouting_pass(
             targets,
             weights,
             flags,
-            &ghost_origins,       // NEW: Origin Tracking
-            handovers,            // NEW: pass queue
-            h_count,              // NEW PARAMETER
-            tips_slice,           // From MmapMut
-            dirs_slice,           // From MmapMut
+            &ghost_origins, // NEW: Origin Tracking
+            handovers,      // NEW: pass queue
+            h_count,        // NEW PARAMETER
+            tips_slice,     // From MmapMut
+            dirs_slice,     // From MmapMut
             &ctx._soma_to_axon,
             padded_n,
             ctx._total_ghosts as usize, // NEW
-            ctx._max_x,           // NEW
-            ctx._max_y,           // NEW
+            ctx._max_x,                 // NEW
+            ctx._max_y,                 // NEW
             blueprints,
             hdr.epoch,
-            lengths_slice,   // NEW
-            paths_slice,     // NEW
-            soma_positions,  // NEW
+            lengths_slice,    // NEW
+            paths_slice,      // NEW
+            soma_positions,   // NEW
             ctx._master_seed, // <--- [DOD FIX] Entropy forwarding
             _zone_hash,
             req.max_sprouts,
             req.prune_threshold, // [DOD FIX] For initial weight protection
-            shm_ptr,         // NEW: For prune writing
+            shm_ptr,             // NEW: For prune writing
         )
     } else {
         (0, 0, vec![])
@@ -429,7 +500,7 @@ fn run_night_phase<S: Read + Write>(
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 acks.as_ptr() as *const u8,
-                acks.len() * std::mem::size_of::<axicor_core::ipc::AxonHandoverAck>()
+                acks.len() * std::mem::size_of::<axicor_core::ipc::AxonHandoverAck>(),
             )
         };
         stream.write_all(bytes)?;

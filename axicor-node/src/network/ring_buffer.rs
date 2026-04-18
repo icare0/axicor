@@ -23,7 +23,8 @@ impl SpikeSchedule {
     pub fn new(sync_batch_ticks: usize) -> Self {
         Self {
             sync_batch_ticks,
-            counts: PinnedBuffer::new(sync_batch_ticks).expect("PinnedBuffer alloc failed for counts"),
+            counts: PinnedBuffer::new(sync_batch_ticks)
+                .expect("PinnedBuffer alloc failed for counts"),
             ghost_ids: PinnedBuffer::new(sync_batch_ticks * MAX_SPIKES_PER_TICK)
                 .expect("PinnedBuffer alloc failed for ghost_ids"),
         }
@@ -39,7 +40,7 @@ impl SpikeSchedule {
 
         // Lock-free slot reservation via 1 XADD instruction
         let count = self.counts.as_slice()[tick_offset].fetch_add(1, Ordering::AcqRel) as usize;
-        
+
         if count < MAX_SPIKES_PER_TICK {
             // Each thread has unique count, no write conflict!
             let idx = (tick_offset * MAX_SPIKES_PER_TICK) + count;

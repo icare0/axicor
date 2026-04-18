@@ -1,9 +1,9 @@
+use axicor_core::config::anatomy::AnatomyConfig;
+use axicor_core::config::InstanceConfig;
+use axicor_core::types::PackedPosition;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng; // Fast and deterministic algorithm
-use axicor_core::types::PackedPosition;
-use axicor_core::config::anatomy::AnatomyConfig;
-use axicor_core::config::InstanceConfig;
 
 pub fn generate_placement_from_config(
     anatomy: &AnatomyConfig,
@@ -21,7 +21,7 @@ pub fn generate_placement_from_config(
 
     assert!(off_x + max_x <= 0x7FF, "Zone X range exceeds 11-bit limit");
     assert!(off_y + max_y <= 0x7FF, "Zone Y range exceeds 11-bit limit");
-    assert!(off_z + max_z <= 0x3F,  "Zone Z range exceeds 6-bit limit");
+    assert!(off_z + max_z <= 0x3F, "Zone Z range exceeds 6-bit limit");
 
     let mut positions = Vec::new();
     let mut rng = ChaCha8Rng::seed_from_u64(master_seed);
@@ -29,34 +29,56 @@ pub fn generate_placement_from_config(
 
     for layer in &anatomy.layers {
         let z_start_local = (current_z_pct * max_z as f32).floor() as u32;
-        let z_end_local   = ((current_z_pct + layer.height_pct) * max_z as f32).floor() as u32;
+        let z_end_local = ((current_z_pct + layer.height_pct) * max_z as f32).floor() as u32;
         current_z_pct += layer.height_pct;
 
         let layer_volume = max_x * max_y * (z_end_local - z_start_local).max(1);
-        
+
         // [DOD FIX] Layer budget is calculated from layer volume and its specific density!
         let layer_budget = (layer_volume as f32 * layer.density).floor() as usize;
-        if layer_budget == 0 { continue; }
+        if layer_budget == 0 {
+            continue;
+        }
 
         let mut pool: Vec<u32> = (0..layer_volume).collect();
         // 100% Deterministic In-Place shuffle
         pool.shuffle(&mut rng);
 
-        let most_frequent_type_name = layer.composition.iter()
+        let most_frequent_type_name = layer
+            .composition
+            .iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(k, _)| k.clone())
             .unwrap_or_default();
-        let fallback_type_id = type_names.iter().position(|n| n == &most_frequent_type_name)
-            .unwrap_or_else(|| panic!("FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!", most_frequent_type_name)) as u8;
+        let fallback_type_id = type_names
+            .iter()
+            .position(|n| n == &most_frequent_type_name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!",
+                    most_frequent_type_name
+                )
+            }) as u8;
 
         let mut type_pool = Vec::with_capacity(layer_budget);
         for (type_name, &quota) in &layer.composition {
             let count = (quota * layer_budget as f32).floor() as usize;
-            let type_id = type_names.iter().position(|n| n == type_name)
-                .unwrap_or_else(|| panic!("FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!", type_name)) as u8;
-            for _ in 0..count { type_pool.push(type_id); }
+            let type_id = type_names
+                .iter()
+                .position(|n| n == type_name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!",
+                        type_name
+                    )
+                }) as u8;
+            for _ in 0..count {
+                type_pool.push(type_id);
+            }
         }
-        while type_pool.len() < layer_budget { type_pool.push(fallback_type_id); }
+        while type_pool.len() < layer_budget {
+            type_pool.push(fallback_type_id);
+        }
 
         for type_id in type_pool {
             let flat_idx = pool.pop().expect("FATAL: Layer density > 100%");

@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-pub use layout_api::{ProjectStatus, GitStatus, ProjectNodeType, ProjectNode, ProjectModel, ProjectFsCache};
+pub use layout_api::{
+    GitStatus, ProjectFsCache, ProjectModel, ProjectNode, ProjectNodeType, ProjectStatus,
+};
 use std::path::PathBuf;
 
 #[derive(Component, Default, Debug)]

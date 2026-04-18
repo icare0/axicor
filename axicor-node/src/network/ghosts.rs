@@ -1,4 +1,4 @@
-use axicor_core::ipc::{GhostsHeader, GhostConnection, GHST_MAGIC};
+use axicor_core::ipc::{GhostConnection, GhostsHeader, GHST_MAGIC};
 
 /// Returns (src_soma_ids, target_ghost_ids)
 /// Supports two .ghosts data formats:
@@ -20,7 +20,7 @@ pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
             let header_ptr = bytes.as_ptr() as *const GhostsHeader;
             let header = *header_ptr;
             let count = header.connection_count as usize;
-            
+
             let mut src_soma_ids = Vec::with_capacity(count);
             let mut target_ghost_ids = Vec::with_capacity(count);
 
@@ -37,8 +37,11 @@ pub fn load_ghosts(bytes: &[u8]) -> (Vec<u32>, Vec<u32>) {
         let count = first_u32 as usize;
         let expected_size = 4 + (count * 4 * 2);
         if bytes.len() < expected_size {
-            panic!("Fatal: Legacy .ghosts data truncated. Expected {}, got {}", 
-                expected_size, bytes.len());
+            panic!(
+                "Fatal: Legacy .ghosts data truncated. Expected {}, got {}",
+                expected_size,
+                bytes.len()
+            );
         }
 
         unsafe {

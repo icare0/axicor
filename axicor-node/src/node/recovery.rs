@@ -15,23 +15,35 @@ impl NodeRuntime {
             new_ipv4,
             new_port,
             mtu: axicor_core::constants::MAX_UDP_PAYLOAD as u16, // [DOD FIX]
-            cluster_secret: self.cluster_secret, // [DOD FIX]
+            cluster_secret: self.cluster_secret,                 // [DOD FIX]
         };
         let packet = bytemuck::bytes_of(&update);
 
         let table = unsafe { &*self.services.routing_table.get_map_ptr() };
         for (&peer_hash, &(addr, _mtu)) in table.iter() {
             if peer_hash != zone_hash {
-                let _ = self.network.inter_node_router.socket.send_to(packet, addr).await;
+                let _ = self
+                    .network
+                    .inter_node_router
+                    .socket
+                    .send_to(packet, addr)
+                    .await;
             }
         }
-        info!(" [Recovery] Broadcasted RouteUpdate for 0x{:08X} to {} peers", zone_hash, table.len());
+        info!(
+            " [Recovery] Broadcasted RouteUpdate for 0x{:08X} to {} peers",
+            zone_hash,
+            table.len()
+        );
     }
 
     /// Called if BspBarrier detects neighbor death.
     pub async unsafe fn resurrect_shard(&self, dead_zone_hash: u32) {
-        info!(" [Recovery] Initiating The Great Resurrection for 0x{:08X}", dead_zone_hash);
-        
+        info!(
+            " [Recovery] Initiating The Great Resurrection for 0x{:08X}",
+            dead_zone_hash
+        );
+
         // 1. Broadcast new route to all peers via RCU
         self.broadcast_route_update(dead_zone_hash).await;
 

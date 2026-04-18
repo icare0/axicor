@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use layout_api::{PluginWindow, base_domain, DOMAIN_IO_INSPECTOR};
-use connectome_viewer::domain::ZoneSelectedEvent;
 use crate::domain::IoInspectorState;
+use bevy::prelude::*;
+use connectome_viewer::domain::ZoneSelectedEvent;
+use layout_api::{base_domain, PluginWindow, DOMAIN_IO_INSPECTOR};
 
 pub fn init_io_windows_system(
     mut commands: Commands,

@@ -83,13 +83,18 @@ impl BakerClient {
         max_sprouts: u16,
     ) -> Result<Vec<axicor_core::ipc::AxonHandoverAck>> {
         if handovers.len() > axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT {
-            bail!("Too many handovers: {} > {}", handovers.len(), axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT);
+            bail!(
+                "Too many handovers: {} > {}",
+                handovers.len(),
+                axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT
+            );
         }
 
         // -- 1. Zero-Copy Write Handovers into Shared Memory --
         unsafe {
             let hdr_ptr = self.shm_ptr as *mut ShmHeader;
-            let dest = self.shm_ptr.add((*hdr_ptr).handovers_offset as usize) as *mut axicor_core::ipc::AxonHandoverEvent;
+            let dest = self.shm_ptr.add((*hdr_ptr).handovers_offset as usize)
+                as *mut axicor_core::ipc::AxonHandoverEvent;
 
             std::ptr::copy_nonoverlapping(handovers.as_ptr(), dest, handovers.len());
             (*hdr_ptr).handovers_count = handovers.len() as u32;
@@ -116,7 +121,7 @@ impl BakerClient {
             // [DOD FIX] Pass ghost owner map (Origin Tracking)
             let origin_bytes = std::slice::from_raw_parts(
                 ghost_origins.as_ptr() as *const u8,
-                ghost_origins.len() * 4
+                ghost_origins.len() * 4,
             );
             stream.write_all(origin_bytes)?;
         }
@@ -124,7 +129,9 @@ impl BakerClient {
 
         // -- 3. Wait for Binary Ack (4 bytes) --
         let mut ack = [0u8; 4];
-        stream.read_exact(&mut ack).context("Waiting for baker BKOK")?;
+        stream
+            .read_exact(&mut ack)
+            .context("Waiting for baker BKOK")?;
         let magic_resp = u32::from_le_bytes(ack);
 
         if magic_resp != axicor_core::ipc::BAKE_READY_MAGIC {
@@ -134,13 +141,25 @@ impl BakerClient {
 
         // Read ACKs
         let mut count_buf = [0u8; 4];
-        stream.read_exact(&mut count_buf).context("Reading ACK count")?;
+        stream
+            .read_exact(&mut count_buf)
+            .context("Reading ACK count")?;
         let ack_count = u32::from_le_bytes(count_buf) as usize;
-        
-        let mut acks = vec![axicor_core::ipc::AxonHandoverAck { target_zone_hash: 0, src_axon_id: 0, dst_ghost_id: 0 }; ack_count];
+
+        let mut acks = vec![
+            axicor_core::ipc::AxonHandoverAck {
+                target_zone_hash: 0,
+                src_axon_id: 0,
+                dst_ghost_id: 0
+            };
+            ack_count
+        ];
         if ack_count > 0 {
-            let bytes = unsafe { 
-                std::slice::from_raw_parts_mut(acks.as_mut_ptr() as *mut u8, ack_count * std::mem::size_of::<axicor_core::ipc::AxonHandoverAck>()) 
+            let bytes = unsafe {
+                std::slice::from_raw_parts_mut(
+                    acks.as_mut_ptr() as *mut u8,
+                    ack_count * std::mem::size_of::<axicor_core::ipc::AxonHandoverAck>(),
+                )
             };
             stream.read_exact(bytes).context("Reading ACK payloads")?;
         }

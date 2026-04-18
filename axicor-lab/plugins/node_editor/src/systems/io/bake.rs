@@ -1,23 +1,38 @@
 //  Bake    .
 
+use crate::domain::{BakeProjectEvent, BrainTopologyGraph, EditorLevel, NodeGraphUiState};
 use bevy::prelude::*;
-use crate::domain::{BrainTopologyGraph, BakeProjectEvent, EditorLevel, NodeGraphUiState};
-use tracing::{info, error};
+use tracing::{error, info};
 
 pub fn bake_project_system(
     mut bake_ev: EventReader<BakeProjectEvent>,
     graph: Res<BrainTopologyGraph>,
     query: Query<&NodeGraphUiState>,
 ) {
-    if bake_ev.read().next().is_none() { return; }
+    if bake_ev.read().next().is_none() {
+        return;
+    }
 
-    let Some(active_path) = &graph.active_path else { return };
-    
+    let Some(active_path) = &graph.active_path else {
+        return;
+    };
+
     // DOD FIX: ,
-    let mut args = vec!["run".to_string(), "--release".to_string(), "-p".to_string(), "axicor-baker".to_string(), "--bin".to_string(), "baker".to_string(), "--".to_string()];    
+    let mut args = vec![
+        "run".to_string(),
+        "--release".to_string(),
+        "-p".to_string(),
+        "axicor-baker".to_string(),
+        "--bin".to_string(),
+        "baker".to_string(),
+        "--".to_string(),
+    ];
     if let Some(ui) = query.iter().next() {
         if ui.level == EditorLevel::Model {
-            info!(" [Node Editor] Orchestrating GLOBAL Model Bake: {:?}", active_path);
+            info!(
+                " [Node Editor] Orchestrating GLOBAL Model Bake: {:?}",
+                active_path
+            );
             args.push("--model".to_string());
             args.push(active_path.to_str().unwrap().to_string());
         } else {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use layout_api::{OpenContextMenuEvent, ContextMenuActionTriggeredEvent, MenuAction};
+use layout_api::{ContextMenuActionTriggeredEvent, MenuAction, OpenContextMenuEvent};
 
 #[derive(Resource, Default)]
 pub struct ContextMenuState {
@@ -29,9 +29,9 @@ pub fn context_menu_ui_system(
         state.actions = ev.actions.clone();
 
         // 2. Global WM Actions (Always Present)
-        state.actions.push(MenuAction { 
-            action_id: "wm.create_file".into(), 
-            label: " Create File".into() 
+        state.actions.push(MenuAction {
+            action_id: "wm.create_file".into(),
+            label: " Create File".into(),
         });
     }
 
@@ -48,7 +48,7 @@ pub fn context_menu_ui_system(
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             ui.set_max_width(200.0);
-            
+
             let frame = egui::Frame::menu(ui.style())
                 .fill(egui::Color32::from_rgb(25, 25, 27))
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 60, 65)))
@@ -60,9 +60,8 @@ pub fn context_menu_ui_system(
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
 
                     for action in &state.actions {
-                        let btn = egui::Button::new(&action.label)
-                            .fill(egui::Color32::TRANSPARENT);
-                        
+                        let btn = egui::Button::new(&action.label).fill(egui::Color32::TRANSPARENT);
+
                         if ui.add(btn).clicked() {
                             // 4. Dispatch Event (Intent Routing)
                             if let Some(target) = state.target_window {
@@ -77,7 +76,10 @@ pub fn context_menu_ui_system(
                 });
 
                 // Auto-close on outside click
-                if !opened_this_frame && ui.input(|i| i.pointer.any_click()) && !ui.rect_contains_pointer(ui.max_rect()) {
+                if !opened_this_frame
+                    && ui.input(|i| i.pointer.any_click())
+                    && !ui.rect_contains_pointer(ui.max_rect())
+                {
                     should_close = true;
                 }
             });

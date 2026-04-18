@@ -14,8 +14,10 @@ pub fn build_topology_graph(
     graph.padded_n = padded_n;
 
     //    (C-ABI: voltage(4) + flags(1) + thresh(4) + timers(1) = 10 bytes offset)
-    graph.soma_to_axon = state_bytes[soma_to_axon_offset .. targets_offset]
-        .chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+    graph.soma_to_axon = state_bytes[soma_to_axon_offset..targets_offset]
+        .chunks_exact(4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .collect();
 
     // :    (Axon ID -> Soma Dense ID)
     let total_axons = axon_segments_lookup.len();
@@ -29,20 +31,26 @@ pub fn build_topology_graph(
 
     //    (DOD: Columnar Memory Layout)
     let dendrites_bytes = padded_n * 128 * 4;
-    graph.targets = state_bytes[targets_offset .. targets_offset + dendrites_bytes]
-        .chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+    graph.targets = state_bytes[targets_offset..targets_offset + dendrites_bytes]
+        .chunks_exact(4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .collect();
 
     graph.axon_segments = axon_segments_lookup.to_vec();
 
-    //      
-    let packed_positions: Vec<u32> = pos_data.chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+    //
+    let packed_positions: Vec<u32> = pos_data
+        .chunks_exact(4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .collect();
 
     let mut somas = vec![Vec3::ZERO; padded_n];
-    let mut compact_to_dense = Vec::new(); // 
+    let mut compact_to_dense = Vec::new(); //
 
     for i in 0..padded_n {
-        if i >= packed_positions.len() { break; }
+        if i >= packed_positions.len() {
+            break;
+        }
         let packed = packed_positions[i];
         if packed != 0 {
             compact_to_dense.push(i); // :   dense_id
@@ -53,5 +61,5 @@ pub fn build_topology_graph(
         }
     }
     graph.soma_positions = somas;
-    graph.compact_to_dense = compact_to_dense; // 
+    graph.compact_to_dense = compact_to_dense; //
 }

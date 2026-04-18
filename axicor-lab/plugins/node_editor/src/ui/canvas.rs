@@ -1,26 +1,26 @@
 // ui/canvas.rs
-use bevy_egui::egui::{self, Color32, Pos2, Vec2, Rect};
 use crate::domain::NodeGraphUiState;
+use bevy_egui::egui::{self, Color32, Pos2, Rect, Vec2};
 
-const ZOOM_MIN:   f32 = 0.5;
-const ZOOM_MAX:   f32 = 1.5;
+const ZOOM_MIN: f32 = 0.5;
+const ZOOM_MAX: f32 = 1.5;
 const ZOOM_SPEED: f32 = 0.002;
 
 // ---   ---
-const CLR_BG:         Color32 = Color32::from_rgb(9, 9, 10);
+const CLR_BG: Color32 = Color32::from_rgb(9, 9, 10);
 
-const GRID_STEP:       f32 = 40.0;
+const GRID_STEP: f32 = 40.0;
 const GRID_MAJOR_MULT: i32 = 4;
 const GRID_SUPER_MULT: i32 = 4;
 
-const WIDTH_THIN:  f32 = 0.5;
-const WIDTH_MID:   f32 = 0.25;
+const WIDTH_THIN: f32 = 0.5;
+const WIDTH_MID: f32 = 0.25;
 const WIDTH_THICK: f32 = 0.75;
 
 #[derive(Copy, Clone)]
 pub struct CanvasTransform {
-    pub pan:    Vec2,
-    pub zoom:   f32,
+    pub pan: Vec2,
+    pub zoom: f32,
     pub origin: Pos2,
 }
 
@@ -39,12 +39,18 @@ pub fn handle_input(
     rect: Rect,
     state: &mut NodeGraphUiState,
 ) -> (CanvasTransform, egui::Response) {
-    let response = ui.interact(rect, ui.id().with("canvas_bg"), egui::Sense::click_and_drag());
+    let response = ui.interact(
+        rect,
+        ui.id().with("canvas_bg"),
+        egui::Sense::click_and_drag(),
+    );
 
     let is_pan = response.dragged_by(egui::PointerButton::Middle)
         || (response.dragged_by(egui::PointerButton::Primary) && ui.ctx().dragged_id().is_none());
 
-    if is_pan { state.pan += response.drag_delta(); }
+    if is_pan {
+        state.pan += response.drag_delta();
+    }
 
     if ui.rect_contains_pointer(rect) {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
@@ -58,7 +64,11 @@ pub fn handle_input(
         }
     }
 
-    let transform = CanvasTransform { pan: state.pan, zoom: state.zoom, origin: rect.min };
+    let transform = CanvasTransform {
+        pan: state.pan,
+        zoom: state.zoom,
+        origin: rect.min,
+    };
 
     (transform, response)
 }
@@ -67,7 +77,9 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
     painter.rect_filled(rect, 0.0, CLR_BG);
 
     let step = GRID_STEP * transform.zoom;
-    if step < 4.0 { return; }
+    if step < 4.0 {
+        return;
+    }
 
     let offset_x = transform.pan.x.rem_euclid(step);
     let offset_y = transform.pan.y.rem_euclid(step);
@@ -75,13 +87,15 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
     let start_col = (-(transform.pan.x / step)).floor() as i32;
     let start_row = (-(transform.pan.y / step)).floor() as i32;
 
-    let cols = (rect.width()  / step).ceil() as i32 + 1;
+    let cols = (rect.width() / step).ceil() as i32 + 1;
     let rows = (rect.height() / step).ceil() as i32 + 1;
 
-    //  
+    //
     for col in 0..cols {
         let x = rect.min.x + offset_x + col as f32 * step;
-        if x < rect.min.x || x > rect.max.x { continue; }
+        if x < rect.min.x || x > rect.max.x {
+            continue;
+        }
 
         let idx = start_col + col;
         let (width, color) = line_style(idx, 0);
@@ -92,10 +106,12 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
         );
     }
 
-    //  
+    //
     for row in 0..rows {
         let y = rect.min.y + offset_y + row as f32 * step;
-        if y < rect.min.y || y > rect.max.y { continue; }
+        if y < rect.min.y || y > rect.max.y {
+            continue;
+        }
 
         let idx = start_row + row;
         let (width, color) = line_style(0, idx);
@@ -109,8 +125,8 @@ pub fn draw_background(painter: &egui::Painter, rect: Rect, transform: &CanvasTr
 
 #[inline]
 fn line_style(col: i32, row: i32) -> (f32, Color32) {
-    let clr_thin  = Color32::from_rgba_unmultiplied(255, 255, 255, 8);
-    let clr_mid   = Color32::from_rgba_unmultiplied(255, 255, 255, 18);
+    let clr_thin = Color32::from_rgba_unmultiplied(255, 255, 255, 8);
+    let clr_mid = Color32::from_rgba_unmultiplied(255, 255, 255, 18);
     let clr_thick = Color32::from_rgba_unmultiplied(255, 255, 255, 35);
 
     let idx = if col != 0 { col } else { row };
