@@ -24,7 +24,7 @@ if "--save" not in sys.argv:
             continue
     
     if not found_backend:
-        print("\n⚠️  WARNING: Could not find an interactive backend (PyQt/Tkinter).")
+        print("\n  WARNING: Could not find an interactive backend (PyQt/Tkinter).")
         print("Falling back to image generation mode (enforcing --save).\n")
         plt.switch_backend("Agg")
         sys.argv.append("--save")
@@ -42,22 +42,22 @@ VOXEL_SIZE_UM = 25.0
 MAX_DENDRITES = 128
 
 def unpack_position(packed):
-    """Zero-cost распаковка 32-битного PackedPosition [Type(4) | Z(6) | Y(11) | X(11)]"""
+    """Zero-cost unpacking of 32-bit PackedPosition [Type(4) | Z(6) | Y(11) | X(11)]"""
     x = (packed & 0x7FF) * VOXEL_SIZE_UM
     y = ((packed >> 11) & 0x7FF) * VOXEL_SIZE_UM
     z = ((packed >> 22) & 0x3F) * VOXEL_SIZE_UM
     return x, y, z
 
 def load_neuron_topology(baked_dir, target_soma_id):
-    # 1. Читаем позицию сомы (shard.pos)
+    # 1. Read soma position (shard.pos)
     pos_data = np.fromfile(f"{baked_dir}/shard.pos", dtype=np.uint32)
     soma_packed = pos_data[target_soma_id]
     if soma_packed == 0:
-        print("FATAL: Выбран мертвый нейрон (Warp Padding). Выбери другой ID.")
+        print("FATAL: Selected a dead neuron (Warp Padding). Choose another ID.")
         sys.exit(1)
     soma_xyz = unpack_position(soma_packed)
 
-    # 2. Читаем матрицу путей аксонов (shard.paths)
+    # 2. Read axon path matrix (shard.paths)
     paths_raw = np.fromfile(f"{baked_dir}/shard.paths", dtype=np.uint8)
     magic, version, total_axons, max_segments = struct.unpack_from('<IIII', paths_raw, 0)
     
@@ -65,16 +65,16 @@ def load_neuron_topology(baked_dir, target_soma_id):
     padding = (64 - ((16 + total_axons) % 64)) % 64
     matrix_offset = 16 + total_axons + padding
     
-    # Плоская матрица [total_axons, 256]
+    # Flat matrix [total_axons, 256]
     paths_matrix = np.frombuffer(
         paths_raw, dtype=np.uint32, count=total_axons * 256, offset=matrix_offset
     ).reshape(total_axons, 256)
 
-    # 3. Читаем состояние дендритов и личный аксон (shard.state)
+    # 3. Read dendrite state and personal axon (shard.state)
     state_data = np.fromfile(f"{baked_dir}/shard.state", dtype=np.uint8)
-    padded_n = len(state_data) // 910  # 910 байт на нейрон (C-ABI контракт)
+    padded_n = len(state_data) // 910  # 910 bytes per neuron (C-ABI contract)
     
-    # Смещения (Offsets)
+    # Offsets
     off_v = 0
     off_flags = off_v + padded_n * 4
     off_thresh = off_flags + padded_n
@@ -83,13 +83,13 @@ def load_neuron_topology(baked_dir, target_soma_id):
     tgt_off = s2a_off + padded_n * 4
     w_off   = tgt_off + padded_n * 4 * MAX_DENDRITES
 
-    # Извлечение скаляров конкретной сомы O(1)
+    # O(1) extraction of scalars for a specific soma
     voltage = np.frombuffer(state_data, dtype=np.int32, count=1, offset=off_v + target_soma_id * 4)[0]
     flags = state_data[off_flags + target_soma_id]
     threshold_offset = np.frombuffer(state_data, dtype=np.int32, count=1, offset=off_thresh + target_soma_id * 4)[0]
     ref_timer = state_data[off_timers + target_soma_id]
 
-    # Побитовые операции
+    # Bitwise operations
     type_id = (flags >> 4) & 0x0F
     is_spiking = flags & 0x01
 
@@ -99,7 +99,7 @@ def load_neuron_topology(baked_dir, target_soma_id):
     targets = np.frombuffer(state_data, dtype=np.uint32, count=MAX_DENDRITES * padded_n, offset=tgt_off).reshape(MAX_DENDRITES, padded_n)
     weights = np.frombuffer(state_data, dtype=np.int16, count=MAX_DENDRITES * padded_n, offset=w_off).reshape(MAX_DENDRITES, padded_n)
 
-    # Агрегация Морфологии (NumPy C-backend)
+    # Morphology aggregation (NumPy C-backend)
     my_targets = targets[:, target_soma_id]
     my_weights = weights[:, target_soma_id]
 
@@ -109,7 +109,7 @@ def load_neuron_topology(baked_dir, target_soma_id):
     fan_in = np.sum(valid_mask)
     exc_count = np.sum(active_weights > 0)
     inh_count = np.sum(active_weights < 0)
-    total_mass = np.sum(active_weights, dtype=np.int64) # Защита от переполнения
+    total_mass = np.sum(active_weights, dtype=np.int64) # Overflow protection
 
     metrics = {
         "voltage": voltage,
@@ -127,7 +127,7 @@ def load_neuron_topology(baked_dir, target_soma_id):
         "bp_name": "Unknown"
     }
 
-    # Попытка загрузить Blueprints
+    # Attempting to load Blueprints
     bp_path = os.path.join(baked_dir, "BrainDNA", "blueprints.toml")
     if os.path.exists(bp_path):
         try:
@@ -140,9 +140,9 @@ def load_neuron_topology(baked_dir, target_soma_id):
         except Exception as e:
             print(f"Warning: failed to load blueprints.toml: {e}")
 
-    # --- Сборка Геометрии ---
+    # --- Geometry Assembly ---
     
-    # А) Ствол аксона целевого нейрона
+    # A) Target neuron axon trunk
     axon_lines = []
     if my_axon_id != 0xFFFFFFFF:
         ax_len = lengths[my_axon_id]
@@ -150,13 +150,13 @@ def load_neuron_topology(baked_dir, target_soma_id):
         path = paths_matrix[my_axon_id, :ax_len]
         ax_points = [unpack_position(p) for p in path if p != 0]
         
-        # Первая линия - от сомы до начала аксона
+        # First line - from soma to axon start
         if ax_points:
             axon_lines.append([soma_xyz, ax_points[0]])
             for i in range(len(ax_points)-1):
                 axon_lines.append([ax_points[i], ax_points[i+1]])
 
-    # Б) Дендритные отростки (тянутся к чужим аксонам)
+    # B) Dendritic branches (targeting foreign axons)
     dendrite_lines = []
     dendrite_colors = []
     exact_weights = []
@@ -164,7 +164,7 @@ def load_neuron_topology(baked_dir, target_soma_id):
     for slot in range(MAX_DENDRITES):
         tgt = targets[slot, target_soma_id]
         if tgt == 0:
-            continue  # Пустой слот (Early Exit)
+            continue  # Empty slot (Early Exit)
             
         # Zero-Index Trap Reverse
         target_axon_id = (tgt & 0x00FFFFFF) - 1
@@ -177,7 +177,7 @@ def load_neuron_topology(baked_dir, target_soma_id):
                 synapse_xyz = unpack_position(synapse_packed)
                 dendrite_lines.append([soma_xyz, synapse_xyz])
                 
-                # Dale's Law color coding: Зеленый = Excitatory (+), Красный = Inhibitory (-)
+                # Dale's Law color coding: Green = Excitatory (+), Red = Inhibitory (-)
                 color = (0.1, 0.9, 0.4, 0.7) if w > 0 else (1.0, 0.2, 0.2, 0.7)
                 dendrite_colors.append(color)
                 exact_weights.append(w)
@@ -215,7 +215,7 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
     all_points = np.array(all_points)
     
     if len(all_points) > 1:
-        # Устанавливаем честный 1:1:1 физический масштаб
+        # Set exact 1:1:1 physical scale
         max_range = np.array([
             all_points[:,0].max() - all_points[:,0].min(),
             all_points[:,1].max() - all_points[:,1].min(),
@@ -231,7 +231,7 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
         ax.set_zlim(mid_z - max_range - 50, mid_z + max_range + 50)
 
     ax.axis('off')
-    plt.title(f"Neuron Morphology (ID: {target_id})\nGenesis HFT Engine", color='white', pad=20, fontsize=14)
+    plt.title(f"Neuron Morphology (ID: {target_id})\nAxicor HFT Engine", color='white', pad=20, fontsize=14)
     
     from matplotlib.lines import Line2D
     legend_elements = [
@@ -242,7 +242,7 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
     ]
     ax.legend(handles=legend_elements, loc='lower right', facecolor='#111', edgecolor='#333', fontsize=9)
 
-    # --- 1. Текстовый HUD поверх канваса ---
+    # --- 1. Text HUD overlay ---
     hud_text = (
         f"--- Dynamics State ---\n"
         f"Membrane Pot : {metrics['voltage']}\n"
@@ -259,14 +259,14 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
     fig.text(0.02, 0.95, hud_text, color='lightgreen', fontfamily='monospace', 
              fontsize=10, va='top', bbox=dict(facecolor='black', alpha=0.7, edgecolor='#555'))
              
-    # --- 1.5. Blueprints HUD (Правая сторона) ---
+    # --- 1.5. Blueprints HUD (Right side) ---
     if metrics["blueprint"]:
         bp_text = f"--- Blueprints ({metrics['bp_name']}) ---\n"
         for k, v in metrics["blueprint"].items():
             if k in ("name", "inertia_curve"): 
                 continue
                 
-            # Сравнение с текущими динамическими свойствами
+            # Comparison with current dynamic properties
             current_val_str = ""
             if k == "rest_potential":
                 current_val_str = f" / {metrics['voltage']} (curr)"
@@ -278,7 +278,7 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
         fig.text(0.98, 0.95, bp_text, color='lightblue', fontfamily='monospace', 
                  fontsize=8, va='top', ha='right', bbox=dict(facecolor='black', alpha=0.7, edgecolor='#555'))
 
-    # --- 2. Гистограмма (Inset Plot) ---
+    # --- 2. Histogram (Inset Plot) ---
     if metrics["active_weights"].size > 0:
         ax_hist = fig.add_axes([0.02, 0.05, 0.25, 0.2])
         ax_hist.patch.set_alpha(0.7)
@@ -289,7 +289,7 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
         ax_hist.tick_params(colors='white', labelsize=8)
         ax_hist.grid(True, alpha=0.2, color='white', linestyle='--')
 
-    # --- 3. Интерактивность (Pick Event) ---
+    # --- 3. Interactivity (Pick Event) ---
     def on_pick(event):
         try:
             if dendrite_lines and event.artist == syn_scatter:
@@ -305,11 +305,11 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, met
     plt.tight_layout()
     
     if not save:
-        print("💡 Opening interactive window. Use mouse to rotate/zoom.")
+        print(" Opening interactive window. Use mouse to rotate/zoom.")
         plt.show()
     else:
         plt.savefig(output_file, bbox_inches='tight', facecolor='#050505')
-        print(f"✅ Успешно отрендерено в {output_file}")
+        print(f" Successfully rendered to {output_file}")
 
 if __name__ == "__main__":
     import argparse
@@ -329,7 +329,7 @@ if __name__ == "__main__":
                 break
                 
     if not zone_name:
-        print("❌ ERROR: Zone name not provided. Use positional (MotorCortex) or flag (--MotorCortex).")
+        print(" ERROR: Zone name not provided. Use positional (MotorCortex) or flag (--MotorCortex).")
         sys.exit(1)
         
     def find_baked(start_path):
@@ -347,10 +347,10 @@ if __name__ == "__main__":
         baked_dir = find_baked(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 
     if not baked_dir:
-        print(f"❌ ERROR: Could not find 'baked/{zone_name}' directory.")
+        print(f" ERROR: Could not find 'baked/{zone_name}' directory.")
         sys.exit(1)
         
-    print(f"📁 Found baked data in: {baked_dir}")
+    print(f" Found baked data in: {baked_dir}")
         
     target_soma_id = args.id
     output_file = f"neuron_{target_soma_id}_morphology.png"
@@ -358,7 +358,7 @@ if __name__ == "__main__":
     # Range check
     pos_data = np.fromfile(f"{baked_dir}/shard.pos", dtype=np.uint32)
     if target_soma_id >= len(pos_data):
-        print(f"❌ ERROR: ID {target_soma_id} is out of bounds. Max ID for this shard is {len(pos_data)-1}.")
+        print(f" ERROR: ID {target_soma_id} is out of bounds. Max ID for this shard is {len(pos_data)-1}.")
         sys.exit(1)
         
     soma_xyz, axon_lines, dendrite_lines, dendrite_colors, metrics = load_neuron_topology(baked_dir, target_soma_id)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Genesis Brain State Debugger — парсит бинарные .state блобы и выводит
-полную статистику сомы + дендритных весов.
+Axicor Brain State Debugger — parses binary .state blobs and outputs
+full soma + dendritic weight statistics.
 
 .state binary layout (Zero-Copy SoA, Little-Endian):
   soma_voltage      [padded_n]       × i32  (4B)
@@ -13,7 +13,7 @@ Genesis Brain State Debugger — парсит бинарные .state блобы
   dendrite_weights  [padded_n × 128] × i16  (2B)
   dendrite_timers   [padded_n × 128] × u8   (1B)
 
-Использование:
+Usage:
   python3 scripts/brain_debugger.py {name_model}
 """
 
@@ -24,7 +24,7 @@ from pathlib import Path
 MAX_DENDRITES = 128
 
 def compute_padded_n(file_size):
-    """Обратная формула: file_size = padded_n * (4+1+4+1+4 + 128*(4+4+1))"""
+    """Inverse formula: file_size = padded_n * (4+1+4+1+4 + 128*(4+4+1))"""
     # [DOD FIX] The 1166-Byte Invariant (i32 weights)
     bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + MAX_DENDRITES * (4 + 4 + 1)
     # = 14 + 128*9 = 14 + 1152 = 1166
@@ -36,7 +36,7 @@ def compute_padded_n(file_size):
 
 
 def parse_state(path):
-    """Парсит .state в dict numpy массивов."""
+    """Parses .state into a dict of numpy arrays."""
     data = np.fromfile(path, dtype=np.uint8)
     n = compute_padded_n(len(data))
     
@@ -67,18 +67,18 @@ def parse_state(path):
 
 
 def report_soma(s, name):
-    """Выводит статистику сомы."""
+    """Outputs soma statistics."""
     n = s['padded_n']
     v = s['voltage']
     flags = s['flags']
     thresh = s['threshold_offset']
     timers = s['timers']
     
-    # Variant ID — верхние 4 бита flags
+    # Variant ID — upper 4 bits of flags
     variant_ids = (flags >> 4) & 0x0F
     is_spiking = flags & 0x01
     
-    # Только «живые» нейроны (v != 0 или флаг != 0)
+    # Only "alive" neurons (v != 0 or flag != 0)
     alive_mask = (v != 0) | (flags != 0)
     alive = np.sum(alive_mask)
     
@@ -93,7 +93,7 @@ def report_soma(s, name):
     print(f"    Mean:   {v[alive_mask].mean():>10.1f}")
     print(f"    Std:    {v[alive_mask].std():>10.1f}")
     
-    # Гистограмма вольтажей
+    # Voltage histogram
     hist_edges = [0, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 42001]
     hist, _ = np.histogram(v[alive_mask], bins=hist_edges)
     print(f"    Voltage Distribution:")
@@ -119,19 +119,19 @@ def report_soma(s, name):
 
 
 def report_dendrites(s, name):
-    """Анализирует дендритные веса."""
+    """Analyzes dendritic weights."""
     n = s['padded_n']
     w = s['dendrite_weights']   # shape: (128, padded_n)
     tgt = s['dendrite_targets'] # shape: (128, padded_n)
     
-    # Считаем заполненные слоты (target != 0)
+    # Count filled slots (target != 0)
     connected = tgt != 0
     slots_per_neuron = connected.sum(axis=0)  # (padded_n,)
     
     alive_mask = slots_per_neuron > 0
     alive_neurons = np.sum(alive_mask)
     
-    # Все активные веса
+    # All active weights
     active_weights = w[connected]
     
     print(f"\n  🔗 DENDRITE WEIGHTS (i32)")
@@ -166,7 +166,7 @@ def report_dendrites(s, name):
     if len(inhibitory) > 0:
         print(f"      Inh mean: {inhibitory.mean():.1f}, min: {inhibitory.min()}")
     
-    # Распределение весов (гистограмма)
+    # Weight distribution (histogram)
     abs_w = np.abs(active_weights.astype(np.int32))
     hist_edges = [0, 100, 500, 1000, 2000, 3500, 5000, 10000, 2140000000]
     hist, _ = np.histogram(abs_w, bins=hist_edges)

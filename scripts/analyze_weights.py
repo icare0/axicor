@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 
-# Добавляем путь к SDK
+# Add SDK path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "genesis-client")))
 
 from genesis.brain import fnv1a_32

@@ -1,5 +1,5 @@
 #=============================================================
-#       ВРЕМЕННО НЕ РАБОТАЕТ / ТРЕБУЕТ РЕФАКТОРИНГА
+#       TEMPORARILY NON-FUNCTIONAL / REQUIRES REFACTORING
 #=============================================================
 
 #!/usr/bin/env python3
@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from genesis.builder import BrainBuilder
 
 def build_ant_connectome():
-    print("🧠 Инициализация архитектора (3-Zone Feedforward WTA)...")
+    print("🧠 Initializing architect (3-Zone Feedforward WTA)...")
     base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     gnm_path = os.path.join(base_path, "GNM-Library")
     out_dir = os.path.join(base_path, "Genesis-Models/AntConnectome")
@@ -27,9 +27,9 @@ def build_ant_connectome():
     builder.sim_params["tick_duration_us"] = 100
 
     # ============================================================
-    # АППАРАТНЫЕ ПРОФИЛИ (Strict C-ABI Constants)
+    # HARDWARE PROFILES (Strict C-ABI Constants)
     # ============================================================
-    # [DOD FIX] Никаких хардкодов plasticity! Используем Mass Domain и библиотечные дефолты.
+    # [DOD FIX] No hardcoded plasticity! Use Mass Domain and library defaults.
     exc_type = builder.gnm_lib("VISp4/141")
     inh_type = builder.gnm_lib("VISp4/114")
 
@@ -37,14 +37,14 @@ def build_ant_connectome():
     motor_type.name = "Motor_Pyramidal"
     for d in motor_type.data_list:
         d["name"] = "Motor_Pyramidal"
-        d["dendrite_radius_um"] = 500.0     # Широкий захват для конвергенции сигнала
+        d["dendrite_radius_um"] = 500.0     # Wide capture for signal convergence
 
     # ============================================================
-    # SHARD 1: SENSORY CORTEX (Входной шлюз)
+    # SHARD 1: SENSORY CORTEX (Input Gateway)
     # ============================================================
     sensory = builder.add_zone("SensoryCortex", width_vox=64, depth_vox=64, height_vox=16)
 
-    # [DOD FIX] Снижаем плотность до 10%, чтобы не пробить лимит в 128 слотов
+    # [DOD FIX] Reduce density to 10% to stay within the 128-slot limit
     sensory.add_layer("L4_Input", height_pct=1.0, density=0.10) \
            .add_population(exc_type, fraction=0.9) \
            .add_population(inh_type, fraction=0.1)
@@ -53,7 +53,7 @@ def build_ant_connectome():
     sensory.add_output("to_thoracic", width=16, height=16)
 
     # ============================================================
-    # SHARD 2: THORACIC GANGLION (Генератор Паттернов / Хаб)
+    # SHARD 2: THORACIC GANGLION (Pattern Generator / Hub)
     # ============================================================
     thoracic = builder.add_zone("ThoracicGanglion", width_vox=64, depth_vox=64, height_vox=32)
 
@@ -68,7 +68,7 @@ def build_ant_connectome():
     thoracic.add_output("to_motor", width=16, height=16)
 
     # ============================================================
-    # SHARD 3: MOTOR CORTEX (Выходной шлюз + Winner-Takes-All)
+    # SHARD 3: MOTOR CORTEX (Output Gateway + Winner-Takes-All)
     # ============================================================
     motor = builder.add_zone("MotorCortex", width_vox=64, depth_vox=64, height_vox=32)
 
@@ -82,9 +82,9 @@ def build_ant_connectome():
     motor.add_output("motor_out", width=16, height=8, target_type="Motor_Pyramidal")
 
     # ============================================================
-    # ПРОВОДКА (Ghost Axons Routing)
+    # WIRING (Ghost Axons Routing)
     # ============================================================
-    print("[*] Прокладка аксонов...")
+    print("[*] Routing axons...")
     builder.connect(sensory, thoracic, out_matrix="to_thoracic", 
                     in_width=16, in_height=16, entry_z="bottom", growth_steps=1200)
 
@@ -93,16 +93,16 @@ def build_ant_connectome():
 
     builder.build()
 
-    print("\n🔥 Запускаем Genesis Baker (CPU Compiler)...")
+    print("\n🔥 Launching Axicor Baker (CPU Compiler)...")
     brain_toml_path = os.path.join(out_dir, "brain.toml")
 
     result = subprocess.run([
-        "cargo", "run", "--release", "-p", "genesis-baker", "--bin", "baker", "--",
+        "cargo", "run", "--release", "-p", "axicor-baker", "--bin", "baker", "--",
         "--brain", brain_toml_path, "--clean"
     ], cwd=base_path)
 
     if result.returncode != 0:
-        print("\n❌ Ошибка компиляции коннектома.")
+        print("\n❌ Connectome compilation failed.")
         sys.exit(1)
 
 if __name__ == '__main__':

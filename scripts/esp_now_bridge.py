@@ -4,7 +4,7 @@ import socket
 import sys
 
 # [DOD] HFT Serial-to-UDP Bridge
-# Никаких строк, JSON или декодирования. Читаем 16 байт -> шлем 16 байт.
+# No strings, JSON, or decoding. Read 16 bytes -> send 16 bytes.
 
 def run_bridge(serial_port="/dev/ttyUSB0", baudrate=115200):
     udp_ip = "127.0.0.1"
@@ -16,8 +16,8 @@ def run_bridge(serial_port="/dev/ttyUSB0", baudrate=115200):
     try:
         with serial.Serial(serial_port, baudrate) as ser:
             while True:
-                # В реальности донгл ESP32 должен печатать маркер начала кадра, 
-                # но для HFT мы предполагаем, что он просто пишет сырые байты (fwrite).
+                # In reality, the ESP32 dongle should print a frame start marker, 
+                # but for HFT we assume it just writes raw bytes (fwrite).
                 raw_bytes = ser.read(16)
                 if len(raw_bytes) == 16:
                     sock.sendto(raw_bytes, (udp_ip, udp_port))

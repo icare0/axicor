@@ -7,25 +7,25 @@ def check_shard(name, path):
         n = len(data) // 1166
         # Soma: 14*n, Targets: 128*n*4, Weights: 128*n*4
         off_w = 14 * n + 128 * n * 4
-        # Читаем веса (i32)
+        # Read weights (i32)
         w = np.frombuffer(data[off_w : off_w + n * 128 * 4], dtype=np.int32)
         
         active = w[w != 0]
         if len(active) == 0:
-            print(f"[{name}] 💀 All weights are ZERO")
+            print(f"[{name}] All weights are ZERO")
             return
         exc_count = len(active[active > 0])
         inh_count = len(active[active < 0])
         
-        # Биологическая цель: 80% Exc / 20% Inh => 4:1
+        # Biological target: 80% Exc / 20% Inh => 4:1
         actual_ratio = exc_count / inh_count if inh_count > 0 else float('inf')
         target_ratio = 4.0  # (80/20)
         deviation = actual_ratio / target_ratio
         
-        status = "✅ OK" if 0.5 <= deviation <= 2.0 else "⚠️ I-DOMINANCE" if deviation < 0.5 else "⚠️ E-DOMINANCE"
+        status = "OK" if 0.5 <= deviation <= 2.0 else "I-DOMINANCE" if deviation < 0.5 else "E-DOMINANCE"
         
         # [DOD FIX] Shift Mass Domain back to Charge Domain
-        print(f"[{name}] 🧠 Stats:")
+        print(f"[{name}] Stats:")
         print(f"  - Active Synapses: {len(active)} ({(len(active)/(n*128))*100:.2f}% density)")
         print(f"  - Avg Weight:      {np.mean(np.abs(active)) / 65536.0:.2f}")
         print(f"  - Max/Min:         {np.max(active) // 65536} / {np.min(active) // 65536}")

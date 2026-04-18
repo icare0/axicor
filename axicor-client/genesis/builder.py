@@ -519,12 +519,12 @@ class BrainBuilder:
 
     def bake(self, clean: bool = False):
         """
-        Invokes the genesis-baker Rust compiler to generate binary VRAM dumps.
+        Invokes the axicor-baker Rust compiler to generate binary VRAM dumps.
         """
-        print("\n🔥 Starting Genesis Baker (CPU Compiler)...")
+        print("\n🔥 Starting Axicor Baker (CPU Compiler)...")
         brain_toml_path = self.output_dir / "brain.toml"
 
-        cmd = ["cargo", "run", "--release", "-p", "genesis-baker"]
+        cmd = ["cargo", "run", "--release", "-p", "axicor-baker"]
 
         has_cuda = shutil.which("nvcc") is not None
         has_rocm = shutil.which("hipcc") is not None

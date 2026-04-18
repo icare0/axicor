@@ -4,7 +4,7 @@
 set -e
 
 # ─────────────────────────────────────────────
-# Цвета
+# Colors
 # ─────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,7 +26,7 @@ echo -e "  ${BOLD}Embodied AI Engine — Alpha Bootstrap${NC}"
 echo ""
 
 # ─────────────────────────────────────────────
-# 1. Обязательные зависимости
+# 1. Mandatory dependencies
 # ─────────────────────────────────────────────
 echo -e "${CYAN}[1/5] Checking dependencies...${NC}"
 
@@ -65,11 +65,11 @@ GPU_FOUND=0
 if command -v nvcc >/dev/null 2>&1; then
     NVCC_VER=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
     
-    # Извлекаем Major и Minor версии
+    # Extract Major and Minor versions
     NVCC_MAJOR=$(echo $NVCC_VER | cut -d'.' -f1)
     NVCC_MINOR=$(echo $NVCC_VER | cut -d'.' -f2)
     
-    # DOD Check: Требуется минимум CUDA 12.4 для корректной развертки 32-байтных структур и __shfl_sync
+    # DOD Check: Requires minimum CUDA 12.4 for correct unfolding of 32-byte structures and __shfl_sync
     if [ "$NVCC_MAJOR" -lt 12 ] || ( [ "$NVCC_MAJOR" -eq 12 ] && [ "$NVCC_MINOR" -lt 4 ] ); then
         echo -e "  ${RED}✗${NC} NVIDIA CUDA version too old (nvcc ${NVCC_VER}). Genesis requires >= 12.4."
         echo -e "  Old nvcc heuristic analyzers crash on branchless AST unrolling."
@@ -135,28 +135,28 @@ echo -e "  ${GREEN}✓${NC} Python dependencies installed"
 # 4. Rust build
 # ─────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[4/5] Building Genesis Node (release)...${NC}"
+echo -e "${CYAN}[4/5] Building Axicor Node (release)...${NC}"
 echo -e "  Features: ${BOLD}${GPU_FEATURES:-default}${NC}"
 echo ""
 
-cargo build --release -p genesis-node -p genesis-baker $GPU_FEATURES
+cargo build --release -p axicor-node -p axicor-baker $GPU_FEATURES
 
 echo -e "  ${GREEN}✓${NC} Build complete"
 
 # ─────────────────────────────────────────────
-# 5. Проверка
+# 5. Verification
 # ─────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}[5/5] Verifying installation...${NC}"
 
-NODE_BIN="./target/release/genesis-node"
-BAKER_BIN="./target/release/baker"
+NODE_BIN="./target/release/axicor-node"
+BAKER_BIN="./target/release/axicor-baker"
 
-[ -f "$NODE_BIN" ]  && echo -e "  ${GREEN}✓${NC} genesis-node binary found" \
-                    || echo -e "  ${RED}✗${NC} genesis-node binary missing"
+[ -f "$NODE_BIN" ]  && echo -e "  ${GREEN}✓${NC} axicor-node binary found" \
+                    || echo -e "  ${RED}✗${NC} axicor-node binary missing"
 
-[ -f "$BAKER_BIN" ] && echo -e "  ${GREEN}✓${NC} baker binary found" \
-                    || echo -e "  ${RED}✗${NC} baker binary missing"
+[ -f "$BAKER_BIN" ] && echo -e "  ${GREEN}✓${NC} axicor-baker binary found" \
+                    || echo -e "  ${RED}✗${NC} axicor-baker binary missing"
 
 # ─────────────────────────────────────────────
 # Done
@@ -172,7 +172,7 @@ echo -e "  ${CYAN}1.${NC} Bake the brain:"
 echo -e "     ${BOLD}python3 examples/cartpole_exp/build_brain.py${NC}"
 echo ""
 echo -e "  ${CYAN}2.${NC} Start the node:"
-echo -e "     ${BOLD}cargo run --release -p genesis-node -- Genesis-Models/cartpole_exp.axic --cpu --log${NC}"
+echo -e "     ${BOLD}cargo run --release -p axicor-node -- Genesis-Models/cartpole_exp.axic --cpu --log${NC}"
 echo ""
 echo -e "  ${CYAN}3.${NC} Run the agent:"
 echo -e "     ${BOLD}python3 examples/cartpole_exp/agent.py${NC}"

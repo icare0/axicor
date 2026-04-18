@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Axicor / Genesis - Brain Topology Visualizer
-Парсит brain.toml и генерирует 2D-схему архитектуры кластера (зон и связей).
-Не требует запуска ядра или компиляции Baker'ом.
+Parses brain.toml and generates a 2D cluster architecture diagram (zones and connections).
+Does not require engine runtime or Baker compilation.
 """
 
 import sys
@@ -22,7 +22,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 def find_brain_toml(search_path):
-    """Ищет brain.toml по указанному пути."""
+    """Searches for brain.toml at the specified path."""
     if os.path.isfile(search_path) and search_path.endswith(".toml"):
         return search_path
     
@@ -49,16 +49,16 @@ def visualize_topology(toml_path, save_path=None):
         print("⚠️ Warning: No zones found in this brain.toml")
         sys.exit(0)
 
-    # Создаем направленный граф
+    # Create a directed graph
     G = nx.DiGraph()
 
-    # Добавляем зоны
+    # Add zones
     for z in zones:
         zone_name = z.get("name", "UnknownZone")
         G.add_node(zone_name)
         print(f"  + Node: {zone_name}")
 
-    # Добавляем связи (Ghost Axons)
+    # Add connections (Ghost Axons)
     edge_labels = {}
     for c in connections:
         src = c.get("from")
@@ -71,12 +71,12 @@ def visualize_topology(toml_path, save_path=None):
         target_type = c.get("target_type", "All")
         matrix_name = c.get("output_matrix", "")
 
-        # Считаем пропускную способность (кол-во аксонов)
+        # Calculate capacity (number of axons)
         capacity = f"{w}x{h}"
         if isinstance(w, int) and isinstance(h, int):
             capacity += f" ({w*h} axons)"
 
-        # Формируем лейбл для стрелки
+        # Generate arrow label
         label = f"{matrix_name}\n{capacity}"
         if target_type and target_type != "All":
             label += f"\n🎯 {target_type}"
@@ -85,27 +85,27 @@ def visualize_topology(toml_path, save_path=None):
         edge_labels[(src, dst)] = label
         print(f"  -> Link: {src} ===[ {w}x{h} ]==> {dst}")
 
-    # --- Рендеринг (Стиль Axicor) ---
+    # --- Rendering (Axicor Style) ---
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(14, 9))
     fig.canvas.manager.set_window_title('Axicor Brain Topology')
     ax.set_facecolor('#0d1117')
     fig.patch.set_facecolor('#0d1117')
 
-    # Рассчитываем позиции узлов (пружинная модель отталкивает несвязанные узлы)
-    # Используем seed для детерминированности отрисовки
+    # Calculate node positions (spring model repels unconnected nodes)
+    # Use seed for deterministic rendering
     pos = nx.spring_layout(G, k=1.5, seed=42)
 
-    # Отрисовка узлов (Сферы)
+    # Render nodes (Spheres)
     nx.draw_networkx_nodes(G, pos, ax=ax, node_color='#1f6feb', node_size=3500, edgecolors='#58a6ff', linewidths=2)
 
-    # Отрисовка стрелок (Ghost Axons)
+    # Render arrows (Ghost Axons)
     nx.draw_networkx_edges(G, pos, ax=ax, edge_color='#8b949e', arrows=True, arrowsize=25, min_source_margin=25, min_target_margin=25, connectionstyle="arc3,rad=0.1")
 
-    # Текст внутри узлов
+    # Text inside nodes
     nx.draw_networkx_labels(G, pos, ax=ax, font_size=11, font_family="sans-serif", font_color='white', font_weight='bold')
 
-    # Текст на стрелках
+    # Text on arrows
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='#58a6ff', font_size=9, label_pos=0.4, bbox=dict(facecolor='#0d1117', edgecolor='none', alpha=0.8))
 
     ax.set_title(f"Brain Topology Map: {os.path.basename(os.path.dirname(toml_path))}", color='white', pad=20, fontsize=16, fontweight='bold')
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     toml_path = find_brain_toml(args.path)
     
     if not toml_path:
-        # Попробуем поискать в Genesis-Models
+        # Try searching in Genesis-Models
         fallback_path = os.path.join("Genesis-Models", args.path, "brain.toml")
         if os.path.exists(fallback_path):
             toml_path = fallback_path

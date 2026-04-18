@@ -6,13 +6,13 @@ import matplotlib.animation as animation
 import numpy as np
 import sys
 
-# Настройки
+# Settings
 UDP_IP = "127.0.0.1"
 UDP_PORT = 8100
 MAX_HISTORY = 10000
 VIEW_WINDOW = 500
 
-# Глобальные контейнеры данных
+# Global data containers
 episodes = []
 scores = []
 tps_values = []
@@ -20,7 +20,7 @@ sma_25 = []
 sma_100 = []
 sma_300 = []
 
-# Состояние
+# State
 view_offset = 0
 is_paused = False
 
@@ -41,25 +41,25 @@ sock.setblocking(False)
 # UI Setup
 plt.style.use('dark_background')
 fig = plt.figure(figsize=(12, 7))
-fig.canvas.manager.set_window_title('Genesis Neural Dashboard v2.2')
+fig.canvas.manager.set_window_title('Axicor Neural Dashboard v2.2')
 ax1 = fig.add_subplot(111)
 ax2 = ax1.twinx()
 
-# Цвета
+# Colors
 C_SCORE  = '#444444'
 C_SMA25  = '#00ff88'
 C_SMA100 = '#00ccff'
 C_SMA300 = '#ff00ff'
 C_TPS    = '#ffff00'
 
-# Объекты графиков
+# Plot objects
 line_score, = ax1.plot([], [], color=C_SCORE, alpha=0.3, label='Raw Score', linewidth=1)
 line_sma25, = ax1.plot([], [], color=C_SMA25, alpha=0.9, label='SMA-25', linewidth=1.5)
 line_sma100, = ax1.plot([], [], color=C_SMA100, alpha=0.9, label='SMA-100', linewidth=2)
 line_sma300, = ax1.plot([], [], color=C_SMA300, alpha=0.9, label='SMA-300', linewidth=2.5)
 line_tps, = ax2.plot([], [], color=C_TPS, alpha=0.1, label='TPS', linewidth=1)
 
-# Стилизация
+# Styling
 ax1.set_facecolor('#050505')
 fig.patch.set_facecolor('#050505')
 ax1.set_title('Neural Network Evolution (CartPole)', color='white', pad=20, fontsize=15)
@@ -68,8 +68,8 @@ ax1.set_ylabel('Score', color=C_SMA25)
 ax2.set_ylabel('TPS', color=C_TPS, alpha=0.5)
 ax1.grid(True, color='#111', linestyle='--')
 
-# Текстовые блоки (Индивидуальные для каждого цвета)
-# Используем один bbox для всей группы
+# Text blocks (Individual for each color)
+# Use a single bbox for the entire group
 info_items = {}
 y_pos = 0.96
 def add_info_line(key, label, color):
@@ -117,7 +117,7 @@ def update(frame):
     latest_tps = tps_values[-1] if tps_values else 0.0
     latest_ep = episodes[-1] if episodes else 0
     
-    # Слив UDP буфера
+    # Flush UDP buffer
     while True:
         try:
             data, _ = sock.recvfrom(1024)
@@ -147,7 +147,7 @@ def update(frame):
         except Exception as e:
             break
 
-    # Обновление текста (всегда)
+    # Text update (always)
     st = "LIVE" if not is_paused and view_offset == 0 else "HISTORY/PAUSED"
     info_items['status'].set_text(f"MODE:    {st}")
     info_items['ep'].set_text(f"EPISODE: {latest_ep}")
@@ -165,7 +165,7 @@ def update(frame):
     if not episodes:
         return line_score, line_sma25, line_sma100, line_sma300, line_tps
 
-    # Слайсинг для отображения
+    # Slicing for display
     limit = len(episodes) - view_offset
     start = max(0, limit - VIEW_WINDOW)
     
@@ -185,7 +185,7 @@ def update(frame):
     line_sma300.set_data(x, y_300)
     line_tps.set_data(x, y_tps)
 
-    # Авто-масштабирование
+    # Auto-scaling
     ax1.set_xlim(x[0], x[-1] + 1)
     
     visible_scores = y_raw
@@ -198,7 +198,7 @@ def update(frame):
 
     return line_score, line_sma25, line_sma100, line_sma300, line_tps
 
-# Запуск
+# Launch
 ani = animation.FuncAnimation(fig, update, interval=250, blit=False)
 plt.tight_layout()
 print(f"🚀 Dashboard 2.2 Online ({UDP_IP}:{UDP_PORT})")

@@ -1,5 +1,5 @@
 #========================================================
-#       ВЕДУТСЯ РАБОТЫ С SDK И ВНЕДРЕНИЕМ R-STDP
+#       SDK AND R-STDP INTEGRATION IN PROGRESS
 #========================================================
 
 #!/usr/bin/env python3
@@ -11,12 +11,12 @@ import re
 import importlib.util
 from pathlib import Path
 
-# Проверка активации виртуального окружения
+# Virtual environment activation check
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
     print("❌ ERROR: Virtual environment not active!")
     sys.exit(1)
 
-# Добавляем путь к SDK ( genesis-client/ ) если скрипт запущен напрямую из примера
+# Add SDK path ( genesis-client/ ) if script is run directly from the example
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
 
 from genesis.utils import fnv1a_32
@@ -28,13 +28,13 @@ from genesis.memory import GenesisMemory
 #============================================================
 #       CLIENT & ENVIRONMENT SETTINGS
 #============================================================
-BATCH_SIZE = 20                 # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
-ENCODER_SIGMA = 0.2             # Сигма энкодера (разброс признаков)
+BATCH_SIZE = 20                 # HFT-cycle: 1 packet = 20 ticks (Must match tick_duration_us in build_brain.py)
+ENCODER_SIGMA = 0.2             # Encoder sigma (feature spread)
 
 def sanitize_flygym_xmls():
     """
-    [DOD] Self-Healing механизм. 
-    Хирургически вырезает атрибуты, которые крашат парсер dm_control в новых версиях Python.
+    [DOD] Self-Healing mechanism. 
+    Surgically removes attributes that crash the dm_control parser in newer Python versions.
     """
     spec = importlib.util.find_spec("flygym")
     if not spec or not spec.submodule_search_locations:
@@ -44,7 +44,7 @@ def sanitize_flygym_xmls():
     if not base_path.exists():
         return
 
-    # Список атрибутов, вызывающих AttributeError в новых версиях MuJoCo
+    # Attributes causing AttributeError in newer MuJoCo versions
     problematic_attrs = ["convexhull", "mpr_iterations", "collision"]
 
     for xml_file in base_path.rglob("*.xml"):
@@ -54,7 +54,7 @@ def sanitize_flygym_xmls():
             
             for attr in problematic_attrs:
                 if f'{attr}=' in content:
-                    # Выжигаем атрибут регулярным выражением
+                    # Burn attribute using regex
                     content = re.sub(fr'\s*{attr}="[^"]*"', '', content)
                     modified = True
             
@@ -70,16 +70,16 @@ def run_fly():
     # ============================================================
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/FLY_exp/baked"))
 
-    # Загружаем 4 контракта
+    # Load 4 contracts
     c_cx = GenesisIoContract(os.path.join(base_dir, "CX"), "CX")
     c_an = GenesisIoContract(os.path.join(base_dir, "AN"), "AN")
     c_vp = GenesisIoContract(os.path.join(base_dir, "VP"), "VP")
     c_desc = GenesisIoContract(os.path.join(base_dir, "DESCENDING"), "DESCENDING")
 
-    # Собираем единый массив матриц для мультиплексора UDP
-    # Порядок сборки критичен: он определяет индексы client.payload_views
+    # Assemble a single matrix array for the UDP multiplexer
+    # Assembly order is critical: it determines client.payload_views indices
     matrices = (
-        c_cx.get_client_config(BATCH_SIZE)["matrices"] +       # view
+        c_cx.get_client_config(BATCH_SIZE)["matrices"] +       # view[0]
         c_an.get_client_config(BATCH_SIZE)["matrices"] +       # view[1]
         c_vp.get_client_config(BATCH_SIZE)["matrices"] +       # view[2]
         c_desc.get_client_config(BATCH_SIZE)["matrices"]       # view[3]
@@ -100,7 +100,7 @@ def run_fly():
         sys.exit(1)
 
     # ============================================================
-    # 2. Фабрика DOD Энкодеров и Декодеров
+    # 2. DOD Encoder and Decoder Factory
     # ============================================================
     enc_nav = c_cx.create_population_encoder("navigation", vars_count=15, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
     enc_halt = c_an.create_population_encoder("haltere", vars_count=10, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
@@ -111,33 +111,33 @@ def run_fly():
 
     # ============================================================
     # 3. RL REACTOR (EXPLORATION PHASE)
-    # Атомарная перезапись манифеста для агрессивного обучения
+    # Atomic manifest rewriting for aggressive learning
     # ============================================================
-    print("🧬 Инициализация RL Реактора (Фаза: EXPLORATION)...")
+    print("🧬 Initializing RL Reactor (Phase: EXPLORATION)...")
     ctrl_desc = GenesisControl(os.path.join(base_dir, "DESCENDING", "manifest.toml"))
-    # Частый сон (каждые 30k тиков) для быстрого закрепления опыта
+    # Frequent sleep (every 30k ticks) for rapid consolidation
     ctrl_desc.set_night_interval(30_000)
-    # Низкий порог прунинга (позволяем нейронам ошибаться и сохранять слабые связи)
+    # Low pruning threshold (allow neurons to make mistakes and keep weak connections)
     ctrl_desc.set_prune_threshold(750)
-    # Агрессивный структурный рост (много новых аксонов каждую ночь)
+    # Aggressive structural growth (many new axons each night)
     ctrl_desc.set_max_sprouts(128)
 
     # ============================================================
-    # 4. Среда и Преаллокация Памяти
+    # 4. Environment and Memory Preallocation
     # ============================================================
-    print("🩹 Запуск препроцессора ассетов...")
+    print("🩹 Launching asset preprocessor...")
     sanitize_flygym_xmls()
 
     from flygym.mujoco import NeuroMechFly
     import mujoco.viewer
 
-    print("🪰 Инициализация NeuroMechFly (FlyGym)...")
+    print("🪰 Initializing NeuroMechFly (FlyGym)...")
     env = NeuroMechFly()
     state, _ = env.reset()
     viewer = mujoco.viewer.launch_passive(env.physics.model.ptr, env.physics.data.ptr)
 
     # ============================================================
-    # БЛОК ЯВНОГО ВВОДА/ВЫВОДА (MULTI-PORT FACADES)
+    # EXPLICIT I/O BLOCK (MULTI-PORT FACADES)
     # ============================================================
     # 1. Navigation (CX: 16 slots)
     buf_nav = np.zeros(16, dtype=np.float16)
@@ -157,89 +157,89 @@ def run_fly():
     # 3. Proprioception (VP: 64 slots)
     buf_prop = np.zeros(64, dtype=np.float16)
     bounds_prop = np.zeros((64, 2), dtype=np.float16)
-    bounds_prop[0:42] = [-3.15, 3.15] # Углы суставов
+    bounds_prop[0:42] = [-3.15, 3.15] # Joint angles
     rd_prop = bounds_prop[:, 1] - bounds_prop[:, 0]
     rd_prop[rd_prop == 0] = 1.0
 
     # 4. Reflexes (DESCENDING: 16 slots)
     buf_refl = np.zeros(16, dtype=np.float16)
     bounds_refl = np.zeros((16, 2), dtype=np.float16)
-    bounds_refl[0:6] = [0.0, 100.0] # Силы контакта
+    bounds_refl[0:6] = [0.0, 100.0] # Contact forces
     rd_refl = bounds_refl[:, 1] - bounds_refl[:, 0]
     rd_refl[rd_refl == 0] = 1.0
 
-    # Выходной фасад
+    # Output facade
     avatar_out = c_desc.create_output_facade("motors", dec_mot._out_buffer)
     action_buffer = np.zeros(42, dtype=np.float32)
 
     episodes = 0
-    print(f"🚀 Starting Genesis DOD FLY Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
+    print(f"🚀 Starting Axicor DOD FLY Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
 
     # ============================================================
     # 4. HFT Hot Loop (Explicit Routing)
     # ============================================================
     while True:
         # ===================================================================
-        # СЕНСОРЫ (Zero-Cost Bulk Copy & SIMD Compute)
+        # SENSORS (Zero-Cost Bulk Copy & SIMD Compute)
         # ===================================================================
         # 1. Navigation
         buf_nav[0:12] = state["fly"].flatten()
         buf_nav[12:15] = state["fly_orientation"]
 
-        # 2. Haltere (Пока заглушка, 0.0)
+        # 2. Haltere (Placeholder, 0.0)
         
-        # 3. Proprioception (Только углы суставов - строка 0 матрицы 3x42)
+        # 3. Proprioception (Joint angles only - row 0 of 3x42 matrix)
         buf_prop[0:42] = state["joints"][0, :]
 
-        # 4. Reflexes (Сжатие 30 точек контакта на 6 лап без циклов)
-        # state["contact_forces"] имеет форму (30, 3) - по 5 сенсоров на 6 лап
-        # Векторизованно: находим норму вектора, решейпим, суммируем по сенсорам
+        # 4. Reflexes (Compress 30 contact points into 6 legs without loops)
+        # state["contact_forces"] shape: (30, 3) - 5 sensors per 6 legs
+        # Vectorized: compute norm, reshape, sum across sensors
         forces = np.linalg.norm(state["contact_forces"].reshape(6, 5, 3), axis=2).sum(axis=1)
         buf_refl[0:6] = forces
 
-        # Нормализация
+        # Normalization
         norm_nav = np.clip((buf_nav - bounds_nav[:, 0]) / rd_nav, 0.0, 1.0)
         norm_halt = np.clip((buf_halt - bounds_halt[:, 0]) / rd_halt, 0.0, 1.0)
         norm_prop = np.clip((buf_prop - bounds_prop[:, 0]) / rd_prop, 0.0, 1.0)
         norm_refl = np.clip((buf_refl - bounds_refl[:, 0]) / rd_refl, 0.0, 1.0)
 
         # ===================================================================
-        # ТРАНСПОРТ В VRAM И ДОФАМИН
+        # TRANSPORT TO VRAM AND DOPAMINE
         # ===================================================================
-        # [DOD FIX] Передаем энкодеру строгий O(1) срез активных переменных (без паддинга),
-        # чтобы NumPy смог сделать Zero-Cost Broadcasting.
+        # [DOD FIX] Pass strict O(1) slice of active variables (no padding) 
+        # to enable Zero-Cost Broadcasting in NumPy.
         enc_nav.encode_into(norm_nav[:15], client.payload_views[0])
         enc_halt.encode_into(norm_halt[:10], client.payload_views[1])
         enc_prop.encode_into(norm_prop[:42], client.payload_views[2])
         enc_refl.encode_into(norm_refl[:6],  client.payload_views[3])
 
-        # [DOD] Извлекаем линейную скорость по оси X (индекс 1 матрицы 4x3)
-        # state["fly"] содержит pos(3), vel(3), ang_pos(3), ang_vel(3)
-        # vel_x - это индекс 3 (если считать от 0)
+        # [DOD] Extract linear velocity along X-axis (index 3 of flattened 4x3 matrix)
+        # state["fly"] contains pos(3), vel(3), ang_pos(3), ang_vel(3)
+        # vel_x - is index 3 (if counting from 0)
         vel_x = state["fly"].flatten()[3]
 
-        # Вычисляем награду в границах i16 (-32768 .. 32767)
+        # Calculate reward within i16 bounds (-32768 .. 32767)
         if vel_x > 0.02:
-            # Движение вперед: сильный дофаминовый всплеск
+            # Moving forward: strong dopamine surge
             dopamine = int(min(vel_x * 1000.0, 32767))
         else:
-            # Простой или движение назад: фоновая эрозия связей (LTD)
+            # Idle or moving backward: background connection erosion (LTD)
             dopamine = -15
 
-        rx = client.step(dopamine)  # Упаковка в C-ABI заголовок и транспорт
+        rx = client.step(dopamine)  # C-ABI header packing and transport
 
         # ===================================================================
-        # МОТОРЫ
+        # MOTORS
         # ===================================================================
         dec_mot.decode_from(rx)
         
         MOTOR_GAIN = 0.2
-        # Блочное O(1) копирование 42 декодированных сигналов
+        # Bulk O(1) copy of 42 decoded signals
         action_buffer[:] = (avatar_out.raw_buffer[:42] - 0.5) * 2.0 * MOTOR_GAIN
         action = {"joints": action_buffer}
 
         # ===================================================================
-        #                           ФИЗИКА
+        #                           PHYSICS
         # ===================================================================
         try:
             step_result = env.step(action)

@@ -1,5 +1,5 @@
 #=============================================================
-#       ВРЕМЕННО НЕ РАБОТАЕТ / ТРЕБУЕТ РЕФАКТОРИНГА
+#       TEMPORARILY NON-FUNCTIONAL / REQUIRES REFACTORING
 #=============================================================
 
 #!/usr/bin/env python3
@@ -53,7 +53,7 @@ PHASE_PARAMS = {
 def run_ant():
     global BATCH_SIZE
     
-    # 1. Контракты Авто-подключения
+    # 1. Auto-connection Contracts
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Genesis-Models/AntConnectome/baked"))
     
     contract_sensory = GenesisIoContract(os.path.join(base_dir, "SensoryCortex"), "SensoryCortex")
@@ -62,7 +62,7 @@ def run_ant():
     cfg_in = contract_sensory.get_client_config(BATCH_SIZE)
     cfg_out = contract_motor.get_client_config(BATCH_SIZE)
 
-    # Клиент: Шлем в Sensory, Читаем только Motor
+    # Client: Send to Sensory, Read only from Motor
     client = GenesisMultiClient(
         addr=("127.0.0.1", 8081),
         matrices=cfg_in["matrices"],
@@ -76,8 +76,8 @@ def run_ant():
         print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
         sys.exit(1)
 
-    # 2. Фабрика DOD Энкодеров/Декодеров
-    # У Ant-v4 27 переменных (добиваем 1 нулем до 28 для выравнивания)
+    # 2. DOD Encoder/Decoder Factory
+    # Ant-v4 has 27 variables (padded with 1 zero to 28 for alignment)
     encoder = contract_sensory.create_population_encoder("ant_sensors", vars_count=28, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
     decoder = contract_motor.create_pwm_decoder("motor_out", batch_size=BATCH_SIZE)
 
@@ -85,47 +85,47 @@ def run_ant():
     
     tuner = GenesisAutoTuner(
         control,
-        target_score=3000.0, # Муравей может набирать тысячи очков
+        target_score=3000.0, # Ant can score thousands of points
         explore_prune=750, explore_night=30_000, explore_sprouts=128,
         distill_prune=1500, distill_night=150_000, distill_sprouts=16,
         crystallized_prune=5000, crystallized_night=50_000, crystallized_sprouts=16
     )
 
-    # Аналитика (следим только за Моторной Корой)
-    print("⏳ Ожидание инициализации MotorCortex Shared Memory...")
+    # Analytics (monitoring only the Motor Cortex)
+    print("⏳ Waiting for MotorCortex Shared Memory initialization...")
     memory = None
     for i in range(20):
         try:
             memory = GenesisMemory(contract_motor.zone_hash, read_only=False)
-            print("✅ Telemetry Plane (MotorCortex) подключен!")
+            print("✅ Telemetry Plane (MotorCortex) connected!")
             break
         except Exception:
             time.sleep(1)
 
     env = gym.make("Ant-v4", exclude_current_positions_from_observation=False).unwrapped
     
-    # 28 переменных нормализации (27 реальных + 1 паддинг)
+    # 28 normalization variables (27 real + 1 padding)
     bounds = np.array([[-30.0, 30.0]] * 28, dtype=np.float16)
     range_diff = bounds[:, 1] - bounds[:, 0]
 
     episodes, score = 0, 0
     
-    # Преаллокация для действий
+    # Preallocation for actions and observations
     action_buffer = np.zeros(8, dtype=np.float32)
     obs_padded = np.zeros(28, dtype=np.float16)
 
-    print(f"🚀 Starting Genesis DOD Ant Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
+    print(f"🚀 Starting Axicor DOD Ant Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
     current_params = PHASE_PARAMS[Phase.EXPLORATION]
 
     state, _ = env.reset()
 
     while episodes < EPISODES:
         # [Zero-Garbage Pipeline]
-        # Паддинг 27 obs -> 28
+        # Pad 27 obs -> 28
         obs_padded[:27] = state[:27]
         norm_state = np.clip((obs_padded - bounds[:, 0]) / range_diff, 0.0, 1.0)
 
-        # Инъекция дофамина
+        # Dopamine injection
         dopamine_signal = current_params['dopamine_pulse']
         if score > 0 and score % 20 == 0:
             dopamine_signal = current_params['dopamine_reward']
@@ -133,14 +133,14 @@ def run_ant():
         # [DOD FIX] Zero-Allocation Pipeline
         encoder.encode_into(norm_state, client.payload_views)
         
-        # Блокировка на барьере
+        # Blocking on the barrier
         rx = client.step(dopamine_signal)
         
-        # Извлекаем спайки моторов
+        # Extract motor spikes
         total_motor = decoder.decode_from(rx)
         
-        # 128 моторных нейронов / 8 суставов = 16 нейронов на сустав
-        # Усредняем активацию популяции (0.0 .. 1.0) и переводим в (-1.0 .. 1.0)
+        # 128 motor neurons / 8 joints = 16 neurons per joint
+        # Average population activation (0.0 .. 1.0) and translate to (-1.0 .. 1.0)
         for i in range(8):
             group_act = np.mean(total_motor[i*16 : (i+1)*16])
             action_buffer[i] = (group_act * 2.0) - 1.0
@@ -149,7 +149,7 @@ def run_ant():
         score += reward
 
         if terminated or truncated:
-            # Шок от падения/смерти
+            # Death/fall shock
             shock_batches = current_params['shock_base']
             for _ in range(shock_batches):
                 client.step(current_params['dopamine_punish'])

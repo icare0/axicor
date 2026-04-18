@@ -38,7 +38,7 @@ def process_file(filepath):
     gsop_depression = int(gsop_potentiation * 1.2)
 
     # Formula 3: Inertia Curve with Dead Zone Guard
-    # delta_pot не имеет права обнуляться из-за сдвига >> 7
+    # delta_pot must not become zero due to the >> 7 shift
     min_inertia = math.ceil(128.0 / gsop_potentiation)
     
     decay_norm = clamp(homeostasis_decay / 50.0, 0.0, 1.0)

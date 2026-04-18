@@ -3,7 +3,7 @@ import os
 import sys
 import numpy as np
 
-# Проверка активации виртуального окружения
+# Virtual environment activation check
 if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
     print("❌ ERROR: Virtual environment not active!")
     sys.exit(1)
@@ -24,12 +24,12 @@ from genesis.utils import fnv1a_32
 from genesis.contract import GenesisIoContract
 
 # ==========================================
-# 1. Глобальная инициализация (Zero-Downtime)
+# 1. Global Initialization (Zero-Downtime)
 # ==========================================
-# [DOD FIX] Синхронизировано с build_brain.py (10 тиков = 80 байт C-ABI)
+# [DOD FIX] Synchronized with build_brain.py (10 ticks = 80 bytes C-ABI)
 BATCH_SIZE = 10
 
-# [DOD FIX] Синхронизация путей с актуальной моделью
+# [DOD FIX] Path synchronization with the current model
 baked_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Genesis-Models/cartpole_exp/baked/MotorCortex"))
 manifest_path = os.path.join(baked_dir, "manifest.toml")
 
@@ -41,7 +41,7 @@ contract = GenesisIoContract(baked_dir, "MotorCortex")
 zone_hash = contract.zone_hash
 
 print("🔌 Connecting to Genesis Node (Data & Memory Planes)...")
-# [DOD FIX] Используем контракт для конфигурации клиента (включая RX Layout)
+# [DOD FIX] Use contract for client configuration (including RX Layout)
 client_cfg = contract.get_client_config(BATCH_SIZE)
 client = GenesisMultiClient(addr=("127.0.0.1", 8081), **client_cfg)
 
@@ -51,9 +51,9 @@ except OSError as e:
     print(f"❌ FATAL: Port 8092 is busy! Kill zombie agents before running. Error: {e}")
     sys.exit(1)
 
-# [DOD FIX] Автоматическое создание энкодеров/декодеров из контракта
+# [DOD FIX] Automatic encoder/decoder creation from contract
 encoder = contract.create_population_encoder("sensors", vars_count=4, batch_size=BATCH_SIZE, sigma=0.2)
-# [DOD FIX] Подключаем оба физических полушария для честной оценки Optuna
+# [DOD FIX] Connect both physical hemispheres for fair Optuna evaluation
 dec_left = contract.create_pwm_decoder("motor_left", batch_size=BATCH_SIZE)
 dec_right = contract.create_pwm_decoder("motor_right", batch_size=BATCH_SIZE)
 
@@ -70,63 +70,63 @@ range_diff = bounds[:, 1] - bounds[:, 0]
 # 2. Optuna Objective
 # ==========================================
 def objective(trial):
-    # 1. Сэмплируем гиперпараметры R-STDP (Полный спектр)
+    # 1. Sample R-STDP hyperparameters (Full spectrum)
     dopamine_pulse = trial.suggest_int("dopamine_pulse", -255, -1)
     dopamine_reward = trial.suggest_int("dopamine_reward", 1, 255)
     prune_threshold = trial.suggest_int("prune_threshold", 2, 30)
     d1_affinity = trial.suggest_int("d1_affinity", 64, 255)
     d2_affinity = trial.suggest_int("d2_affinity", 64, 255)
 
-    # Физика мембран (GLIF)
-    # leak_rate: как быстро нейрон забывает входящий потенциал
+    # Membrane Physics (GLIF)
+    # leak_rate: how fast the neuron forgets incoming potential
     leak_rate = trial.suggest_int("leak_rate", 100, 3000)
-    # homeostasis_penalty: насколько сильно нейрон "устает" после спайка
+    # homeostasis_penalty: how strongly the neuron "tires" after a spike
     homeostasis_penalty = trial.suggest_int("homeostasis_penalty", 500, 10000)
-    # homeostasis_decay: как быстро нейрон "отдыхает"
+    # homeostasis_decay: how fast the neuron "recovers"
     homeostasis_decay = trial.suggest_int("homeostasis_decay", 1, 100)
 
     # 2. Hot-Patching Control Plane
     control.set_prune_threshold(prune_threshold)
-    control.set_night_interval(2000) # Жесткая фиксация частоты сна для быстрых мутаций
+    control.set_night_interval(2000) # Fixed sleep frequency for rapid mutations
     
-    # Применяем рецепторы к типам (0: Excitatory, 1: Inhibitory)
+    # Apply receptors to types (0: Excitatory, 1: Inhibitory)
     control.set_dopamine_receptors(0, d1_affinity, d2_affinity)
     control.set_dopamine_receptors(1, d1_affinity, d2_affinity)
     
-    # Применяем физику мембран (Hot-Patching VRAM LUT)
+    # Apply membrane physics (Hot-Patching VRAM LUT)
     control.set_membrane_physics(0, leak_rate, homeostasis_penalty, homeostasis_decay)
     control.set_membrane_physics(1, int(leak_rate * 1.5), int(homeostasis_penalty * 0.8), homeostasis_decay)
 
-    # 3. Tabula Rasa (Хирургическое стирание VRAM)
+    # 3. Tabula Rasa (Surgical VRAM erasure)
     memory.clear_weights()
-    # [DOD FIX] Жесткое обнуление электрического состояния и гомеостаза!
+    # [DOD FIX] Hard reset of electrical state and homeostasis!
     memory.voltage.fill(0)
     memory.flags.fill(0)
     memory.threshold_offset.fill(0)
     memory.timers.fill(0)
 
-    # [DOD FIX] Оставляем оригинальную физику среды (tau = 0.02s = 20 мс)
+    # [DOD FIX] Keep original environment physics (tau = 0.02s = 20 ms)
     env = gym.make("CartPole-v1").unwrapped
     state, _ = env.reset()
     norm_state = np.zeros(4, dtype=np.float16)
     
-    # [DOD FIX] Fail-Fast Survival Metrics (30 секунд удержания = Абсолютный успех)
+    # [DOD FIX] Fail-Fast Survival Metrics (30 seconds hold = Absolute Success)
     global_steps = 0
     max_score = 0
     MAX_STEPS = 1500
     score = 0
     terminated, truncated = False, False
 
-    # Гоняем сеть, пока она не умрет от эпилепсии или не упрется в лимит времени
+    # Run the network until it dies from epilepsy or hits the time limit
     while global_steps < MAX_STEPS:
 
         if terminated or truncated:
             max_score = max(max_score, score)
             
-            # Жестко транслируем кадр ошибки в VRAM
+            # Formally broadcast error frame to VRAM
             encoder.encode_into(norm_state, client.payload_views[0])
             
-            # Болевой шок на 20 батчей (20 мс биологического времени)
+            # Pain shock for 20 batches (20 ms biological time)
             for _ in range(20):
                 client.step(-255)
 
@@ -134,7 +134,7 @@ def objective(trial):
             avg_w = stats["avg_weight"]
             synapses = stats["active_synapses"]
 
-            # [DOD FIX] Graceful Fatality: Сеть сгорела. Фиксируем время жизни.
+            # [DOD FIX] Graceful Fatality: Network burned out. Record survival time.
             if synapses > 0 and (avg_w > 25000 or avg_w < 10):
                 break
 
@@ -152,18 +152,18 @@ def objective(trial):
         pole_angle = abs(state[2])
         pole_velocity = abs(state[3])
 
-        # 1. Нормализация ошибки (0.0 = идеал, 1.0 = крах)
+        # 1. Error normalization (0.0 = ideal, 1.0 = crash)
         angle_error = min(1.0, pole_angle / 0.2094)
         vel_error = min(1.0, pole_velocity / 2.0)
 
-        # 2. Взвешенная ошибка (удерживаем фокус на угле, но гасим раскачку)
+        # 2. Weighted error (maintain focus on angle, but dampen sway)
         error = min(1.0, angle_error * 0.8 + vel_error * 0.2)
 
-        # 3. Линейная алгебра дофамина (без if/else)
+        # 3. Dopamine linear algebra (without if/else)
         dop_sig = int(dopamine_reward * (1.0 - error) + dopamine_pulse * error)
 
-        # [DOD FIX] Разгоняем мозг до скорости физики (0.02s = 20 мс). 
-        # BATCH_SIZE = 10 тиков (1 мс). Нам нужно 20 батчей.
+        # [DOD FIX] Accelerate brain to physics speed (0.02s = 20 ms). 
+        # BATCH_SIZE = 10 ticks (1 ms). We need 20 batches.
         force_left = 0.0
         force_right = 0.0
         
@@ -173,7 +173,7 @@ def objective(trial):
             rx = client.step(dop_sig)
             rx_view = memoryview(rx)
             
-            # [DOD FIX] Жесткий L7-демультиплексинг по двум полушариям
+            # [DOD FIX] Strict L7 demultiplexing across two hemispheres
             motor_l = dec_left.decode_from(rx_view[0 : out_l_sz])
             motor_r = dec_right.decode_from(rx_view[out_l_sz : out_l_sz + out_r_sz])
             
@@ -188,16 +188,16 @@ def objective(trial):
 
     env.close()
     
-    # Сохраняем побочную аналитику для дашборда
+    # Save side analytics for dashboard
     max_score = max(max_score, score)
     trial.set_user_attr("max_score", max_score)
     
-    # [DOD FIX] Composite Metric: Выживаемость + Навык (с жестким приоритетом навыка для бессмертных)
+    # [DOD FIX] Composite Metric: Survival + Skill (with hard priority for skill in immortals)
     return float(global_steps + (max_score * 1000))
 
 if __name__ == '__main__':
-    # Снижаем шум от логов Optuna
-    optuna.logging.set_verbosity(optuna.logging.WARNING) # [DOD FIX] Глушим дефолтный мусор
+    # Reduce noise from Optuna logs
+    optuna.logging.set_verbosity(optuna.logging.WARNING) # [DOD FIX] Mute default garbage
 
     # [DOD FIX] Zero-Cost Telemetry Hook
     def hft_telemetry_callback(study, trial):
@@ -209,7 +209,7 @@ if __name__ == '__main__':
     print("🚀 Starting Zero-Downtime Bayesian Search...")
     
     try:
-        # Гоняем 200 триалов
+        # Run 200 trials
         study.optimize(objective, n_trials=200, callbacks=[hft_telemetry_callback])
         print("\n🏆 Best Hyperparameters:")
         for key, value in study.best_trial.params.items():

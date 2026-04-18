@@ -22,7 +22,7 @@ python -m pip install -q --upgrade pip
 python -m pip install -q numpy==1.26.4 gymnasium==0.29.1 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
 
 # 3. Build Node & Baker in Mock-GPU mode
-Write-Host "Building Genesis Node (Mock-GPU)..." -ForegroundColor Cyan
-cargo build --release -p genesis-node -p genesis-baker --features genesis-compute/mock-gpu
+Write-Host "Building Axicor Node (Mock-GPU)..." -ForegroundColor Cyan
+cargo build --release -p axicor-node -p axicor-baker --features axicor-compute/mock-gpu
 
 Write-Host "Installation Verified. Run with .venv\Scripts\Activate.ps1" -ForegroundColor Green

@@ -24,11 +24,11 @@ def inflate_blob(esp_path: str, out_path: str):
     with open(esp_path, "rb") as f_in:
         mm_in = mmap.mmap(f_in.fileno(), 0, access=mmap.ACCESS_READ)
 
-        # 1. Zero-Copy экстракция статических SoA массивов сомы
+        # 1. Zero-Copy extraction of static Soma SoA arrays
         static_soma_size = padded_n * SOMA_STATIC_BYTES
         soma_data = mm_in[:static_soma_size]
 
-        # 2. Натягиваем матрицы на дендриты ESP32
+        # 2. Map matrices onto ESP32 dendrites
         off = static_soma_size
         tgt_esp = np.frombuffer(mm_in, dtype=np.uint32, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
         off += padded_n * ESP_SLOTS * 4
@@ -38,18 +38,18 @@ def inflate_blob(esp_path: str, out_path: str):
 
         tmr_esp = np.frombuffer(mm_in, dtype=np.uint8, count=padded_n * ESP_SLOTS, offset=off).reshape(ESP_SLOTS, padded_n)
 
-        # 3. Аллокация десктопных матриц (заполняются нулями по умолчанию)
+        # 3. Allocation of desktop matrices (zero-filled by default)
         print(f"[*] Broadcasting SIMD matrices (32 -> 128 slots)...")
         tgt_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.uint32)
         wgt_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.int32)
         tmr_desk = np.zeros((DESKTOP_SLOTS, padded_n), dtype=np.uint8)
 
-        # 4. Векторизованный перенос живых синапсов в верхние слоты
+        # 4. Vectorized transfer of live synapses into top slots
         tgt_desk[:ESP_SLOTS, :] = tgt_esp
         wgt_desk[:ESP_SLOTS, :] = wgt_esp
         tmr_desk[:ESP_SLOTS, :] = tmr_esp
 
-        # 5. Сброс C-ABI блоба на диск
+        # 5. Flush C-ABI blob to disk
         print(f"[*] Packing Desktop Blob to {out_path}")
         with open(out_path, "wb") as f_out:
             f_out.write(soma_data)

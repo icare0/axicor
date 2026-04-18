@@ -8,7 +8,7 @@ def clean_checkpoints(target_path):
         print(f"❌ Path not found: {target}")
         return
 
-    # Конкретные имена файлов чекпоинтов
+    # Specific checkpoint filenames
     checkpoint_names = {
         "checkpoint.state",
         "checkpoint.axons",
@@ -25,7 +25,7 @@ def clean_checkpoints(target_path):
         for filename in files:
             file_path = Path(root) / filename
             
-            # Условие удаления: либо точное совпадение имени, либо расширение .tmp
+            # Deletion criteria: either an exact name match or a .tmp extension
             should_delete = (filename in checkpoint_names) or filename.endswith(".tmp")
             
             if should_delete:
@@ -45,11 +45,11 @@ def clean_checkpoints(target_path):
         print("\n✨ No temporary or checkpoint files found. System is clean.")
 
 if __name__ == "__main__":
-    # Если аргумент не передан, ищем в Genesis-Models в корне проекта
+    # If no argument is provided, search in Genesis-Models at the project root
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        # Пытаемся найти Genesis-Models относительно корня проекта
+        # Attempting to locate Genesis-Models relative to the project root
         script_dir = Path(__file__).parent
         project_root = script_dir.parent
         path = project_root / "Genesis-Models"
