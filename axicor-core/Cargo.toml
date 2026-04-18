@@ -8,6 +8,21 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+exclude = [
+    "tests/fixtures/*",
+    "benches/*",
+    "*.state",
+    "*.axons",
+    "*.axic",
+    "*.gxi",
+    "*.gxo",
+    "Axicor-Models/",
+    "*-Models/",
+    ".Sandbox/",
+    "*.log",
+    "checkpoints/",
+    "*.ckpt"
+]
 
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
