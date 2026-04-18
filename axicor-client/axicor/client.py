@@ -42,6 +42,9 @@ class AxicorMultiClient:
 
         # Buffer for receiving a single UDP packet
         self._udp_buf = bytearray(MAX_UDP_PAYLOAD)
+        self._udp_view = memoryview(self._udp_buf)
+        # Pre-cast header for zero-allocation parsing
+        self._header_np = np.frombuffer(self._udp_buf, dtype=np.uint32, count=4)
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # [DOD FIX] Expand OS receive buffer to 8 MB to handle burst L7 chunks
@@ -95,8 +98,10 @@ class AxicorMultiClient:
                 size, _ = self.sock.recvfrom_into(self._udp_buf, MAX_UDP_PAYLOAD)
                 if size < HEADER_SIZE: continue
 
-                # Parse L7 GSOO header
-                magic, z_hash, m_hash, pld_size, r, p = struct.unpack_from(HEADER_FMT, self._udp_buf, 0)
+                # Parse L7 GSOO header using pre-cast NumPy view (Zero-Allocation)
+                # [magic, z_hash, m_hash, pld_size]
+                magic = self._header_np[0]
+                m_hash = self._header_np[2]
                 
                 # Strict validation: client only accepts OUTPUTS (GSOO_MAGIC) from the node
                 if magic != GSOO_MAGIC: continue
@@ -105,7 +110,8 @@ class AxicorMultiClient:
                 if m_hash in self._rx_map:
                     offset, expected_size = self._rx_map[m_hash]
                     # Copy packet payload into the correct arena location without extra allocations
-                    self._rx_view[offset : offset + expected_size] = self._udp_buf[HEADER_SIZE : HEADER_SIZE + expected_size]
+                    # Using slicing on pre-allocated memoryview
+                    self._rx_view[offset : offset + expected_size] = self._udp_view[HEADER_SIZE : HEADER_SIZE + expected_size]
                     chunks_received += 1
             
             return self._rx_view
@@ -113,4 +119,3 @@ class AxicorMultiClient:
         except (socket.timeout, TimeoutError):
             print(f"[WARN] [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
             return self._rx_view[0:0]
-
