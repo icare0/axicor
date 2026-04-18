@@ -2,20 +2,20 @@
 name = "L4_spiny_VISp4_16"
 is_inhibitory = false
 
-# Мембрана
+# Membrane
 threshold = 33968
 rest_potential = 5819
 leak_rate = 215
 refractory_period = 13
 spontaneous_firing_period_ticks = 909
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 1015
 homeostasis_decay = 2
 synapse_refractory_period = 15
 signal_propagation_length = 20
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 34.4
 steering_radius_um = 66.7
 growth_vertical_bias = 0.95
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.5
 steering_weight_sensor = 0.4
 steering_weight_jitter = 0.1
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1000
 gsop_potentiation = 12
 gsop_depression = 14
 inertia_curve = [128, 124, 119, 114, 109, 104, 99, 93, 87, 81, 74, 67, 59, 49, 37, 11]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 96
 slot_decay_wm = 190
 ltm_slot_count = 103
+

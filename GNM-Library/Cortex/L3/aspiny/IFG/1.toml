@@ -2,20 +2,20 @@
 name = "L3_aspiny_IFG_1"
 is_inhibitory = true
 
-# Мембрана
+# Membrane
 threshold = 13750
 rest_potential = 0
 leak_rate = 70
 refractory_period = 24
 spontaneous_firing_period_ticks = 46
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 1000
 homeostasis_decay = 53
 synapse_refractory_period = 15
 signal_propagation_length = 25
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 130.0
 steering_radius_um = 500.0
 growth_vertical_bias = 0.16
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.2
 steering_weight_sensor = 0.6
 steering_weight_jitter = 0.2
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1500
 gsop_potentiation = 20
 gsop_depression = 24
 inertia_curve = [128, 112, 98, 84, 72, 61, 51, 41, 33, 26, 20, 16, 12, 9, 8, 7]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 128
 slot_decay_wm = 128
 ltm_slot_count = 64
+

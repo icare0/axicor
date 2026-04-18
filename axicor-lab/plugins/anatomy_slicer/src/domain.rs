@@ -16,8 +16,8 @@ pub struct ShardCadEntity;
 pub struct CadCameraState {
     pub target: Vec3,
     pub radius: f32,
-    pub alpha: f32, //   Y
-    pub beta: f32,  //  /
+    pub alpha: f32, // Rotation around Y
+    pub beta: f32,  // Elevation / Pitch
 }
 
 impl Default for CadCameraState {

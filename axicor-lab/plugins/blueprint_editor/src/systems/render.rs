@@ -8,7 +8,7 @@ pub fn render_blueprint_editor_system(
     mut contexts: EguiContexts,
     windows: Query<(Entity, &PluginWindow)>,
     mut states: Query<&mut BlueprintEditorState>,
-    mut graph: ResMut<BrainTopologyGraph>, // [DOD FIX] Mut access   In-Place 
+    mut graph: ResMut<BrainTopologyGraph>, // [DOD FIX] Mut access for In-Place edits
 ) {
     let Some(ctx) = contexts.try_ctx_mut() else { return };
 
@@ -42,12 +42,12 @@ pub fn render_blueprint_editor_system(
                                     return;
                                 }
 
-                                //   OOB   
+                                // Safety: Prevent OOB access
                                 if state.selected_type_idx >= blueprint.neuron_type.len() {
                                     state.selected_type_idx = 0;
                                 }
 
-                                //  CRUD   
+                                // Handle CRUD actions
                                 let action = crate::ui::type_selector::draw_type_selector(ui, &blueprint.neuron_type, &mut state.selected_type_idx);
                                 match action {
                                     crate::ui::type_selector::TypeAction::Add => {
@@ -58,7 +58,7 @@ pub fn render_blueprint_editor_system(
                                             new_name = format!("Type_{}", new_id);
                                         }
                                         
-                                        // [DOD FIX]    ( 0   )
+                                        // [DOD FIX] Library defaults (no zero-values)
                                         let mut new_type = node_editor::domain::NeuronType {
                                             name: new_name,
                                             ..Default::default()
@@ -91,7 +91,7 @@ pub fn render_blueprint_editor_system(
 
                                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                     let mut changed = false; 
-                                    // DOD:      Whitelist,       blueprint
+                                    // DOD: Pass Whitelist names from the current blueprint
                                     let all_type_names: Vec<String> = blueprint.neuron_type.iter().map(|t| t.name.clone()).collect();
                                     let nt = &mut blueprint.neuron_type[selected_idx];
 
@@ -104,7 +104,7 @@ pub fn render_blueprint_editor_system(
                                     changed |= crate::ui::sections::inertia::draw_inertia_section(ui, nt);
                                     changed |= crate::ui::sections::dendrite_filter::draw_dendrite_filter_section(ui, nt, &all_type_names);
 
-                                    // [DOD FIX]   Debounce-   
+                                    // [DOD FIX] Reset Debounce-timer on changes
                                     if changed {
                                         state.is_dirty = true;
                                         state.debounce_timer = 0.0;
@@ -116,10 +116,10 @@ pub fn render_blueprint_editor_system(
                             }
                         }); //  Frame::show
 
-                    // [DOD FIX]       (   )
+                    // [DOD FIX] Confirmation Modal (manual overlay)
                     if state.show_delete_modal {
                         if let Some(del_idx) = state.type_to_delete {
-                            //   blueprint   ,        borrow checker'a
+                            // Re-fetch blueprint to avoid borrow checker conflicts
                             let active_path = graph.active_path.clone().unwrap();
                             let session = graph.sessions.get_mut(&active_path).unwrap();
                             let blueprint = session.shard_blueprints.get_mut(state.active_zone.as_ref().unwrap()).unwrap();
@@ -128,16 +128,16 @@ pub fn render_blueprint_editor_system(
                             let (confirmed, closed) = crate::ui::modals::draw_delete_type_modal(ctx, window.rect, &type_name);
                             
                             if confirmed {
-                                // 1.  :     whitelist'  
+                                // 1. Dependency Cleanup: Remove from whitelists
                                 for (i, t) in blueprint.neuron_type.iter_mut().enumerate() {
                                     if i != del_idx {
                                         t.dendrite_whitelist.retain(|name| name != &type_name);
                                     }
                                 }
-                                // 2.  
+                                // 2. Physical deletion
                                 blueprint.neuron_type.remove(del_idx);
                                 
-                                // 3.   (  )
+                                // 3. Update selection (prevent OOB)
                                 if state.selected_type_idx >= blueprint.neuron_type.len() {
                                     state.selected_type_idx = blueprint.neuron_type.len().saturating_sub(1);
                                 }

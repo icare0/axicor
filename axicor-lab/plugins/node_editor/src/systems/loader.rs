@@ -227,7 +227,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
 
                  let blueprints_path = shard_path.parent().unwrap_or(Path::new(".")).join("blueprints.toml");
                  if let Ok(content) = layout_api::overlay_read_to_string(&blueprints_path) {
-                     // [DOD FIX]   Turbofish
+                     // [DOD FIX] Strict Turbofish
                      if let Ok(doc_bp) = content.parse::<toml::Value>() {
                          if let Ok(bp) = doc_bp.try_into::<crate::domain::ShardBlueprint>() {
                              shard_blueprints.insert(zone.clone(), bp);
@@ -237,7 +237,7 @@ fn load_graph_from_disk(path: PathBuf, level: EditorLevel, fs_cache: ProjectFsCa
 
                  let io_path = shard_path.parent().unwrap_or(Path::new(".")).join("io.toml");
                  if let Ok(content) = layout_api::overlay_read_to_string(&io_path) {
-                     // [DOD FIX]   Turbofish
+                     // [DOD FIX] Strict Turbofish
                      match content.parse::<toml::Value>() {
                          Ok(doc_io) => {
                              if let Ok(io_data) = doc_io.try_into::<crate::domain::ShardIoData>() {

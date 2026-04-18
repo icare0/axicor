@@ -2,20 +2,20 @@
 name = "L1_sparsely spiny_MTG_10"
 is_inhibitory = true
 
-# Мембрана
+# Membrane
 threshold = 27656
 rest_potential = 14968
 leak_rate = 159
 refractory_period = 16
 spontaneous_firing_period_ticks = 523
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 1000
 homeostasis_decay = 4
 synapse_refractory_period = 15
 signal_propagation_length = 17
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 55.0
 steering_radius_um = 500.0
 growth_vertical_bias = 0.11
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.2
 steering_weight_sensor = 0.6
 steering_weight_jitter = 0.2
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1500
 gsop_potentiation = 20
 gsop_depression = 24
 inertia_curve = [128, 123, 118, 112, 107, 101, 95, 89, 82, 76, 68, 60, 52, 42, 30, 7]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 128
 slot_decay_wm = 128
 ltm_slot_count = 64
+

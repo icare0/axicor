@@ -4,7 +4,7 @@ use crate::layout::domain::{WorkspaceState, OsWindowCommand, WindowDragState, Tr
 use layout_api::{AllocatedPanes, WindowDragRequest, TopologyCache, CreateNewModelEvent};
 use crate::layout::behavior::PaneBehavior;
 
-// ---  ---
+// --- Visual constants ---
 const COLOR_BG:       egui::Color32 = egui::Color32::from_rgb(20, 20, 22);
 const COLOR_TOPBAR:   egui::Color32 = egui::Color32::from_rgb(15, 15, 17);
 const COLOR_TITLE:    egui::Color32 = egui::Color32::from_rgb(130, 130, 130);
@@ -81,14 +81,14 @@ fn render_top_bar(
     egui::TopBottomPanel::top("axicor_top_bar")
         .frame(egui::Frame::none().fill(COLOR_TOPBAR).inner_margin(4.0))
         .show(ctx, |ui| {
-            // DOD FIX:        -
+            // DOD FIX: Custom font styling for top bar buttons
             ui.style_mut().text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
             ui.visuals_mut().widgets.inactive.fg_stroke.color = COLOR_TITLE;
             ui.visuals_mut().widgets.hovered.fg_stroke.color = egui::Color32::from_rgb(200, 200, 200);
             ui.visuals_mut().widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 45, 50);
 
             ui.horizontal(|ui| {
-                // 
+                // App Logo
                 let logo_size = 16.0;
                 let (logo_rect, logo_resp) = ui.allocate_exact_size(egui::vec2(logo_size, logo_size), egui::Sense::click());
                 let logo_color = if logo_resp.hovered() { egui::Color32::from_rgb(100, 100, 105) } else { egui::Color32::from_rgb(60, 60, 65) };
@@ -100,7 +100,7 @@ fn render_top_bar(
 
                 ui.add_space(12.0);
 
-                // 1.   (,  )
+                // 1. Main Menus (File, View, etc.)
                 ui.menu_button("File", |ui| {
                     if ui.button("Create Model").clicked() {
                         create_model_ev.send(CreateNewModelEvent {
@@ -120,7 +120,7 @@ fn render_top_bar(
                 ui.painter().vline(ui.cursor().min.x, ui.max_rect().y_range(), egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45)));
                 ui.add_space(8.0);
 
-                // 2.   
+                // 2. Workspace Tabs
                 let mut tab_to_remove = None;
                 let mut new_active = None;
                 
@@ -153,7 +153,7 @@ fn render_top_bar(
                             res.request_focus();
                         }
                     } else {
-                        //   
+                        // Double-click to rename
                         let color = if is_active { egui::Color32::WHITE } else { egui::Color32::GRAY };
                         let resp = ui.selectable_label(is_active, egui::RichText::new(&ws).strong().color(color));
 
@@ -164,14 +164,14 @@ fn render_top_bar(
                             workspace.renaming_workspace = Some(ws.clone());
                             workspace.rename_buffer = ws.clone();
                         }
-                        //    (   )
+                        // Right-click to close (with safety check)
                         if resp.secondary_clicked() && workspace.workspace_order.len() > 1 {
                             tab_to_remove = Some(ws.clone());
                         }
                     }
                 }
 
-                //   
+                // Apply Active Workspace
                 if let Some(ws) = new_active {
                     workspace.active_workspace = ws.clone();
                 }
@@ -183,7 +183,7 @@ fn render_top_bar(
                     }
                 }
 
-                // 3.     [+]
+                // 3. New Tab Button [+]
                 if ui.button(egui::RichText::new("+").color(egui::Color32::GRAY)).clicked() {
                     let mut i = 1;
                     let mut new_name = format!("New Tab {}", i);
@@ -192,7 +192,7 @@ fn render_top_bar(
                         new_name = format!("New Tab {}", i);
                     }
                     
-                    //     Project Explorer   
+                    // Auto-insert Project Explorer in the new tab
                     let mut tiles = egui_tiles::Tiles::default();
                     let root = tiles.insert_pane(crate::layout::domain::Pane { 
                         plugin_id: "axicor.explorer".to_string(), 
@@ -204,16 +204,16 @@ fn render_top_bar(
                     workspace.workspace_order.push(new_name.clone());
                     workspace.active_workspace = new_name.clone();
                     
-                    //     
+                    // Auto-focus renaming
                     workspace.renaming_workspace = Some(new_name.clone());
                     workspace.rename_buffer = new_name;
                 }
 
-                // 4.   ()
+                // 4. Window Controls (Min/Max/Close)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(egui::Button::new("  ").frame(false)).clicked() { exit.send(bevy::app::AppExit); }
-                    if ui.add(egui::Button::new("  ").frame(false)).clicked() { os_cmd.send(OsWindowCommand::Maximize); }
-                    if ui.add(egui::Button::new("  ").frame(false)).clicked() { os_cmd.send(OsWindowCommand::Minimize); }
+                    if ui.add(egui::Button::new(" X ").frame(false)).clicked() { exit.send(bevy::app::AppExit); }
+                    if ui.add(egui::Button::new(" [] ").frame(false)).clicked() { os_cmd.send(OsWindowCommand::Maximize); }
+                    if ui.add(egui::Button::new(" _ ").frame(false)).clicked() { os_cmd.send(OsWindowCommand::Minimize); }
 
                     let rect = ui.available_rect_before_wrap();
                     if ui.interact(rect, ui.id().with("drag_area"), egui::Sense::drag()).drag_started() {

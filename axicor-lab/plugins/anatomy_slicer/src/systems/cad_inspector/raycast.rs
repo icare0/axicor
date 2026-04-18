@@ -53,7 +53,7 @@ pub fn dnd_raycast_system(
         }
     }
 
-    // 1.    (Drop)   
+    // 1. Process Connection Drop
     let payload_id = bevy_egui::egui::Id::new("io_wire_drag");
     let ctx = contexts.ctx_mut();
     
@@ -89,8 +89,8 @@ pub fn dnd_raycast_system(
         }
     }
 
-    // 2.     (Hover)
-    // DOD FIX:  Slicer       Hover Plane
+    // 2. Process Hover State
+    // DOD FIX: Slicer highlights target Z-index with a Hover Plane
     if let Some(payload) = ctx.memory(|m| m.data.get_temp::<layout_api::IoWirePayload>(payload_id)) {
         if let Some(mouse_pos) = ctx.input(|i| i.pointer.latest_pos()) {
             if let Some(rect) = state.cad_viewport_rect {

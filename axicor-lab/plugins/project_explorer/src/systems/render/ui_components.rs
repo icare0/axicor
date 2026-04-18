@@ -23,8 +23,9 @@ pub fn draw_explorer_tree<FLoad, FZone>(
     if ui.input(|i| i.pointer.any_released()) {
         ui.memory_mut(|mem| mem.data.remove_temp::<std::path::PathBuf>(egui::Id::new("dnd_path")));
     }
+// 2. Project List
+egui::ScrollArea::vertical().show(ui, |ui| {
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
         ui.set_min_width(EXPLORER_MIN_WIDTH);
         ui.set_max_width(EXPLORER_MAX_WIDTH);
         ui.add_space(3.0);
@@ -78,7 +79,7 @@ fn draw_project_root<FLoad, FZone>(
         .id_source(&project.name)
         .default_open(is_project_active)
         .show(ui, |ui| {
-            //          simulation.toml
+            // Model-wide simulation.toml
             let parent_path = find_simulation_node(&project.root_nodes).map(|n| n.path.clone()).unwrap_or_default();
             for node in &project.root_nodes {
                 draw_node_recursive(ui, &project.name, node, &parent_path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
@@ -136,16 +137,16 @@ fn draw_node_recursive<FZone>(
     if is_active { label_text = label_text.strong(); }
     if is_strikethrough { label_text = label_text.strikethrough(); }
 
-    // :  node.id    egui!
+    // WARN: Use persistent node.id for egui!
     let id = ui.make_persistent_id(&node.id);
     let mut collapsing = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
     let mut response = None;
     ui.horizontal(|ui| {
         if !node.children.is_empty() {
-            // DOD FIX:      
+            // DOD FIX: Manual toggle button
             if collapsing.show_toggle_button(ui, egui::collapsing_header::paint_default_icon).clicked() {
-                //   , show_toggle_button     collapsing
+                // UI interaction only, show_toggle_button mutates collapsing state
             }
         } else {
             ui.add_space(14.0); 
@@ -213,13 +214,13 @@ fn draw_node_recursive<FZone>(
         }
     }
 
-    // DOD FIX:   ,     !
+    // DOD FIX: Flush state, mandatory!
     collapsing.store(ui.ctx());
 
     if collapsing.is_open() {
         ui.indent(id, |ui| {
             for child in &node.children {
-                //          
+                // Recursively draw subnodes
                 draw_node_recursive(ui, project_name, child, &node.path, open_file_ev, ctx_menu_events, target_window, active_file.as_deref_mut(), on_zone);
             }
         });

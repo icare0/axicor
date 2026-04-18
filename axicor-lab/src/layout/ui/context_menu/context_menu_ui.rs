@@ -10,7 +10,7 @@ pub struct ContextMenuState {
     pub actions: Vec<MenuAction>,
 }
 
-///      (WM Side)
+/// Context menu implementation (WM Side)
 pub fn context_menu_ui_system(
     mut contexts: EguiContexts,
     mut state: ResMut<ContextMenuState>,
@@ -20,7 +20,7 @@ pub fn context_menu_ui_system(
     let ctx = contexts.ctx_mut();
     let mut opened_this_frame = false;
 
-    // 1.    
+    // 1. Process Open Events
     for ev in open_events.read() {
         state.open = true;
         opened_this_frame = true;
@@ -28,7 +28,7 @@ pub fn context_menu_ui_system(
         state.position = ev.position;
         state.actions = ev.actions.clone();
 
-        // 2.    WM ()
+        // 2. Global WM Actions (Always Present)
         state.actions.push(MenuAction { 
             action_id: "wm.create_file".into(), 
             label: " Create File".into() 
@@ -42,7 +42,7 @@ pub fn context_menu_ui_system(
     let mut should_close = false;
     let area_id = egui::Id::new("axicor_unified_menu");
 
-    // 3.     (Order::Foreground)
+    // 3. Render Menu (Order::Foreground)
     egui::Area::new(area_id)
         .fixed_pos(state.position)
         .order(egui::Order::Foreground)
@@ -64,7 +64,7 @@ pub fn context_menu_ui_system(
                             .fill(egui::Color32::TRANSPARENT);
                         
                         if ui.add(btn).clicked() {
-                            // 4.   (Intent Routing)
+                            // 4. Dispatch Event (Intent Routing)
                             if let Some(target) = state.target_window {
                                 trigger_writer.send(ContextMenuActionTriggeredEvent {
                                     target_window: target,
@@ -76,7 +76,7 @@ pub fn context_menu_ui_system(
                     }
                 });
 
-                //    
+                // Auto-close on outside click
                 if !opened_this_frame && ui.input(|i| i.pointer.any_click()) && !ui.rect_contains_pointer(ui.max_rect()) {
                     should_close = true;
                 }

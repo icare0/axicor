@@ -9,23 +9,23 @@ pub fn draw_clear_graph_modal(
     let mut confirmed = false;
     let mut close = false;
 
-    // Area      
+    // Area for the modal
     let area_id = egui::Id::new("clear_modal_area").with((window_rect.min.x.to_bits(), window_rect.min.y.to_bits()));
     egui::Area::new(area_id)
         .fixed_pos(window_rect.min)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            //  :      
+            // Clip to window bounds
             ui.set_clip_rect(window_rect);
 
-            // 1.   +   
+            // 1. Dim background + Click-to-Close
             let (bg_rect, bg_resp) = ui.allocate_exact_size(window_rect.size(), egui::Sense::click());
             if bg_resp.clicked() {
                 close = true;
             }
             ui.painter().rect_filled(bg_rect, 0.0, egui::Color32::from_black_alpha(200));
 
-            // 2.   ( egui::Window,  Frame)
+            // 2. Main dialog (manual Window layout via Frame)
             let frame = egui::Frame::window(ui.style()).inner_margin(20.0).rounding(8.0);
             let frame_rect = egui::Rect::from_center_size(window_rect.center(), egui::vec2(300.0, 150.0));
 

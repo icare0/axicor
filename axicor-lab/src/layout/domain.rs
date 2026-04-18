@@ -3,16 +3,16 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// 0.     layout_api
+// 0. layout_api constants
 
 // ============================================================================
-// 1.    (Intents & Events)
+// 1. Interactions (Intents & Events)
 // ============================================================================
 
 #[derive(Event, Debug, Clone)]
 pub struct SaveDefaultLayoutEvent;
 
-// DOD FIX:       (WM -> OS)
+// DOD FIX: Native OS window control (WM -> OS)
 #[derive(Event, Debug, Clone)]
 pub enum OsWindowCommand {
     Drag,
@@ -21,7 +21,7 @@ pub enum OsWindowCommand {
 }
 
 // ============================================================================
-// 2.    (Topology)
+// 2. Topology
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,9 +47,7 @@ pub struct SavedLayout {
 }
 
 
-// 3.      layout_api
-
-///   State Machine  Drag-and-Drop
+// 3. State Machine for Drag-and-Drop
 #[derive(Resource, Default)]
 pub struct WindowDragState {
     pub is_dragging: bool,
@@ -61,7 +59,7 @@ pub struct WindowDragState {
     pub drag_normal: Option<f32>,
 }
 
-///      egui_tiles (  systems::window)
+/// Command queue for egui_tiles (handled by systems::window)
 #[derive(Resource, Default)]
 pub struct TreeCommands {
     pub queue: Vec<layout_api::TreeCommand>,

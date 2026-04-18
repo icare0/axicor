@@ -81,7 +81,7 @@ pub fn cad_camera_control_system(
 ) {
     let Some((state, input)) = ui_states.iter().find(|(s, _)| s.active_zone.is_some()) else { return };
     
-    // DOD FIX:  Slicer   /,     
+    // DOD FIX: Slicer captures cursor in the center, ignore edge artifacts
     if input.local_cursor.x < 20.0 { return; }
     let right_limit = state.cad_viewport_size.x - 20.0;
     if input.local_cursor.x > right_limit { return; }

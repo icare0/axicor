@@ -2,20 +2,20 @@
 name = "L3_spiny_TemL_9"
 is_inhibitory = false
 
-# Мембрана
+# Membrane
 threshold = 35750
 rest_potential = 9833
 leak_rate = 201
 refractory_period = 12
 spontaneous_firing_period_ticks = 99
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 10000
 homeostasis_decay = 25
 synapse_refractory_period = 15
 signal_propagation_length = 50
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 23.4
 steering_radius_um = 199.3
 growth_vertical_bias = 0.3
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.8
 steering_weight_sensor = 0.1
 steering_weight_jitter = 0.1
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1000
 gsop_potentiation = 18
 gsop_depression = 21
 inertia_curve = [128, 118, 108, 99, 89, 80, 71, 63, 54, 46, 38, 31, 24, 18, 12, 8]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 32
 slot_decay_wm = 250
 ltm_slot_count = 27
+

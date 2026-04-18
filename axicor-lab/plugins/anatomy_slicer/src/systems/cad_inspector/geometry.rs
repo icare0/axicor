@@ -40,12 +40,12 @@ pub fn spawn_cad_geometry_system(
         }
     }
 
-    //     Hover-
+    // 0. Transparent Hover-plane
     commands.spawn((
         PbrBundle {
             mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.1, 0.1, d * 1.1))),
             material: materials.add(StandardMaterial {
-                base_color: Color::rgba(1.0, 1.0, 1.0, 0.0), // 
+                base_color: Color::rgba(1.0, 1.0, 1.0, 0.0), // Fully transparent
                 alpha_mode: AlphaMode::Blend,
                 unlit: true,
                 ..default()
@@ -68,7 +68,7 @@ pub fn spawn_cad_geometry_system(
         let mesh = meshes.add(Cuboid::from_size(Vec3::new(w, layer_h, d)));
         
         let hash = axicor_core::hash::fnv1a_32(layer.name.as_bytes());
-        //   ,      (0.4 - 0.7)
+        // Deterministic color generation based on layer name (Luma 0.4 - 0.7)
         let base_luma = 0.4 + (hash % 100) as f32 / 100.0 * 0.3;
         let r_shift = (((hash >> 8) % 100) as f32 / 100.0) * 0.4 - 0.2;
         let g_shift = (((hash >> 16) % 100) as f32 / 100.0) * 0.4 - 0.2;
@@ -78,12 +78,12 @@ pub fn spawn_cad_geometry_system(
         let g = (base_luma + g_shift).clamp(0.2f32, 0.9f32);
         let b = (base_luma + b_shift).clamp(0.2f32, 0.9f32);
 
-        // [DOD FIX]       Fresnel-
+        // [DOD FIX] Render as semi-transparent with Fresnel-like glass material
         commands.spawn((
             MaterialMeshBundle {
                 mesh: mesh.clone(),
                 material: glass_materials.add(CadGlassMaterial {
-                    color: Color::rgba(r, g, b, 0.15), // [DOD FIX]  
+                    color: Color::rgba(r, g, b, 0.15), // [DOD FIX] Alpha
                 }),
                 transform: Transform::from_xyz(0.0, center_y, 0.0),
                 ..default()
@@ -96,7 +96,7 @@ pub fn spawn_cad_geometry_system(
         current_y += layer_h;
     }
 
-    // [AESTHETICS] 3.    (EnvRx  Inter-zone)
+    // [AESTHETICS] 3. Render I/O Port Planes (EnvRx and Inter-zone)
     if let Some(ref shard_name) = state.active_zone {
         if let Some(active_path) = graph.active_path.as_ref() {
             let project_dir = active_path.parent().unwrap_or(std::path::Path::new("."));
@@ -107,7 +107,7 @@ pub fn spawn_cad_geometry_system(
             let base_dir = if is_sim { project_dir.join(shard_name) } 
                            else { project_dir.join(&dept_name).join(shard_name) };
 
-            // 3.1.  io.toml (EnvRx)
+            // 3.1. External Inputs from io.toml (EnvRx)
             if let Ok(content) = layout_api::overlay_read_to_string(&base_dir.join("io.toml")) {
                 if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
                     if let Some(inputs) = doc.get("input").and_then(|i| i.as_array_of_tables()) {
@@ -118,7 +118,7 @@ pub fn spawn_cad_geometry_system(
                                     PbrBundle {
                                         mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.05, 0.15, d * 1.05))),
                                         material: materials.add(StandardMaterial {
-                                            base_color: Color::rgba(0.2, 0.8, 0.2, 0.3), // 
+                                            base_color: Color::rgba(0.2, 0.8, 0.2, 0.3), // Green for external input
                                             alpha_mode: AlphaMode::Blend,
                                             unlit: true,
                                             ..default()
@@ -134,7 +134,7 @@ pub fn spawn_cad_geometry_system(
                 }
             }
 
-            // 3.2.  brain.toml (Inter-zone)
+            // 3.2. Ghost Axon planes from brain.toml (Inter-zone)
             if let Ok(content) = layout_api::overlay_read_to_string(active_path) {
                 if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
                     if let Some(conns) = doc.get("connection").and_then(|i| i.as_array_of_tables()) {
@@ -146,7 +146,7 @@ pub fn spawn_cad_geometry_system(
                                         PbrBundle {
                                             mesh: meshes.add(Cuboid::from_size(Vec3::new(w * 1.05, 0.15, d * 1.05))),
                                             material: materials.add(StandardMaterial {
-                                                base_color: Color::rgba(1.0, 0.6, 0.0, 0.3), // 
+                                                base_color: Color::rgba(1.0, 0.6, 0.0, 0.3), // Orange for inter-zone connections
                                                 alpha_mode: AlphaMode::Blend,
                                                 unlit: true,
                                                 ..default()
@@ -179,7 +179,7 @@ pub fn sync_hover_plane_system(
 
     if let Some((_pos, z_voxel)) = state.active_3d_hover {
         let mut h = 32.0;
-        let mut _is_env = false; // DOD:  ,   dragging_pin   node_editor
+        let mut _is_env = false; // DOD: Future use, check for dragging_pin in node_editor
 
         if let Some(ref shard_name) = state.active_zone {
             if let Some(active_path) = &graph.active_path {
@@ -196,7 +196,7 @@ pub fn sync_hover_plane_system(
         *vis = Visibility::Visible;
         
         if let Some(mat) = materials.get_mut(mat_handle) {
-            mat.base_color = Color::rgba(1.0, 0.6, 0.0, 0.5); //  
+            mat.base_color = Color::rgba(1.0, 0.6, 0.0, 0.5); // Highlighter color
         }
     } else {
         *vis = Visibility::Hidden;

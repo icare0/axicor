@@ -25,13 +25,13 @@ impl<'a> Behavior<Pane> for PaneBehavior<'a> {
         let rect         = ui.available_rect_before_wrap();
         let payload_rect = rect.shrink(PANE_SHRINK);
 
-        // DOD FIX: WM   100% .   .
+        // DOD FIX: WM enforces 100% fill. No gaps.
         self.topology.tiles.insert(tile_id, payload_rect);
         self.allocated_panes.rects.insert(pane.plugin_id.clone(), payload_rect);
 
         ui.painter().rect_filled(payload_rect, PANE_ROUNDING, PANE_BG);
 
-        // DOD FIX:      Z-Index 
+        // DOD FIX: Higher-order Z-Index control
         handle_system_dnd_anchor(ui, tile_id, payload_rect, self.drag_request, self.tree_commands, &pane.plugin_id);
 
         draw_trigger_highlights(ui, payload_rect);
@@ -46,11 +46,11 @@ impl<'a> Behavior<Pane> for PaneBehavior<'a> {
 fn draw_trigger_highlights(ui: &mut egui::Ui, rect: egui::Rect) {
     let triggers = crate::layout::systems::input::window_input::edge_triggers(rect);
     
-    // [DOD FIX]    ,    
+    // [DOD FIX] Hover detection for edge triggers
     let pointer_pos = ui.ctx().input(|i| i.pointer.latest_pos());
     let hovered_idx = pointer_pos.and_then(|p| triggers.iter().position(|t| t.contains(p)));
 
-    // [DOD FIX]     
+    // [DOD FIX] Render triggers as convex polygons
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("trig_fg")));
 
     for (idx, &trigger) in triggers.iter().enumerate() {
@@ -86,11 +86,11 @@ fn handle_system_dnd_anchor(
     let offset = 6.5;
     let btn_rect = egui::Rect::from_min_size(payload_rect.min + egui::vec2(offset, offset), btn_size);
 
-    // [DOD FIX]   Hit-Test (   )
+    // [DOD FIX] Hit-Test for DnD anchor
     let pointer = ui.ctx().input(|i| i.pointer.clone());
     let is_hovered = pointer.latest_pos().is_some_and(|p| btn_rect.contains(p));
 
-    // 2.  DND (Swap Intent) -     
+    // 2. Drag Source DND (Swap Intent) - starts here
     if is_hovered && pointer.primary_pressed() {
         if let Some(pos) = pointer.interact_pos() {
             drag_request.active      = true;
@@ -100,14 +100,14 @@ fn handle_system_dnd_anchor(
         }
     }
 
-    // 3.  
+    // 3. Domain Switcher Popup
     let popup_id = ui.id().with(tile_id).with("domain_switcher");
-    //        
+    // Popups are stateful in egui
     if is_hovered && pointer.primary_clicked() { 
         ui.memory_mut(|m| m.toggle_popup(popup_id)); 
     }
 
-    //  response      egui
+    // Response for hovering effects
     let response = ui.interact(btn_rect, ui.id().with("sys_btn_fake"), egui::Sense::hover());
 
     egui::popup_below_widget(ui, popup_id, &response, |ui| {
@@ -137,7 +137,7 @@ fn handle_system_dnd_anchor(
         });
     });
 
-    // 4.      VRAM  (    )
+    // 4. Manual VRAM Anchor Render (Top-left corner)
     let fg_painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("wm_fg_anchor")));
     let bg_color = if is_hovered { egui::Color32::from_rgb(70, 70, 75) } else { egui::Color32::from_rgb(50, 50, 55) };
     let stroke_color = egui::Color32::from_rgb(80, 80, 85);

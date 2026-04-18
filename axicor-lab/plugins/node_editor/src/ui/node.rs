@@ -146,7 +146,7 @@ fn draw_node(
     // --- Header / Rename Logic ---
     if state.renaming_zone.as_deref() == Some(zone) {
         ui.allocate_ui_at_rect(header_rect, |ui| {
-            // [DOD FIX]      (     )
+            // [DOD FIX] Sanitization (only ASCII underscores and alphanumerics)
             state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
             let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer)
@@ -154,8 +154,8 @@ fn draw_node(
                 .text_color(Color32::WHITE)
                 .horizontal_align(egui::Align::Center));
 
-            // [DOD FIX]  Egui-. 
-            // TextEdit   Enter/Esc   lost_focus().
+            // [DOD FIX] Standard Egui UX for text editing. 
+            // TextEdit loses focus on Enter/Esc, triggering lost_focus().
             if edit.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     state.renaming_zone = None;
@@ -233,8 +233,8 @@ fn handle_node_drag(
     if response.dragged_by(egui::PointerButton::Primary) {
         if let Some(pos) = state.node_positions.get_mut(zone) {
             *pos += response.drag_delta() / state.zoom;
-            // [DOD FIX]    RAM     .
-            //     is_dirty = true,    AST-!
+            // [DOD FIX] Immediate RAM cache update.
+            // Marking as dirty is handled by the AST-mutator!
             if let Some(id) = session.zone_ids.get(zone) {
                 session.layout_cache.insert(id.clone(), (pos.x, pos.y));
             }
@@ -301,12 +301,12 @@ fn draw_input_pins(
         if is_editing {
             let edit_rect = Rect::from_min_size(pin_pos + Vec2::new(10.0 * zoom, -8.0 * zoom), Vec2::new(60.0 * zoom, 16.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
-                // [DOD FIX]   ,      AST  FNV 
+                // [DOD FIX] FNV hash safety: restrict to valid AST identifier characters
                 state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL));
                 
-                // [DOD FIX]   
+                // [DOD FIX] Automatic focus
                 if edit.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         state.renaming_port = None;
@@ -340,7 +340,7 @@ fn draw_input_pins(
 
         if resp.secondary_clicked() {
             if port == "in" {
-                //   
+                // Reserved for system use
             } else if let Some(pos) = ui.ctx().pointer_hover_pos() {
                 send_context_menu(layout_api::OpenContextMenuEvent {
                     target_window, position: pos, actions: vec![
@@ -384,12 +384,12 @@ fn draw_output_pins(
         if is_editing {
             let edit_rect = Rect::from_min_max(pin_pos - Vec2::new(70.0 * zoom, 8.0 * zoom), pin_pos - Vec2::new(10.0 * zoom, -8.0 * zoom));
             ui.allocate_ui_at_rect(edit_rect, |ui| {
-                // [DOD FIX]   
+                // [DOD FIX] Sanitization
                 state.rename_buffer.retain(|c| c.is_alphanumeric() || c == '_');
 
                 let edit = ui.add(egui::TextEdit::singleline(&mut state.rename_buffer).frame(false).text_color(CLR_PIN_LABEL).horizontal_align(egui::Align::RIGHT));
                 
-                // [DOD FIX]   
+                // [DOD FIX] Automatic focus
                 if edit.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         state.renaming_port = None;

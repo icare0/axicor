@@ -30,7 +30,7 @@ height_um = 1000
 [sim_v_1]
 tick_duration_us = 100
 total_ticks = 0
-master_seed = "GENESIS"
+master_seed = "AXICOR"
 voxel_size_um = 25.0
 signal_speed_m_s = 0.5
 sync_batch_ticks = 20

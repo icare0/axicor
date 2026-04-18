@@ -26,10 +26,10 @@ impl MasterSeed {
     }
 }
 
-pub const DEFAULT_MASTER_SEED: &str = "GENESIS";
+pub const DEFAULT_MASTER_SEED: &str = "AXICOR";
 
 /// Hashes the seed string into u64 (FNV-1a 64-bit).
-/// Enables the use of readable seeds: "GENESIS", "DEBUG_RUN_42".
+/// Enables the use of readable seeds: "AXICOR", "DEBUG_RUN_42".
 pub const fn seed_from_str(s: &str) -> u64 {
     let bytes = s.as_bytes();
     let mut hash: u64 = 0xcbf29ce484222325;

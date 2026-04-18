@@ -36,7 +36,7 @@ impl Default for AiCopilotState {
         Self {
             history: vec![ChatMessage {
                 role: ChatRole::Copilot,
-                content: "Greetings, Engineer. I am the Genesis AI Copilot. How can I assist with your connectome today?".to_string(),
+                content: "Greetings, Engineer. I am the Axicor AI Copilot. How can I assist with your connectome today?".to_string(),
             }],
             input_buffer: String::new(),
             system_prompt: "You are an expert AI Copilot embedded within the Axicor Lab IDE. You help neuroengineers design spiking neural networks. Format your answers nicely with markdown.".to_string(),

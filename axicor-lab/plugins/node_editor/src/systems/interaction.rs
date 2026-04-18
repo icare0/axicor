@@ -13,7 +13,7 @@ pub fn init_node_editor_windows_system(
     }
 }
 
-///   
+/// Context menu triggers for the Node Editor
 pub fn handle_node_editor_menu_triggers_system(
     mut events: EventReader<ContextMenuActionTriggeredEvent>,
     mut query: Query<(Entity, &mut NodeGraphUiState)>,

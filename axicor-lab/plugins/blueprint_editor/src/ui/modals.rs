@@ -1,11 +1,11 @@
 use bevy_egui::egui;
 
-/// DOD :      ( egui::Window)
+/// DOD: Manual modal dialog (alternative to egui::Window)
 pub fn draw_delete_type_modal(
     ctx: &egui::Context,
     window_rect: egui::Rect,
     type_name: &str,
-) -> (bool, bool) { //  (confirmed, closed)
+) -> (bool, bool) { // (confirmed, closed)
     let mut confirmed = false;
     let mut closed = false;
 
@@ -16,7 +16,7 @@ pub fn draw_delete_type_modal(
         .show(ctx, |ui| {
             ui.set_clip_rect(window_rect);
 
-            //     ()
+            // Dim background
             let (bg_rect, bg_resp) = ui.allocate_exact_size(window_rect.size(), egui::Sense::click());
             if bg_resp.clicked() { closed = true; }
             ui.painter().rect_filled(bg_rect, 0.0, egui::Color32::from_black_alpha(200));

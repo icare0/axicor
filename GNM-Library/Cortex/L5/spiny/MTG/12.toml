@@ -2,20 +2,20 @@
 name = "L5_spiny_MTG_12"
 is_inhibitory = false
 
-# Мембрана
+# Membrane
 threshold = 32499
 rest_potential = 17749
 leak_rate = 500
 refractory_period = 16
 spontaneous_firing_period_ticks = 1395
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 2812
 homeostasis_decay = 2
 synapse_refractory_period = 15
 signal_propagation_length = 52
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 20.0
 steering_radius_um = 464.4
 growth_vertical_bias = 0.3
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.8
 steering_weight_sensor = 0.1
 steering_weight_jitter = 0.1
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1000
 gsop_potentiation = 13
 gsop_depression = 15
 inertia_curve = [128, 124, 119, 114, 109, 104, 99, 93, 87, 81, 74, 66, 58, 48, 36, 10]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 32
 slot_decay_wm = 250
 ltm_slot_count = 22
+

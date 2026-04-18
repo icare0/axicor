@@ -5,7 +5,7 @@ use egui_tiles::{LinearDir, Tile};
 use crate::layout::domain::{WorkspaceState, WindowDragState, TreeCommands, Pane};
 use layout_api::{DragIntent, TreeCommand, WindowDragRequest, DragSource, TopologyCache};
 
-// ---  ---
+// --- Visual and interaction constants ---
 const AXIS_LOCK_DIST_SQ: f32 = 100.0;  // 10px
 const SPLIT_THRESHOLD:   f32 = 100.0;
 const MERGE_THRESHOLD:   f32 = 50.0;
@@ -55,7 +55,7 @@ pub fn evaluate_drag_intents_system(
     let current_pos = drag_request.current_pos;
     let delta = current_pos - start_pos;
 
-    // [DOD FIX]       (Split/Merge)
+    // [DOD FIX] Lock axis on drag start (Split/Merge)
     if drag_request.source == DragSource::EdgeTrigger && drag_state.drag_axis.is_none() && delta.length_sq() > AXIS_LOCK_DIST_SQ {
         let horizontal = delta.x.abs() > delta.y.abs();
         drag_state.drag_axis   = Some(if horizontal { LinearDir::Horizontal } else { LinearDir::Vertical });
@@ -67,11 +67,11 @@ pub fn evaluate_drag_intents_system(
 
     drag_state.intent = match drag_request.source {
         DragSource::Header => {
-            // Swap    !
+            // Swap is only possible from header
             compute_swap_intent(current_pos, src_tile, &topology)
         }
         DragSource::EdgeTrigger => {
-            // Split/Merge      10px   
+            // Split/Merge logic only triggers after 10px movement
             if let (Some(axis), Some(normal)) = (drag_state.drag_axis, drag_state.drag_normal) {
                 if src_rect.contains(current_pos) {
                     compute_split_intent(delta, axis, normal, current_pos, src_rect, src_tile, tree)
@@ -158,7 +158,7 @@ fn compute_merge_intent(
     let victim = topology.tiles.iter().find(|(&id, r)| {
         if id == src_tile { return false; }
         if !r.expand(MERGE_HIT_EXPAND).contains(current_pos) { return false; }
-        //       
+        // Verify visual alignment
         if axis == LinearDir::Horizontal {
             (src_rect.min.y - r.min.y).abs() < ALIGN_EPS &&
             (src_rect.max.y - r.max.y).abs() < ALIGN_EPS

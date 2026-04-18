@@ -2,20 +2,20 @@
 name = "jy160704_A_idD"
 is_inhibitory = false
 
-# Мембрана
+# Membrane
 threshold = 37000
 rest_potential = 17000
 leak_rate = 150
 refractory_period = 14
 spontaneous_firing_period_ticks = 5000
 
-# Адаптация и Тайминги
+# Adaptation and Timings
 homeostasis_penalty = 10000
 homeostasis_decay = 2
 synapse_refractory_period = 15
 signal_propagation_length = 28
 
-# Рост и Морфология
+# Growth and Morphology
 steering_fov_deg = 60.0
 steering_radius_um = 100.0
 growth_vertical_bias = 0.7
@@ -29,14 +29,15 @@ steering_weight_inertia = 0.6
 steering_weight_sensor = 0.3
 steering_weight_jitter = 0.1
 
-# Пластичность GSOP
+# Synaptic Plasticity (GSOP)
 initial_synapse_weight = 1000
 gsop_potentiation = 18
 gsop_depression = 21
 inertia_curve = [128, 123, 119, 114, 109, 104, 98, 92, 86, 80, 73, 65, 57, 47, 34, 8]
 prune_threshold = 100
 
-# --- Динамический Slot Decay (Derived) ---
+# --- Dynamic Slot Decay (Derived) ---
 slot_decay_ltm = 103
 slot_decay_wm = 178
 ltm_slot_count = 108
+

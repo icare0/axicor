@@ -13,7 +13,7 @@ pub const DOMAIN_BLUEPRINT_EDITOR: &str = "axicor.blueprint_editor";
 pub const DOMAIN_ANATOMY_SLICER: &str = "axicor.anatomy_slicer";
 pub const DOMAIN_MATRIX_EDITOR: &str = "axicor.matrix_editor";
 
-// [DOD FIX]  DTO-  . Single Source of Truth.
+// [DOD FIX] Global DTO-registry. Single Source of Truth.
 pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_EXPLORER, "Project Explorer"),
     (DOMAIN_VIEWPORT, "Connectome Viewer"),
@@ -26,7 +26,7 @@ pub const AVAILABLE_PLUGINS: &[(&str, &str)] = &[
     (DOMAIN_MATRIX_EDITOR, "Matrix Editor"),
 ];
 
-//    DND- (6.5px offset + 25px width + 10px gap)
+// Manual DND-anchors (6.5px offset + 25px width + 10px gap)
 use std::path::PathBuf;
 
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -99,14 +99,14 @@ pub struct PluginGeometry {
     pub size: Vec2,
 }
 
-// DOD FIX:   
+// DOD FIX: Render targets for plugins
 #[derive(Component)]
 pub struct PluginWindow {
     pub plugin_id: String,
     pub texture: Option<Handle<Image>>,
     pub is_visible: bool,
-    pub id: egui::Id,      // DOD FIX:  ID  egui Area
-    pub rect: egui::Rect,  // DOD FIX:     UI
+    pub id: egui::Id,      // DOD FIX: Unique ID for egui Area
+    pub rect: egui::Rect,  // DOD FIX: Cached UI position
 }
 
 // --- Enums & Commands (API Contract) ---
@@ -227,56 +227,56 @@ impl ActiveBundle {
     }
 }
 
-//  
+// Common visuals
 pub const COLOR_HEADER_BG: egui::Color32 = egui::Color32::from_rgb(35, 35, 40);
 pub const COLOR_HEADER_LINE: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
 
-///       (Content_Rect, Toolbar_Rect)
+/// Draws the standardized plugin header (Content_Rect, Toolbar_Rect)
 pub fn draw_unified_header(ui: &mut egui::Ui, rect: egui::Rect, title: &str) -> (egui::Rect, egui::Rect) {
     let mut header_rect = rect;
     header_rect.set_height(28.0);
 
-    // DOD FIX:     
+    // DOD FIX: Rounded top corners
     ui.painter().rect_filled(
         header_rect, 
         egui::Rounding { nw: 10.0, ne: 10.0, sw: 0.0, se: 0.0 }, 
         COLOR_HEADER_BG
     );
     
-    //  1px
+    // Bottom border 1px
     ui.painter().line_segment(
         [header_rect.left_bottom(), header_rect.right_bottom()],
         egui::Stroke::new(1.0, COLOR_HEADER_LINE),
     );
 
-    //   
+    // Centered title
     let title_pos = header_rect.left_center() + egui::vec2(SYS_UI_SAFE_ZONE, 0.0);
     ui.painter().text(
         title_pos,
         egui::Align2::LEFT_CENTER,
         title,
         egui::FontId::proportional(14.0),
-        egui::Color32::from_rgb(130, 130, 130), // DOD FIX:    APP_TITLE
+        egui::Color32::from_rgb(130, 130, 130), // DOD FIX: Matches APP_TITLE color
     );
 
-    //    (   Font_Galley   e)
+    // Tool-bar area calculation (Font_Galley approx)
     let text_width = title.len() as f32 * 8.0;
     let mut toolbar_rect = header_rect;
-    // DOD FIX:   25px       
+    // DOD FIX: 25px offset from the title string
     toolbar_rect.min.x = title_pos.x + text_width + 25.0; 
 
     let mut content_rect = rect;
-    content_rect.min.y = header_rect.max.y; //   
+    content_rect.min.y = header_rect.max.y; // Starts below the header
 
     (content_rect, toolbar_rect)
 }
 
-///       ID (, "axicor.explorer::123" -> "axicor.explorer")
+/// Extracts the base plugin ID (e.g., "axicor.explorer::123" -> "axicor.explorer")
 pub fn base_domain(plugin_id: &str) -> &str {
     plugin_id.split("::").next().unwrap_or(plugin_id)
 }
 
-///     
+/// Human-readable titles for domains
 pub fn domain_title(base: &str) -> &'static str {
     match base {
         DOMAIN_VIEWPORT => "Connectome",
