@@ -6,6 +6,7 @@ use tokio::net::UdpSocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use tracing::{info, warn};
 
 pub fn fnv1a_32(data: &[u8]) -> u32 {
     let mut hash_value: u32 = 0x811c9dc5;
@@ -52,7 +53,7 @@ impl RoutingTable {
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, (SocketAddr, u16)>); 
-                println!("[RCU] Old routing table deallocated safely.");
+                info!("[RCU] Old routing table deallocated safely.");
             });
         }
     }
@@ -204,9 +205,9 @@ impl InterNodeRouter {
                                 let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                                 new_map.insert(update.zone_hash, (new_addr, update.mtu));
                                 unsafe { routing_table.update_routes(new_map); }
-                                println!(" [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                                info!(" [RCU Fast-Path] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
                             } else {
-                                eprintln!("[WARN] [Security] Unauthorized ROUT_MAGIC on Fast-Path");
+                                warn!("[WARN] [Security] Unauthorized ROUT_MAGIC on Fast-Path");
                             }
                         }
                         continue;
@@ -224,7 +225,7 @@ impl InterNodeRouter {
                     if header.epoch > current_epoch {
                         let n = bsp_barrier.self_heal_log_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if n % 100 == 0 {
-                            println!("[WARN] [BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
+                            warn!("[BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
                         }
                         bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
                         bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);

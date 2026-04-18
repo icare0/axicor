@@ -1,4 +1,4 @@
-name: Dual-Platform Build Matrix
+name: Axicor CI/CD Pipeline
 
 on:
   push:
@@ -6,18 +6,61 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-and-test:
+  test-mock-gpu:
+    name: Test (Mock GPU)
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        features: ["--features genesis-compute/mock-gpu"]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    - name: Build Workspace
-      run: cargo build --workspace ${{ matrix.features }}
-    - name: Test Workspace
-      run: cargo test --workspace ${{ matrix.features }}
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run Tests
+        run: cargo test --workspace --features axicor-compute/mock-gpu
+
+  check-amd-backend:
+    name: Check (AMD Backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cargo Check (AMD)
+        run: cargo check --workspace --features axicor-compute/amd
+
+  lints:
+    name: Lints & Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Rustfmt Check
+        run: cargo fmt --workspace --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --features axicor-compute/mock-gpu -- -D warnings
+      - name: Build Docs
+        run: cargo doc --workspace --no-deps
+
+  python-tests:
+    name: Python SDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          pip install -e axicor-client/
+          pip install pytest
+      - name: Run Pytest
+        run: pytest axicor-client/

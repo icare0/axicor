@@ -31,6 +31,12 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
+    let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .init();
+
     let cli = Cli::parse();
 
     if let Some(model_path) = &cli.model {
@@ -51,7 +57,7 @@ fn bake_single_brain(brain_path: &Path, clean: bool, yes: bool) -> Result<()> {
         perform_clean(&brain_config, project_dir, yes)?;
     }
 
-    println!("[baker] Processing Brain Architecture: {} zones", brain_config.zones.len());
+    tracing::info!("[baker] Processing Brain Architecture: {} zones", brain_config.zones.len());
     let mut compiled_zones = HashMap::new();
 
     for (zone_idx, zone) in brain_config.zones.iter().enumerate() {
@@ -74,14 +80,14 @@ fn bake_single_brain(brain_path: &Path, clean: bool, yes: bool) -> Result<()> {
 
     let project_name = project_dir.file_name().unwrap().to_str().unwrap();
     let axic_path = project_dir.parent().unwrap().join(format!("{}.axic", project_name));
-    println!("\n[baker]  Packing project into VFS Archive: {:?}", axic_path);
+    tracing::info!("\n[baker]  Packing project into VFS Archive: {:?}", axic_path);
     bake::axic::pack_directory_to_axic(project_dir, &axic_path)?;
 
     Ok(())
 }
 
 fn bake_entire_model(model_path: &Path, clean: bool, yes: bool) -> Result<()> {
-    println!("[baker] Orchestrating Model Bake: {:?}", model_path);
+    tracing::info!("[baker] Orchestrating Model Bake: {:?}", model_path);
     let sim_config = axicor_core::config::SimulationConfig::load(model_path)
         .map_err(|e| anyhow::anyhow!(e))?;
     
@@ -96,7 +102,7 @@ fn bake_entire_model(model_path: &Path, clean: bool, yes: bool) -> Result<()> {
 
     // 1. Bake each department
     for dept in &sim_config.departments {
-        println!("\n[baker] >>> Baking Department: {} <<<", dept.name);
+        tracing::info!("\n[baker] >>> Baking Department: {} <<<", dept.name);
         let brain_path = project_dir.join(&dept.config);
         bake_single_brain(&brain_path, clean, yes)?;
         
@@ -123,7 +129,7 @@ fn bake_entire_model(model_path: &Path, clean: bool, yes: bool) -> Result<()> {
     let manifest_toml = toml::to_string(&model_manifest).expect("Failed to serialize model manifest");
     let manifest_path = project_dir.join("manifest.toml");
     std::fs::write(&manifest_path, manifest_toml)?;
-    println!("[baker]  Written global manifest.toml");
+    tracing::info!("[baker]  Written global manifest.toml");
 
     Ok(())
 }
@@ -135,12 +141,12 @@ fn perform_clean(brain_config: &BrainConfig, project_dir: &Path, yes: bool) -> R
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
         if input.trim().to_lowercase() != "y" {
-            println!("Aborting clean operation.");
+            tracing::info!("Aborting clean operation.");
             return Ok(());
         }
     }
 
-    println!("[baker] Clean flag set. Wiping baked directories...");
+    tracing::info!("[baker] Clean flag set. Wiping baked directories...");
     for zone in &brain_config.zones {
         let abs_baked_dir = project_dir.join(&zone.baked_dir);
         if abs_baked_dir.exists() {
@@ -157,7 +163,7 @@ fn perform_clean(brain_config: &BrainConfig, project_dir: &Path, yes: bool) -> R
 
 fn establish_ghost_links(brain_config: &BrainConfig, compiled_zones: &HashMap<String, bake::layout::CompiledShard>, project_dir: &Path) -> Result<()> {
     if brain_config.connections.is_empty() { return Ok(()); }
-    println!("\n[baker] === Baking Ghost Axon Mappings ===");
+    tracing::info!("\n[baker] === Baking Ghost Axon Mappings ===");
 
     for conn in &brain_config.connections {
         let src_shard = compiled_zones.get(&conn.from).expect("Source zone missing");
@@ -168,7 +174,7 @@ fn establish_ghost_links(brain_config: &BrainConfig, compiled_zones: &HashMap<St
         let out_dir = project_dir.join(target_zone_rel);
 
         let sent_ghosts = if let (Some(w), Some(h)) = (conn.width, conn.height) {
-            println!("[baker] Generating UV Atlas Projection {} -> {} ({}x{})", conn.from, conn.to, w, h);
+            tracing::info!("[baker] Generating UV Atlas Projection {} -> {} ({}x{})", conn.from, conn.to, w, h);
             bake::atlas_map::bake_atlas_connection(
                 &out_dir, &conn.from, &conn.to, &src_shard.packed_positions, src_shard.bounds_um, (w, h), dst_ghost_offset, 42,
             )
@@ -177,7 +183,7 @@ fn establish_ghost_links(brain_config: &BrainConfig, compiled_zones: &HashMap<St
             bake::ghost_map::write_ghosts_file(&out_dir, &conn.from, &conn.to, &ghosts);
             ghosts.header.connection_count
         };
-        println!("[baker]  Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
+        tracing::info!("[baker]  Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
     }
     Ok(())
 }
@@ -204,7 +210,7 @@ pub struct BakeWorkspace {
 }
 
 fn parse_and_validate(brain_config: &axicor_core::config::brain::BrainConfig, sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16) -> Result<BakeWorkspace> {
-    println!("[baker] Parsing configs for zone {}...", zone_name);
+    tracing::info!("[baker] Parsing configs for zone {}...", zone_name);
     let sim = parser::simulation::parse(&std::fs::read_to_string(sim_path)?)?;
     let (const_mem, neuron_types, name_map) = parser::blueprints::parse_blueprints(&std::fs::read_to_string(bp_path)?);
     let anatomy = parser::anatomy::parse(&std::fs::read_to_string(an_path)?)?;

@@ -7,6 +7,7 @@ use axicor_compute::memory::PinnedBuffer;
 use crate::network::router::RoutingTable;
 use anyhow::Result;
 use std::collections::HashMap;
+use tracing::{info, warn};
 
 /// I/O Context for specific zone. Contains dedicated InputSwapchain.
 pub struct ZoneIoContext {
@@ -125,7 +126,7 @@ impl ExternalIoServer {
     pub async fn run_rx_loop(&self) {
         let mut buf = [0u8; 65536];
         let local_addr = self.socket.local_addr().unwrap();
-        println!("[ExternalIO] UDP Receiver Loop Started on {}", local_addr);
+        info!("[ExternalIO] UDP Receiver Loop Started on {}", local_addr);
         loop {
             match self.socket.recv_from(&mut buf).await {
                 Ok((len, _addr)) => {
@@ -164,7 +165,7 @@ impl ExternalIoServer {
                 
                 // [DOD FIX] O(1) Zero-Cost Auth
                 if update.cluster_secret != self.cluster_secret {
-                    tracing::warn!("[WARN] [Security] Unauthorized ROUT_MAGIC from unknown source");
+                    warn!("[WARN] [Security] Unauthorized ROUT_MAGIC from unknown source");
                     return;
                 }
                 
@@ -178,7 +179,7 @@ impl ExternalIoServer {
                 
                 // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }
-                tracing::info!(" [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
+                info!(" [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr);
             }
             return;
         }
@@ -192,7 +193,7 @@ impl ExternalIoServer {
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
             None => {
-                tracing::warn!("[WARN] [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                warn!("[WARN] [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
                 return;
             }
         };
@@ -200,7 +201,7 @@ impl ExternalIoServer {
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
             None => {
-                tracing::warn!("[WARN] [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                warn!("[WARN] [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
                 return;
             }
         };
@@ -209,7 +210,7 @@ impl ExternalIoServer {
         let payload_data = &payload[payload_start..];
 
         if payload_data.len() != header.payload_size as usize {
-            tracing::warn!("[WARN] [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            warn!("[WARN] [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
             return;
         }
 
@@ -221,7 +222,7 @@ impl ExternalIoServer {
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
-                tracing::info!(" [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
+                info!(" [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
             }
         }
     }
@@ -258,7 +259,7 @@ impl ExternalIoServer {
         }
 
         let _ = self.socket.send_to(&tx_buffer[..total_size], target_addr).await;
-        // println!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
+        // info!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
     }
     /// O(1) Send Output_History via Lock-Free Egress Pool
     pub fn send_output_batch_pool(
@@ -307,7 +308,7 @@ impl ExternalIoServer {
     /// Main loop for the UDP Input Server (Port 8081).
     pub async fn run_input_loop(self: Arc<Self>, addr: &str) -> std::io::Result<()> {
         let socket = UdpSocket::bind(addr).await?;
-        println!("[I/O Server] Listening on UDP {}", addr);
+        info!("[I/O Server] Listening on UDP {}", addr);
         
         let mut buf = vec![0u8; 65536]; // MTU + buffer
         
@@ -317,8 +318,3 @@ impl ExternalIoServer {
         }
     }
 }
-
-// NOTE: Integration tests for ExternalIoServer were tied to an older API
-// (different constructor signature and swapchain layout). They were removed
-// to keep the Night/Day data plane and IO server contract source-of-truth
-// in the production code paths rather than stale test harnesses.

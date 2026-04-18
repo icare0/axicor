@@ -1,5 +1,6 @@
 use crate::node::NodeRuntime;
 use axicor_core::ipc::{RouteUpdate, ROUT_MAGIC};
+use tracing::info;
 
 impl NodeRuntime {
     /// Broadcasts the new route of a resurrected shard to all known peers.
@@ -24,12 +25,12 @@ impl NodeRuntime {
                 let _ = self.network.inter_node_router.socket.send_to(packet, addr).await;
             }
         }
-        println!(" [Recovery] Broadcasted RouteUpdate for 0x{:08X} to {} peers", zone_hash, table.len());
+        info!(" [Recovery] Broadcasted RouteUpdate for 0x{:08X} to {} peers", zone_hash, table.len());
     }
 
     /// Called if BspBarrier detects neighbor death.
     pub async unsafe fn resurrect_shard(&self, dead_zone_hash: u32) {
-        println!(" [Recovery] Initiating The Great Resurrection for 0x{:08X}", dead_zone_hash);
+        info!(" [Recovery] Initiating The Great Resurrection for 0x{:08X}", dead_zone_hash);
         
         // 1. Broadcast new route to all peers via RCU
         self.broadcast_route_update(dead_zone_hash).await;

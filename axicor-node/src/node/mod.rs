@@ -11,6 +11,7 @@ use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
 use crate::network::router::InterNodeRouter;
 use crate::node::shard_thread::ShardAtomicSettings;
+use tracing::{info, warn, error};
 
 pub struct ShardMetadata {
     pub manifest_path: PathBuf, // Still used for reporting/display
@@ -41,7 +42,7 @@ pub enum ComputeFeedback {
     },
 }
 
-/// [Phase 23] Network channel topology  raw pointers, inter/intra GPU channels.
+/// [Phase 23] Network channel topology ~ raw pointers, inter/intra GPU channels.
 pub struct NetworkTopology {
     pub intra_gpu_channels: Vec<(*mut axicor_core::layout::BurstHeads8, *mut axicor_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
     pub inter_node_channels: Vec<(*mut axicor_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
@@ -203,49 +204,6 @@ impl NodeRuntime {
         node
     }
 
-    /* 
-    fn reload_manifests(&self) {
-        let mut metadata_map = self.manifest_metadata.lock().unwrap();
-        for (hash, metadata) in metadata_map.iter_mut() {
-            if let Ok(attr) = std::fs::metadata(&metadata.manifest_path) {
-                if let Ok(modified) = attr.modified() {
-                    if modified > metadata.last_modified {
-                        println!(" [Hot-Reload] Manifest changed for zone 0x{:08X}", hash);
-                        metadata.last_modified = modified;
-                        
-                        if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
-                            if let Ok(zm) = toml::from_str::<axicor_core::config::manifest::ZoneManifest>(&toml_str) {
-                                // 1. Update Atomic Settings
-                                metadata.atomic_settings.night_interval_ticks.store(zm.settings.night_interval_ticks, Ordering::Relaxed);
-                                metadata.atomic_settings.save_checkpoints_interval_ticks.store(zm.settings.save_checkpoints_interval_ticks, Ordering::Relaxed);
-                                metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
-                                metadata.atomic_settings.max_sprouts.store(zm.settings.plasticity.max_sprouts, Ordering::Relaxed);
-                                    
-                                    // 2. Update GPU Constants (Variants)
-                                    let mut gpu_variants = [axicor_core::layout::VariantParameters::default(); 16];
-                                    for v in &zm.variants {
-                                        if (v.id as usize) < 16 {
-                                            gpu_variants[v.id as usize] = v.clone().into_gpu();
-                                        }
-                                    }
-                                    unsafe {
-                                        axicor_compute::ffi::cu_upload_constant_memory(
-                                            gpu_variants.as_ptr() as *const axicor_core::layout::VariantParameters
-                                        );
-                                    }
-                                    self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
-                                        hash, zm.settings.night_interval_ticks, zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
-                                } else {
-                                    self.services.telemetry.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
-                                }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    */
-
     fn patch_routing_tables(&mut self) {
         let stream = std::ptr::null_mut(); 
 
@@ -298,7 +256,7 @@ impl NodeRuntime {
             // [DOD FIX] Shard threads use manifests from /dev/shm
             let manifest_shm_path = axicor_core::ipc::manifest_shm_path(desc.hash);
 
-            println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
+            info!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} (IPC: {})", desc.hash, socket_addr);
             let child = Command::new(&daemon_path)
                 .arg("--manifest").arg(&manifest_shm_path)
                 .arg("--zone-hash")
@@ -328,7 +286,7 @@ impl NodeRuntime {
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; axicor_core::constants::MAX_UDP_PAYLOAD];
 
-        tracing::info!("Entering main loop (Batch size: {})", batch_size);
+        info!("Entering main loop (Batch size: {})", batch_size);
 
         let loop_start = std::time::Instant::now();
         let mut batch_start = loop_start;
@@ -340,17 +298,11 @@ impl NodeRuntime {
             }
 
             // 2. Dispatch batches to compute shards
-            /* 
-            let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
-            if current_dopamine != 0 && batch_counter % 100 == 0 {
-                self.services.telemetry.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
-            }
-            */
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
 
             let num_dispatchers = self.compute_dispatchers.len();
             if num_dispatchers == 0 {
-                println!("[!] ERROR: No compute dispatchers found!");
+                error!("No compute dispatchers found!");
             }
             for tx in self.compute_dispatchers.values() {
                 let _ = tx.send(ComputeCommand::RunBatch {
@@ -385,7 +337,7 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] GPU Hardware Barrier  wait for all streams to finish
+            // [DOD] GPU Hardware Barrier ~ wait for all streams to finish
             unsafe { axicor_compute::ffi::gpu_device_synchronize(); }
 
             // Ship outputs to network targets ONLY POST SYNC!
@@ -450,15 +402,6 @@ impl NodeRuntime {
             for (_, channel) in &self.network.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
 
-                if out_count > 0 {
-                    /* 
-                    if batch_counter % 100 == 0 {
-                        tracing::info!("Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
-                    }
-                    */
-                    // In Egress loop:
-                }
-
                 // BSP Heartbeat: ALWAYS build and send packet
                 let events_slice = unsafe {
                     std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize)
@@ -478,7 +421,7 @@ impl NodeRuntime {
             if let Err(actual_epoch) = self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32) {
                 let delta = actual_epoch.saturating_sub((batch_counter & 0xFFFFFFFF) as u32);
                 if delta > 0 {
-                    tracing::warn!("[WARN] [AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
+                    warn!("[AEP Barrier] Desync! Fast-forwarding local orchestrator by {} batches", delta);
                     
                     // Hardware Fast-Forward
                     batch_counter += delta as u64;
@@ -512,12 +455,6 @@ impl NodeRuntime {
             batch_counter += 1;
             // [DOD FIX] Restore time progression! Without this GPU will get stuck in first N ticks.
             current_tick += batch_size as u64;
-
-            if batch_counter > 0 && batch_counter % 50 == 0 {
-                // Remove console printing to keep TUI clean, stats are visible in Core Loop widget
-                // [DOD FIX] Hot-Reload entry point
-                // self.reload_manifests();
-            }
         }
     }
 }
@@ -528,14 +465,7 @@ impl Drop for NodeRuntime {
         for (i, daemon) in daemons.iter_mut().enumerate() {
             let _ = daemon.kill(); // Send SIGKILL
             let _ = daemon.wait(); // Wait for OS death confirmation, preventing zombies
-            println!("[Orchestrator] Baker Daemon {} successfully terminated.", i);
+            info!("[Orchestrator] Baker Daemon {} successfully terminated.", i);
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // Legacy isolation test depended on an outdated NodeRuntime::boot and
-    // ExternalIoServer API; it was removed to avoid pinning core orchestration
-    // signatures to an obsolete test harness.
 }

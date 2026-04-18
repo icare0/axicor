@@ -58,7 +58,12 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .init();
+
     // 1. Initialize dedicated Tokio Runtime for I/O (2 threads max)
     let rt = Builder::new_multi_thread()
         .worker_threads(2)
@@ -69,7 +74,7 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
-        println!(" Opening Axic Archive: {:?}", cli.archive);
+        tracing::info!(" Opening Axic Archive: {:?}", cli.archive);
         let archive = Arc::new(axicor_core::vfs::AxicArchive::open(&cli.archive)
             .context("Failed to open AXIC archive")?);
 
@@ -109,7 +114,7 @@ fn main() -> Result<()> {
             }
         }
 
-        println!("[Node] Starting Axicor Distributed Daemon...");
+        tracing::info!("[Node] Starting Axicor Distributed Daemon...");
         
         let project_name = cli.archive.file_stem().unwrap().to_str().unwrap().to_string();
         
@@ -121,10 +126,10 @@ fn main() -> Result<()> {
         // [DOD FIX] Immediate Cluster Join
         for &local_hash in boot_result.node_runtime.compute_dispatchers.keys() {
             boot_result.node_runtime.broadcast_route_update(local_hash).await;
-            println!(" [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
+            tracing::info!(" [Node] Cluster joined. Route announced for 0x{:08X}", local_hash);
         }
 
-        println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
+        tracing::info!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
 
         // Spawn IO Receiver Loop
         let io_server = boot_result.node_runtime.services.io_server.clone();
@@ -168,7 +173,7 @@ fn main() -> Result<()> {
                     unsafe { libc::CPU_SET(0, &mut cpuset) };
                     let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
                     if res == 0 {
-                        println!(" [Core] Orchestrator locked to OS Thread Core 0");
+                        tracing::info!(" [Core] Orchestrator locked to OS Thread Core 0");
                     }
                 }
                 node.run_node_loop();
@@ -177,8 +182,7 @@ fn main() -> Result<()> {
 
         // 8. Wait for termination
         tokio::signal::ctrl_c().await.unwrap();
-        println!("[Node] Shutting down...");
+        tracing::info!("[Node] Shutting down...");
         Ok(())
     })
 }
-

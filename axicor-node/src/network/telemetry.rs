@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use axicor_compute::memory::PinnedBuffer;
+use tracing::info;
 
 /// Lock-Free Swapchain for Telemetry.
 /// Allows the Day Phase Orchestrator to dump spikes into a back-buffer
@@ -102,7 +103,7 @@ impl TelemetryServer {
             .route("/ws", get(move |ws| handle_ws(ws, self.clone())));
 
         let listener = tokio::net::TcpListener::bind(addr).await?;
-        println!("[Telemetry Server] Listening on WS {}", addr);
+        info!("[Telemetry Server] Listening on WS {}", addr);
         axum::serve(listener, app).await?;
         Ok(())
     }
@@ -116,7 +117,7 @@ pub const TELE_MAGIC: u32 = u32::from_le_bytes(*b"SPIK");
 
 async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
     server.swapchain.active_clients.fetch_add(1, Ordering::SeqCst);
-    println!("[Telemetry] Client connected. Active: {}", server.swapchain.active_clients.load(Ordering::Relaxed));
+    info!("[Telemetry] Client connected. Active: {}", server.swapchain.active_clients.load(Ordering::Relaxed));
 
     let mut last_processed_tick = 0;
 
@@ -151,7 +152,7 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
     }
 
     server.swapchain.active_clients.fetch_sub(1, Ordering::SeqCst);
-    println!("[Telemetry] Client disconnected.");
+    info!("[Telemetry] Client disconnected.");
 }
 
 #[cfg(test)]

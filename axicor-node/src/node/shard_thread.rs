@@ -10,8 +10,9 @@ use std::fs::OpenOptions;
 use crate::network::bsp::BspBarrier;
 use crate::network::io_server::InputSwapchain;
 use super::{ComputeCommand, ComputeFeedback};
+use tracing::{info, warn, error};
 
-/// [Phase 23] Static shard geometry/physics  owns all per-shard data.
+/// [Phase 23] Static shard geometry/physics owns all per-shard data.
 pub struct ShardDescriptor {
     pub hash: u32,
     pub engine: ShardEngine,
@@ -182,7 +183,7 @@ fn execute_day_phase(
     mapped_soma_ids: *const u32,
     v_seg: u32,
     _batch_counter: u64,
-    tick_base: u32, // <--- ADD
+    tick_base: u32, 
 ) {
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
@@ -208,18 +209,6 @@ fn execute_day_phase(
     } else {
         None
     };
-
-    /* 
-    if batch_counter % 100 == 0 {
-        println!(" [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
-        if let Some(slice) = input_slice {
-            let active = slice.iter().any(|&w| w != 0);
-            if active {
-                println!(" [Shard I/O] Input active!");
-            }
-        }
-    }
-    */
 
     shard.step_day_phase_batch(
         batch_size,
@@ -315,7 +304,6 @@ fn save_hot_checkpoint(
     if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {
         let _ = std::fs::rename(&tmp_state, &chk_state);
         let _ = std::fs::rename(&tmp_axons, &chk_axons);
-        // println!(" [Shard {:08X}] State & Axons checkpoint saved", hash);
     }
 }
 
@@ -362,8 +350,6 @@ fn execute_night_phase(
                 std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.soma_voltage as *const u8, workspace.voltage_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
                 std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.threshold_offset as *const u8, workspace.threshold_offset_slice_mut(padded_n).as_mut_ptr() as *mut u8, padded_n * 4);
                 std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.timers, workspace.timers_slice_mut(padded_n).as_mut_ptr(), padded_n);
-                
-                // CPU Sort & Prune not yet implemented in night phase, but simulation state is consistent.
                 
                 std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_weights as *const u8, workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
                 std::ptr::copy_nonoverlapping(_cpu.vram.ptrs.dendrite_targets as *const u8, workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut u8, dendrites_count * 4);
@@ -457,15 +443,15 @@ fn execute_night_phase(
                 // [DOD FIX] Read GC cleans from SHM and route deaths
                 dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
 
-                tracing::info!(" [Shard {:08X}] Night Phase complete. Waking up.", hash);
+                info!(" [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
             Err(e) => {
-                tracing::error!("[ERROR] [Shard {:08X}] Sprouting failed: {}", hash, e);
+                error!("[ERROR] [Shard {:08X}] Sprouting failed: {}", hash, e);
                 *baker_client = None;
             }
         }
     } else {
-        tracing::warn!("[WARN] [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
+        warn!("[WARN] [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
     }
 }
 
@@ -488,12 +474,12 @@ fn dispatch_handovers(
     let mut x_minus = Vec::new();
     let mut y_plus = Vec::new();
     let mut y_minus = Vec::new();
-    let mut z_plus = Vec::new();  // NEW QUEUE
-    let mut z_minus = Vec::new(); // NEW QUEUE
+    let mut z_plus = Vec::new(); 
+    let mut z_minus = Vec::new();
 
     let max_x = shard_config.dimensions.w as u16;
     let max_y = shard_config.dimensions.d as u16;
-    let max_z = shard_config.dimensions.h as u8; // entry_z in packet has type u8 [2]
+    let max_z = shard_config.dimensions.h as u8;
 
     for ev in handovers_slice {
         if ev.entry_x >= max_x {
@@ -505,9 +491,9 @@ fn dispatch_handovers(
         } else if ev.entry_y == 0 {
             y_minus.push(*ev);
         } else if ev.entry_z >= max_z {
-            z_plus.push(*ev);  // CEILING BREAK
+            z_plus.push(*ev);
         } else if ev.entry_z == 0 {
-            z_minus.push(*ev); // FLOOR BREAK
+            z_minus.push(*ev);
         }
     }
 
@@ -561,7 +547,6 @@ fn dispatch_acks(
 ) {
     if acks.is_empty() { return; }
 
-    // Group by target_zone_hash (to send in single TCP packet to node)
     let mut grouped: std::collections::HashMap<u32, Vec<axicor_core::ipc::AxonHandoverAck>> = std::collections::HashMap::new();
     for ack in acks {
         grouped.entry(ack.target_zone_hash).or_default().push(ack);
@@ -701,14 +686,14 @@ pub fn spawn_shard_thread(
                 unsafe { libc::CPU_SET(_core_id, &mut cpuset) };
                 let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
                 if res != 0 {
-                    eprintln!("Warning: Failed to set thread affinity to core {}", _core_id);
+                    warn!("Failed to set thread affinity to core {}", _core_id);
                 } else {
-                    println!(" [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, _core_id);
+                    info!(" [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, _core_id);
                 }
             }
             #[cfg(not(target_os = "linux"))]
             {
-                println!(" [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
+                info!(" [Core] Shard 0x{:08X} compute thread spawned (affinity not supported on this OS)", hash);
             }
 
             // 1. Hardware context initialization
@@ -763,7 +748,7 @@ pub fn spawn_shard_thread(
                 match cmd {
                     ComputeCommand::Resurrect => {
                         warmup_ticks_remaining = 100;
-                        tracing::info!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash);
+                        info!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash);
                     }
                     ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
                         let is_warmup = warmup_ticks_remaining > 0;
@@ -781,7 +766,7 @@ pub fn spawn_shard_thread(
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
                             if warmup_ticks_remaining == 0 {
-                                tracing::info!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash);
+                                info!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash);
                             }
                         }
 
@@ -811,7 +796,7 @@ pub fn spawn_shard_thread(
                                 current_prune_threshold, current_max_sprouts, &ctx.routing_table
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
-                            tracing::info!(" [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
+                            info!(" [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
                         }
 
                         // Send feedback to orchestrator
@@ -830,4 +815,3 @@ pub fn spawn_shard_thread(
             }
         }).expect("Failed to spawn compute thread");
 }
-

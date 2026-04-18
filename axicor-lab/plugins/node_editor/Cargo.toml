@@ -11,3 +11,4 @@ axicor-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 toml_edit = "0.22"
+tracing = "0.1"

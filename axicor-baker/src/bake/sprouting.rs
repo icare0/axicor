@@ -1,5 +1,6 @@
 use axicor_core::config::blueprints::NeuronType;
 use rand::SeedableRng;
+use tracing::warn;
 
 
 
@@ -179,7 +180,7 @@ pub fn run_sprouting_pass(
         }
 
         if next_free_ghost >= ghost_end {
-            println!("WARNING: Ghost capacity exceeded!");
+            warn!("Ghost capacity exceeded!");
             break;
         }
 

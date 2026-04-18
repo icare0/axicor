@@ -26,7 +26,8 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 memmap2 = "0.9.10"
 libc = "0.2.182"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 [dev-dependencies]
 tempfile = "3.10"

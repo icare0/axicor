@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::collections::HashMap;
 use crossbeam::queue::SegQueue;
+use tracing::info;
 
 use axicor_core::config::manifest::ZoneManifest;
 use axicor_compute::memory::{VramState, calculate_state_blob_size, compute_state_offsets};
@@ -48,10 +49,10 @@ pub fn boot_shard_from_vfs(archive: &axicor_core::vfs::AxicArchive, zone_name: &
     let axons_path = mem_zone_dir.join("shard.axons");
 
     let (state_blob, axons_blob) = if state_path.exists() && axons_path.exists() {
-        println!("[Boot]  Resuming from SRAM: {:?}", mem_zone_dir);
+        info!("[Boot]  Resuming from SRAM: {:?}", mem_zone_dir);
         (std::fs::read(&state_path)?, std::fs::read(&axons_path)?)
     } else {
-        println!("[Boot]  Unpacking ROM to SRAM for zone {}", zone_name);
+        info!("[Boot]  Unpacking ROM to SRAM for zone {}", zone_name);
         
         let state_vfs_path = format!("baked/{}/shard.state", zone_name);
         let axons_vfs_path = format!("baked/{}/shard.axons", zone_name);
@@ -186,13 +187,13 @@ impl Bootloader {
                     if let Some(peer_addr) = zm.network.fast_path_peers.get(&conn.to) {
                         let addr = peer_addr.parse::<std::net::SocketAddr>().expect("FATAL: Invalid peer IP");
                         initial_routes.insert(dst_hash, (addr, 65507));
-                        println!("[Boot] Route (Egress): {} (0x{:08X}) -> {}", conn.to, dst_hash, addr);
+                        info!("[Boot] Route (Egress): {} (0x{:08X}) -> {}", conn.to, dst_hash, addr);
                     }
                 } else if dst_hash == zm.zone_hash {
                     if let Some(peer_addr) = zm.network.fast_path_peers.get(&conn.from) {
                         let addr = peer_addr.parse::<std::net::SocketAddr>().expect("FATAL: Invalid peer IP");
                         initial_routes.insert(src_hash, (addr, 65507));
-                        println!("[Boot] Route (ACK): {} (0x{:08X}) -> {}", conn.from, src_hash, addr);
+                        info!("[Boot] Route (ACK): {} (0x{:08X}) -> {}", conn.from, src_hash, addr);
                     }
                 }
             }
@@ -278,7 +279,7 @@ let node_runtime = NodeRuntime::boot(
                 gpu_variants.as_ptr() as *const axicor_core::layout::VariantParameters
             );
         }
-        println!("[Boot] Hardware physics parameters flashed.");
+        info!("[Boot] Hardware physics parameters flashed.");
         Ok(())
     }
 
@@ -300,7 +301,7 @@ let node_runtime = NodeRuntime::boot(
         for (zone_manifest, zone_name) in zone_manifests_with_names {
             let zone_hash = zone_manifest.zone_hash;
 
-            println!("[Boot] Loading Local Zone {} from VFS (GPU={})", zone_name, use_gpu);
+            info!("[Boot] Loading Local Zone {} from VFS (GPU={})", zone_name, use_gpu);
             let (engine, s2a, mem_zone_dir) = boot_shard_from_vfs(archive, zone_name, zone_manifest, project_name, use_gpu)?;
 
             let ptrs = match engine {
@@ -342,7 +343,7 @@ let node_runtime = NodeRuntime::boot(
 
                             output_routes.entry(zone_hash).or_insert_with(Vec::new)
                                 .push((target.clone(), hash, current_pixel_offset, chunk_pixels));
-                            println!("[Boot] Registered Output Route: {} (0x{:08X}) -> {}", pin.name, hash, target);
+                            info!("[Boot] Registered Output Route: {} (0x{:08X}) -> {}", pin.name, hash, target);
                             
                             current_pixel_offset += chunk_pixels;
                         }
@@ -453,11 +454,11 @@ let node_runtime = NodeRuntime::boot(
             let is_dst_local = axon_head_ptrs.contains_key(&dst_hash);
 
             if !is_src_local && is_dst_local {
-                println!("[Boot] Peer detected (Ingress): expecting fast-path data from remote zone 0x{:08X}", src_hash);
+                info!("[Boot] Peer detected (Ingress): expecting fast-path data from remote zone 0x{:08X}", src_hash);
                 expected_peers += 1;
             }
             if is_src_local && !is_dst_local {
-                println!("[Boot] Peer detected (Egress): expecting fast-path ACK from remote zone 0x{:08X}", dst_hash);
+                info!("[Boot] Peer detected (Egress): expecting fast-path ACK from remote zone 0x{:08X}", dst_hash);
                 expected_peers += 1;
             }
 
@@ -465,7 +466,7 @@ let node_runtime = NodeRuntime::boot(
 
             // [DOD FIX] Ghost file lives in RECEIVER's baked_dir, not sender's.
             if !is_dst_local {
-                println!("[Boot] Outbound connection {} -> {} (routing only, no local ghost file needed)", conn.from, conn.to);
+                info!("[Boot] Outbound connection {} -> {} (routing only, no local ghost file needed)", conn.from, conn.to);
                 continue;
             }
 
@@ -476,7 +477,7 @@ let node_runtime = NodeRuntime::boot(
 
             if let Some(ghosts_bytes) = archive.get_file(&ghosts_vfs_path) {
                 let (src_somas, dst_ghosts) = load_ghosts(ghosts_bytes);
-                println!("[Ghosts] Successfully loaded {} links from archive: {}", src_somas.len(), ghosts_vfs_path);
+                info!("[Ghosts] Successfully loaded {} links from archive: {}", src_somas.len(), ghosts_vfs_path);
                 let s2a = s2a_maps.get(&src_hash).context("S2A map missing for source zone")?;
 
                 let mut src_axons = Vec::with_capacity(src_somas.len());
@@ -492,7 +493,7 @@ let node_runtime = NodeRuntime::boot(
                 let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
                 let channel = unsafe { IntraGpuChannel::from_slices(src_hash, dst_hash, &src_axons, &dst_ghosts, capacity) };
                 intra_gpu.push((src_ptr, dst_ptr, channel));
-                println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links, capacity: {})", conn.from, conn.to, src_axons.len(), capacity);
+                info!("[Boot] Built IntraGpuChannel: {} -> {} ({} links, capacity: {})", conn.from, conn.to, src_axons.len(), capacity);
             } else {
                 panic!("CRITICAL TOPOLOGY ERROR: Incoming ghost file not found in archive: {}", ghosts_vfs_path);
             }

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use std::sync::Arc;
+use tracing::info;
 
 use super::slow_path::{GeometryRequest, GeometryResponse, SlowPathQueues};
 
@@ -78,7 +79,7 @@ impl GeometryServer {
         let slow_path_queues = self.slow_path_queues.clone();
 
         tokio::spawn(async move {
-            println!("[Geometry Server] Listening on TCP {}", self.listener.local_addr().unwrap());
+            info!("[Geometry Server] Listening on TCP {}", self.listener.local_addr().unwrap());
             loop {
                 let (mut stream, _) = match self.listener.accept().await {
                     Ok(s) => s,

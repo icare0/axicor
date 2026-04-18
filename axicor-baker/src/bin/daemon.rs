@@ -43,6 +43,12 @@ struct Cli {
 }
 
 fn main() {
+    let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .init();
+
     let cli = Cli::parse();
     let zone_hash = cli.zone_hash;
 
@@ -74,13 +80,13 @@ fn main() {
     let header = ShmHeader::new(cli.zone_hash, padded_n, total_axons);
     unsafe { std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header) };
 
-    println!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
+    tracing::info!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
 
     // Load blueprints.toml from SRAM folder
     let blueprints = load_blueprints(&cli.baked_dir);
 
-    println!(" Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
-    println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
+    tracing::info!(" Axicor Baker Daemon starting (zone_hash={:08X})", zone_hash);
+    tracing::info!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // Cache configs
     let mut night_ctx = build_night_context(&cli.baked_dir, &cli.manifest, zone_hash);
@@ -93,16 +99,16 @@ fn main() {
         let _ = std::fs::remove_file(&socket_addr);
         let listener = std::os::unix::net::UnixListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind Unix socket {}", socket_addr));
-        println!(" Listening on {}", socket_addr);
-        println!("   Waiting for Night Phase requests from axicor-node...");
+        tracing::info!(" Listening on {}", socket_addr);
+        tracing::info!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
                     if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
-                        eprintln!("[ERROR] Night Phase error: {}", e);
+                        tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
                 }
-                Err(e) => eprintln!("Connection error: {}", e),
+                Err(e) => tracing::error!("Connection error: {}", e),
             }
         }
     }
@@ -111,16 +117,16 @@ fn main() {
     {
         let listener = std::net::TcpListener::bind(&socket_addr)
             .expect(&format!("FATAL: Cannot bind TCP {}", socket_addr));
-        println!(" Listening on {}", socket_addr);
-        println!("   Waiting for Night Phase requests from axicor-node...");
+        tracing::info!(" Listening on {}", socket_addr);
+        tracing::info!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
                     if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
-                        eprintln!("[ERROR] Night Phase error: {}", e);
+                        tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
                 }
-                Err(e) => eprintln!("Connection error: {}", e),
+                Err(e) => tracing::error!("Connection error: {}", e),
             }
         }
     }
@@ -131,13 +137,13 @@ fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
     if bp_path.exists() {
         match BlueprintsConfig::load(&bp_path) {
             Ok(bp) => {
-                println!("   Blueprints loaded from {:?}", bp_path);
+                tracing::info!("   Blueprints loaded from {:?}", bp_path);
                 return Some(bp);
             }
-            Err(e) => eprintln!("[WARN]  Failed to load blueprints from {:?}: {}", bp_path, e),
+            Err(e) => tracing::warn!("[WARN]  Failed to load blueprints from {:?}: {}", bp_path, e),
         }
     } else {
-        eprintln!("[WARN]  blueprints.toml not found at {:?}", bp_path);
+        tracing::warn!("[WARN]  blueprints.toml not found at {:?}", bp_path);
     }
     None
 }
@@ -147,18 +153,18 @@ fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path
     use axicor_baker::parser::simulation::SimulationConfig;
 
     let dna_dir = baked_dir.join("BrainDNA");
-    let shard_cfg = axicor_core::config::InstanceConfig::load(&dna_dir.join("shard.toml")).map_err(|e| eprintln!("[Daemon] Cannot load shard.toml: {}", e)).ok()?;
-    let sim_config = SimulationConfig::load(&dna_dir.join("simulation.toml")).map_err(|e| eprintln!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
+    let shard_cfg = axicor_core::config::InstanceConfig::load(&dna_dir.join("shard.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load shard.toml: {}", e)).ok()?;
+    let sim_config = SimulationConfig::load(&dna_dir.join("simulation.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
     let bp = load_blueprints(baked_dir)?;
     let neuron_types = bp.neuron_types.clone();
-    let anatomy = axicor_baker::parser::anatomy::Anatomy::load(&dna_dir.join("anatomy.toml")).map_err(|e| eprintln!("[Daemon] Cannot load anatomy.toml: {}", e)).ok()?;
+    let anatomy = axicor_baker::parser::anatomy::Anatomy::load(&dna_dir.join("anatomy.toml")).map_err(|e| tracing::error!("[Daemon] Cannot load anatomy.toml: {}", e)).ok()?;
 
     let layer_ranges = compute_layer_ranges(&anatomy, &sim_config);
     let shard_bounds = ShardBounds::from_config(&shard_cfg);
     let master_seed = axicor_core::seed::MasterSeed::from_str("GENESIS").raw();
 
-    let manifest_str = std::fs::read_to_string(manifest_path).map_err(|e| eprintln!("[Daemon] Cannot read manifest.toml: {}", e)).ok()?;
-    let manifest: axicor_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str).map_err(|e| eprintln!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
+    let manifest_str = std::fs::read_to_string(manifest_path).map_err(|e| tracing::error!("[Daemon] Cannot read manifest.toml: {}", e)).ok()?;
+    let manifest: axicor_core::config::manifest::ZoneManifest = toml::from_str(&manifest_str).map_err(|e| tracing::error!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
 
     let padded_n = manifest.memory.padded_n as u32;
     let raw_axons = manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity;
@@ -245,7 +251,7 @@ fn build_night_context(baked_dir: &std::path::PathBuf, manifest_path: &std::path
     let geom_file = std::fs::OpenOptions::new().read(true).write(true).open(&geom_path).ok()?;
     let geom_mmap = unsafe { memmap2::MmapMut::map_mut(&geom_file).ok()? };
 
-    println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
+    tracing::info!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
 
     let paths_path = baked_dir.join("shard.paths");
     let paths_file = std::fs::OpenOptions::new().read(true).write(true).open(&paths_path).ok()?;
@@ -291,7 +297,7 @@ fn run_night_phase<S: Read + Write>(
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
 
-    println!(" Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
+    tracing::info!(" Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
 
     // [DOD FIX] Read ghost owner map (Origin Tracking)
     let total_ghosts = ctx.as_ref().map(|c| c._total_ghosts as usize).unwrap_or(0);

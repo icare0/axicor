@@ -5,6 +5,7 @@ use crate::bake::dendrite_connect::connect_dendrites;
 use axicor_core::config::{SimulationConfig, InstanceConfig, blueprints::NeuronType, anatomy::AnatomyConfig, io::IoConfig, blueprints::GenesisConstantMemory};
 use axicor_core::types::PackedPosition;
 use std::collections::HashMap;
+use tracing::info;
 
 pub fn build_local_topology_internal(
     sim: &SimulationConfig,
@@ -18,7 +19,7 @@ pub fn build_local_topology_internal(
     master_seed: u64,
     ghost_capacity: usize,
 ) -> (ShardSoA, CompiledShard, u32, usize, Vec<crate::bake::input_map::BakedGxi>, Vec<crate::bake::output_map::BakedGxo>) {
-    println!("[baker] Placing neurons...");
+    info!("[baker] Placing neurons...");
     let mut type_name_pairs: Vec<(&String, &u8)> = name_map.iter().collect();
     type_name_pairs.sort_by_key(|(_, &idx)| idx);
     let type_names: Vec<String> = type_name_pairs.into_iter().map(|(n, _)| n.clone()).collect();
@@ -29,9 +30,9 @@ pub fn build_local_topology_internal(
         master_seed,
         &type_names,
     );
-    println!("[baker]  Placed {} neurons", positions.len());
+    info!("[baker]  Placed {} neurons", positions.len());
 
-    println!("[baker] Growing axons (Cone Tracing)...");
+    info!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = compute_layer_ranges(anatomy, sim);
     let shard_bounds = ShardBounds::from_config(shard_cfg);
     let (mut axons, ghost_packets) = grow_axons(
@@ -54,7 +55,7 @@ pub fn build_local_topology_internal(
     let mut num_virtual = 0;
     let mut gxi_matrices = Vec::new();
     if !io.input.is_empty() {
-        println!("[baker] Processing Input Maps for {}...", zone_name);
+        info!("[baker] Processing Input Maps for {}...", zone_name);
         gxi_matrices = crate::bake::input_map::build_gxi_mappings(
             io,
             zone_name,
@@ -109,14 +110,14 @@ pub fn build_local_topology_internal(
                 }
             }
         }
-        println!("[baker]  Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
+        info!("[baker]  Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
     }
 
     let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
 
     let mut gxo_matrices = Vec::new();
     if !io.output.is_empty() {
-        println!("[baker] Processing Output Maps for {}...", zone_name);
+        info!("[baker] Processing Output Maps for {}...", zone_name);
         gxo_matrices = crate::bake::output_map::build_gxo_mappings(
             io,
             zone_name,
@@ -125,7 +126,7 @@ pub fn build_local_topology_internal(
             &packed_positions,
             &type_names,
         );
-        println!("[baker]  Processed {} output matrices", gxo_matrices.len());
+        info!("[baker]  Processed {} output matrices", gxo_matrices.len());
     }
 
     if !ghost_packets.is_empty() {
@@ -147,7 +148,7 @@ pub fn build_local_topology_internal(
     }
 
     let total_ghosts = axons.len() - local_axons_count - num_virtual;
-    println!("[baker]  Total Grown: {} axons ({} local, {} virtual, {} ghosts)", 
+    info!("[baker]  Total Grown: {} axons ({} local, {} virtual, {} ghosts)", 
         axons.len(), local_axons_count, num_virtual, total_ghosts);
 
     let total_capacity = axons.len() + ghost_capacity;
@@ -167,7 +168,7 @@ pub fn build_local_topology_internal(
         }
     }
 
-    println!("[baker] Connecting dendrites (dynamic per-type radius)...");
+    info!("[baker] Connecting dendrites (dynamic per-type radius)...");
 
     let total_synapses = connect_dendrites(
         &mut shard,
@@ -177,7 +178,7 @@ pub fn build_local_topology_internal(
         neuron_types,
         sim.simulation.voxel_size_um as f32, // Pass voxel size
     );
-    println!("[baker]  Synapses established: {} (avg: {:.1}/soma)", 
+    info!("[baker]  Synapses established: {} (avg: {:.1}/soma)", 
         total_synapses, 
         total_synapses as f64 / positions.len() as f64
     );
@@ -221,7 +222,7 @@ pub fn build_local_topology_internal(
                 .copy_from_slice(&ax.segments[..copy_len]);
         }
     }
-    println!("[baker]  Axon heads initialized (v_seg={})", v_seg);
+    info!("[baker]  Axon heads initialized (v_seg={})", v_seg);
 
     shard.soma_positions.copy_from_slice(&packed_positions[..positions.len()]);
 

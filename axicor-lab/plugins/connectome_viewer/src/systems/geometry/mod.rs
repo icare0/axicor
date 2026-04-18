@@ -8,6 +8,7 @@ use bevy::pbr::{MaterialMeshBundle, PbrBundle};
 use layout_api::{PluginWindow, PluginInput};
 use crate::domain::{ShardGeometry, ZoneSelectedEvent, NeuronInstances};
 use crate::systems::material::NeuronInstanceMaterial;
+use tracing::error;
 
 pub fn load_zone_geometry_system(
     mut commands: Commands,
@@ -25,7 +26,7 @@ pub fn load_zone_geometry_system(
             .join(format!("{}.axic", ev.project_name));
 
         let Some(archive) = axicor_core::vfs::AxicArchive::open(&axic_path) else {
-            eprintln!("Failed to open VFS archive: {:?}", axic_path);
+            error!("Failed to open VFS archive: {:?}", axic_path);
             continue;
         };
 
@@ -34,7 +35,7 @@ pub fn load_zone_geometry_system(
         let pos_path = format!("baked/{}/shard.pos", ev.shard_name);
         
         let Some(pos_data) = archive.get_file(&pos_path) else {
-            eprintln!("FATAL: Missing shard geometry at {} in archive", pos_path);
+            error!("FATAL: Missing shard geometry at {} in archive", pos_path);
             continue;
         };
 

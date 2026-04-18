@@ -7,6 +7,12 @@ use axicor_lab::plugins::AllPlugins;
 use layout_api::OpenFileEvent;
 
 fn main() {
+    let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .init();
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

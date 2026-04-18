@@ -1,13 +1,14 @@
 use axicor_compute::ffi;
 use axicor_compute::memory::VramState;
 use axicor_core::constants::AXON_SENTINEL;
+use tracing::info;
 
 /// Cleanup interval: 1_800_000_000 ticks = 180,000 seconds = 50 hours (at 100us tick).
-/// Sentinel overflows after 2^31 ticks  59.6 hours. 50 hours provides a conservative margin.
+/// Sentinel overflows after 2^31 ticks ~ 59.6 hours. 50 hours provides a conservative margin.
 pub const SENTINEL_REFRESH_INTERVAL_TICKS: u64 = 1_800_000_000;
 
 /// Overflow tolerance at which axon is considered 'dead' and reset.
-/// 0x80000000 + 1_800_000_000  0xEB9F_B000.
+/// 0x80000000 + 1_800_000_000 ~ 0xEB9F_B000.
 /// We reset everything greater than 0xE000_0000.
 pub const SENTINEL_OVERFLOW_THRESHOLD: u32 = 0xE000_0000;
 
@@ -33,7 +34,7 @@ impl SentinelManager {
     /// but it occurs extremely rarely (once per 50 hours).
     pub fn check_and_refresh(&mut self, vram: &VramState, current_tick: u64) {
         if current_tick - self.last_refresh_tick >= SENTINEL_REFRESH_INTERVAL_TICKS {
-            println!(
+            info!(
                 "[Sentinel] Refresh triggered at tick {}. Scanning {} axons...",
                 current_tick,
                 vram.total_axons
@@ -43,7 +44,7 @@ impl SentinelManager {
             self.perform_refresh(vram);
             let elapsed = start.elapsed();
 
-            println!("[Sentinel] Refresh completed in {:?}", elapsed);
+            info!("[Sentinel] Refresh completed in {:?}", elapsed);
             self.last_refresh_tick = current_tick;
         }
     }

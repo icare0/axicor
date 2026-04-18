@@ -61,6 +61,7 @@ PERSONAL/
 raw_data/
 _agents/
 .agents/
+.claude/
 _agent/
 .agent/
 brains/
@@ -71,6 +72,7 @@ venv/
 
 # Other
 *GEMINI.md
+*CLAUDE.md
 copilot.local.toml
 
 # Node Editor
