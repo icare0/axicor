@@ -1,15 +1,25 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "axicor-client"
 version = "0.1.0"
-description = "Axicor Neuromorphic Engine Python Client (Zero-Copy Data Plane)"
+description = "Python SDK for Axicor Spiking Neural Network Engine — Zero-Copy UDP Data Plane"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{name = "Axicor Engineering", email = "core@axicor.dev"}]
+license = {text = "GPL-3.0-or-later"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
-    "numpy",
+    "numpy>=1.26,<2.0",
     "toml",
     "opencv-python",
 ]
@@ -17,3 +27,6 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["axicor*"]
+
+[tool.setuptools.package-data]
+axicor = ["py.typed"]

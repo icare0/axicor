@@ -1,72 +1,47 @@
 # Axicor Python SDK
 
-The high-performance interface for connecting environments to the Axicor Neuromorphic Engine.
+Official Python interface for the Axicor Spiking Neural Network (SNN) Engine.
 
-> ### CRITICAL: The 10ms Budget & Zero-Garbage Law
-> Axicor operates on a hard real-time BSP (Barrier Synchronization) cycle. For most configurations, you have exactly 10ms to complete your observation-action loop. 
-> 
-> You MUST NOT perform any heap allocations (creating new numpy arrays, tuples, or large objects) inside the hot loop. Triggering the Python Garbage Collector (GC) will cause a micro-stutter, resulting in dropped UDP packets and "Biological Amnesia" where the brain loses its short-term state.
+> ### CRITICAL: THE 10ms BUDGET & ZERO-GARBAGE LAW
+> Axicor operates on a hard real-time BSP (Barrier Synchronization) cycle. You have exactly **10ms** to complete your observation-action loop.
+>
+> **You MUST NOT perform any heap allocations** (creating new numpy arrays, tuples, or large objects) inside the hot loop. Triggering the Python Garbage Collector (GC) will cause a micro-stutter, resulting in dropped UDP packets and **Biological Amnesia** (loss of brain state).
 
-## Installation
-
-```bash
-pip install -e .
-```
-
-## Zero-Garbage Usage Example
-
-The correct way to use the SDK involves pre-allocating all buffers outside the main loop and using the `_into` methods to perform zero-copy operations.
+## Zero-Garbage Production Pattern
 
 ### The Correct Way (Zero-Allocation)
-
 ```python
 import numpy as np
 from axicor.encoders import PopulationEncoder
-from axicor.client import AxicorMultiClient
 
-# 1. Pre-allocate EVERYTHING outside the loop
+# 1. PRE-ALLOCATE everything outside the loop. Reused every tick.
 encoder = PopulationEncoder(variables_count=4, neurons_per_var=16, batch_size=20)
-client = AxicorMultiClient(addr=("127.0.0.1", 8081), ...)
-
-# Pre-allocated observation buffer
-obs_raw = np.zeros(4, dtype=np.float16)
+# ✅ Pre-allocate buffer once
+frame_buf = np.zeros(encoder.total_bytes + 20, dtype=np.uint8)
 
 while True:
-    # Use pre-allocated observation
-    obs_raw[:] = env.get_observation()
+    obs = env.get_observation()
+    # 2. ✅ encode_into() writes directly into the pre-allocated buffer
+    # Offset=20 leaves space for the C-ABI ExternalIoHeader
+    encoder.encode_into(obs, frame_buf, offset=20)
     
-    # Encode DIRECTLY into the client's internal TX arena
-    # No temporary arrays are created.
-    encoder.encode_into(obs_raw, client.payload_views[0])
-    
-    # Step the simulation
-    # Returns a memoryview of the pre-allocated RX arena
-    action_view = client.step(reward=1.0)
-    
-    # Process actions (use memoryview directly or wrap in pre-allocated ndarray)
-    apply_actions(action_view)
+    # 3. Send via zero-copy UDP
+    client.send(frame_buf)
 ```
 
 ### The Wrong Way (Triggers GC)
-
 ```python
 while True:
     obs = env.get_observation()
-    
-    # WRONG: Creating a new array inside the loop
-    # This triggers malloc() and eventually the Garbage Collector.
-    encoded_spikes = encoder.encode(obs) 
-    
-    # WRONG: This will cause UDP timeouts in the Node
-    client.send(encoded_spikes)
+    # ❌ WRONG: This creates a NEW array object every tick.
+    # This triggers malloc() and will eventually force a GC pause.
+    frame = encoder.encode(obs)
+    client.send(frame)
 ```
 
-## Performance Tracking
-
-Use the provided `test_zero_gc.py` to verify that your implementation does not leak memory in the hot path:
-
+## Installation
 ```bash
-python test_zero_gc.py
+pip install axicor-client
 ```
 
 ## License

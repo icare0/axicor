@@ -1,46 +1,63 @@
-# Rust
+# === Rust ===
 Cargo.lock
 target/
 
-# CUDA
+# === Python & SDK ===
+__pycache__/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+pip-wheel-metadata/
+.ipynb_checkpoints/
+
+# === CUDA & GPU ===
 *.fatbin
 *.cubin
 *.ptx
 
-# Baked blobs (бинарные — не в VCS)
-checkpoint_*.bin.tmp
-checkpoint_*.bin
-*.positions
-*.ghosts
+# === Axicor Baked Blobs (Binary - NO VCS) ===
 *.state
 *.axons
-baked/
+*.axic
+*.geom
+*.paths
+*.pos
+*.positions
+*.ghosts
 *.gxi
 *.gxo
+checkpoint_*.bin
+checkpoint_*.bin.tmp
+baked/
+Axicor-Models/
+raw_data/
+brains/
 
-# IDE
+# === IDE & OS ===
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
 
-# ESP-IDF
+# === ESP-IDF (Genesis Lite) ===
 genesis-lite/sdkconfig
 genesis-lite/sdkconfig.old
-# sdkconfig.defaults - НЕ ИГНОРИРУЕМ (нужен для общей конфигурации)
+genesis-lite/build/
+# sdkconfig.defaults - NOT ignored (required for shared config)
 
-# Дампы и временные файлы прошивки
+# === Firmware Dumps & Temp ===
 *shard.flash
 *shard.sram
 *.bin
 *.elf
 *.map
 *.dump
-# Логи
 *.log
 *.log.tmp
 *.pid
@@ -48,34 +65,22 @@ genesis-lite/sdkconfig.old
 *.new
 *.tmp
 
-# Папки
-genesis-lite/build/
-docs/bevy_docs/
-Axicor-Models/
-__pycache__/
+# === Workspace Hygiene ===
 CodeReview/
 tests/tmp/
 SUMARIZER/
 PERSONAL/
 .Sandbox/
-raw_data/
 _agents/
 .agents/
 .claude/
 _agent/
 .agent/
-brains/
-config/
-.venv/
-baked/
-venv/
-
-# Other
 *GEMINI.md
 *CLAUDE.md
 copilot.local.toml
 
-# Node Editor
+# === Node Editor Temporary Layouts ===
 .layout.tmp.toml
 .layout.toml
 .brain.tmp.toml
