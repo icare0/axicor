@@ -1,13 +1,17 @@
 [package]
 name = "axicor-core"
-description = "Shared types, constants and SoA layout for Axicor"
+description = "Axicor SNN engine — C-ABI memory contracts, SoA layouts, and IPC primitives"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "README.md"
+categories = ["science::neuroscience", "memory-management", "data-structures", "embedded", "no-std"]
+keywords = ["snn", "neuromorphic", "soa", "bytemuck", "repr-c"]
 exclude = [
     "tests/fixtures/*",
     "benches/*",
@@ -33,3 +37,8 @@ uuid = { version = "1.12", features = ["v4"] }
 
 [features]
 amd = []
+
+[package.metadata.docs.rs]
+all-features = false
+features = []
+

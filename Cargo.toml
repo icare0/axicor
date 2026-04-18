@@ -21,15 +21,16 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
-license = "GPL-3.0-or-later"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/H4V1K-dev/Axicor"
-description = "Axicor: High-Performance Spiking Neural Network Engine"
+description = "Axicor: Neuromorphic Computing Engine — biology-inspired SNN AI architecture"
 homepage = "https://axicor.dev"
 documentation = "https://docs.rs/axicor-core"
 readme = "README.md"
-keywords = ["neural-network", "spiking", "gpu", "embodied-ai"]
-categories = ["science", "simulation"]
+keywords = ["snn", "neuromorphic", "spiking", "gpu", "embodied-ai"]
+categories = ["science::neuroscience", "simulation"]
 
 [workspace.dependencies]
 # axicor-core is a local dep for the others

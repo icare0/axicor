@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.13", features = ["default"] }
-axicor-core = { workspace = true, path = "../../../axicor-core" }
+axicor-core = { workspace = true }
 bevy_egui = "0.27"
 toml = { workspace = true }
 layout-api = { path = "../../crates/layout-api" }

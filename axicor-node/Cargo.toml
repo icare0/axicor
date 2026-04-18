@@ -1,11 +1,18 @@
 [package]
 name = "axicor-node"
 default-run = "axicor-node"
-description = "Distributed runtime node, networking, and orchestrator for Axicor"
+description = "Axicor SNN engine — BSP-lockstep orchestrator, UDP fast-path server, Night Phase daemon"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+categories = ["science::neuroscience", "science::robotics", "network-programming", "simulation", "concurrency"]
+keywords = ["snn", "neuromorphic", "bsp", "realtime", "robotics"]
 exclude = [
     "tests/fixtures/*",
     "benches/*",
@@ -50,3 +57,8 @@ tempfile = "3.10"
 [features]
 mock-gpu = ["axicor-compute/mock-gpu"]
 amd = ["axicor-core/amd", "axicor-compute/amd"]
+
+[package.metadata.docs.rs]
+all-features = false
+features = ["mock-gpu"]
+

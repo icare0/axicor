@@ -1,13 +1,17 @@
 [package]
 name = "axicor-compute"
-description = "Hardcore GPU compute, CUDA FFI and memory allocation for Axicor"
+description = "Axicor SNN engine — dual-backend (CUDA / AMD HIP) GPU compute kernels with CPU fallback"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "README.md"
+categories = ["science::neuroscience", "hardware-support", "external-ffi-bindings", "concurrency", "science::robotics"]
+keywords = ["cuda", "rocm", "gpu", "snn", "neuromorphic"]
 exclude = [
     "tests/fixtures/*",
     "benches/*",
@@ -41,3 +45,8 @@ amd = []
 
 [dev-dependencies]
 tempfile = "3"
+
+[package.metadata.docs.rs]
+all-features = false
+features = ["mock-gpu"]
+
