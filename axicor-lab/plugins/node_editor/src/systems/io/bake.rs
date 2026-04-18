@@ -24,8 +24,9 @@ pub fn bake_project_system(
         "-p".to_string(),
         "axicor-baker".to_string(),
         "--bin".to_string(),
-        "baker".to_string(),
+        "axicor-baker".to_string(),
         "--".to_string(),
+        "--yes".to_string(),
     ];
     if let Some(ui) = query.iter().next() {
         if ui.level == EditorLevel::Model {

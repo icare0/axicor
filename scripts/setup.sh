@@ -26,6 +26,16 @@ echo -e "  ${BOLD}Embodied AI Engine  Alpha Bootstrap${NC}"
 echo ""
 
 # ---------------------------------------------
+# 0. Argument Parsing
+# ---------------------------------------------
+MOCK_ARG=0
+for arg in "$@"; do
+    if [ "$arg" == "--mock" ] || [ "$arg" == "--cpu" ]; then
+        MOCK_ARG=1
+    fi
+done
+
+# ---------------------------------------------
 # 1. Mandatory dependencies
 # ---------------------------------------------
 echo -e "${CYAN}[1/5] Checking dependencies...${NC}"
@@ -89,23 +99,21 @@ else
 fi
 
 if [ $GPU_FOUND -eq 0 ]; then
-    echo ""
-    echo -e "  ${YELLOW}Axicor requires CUDA or ROCm for full performance.${NC}"
-    echo -e "  A ${BOLD}CPU mock mode${NC} is available for testing without GPU."
-    echo ""
-    read -p "  Enable Mock-GPU mode (CPU-only simulation)? [y/N]: " MOCK_CHOICE
-    case "$MOCK_CHOICE" in
-        y|Y)
-            GPU_FEATURES="--features mock-gpu"
-            echo -e "  ${YELLOW} Mock-GPU enabled. Performance will be limited.${NC}"
-            ;;
-        *)
-            echo -e "  ${RED}Aborting. Install CUDA or ROCm and re-run.${NC}"
-            echo -e "  CUDA:  https://developer.nvidia.com/cuda-downloads"
-            echo -e "  ROCm:  https://rocm.docs.amd.com/en/latest/deploy/linux/index.html"
-            exit 1
-            ;;
-    esac
+    if [ $MOCK_ARG -eq 1 ]; then
+        GPU_FEATURES="--features mock-gpu"
+        echo -e "  ${YELLOW} No GPU detected, but --mock/--cpu was passed. Enabling Mock-GPU mode.${NC}"
+    else
+        echo ""
+        echo -e "  ${YELLOW}Axicor requires CUDA or ROCm for full performance.${NC}"
+        echo -e "  A ${BOLD}CPU mock mode${NC} is available for testing without GPU.${NC}"
+        echo ""
+        echo -e "  ${RED}[ERROR] No GPU toolkit detected and --mock not provided.${NC}"
+        echo -e "  To continue without a GPU, use: ${BOLD}bash scripts/setup.sh --mock${NC}"
+        echo ""
+        echo -e "  CUDA:  https://developer.nvidia.com/cuda-downloads"
+        echo -e "  ROCm:  https://rocm.docs.amd.com/en/latest/deploy/linux/index.html"
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------
@@ -169,13 +177,13 @@ echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
 echo ""
 echo -e "  ${CYAN}1.${NC} Bake the brain:"
-echo -e "     ${BOLD}python3 examples/cartpole_exp/build_brain.py${NC}"
+echo -e "     ${BOLD}python3 examples/ant_exp/build_brain.py${NC}"
 echo ""
 echo -e "  ${CYAN}2.${NC} Start the node:"
-echo -e "     ${BOLD}cargo run --release -p axicor-node -- Axicor-Models/cartpole_exp.axic --cpu --log${NC}"
+echo -e "     ${BOLD}cargo run --release -p axicor-node -- Axicor-Models/AntConnectome.axic --cpu --log${NC}"
 echo ""
 echo -e "  ${CYAN}3.${NC} Run the agent:"
-echo -e "     ${BOLD}python3 examples/cartpole_exp/agent.py${NC}"
+echo -e "     ${BOLD}python3 examples/ant_exp/ant_agent.py${NC}"
 echo ""
 echo -e "  Docs: ${CYAN}https://github.com/H4V1K-dev/axicor${NC}"
 echo ""

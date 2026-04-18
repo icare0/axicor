@@ -535,8 +535,9 @@ class BrainBuilder:
             cmd.extend(["--features", "mock-gpu"])
 
         cmd.extend([
-            "--bin", "baker", "--",
-            "--brain", str(brain_toml_path.absolute())
+            "--bin", "axicor-baker", "--",
+            "--brain", str(brain_toml_path.absolute()),
+            "--yes"
         ])
         
         if clean:

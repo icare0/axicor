@@ -1,7 +1,3 @@
-#=============================================================
-#       TEMPORARILY NON-FUNCTIONAL / REQUIRES REFACTORING
-#=============================================================
-
 #!/usr/bin/env python3
 import os
 import sys
@@ -98,7 +94,7 @@ def build_ant_connectome():
 
     result = subprocess.run([
         "cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker", "--",
-        "--brain", brain_toml_path, "--clean"
+        "--brain", brain_toml_path, "--clean", "--yes"
     ], cwd=base_path)
 
     if result.returncode != 0:
