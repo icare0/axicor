@@ -91,6 +91,8 @@ pub fn step_and_pack(
     (next_pos_um, packed)
 }
 
+// MONOLITH: MED — Growth logic (execute_growth_loop) is a tight procedural loop with mixed physical/logical rules.
+// REFACTOR: Encapsulate growth rules into a pure State Machine or physical "GrowthEngine".
 /// Unified physical growth pipeline. Used for both local and Ghost axons.
 pub fn execute_growth_loop(
     ctx: &mut GrowthContext,

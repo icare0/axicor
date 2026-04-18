@@ -138,6 +138,8 @@ impl ExternalIoServer {
         }
     }
 
+    // MONOLITH: MED — process_incoming_udp handles header validation, cluster routing, and matrix logic procedurally.
+    // REFACTOR: Use a PacketDispatcher state machine to handle protocol versions and security checks.
     /// Processes a raw UDP payload according to Spec 12.
     pub fn process_incoming_udp(&self, payload: &[u8]) {
         // [Contract 12.3] Biological Drop

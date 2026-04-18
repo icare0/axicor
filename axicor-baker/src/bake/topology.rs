@@ -7,6 +7,8 @@ use axicor_core::types::PackedPosition;
 use std::collections::HashMap;
 use tracing::info;
 
+// MONOLITH: HIGH — build_local_topology_internal is a massive procedural function handling disparate concerns.
+// REFACTOR: Separate into discrete topology stages: PlacementEngine, GrowthOrchestrator, and IoMapper.
 pub fn build_local_topology_internal(
     sim: &SimulationConfig,
     anatomy: &AnatomyConfig,

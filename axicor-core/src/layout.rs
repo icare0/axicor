@@ -192,6 +192,8 @@ pub const fn calculate_paths_matrix_offset(total_axons: usize) -> usize {
 
 /// Host-side SoA state of a shard.
 /// Used for baking and disk I/O.
+// MONOLITH: LOW — ShardStateSoA and VramState are central data structures that may grow into blobs.
+// REFACTOR: Ensure future extensions use discrete "State Planes" to maintain SoA cache efficiency.
 #[repr(C)]
 pub struct ShardStateSoA {
     pub padded_n: usize, // Must be multiple of 32 (Warp Alignment)

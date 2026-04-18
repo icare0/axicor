@@ -66,6 +66,8 @@ pub struct NodeServices {
     pub bsp_barrier: Arc<BspBarrier>,
 }
 
+// MONOLITH: HIGH — NodeRuntime is a god-object managing lifecycle, compute dispatch, and network topology.
+// REFACTOR: Decompose into LifecycleManager, ComputeOrchestrator, and NetworkRegistry.
 pub struct NodeRuntime {
     pub services: NodeServices,
     pub network: NetworkTopology,

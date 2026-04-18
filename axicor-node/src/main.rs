@@ -57,6 +57,8 @@ struct Cli {
     pub log: bool,
 }
 
+// MONOLITH: MED — main() handles procedural bootstrapping, archive management, and thread spawning.
+// REFACTOR: Move bootstrap sequence into a dedicated BootOrchestrator with explicit phase separation.
 fn main() -> Result<()> {
     let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
     tracing_subscriber::fmt()

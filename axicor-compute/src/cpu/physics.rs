@@ -121,6 +121,8 @@ pub fn cpu_record_outputs(
 
 ///  4:  GLIF,    .
 /// DOD FIX: Raw pointer index iteration (Zero-Cost). Branchless .
+// MONOLITH: HIGH — cpu_update_neurons is a complex Hot Loop with deeply nested logic and branchless optimizations.
+// REFACTOR: Decompose into discrete inline "Math Blocks" (Leak, Integrate, Threshold) for maintainability.
 pub unsafe fn cpu_update_neurons(
     ptrs: &ShardVramPtrs,
     padded_n: u32,

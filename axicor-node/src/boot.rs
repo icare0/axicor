@@ -132,6 +132,8 @@ impl Bootloader {
         Self::boot_node_with_profile(archive, project_name, zone_names, crate::CpuProfile::Aggressive, true).await
     }
 
+// MONOLITH: HIGH — Bootloader::boot_node_with_profile is a massive async procedural block.
+// REFACTOR: Split into discrete boot phases (ROM/SRAM, Hardware, Routing) using a stateful pipeline.
     pub async fn boot_node_with_profile(archive: Arc<axicor_core::vfs::AxicArchive>, project_name: &str, zone_names: &[String], cpu_profile: crate::CpuProfile, use_gpu: bool) -> Result<BootResult> {
         // 1. Data/Config Phase: Load brain and simulation configs
         let mut zone_manifests_with_names = Vec::new();

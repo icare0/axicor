@@ -169,6 +169,8 @@ impl InterNodeRouter {
         }
     }
 
+    // MONOLITH: HIGH — spawn_ghost_listener loop mixes IO, amnesia checks, self-healing, and deduplication logic.
+    // REFACTOR: Separate the UDP Listener from the protocol decoder (FastPathDecoder) and state manager.
     /// Starts inter-zone spike listener (Sender-Side Mapping)
     pub async fn spawn_ghost_listener(
         port: u16,
