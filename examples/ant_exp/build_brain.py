@@ -91,13 +91,18 @@ def build_ant_connectome():
 
     builder.build()
 
-    print("\n🔥 Запускаем Axicor Baker (CPU Compiler)...")
+    print("\n🔥 Запускаем Axicor Baker...")
     brain_toml_path = os.path.join(out_dir, "brain.toml")
 
-    result = subprocess.run([
-        "cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker", "--",
-        "--brain", brain_toml_path, "--clean"
-    ], cwd=base_path)
+    cargo_cmd = ["cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker"]
+    
+    # [DOD FIX] Поддержка CPU-режима (Mock GPU) для виртуалки
+    if "--cpu" in sys.argv:
+        cargo_cmd.extend(["--features", "axicor-compute/mock-gpu"])
+
+    cargo_cmd.extend(["--", "--brain", brain_toml_path, "--clean"])
+
+    result = subprocess.run(cargo_cmd, cwd=base_path)
 
     if result.returncode != 0:
         print("\n❌ Ошибка компиляции коннектома.")

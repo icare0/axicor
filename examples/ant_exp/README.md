@@ -23,7 +23,11 @@ pip install gymnasium[mujoco] numpy
 Generate the brain (layer mapping, axonal Cone Tracing) and compile binary `.state` and `.axons` dumps. The script automatically invokes the `axicor-baker` Rust compiler.
 
 ```bash
+# For NVIDIA / AMD:
 python examples/ant_exp/build_brain.py
+
+# For CPU Fallback (No GPU):
+python examples/ant_exp/build_brain.py --cpu
 ```
 The build artifact will be generated at `Axicor-Models/AntConnectome.axic`.
 
@@ -42,7 +46,7 @@ cargo run --release -p axicor-node --features amd -- Axicor-Models/AntConnectome
 
 **CPU Fallback (No GPU):**
 ```bash
-cargo run --release -p axicor-node -- Axicor-Models/AntConnectome.axic --cpu --log
+cargo run --release -p axicor-node --features axicor-compute/mock-gpu -- Axicor-Models/AntConnectome.axic --cpu --log
 ```
 
 Wait for the `[Node] Bootstrap Successful. Hands-off to NodeRuntime.` message.
@@ -61,3 +65,4 @@ python examples/ant_exp/ant_agent.py
 - **ConnectionResetError (WinError 10054):** Ensure `axicor-node` has successfully finished the `Bootstrap` phase and logged `Hands-off to NodeRuntime` *before* launching the RL-Agent.
 - **Port In Use:** Ensure port `9000` (Fast Path) is available; otherwise, the server will fail to initialize the network stack.
 - **Archive Not Found:** Verify that `build_brain.py` completed successfully and that `Axicor-Models/AntConnectome.axic` exists at the specified path.
+- **Virtual Machine Rendering Error (GLFWError 65542 / WGL):** Standard VM display drivers (like Hyper-V) do not support the OpenGL hardware acceleration required by Mujoco. To run the agent without the 3D window (Headless mode), open `examples/ant_exp/ant_agent.py` and change `env = gym.make("Ant-v4", render_mode="human")` to `render_mode=None`.

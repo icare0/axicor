@@ -59,11 +59,55 @@ Axicor is built on three Data-Oriented Design pillars:
 - **[axicor-node](axicor-node/)** - BSP-lockstep orchestrator, UDP fast-path server, Night Phase daemon.
 - **[axicor-client](axicor-client/)** - Python SDK for RL integration. Zero-garbage UDP client, aligned `memoryview` encoders/decoders.
 
-## Quickstart
+## Quickstart (Windows)
 
-Axicor requires **Rust stable (1.75+)** and **Python 3.10+**. A CUDA-capable GPU or AMD ROCm device is recommended but not required - CPU fallback is shipped in the `mock-gpu` feature.
+Axicor requires **Rust stable (1.75+)**, **Python 3.10/3.11**, and **Visual Studio C++ Build Tools**. A CUDA-capable GPU or AMD ROCm device is recommended but not required — CPU fallback is shipped in the `mock-gpu` feature.
 
-## REFACTORING
+### 1. Prerequisite: C++ Build Tools
+Before running the setup, ensure you have the MSVC compiler installed:
+1. Download [Visual Studio Build Tools](https://visualstudio.microsoft.com/thank-you-downloading-visual-studio/?sku=Community&channel=Stable&version=VS18&source=VSLandingPage&cid=2500&passive=false).
+2. During installation, check **"Desktop development with C++"**.
+
+### 2. Clone & Bootstrap
+Open **PowerShell** and run the following commands. The automated bootstrap script will detect your GPU (CUDA/HIP/CPU), install missing dependencies (Python, Rust, Git) via `winget`, set up the virtual environment, and compile the engine.
+
+```powershell
+# Clone the repository
+cd ~
+git clone https://github.com/H4V1K-dev/axicor.git
+cd axicor
+
+# Run the automated bootstrap script
+# Copy-paste this command into PowerShell:
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+```
+
+### 3. Run the Embodied AI Demo
+
+> **⚠️ IMPORTANT NOTICE:** All commands below (and in the future) MUST be executed from the root of the project directory. When you open a new terminal, always ensure you navigate to the project folder first:
+> ```powershell
+> cd ~/axicor
+> ```
+
+Once the bootstrap completes successfully, it will print the exact commands tailored to your hardware. Open **two terminals** in the `axicor` folder:
+
+**Terminal 1 (Build Brain & Start Node):**
+```powershell
+.venv\Scripts\Activate.ps1
+python examples\ant_exp\build_brain.py  # Add --cpu if you don't have a GPU
+
+# Start the HFT Node (use the exact command provided by setup.ps1 at the end of its run)
+cargo run --release -p axicor-node -- Axicor-Models\AntConnectome.axic --log
+```
+*Wait for `[Node] Bootstrap Successful. Hands-off to NodeRuntime.`*
+
+**Terminal 2 (Start the RL Agent):**
+```powershell
+.venv\Scripts\Activate.ps1
+python examples\ant_exp\ant_agent.py
+```
+
+*Note: If you are running inside a Virtual Machine without OpenGL support, you will get a GLFWError. Open `examples/ant_exp/ant_agent.py` and change `render_mode="human"` to `render_mode=None` to run in headless mode.*
 
 ## Engineering Invariants
 
