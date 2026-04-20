@@ -139,7 +139,7 @@ class ZoneDesigner:
         
         matrix = {
             "matrix_id_v1": {"id": matrix_id},
-            "name": f"{name}_matrix",
+            "name": name,
             "entry_z": entry_z,
             "pin": [] # Serialized as [[input.pin]] in TOML
         }
@@ -182,7 +182,7 @@ class ZoneDesigner:
         
         matrix = {
             "matrix_id_v1": {"id": matrix_id},
-            "name": f"{name}_matrix",
+            "name": name,
             "entry_z": "bottom", # Outputs are usually at the bottom
             "pin": []
         }

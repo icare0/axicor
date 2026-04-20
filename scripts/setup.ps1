@@ -19,7 +19,7 @@ if (-not (Test-Path ".venv")) {
 
 Write-Host "Installing Python dependencies..."
 python -m pip install -q --upgrade pip
-python -m pip install -q numpy==1.26.4 gymnasium==0.29.1 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
+python -m pip install -q numpy==1.26.4 "gymnasium[mujoco]==0.29.1" mujoco==2.3.7 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
 
 # 3. Build Node & Baker in Mock-GPU mode
 Write-Host "Building Axicor Node (Mock-GPU)..." -ForegroundColor Cyan

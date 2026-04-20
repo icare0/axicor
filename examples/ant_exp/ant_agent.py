@@ -1,170 +1,126 @@
-#=============================================================
-#       TEMPORARILY NON-FUNCTIONAL / REQUIRES REFACTORING
-#=============================================================
-
 #!/usr/bin/env python3
 import os
 import sys
 import time
-import gymnasium as gym
 import numpy as np
+import gymnasium as gym
 
+# Добавляем путь к SDK
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "axicor-client")))
 
-from axicor.utils import fnv1a_32
 from axicor.client import AxicorMultiClient
-from axicor.contract import AxicorIoContract
-from axicor.control import AxicorControl
-from axicor.tuner import AxicorAutoTuner, Phase
-from axicor.memory import AxicorMemory
+from axicor.encoders import PopulationEncoder
+from axicor.brain import fnv1a_32
 
-
-# ============================================================
-# HFT & TUNER CONSTANTS
-# ============================================================
+# CONFIG
 EPISODES = 20_000_000
 BATCH_SIZE = 20
-PHISICS_SIMULATION_STEP = 0.002
-ENCODER_SIGMA = 0.2
-
-PHASE_PARAMS = {
-    Phase.EXPLORATION: {
-        'dopamine_reward': 10,
-        'dopamine_pulse': -5,
-        'dopamine_punish': -255,
-        'shock_base': 5,
-        'shock_max_batches': 20,
-    },
-    Phase.DISTILLATION: {
-        'dopamine_reward': 20,
-        'dopamine_pulse': -10,
-        'dopamine_punish': -255,
-        'shock_base': 5,
-        'shock_max_batches': 25,
-    },
-    Phase.CRYSTALLIZED: {
-        'dopamine_reward': 20,
-        'dopamine_pulse': -10,
-        'dopamine_punish': -15,
-        'shock_base': 1,
-        'shock_max_batches': 3,
-    }
-}
+DOPAMINE_REWARD = -2
+DOPAMINE_PUNISHMENT = 255       # Death Signal
+TARGET_SCORE = 50_000           # 50k score
+TARGET_TIME = 10_000            # 10k steps
 
 def run_ant():
-    global BATCH_SIZE
+    env = gym.make("Ant-v4", render_mode="human", max_episode_steps=TARGET_TIME if TARGET_TIME > 0 else 1000)
+    state, _ = env.reset()
     
-    # 1. Auto-connection Contracts
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Axicor-Models/AntConnectome/baked"))
+    # Hashing
+    zone_hash = fnv1a_32(b"SensoryCortex")
+    matrix_hash = fnv1a_32(b"ant_sensors")
     
-    contract_sensory = AxicorIoContract(os.path.join(base_dir, "SensoryCortex"), "SensoryCortex")
-    contract_motor = AxicorIoContract(os.path.join(base_dir, "MotorCortex"), "MotorCortex")
-
-    cfg_in = contract_sensory.get_client_config(BATCH_SIZE)
-    cfg_out = contract_motor.get_client_config(BATCH_SIZE)
-
-    # Client: Send to Sensory, Read only from Motor
+    # [DOD FIX] Stride Alignment: 28 vars * 16 neurons = 448 pixels
+    padded_sensors = 448
+    input_payload_size = (padded_sensors * BATCH_SIZE) // 8
+    
+    # HFT Transport
     client = AxicorMultiClient(
         addr=("127.0.0.1", 8081),
-        matrices=cfg_in["matrices"],
-        rx_layout=cfg_out["rx_layout"],
-        timeout=0.5
+        matrices=[{'zone_hash': zone_hash, 'matrix_hash': matrix_hash, 'payload_size': input_payload_size}]
     )
-
+    
     try:
         client.sock.bind(("0.0.0.0", 8092))
-    except OSError as e:
-        print(f"[ERROR] FATAL: Port 8092 is busy! Kill zombie agents. Error: {e}")
+    except OSError:
         sys.exit(1)
-
-    # 2. DOD Encoder/Decoder Factory
-    # Ant-v4 has 27 variables (padded with 1 zero to 28 for alignment)
-    encoder = contract_sensory.create_population_encoder("ant_sensors", vars_count=28, batch_size=BATCH_SIZE, sigma=ENCODER_SIGMA)
-    decoder = contract_motor.create_pwm_decoder("motor_out", batch_size=BATCH_SIZE)
-
-    control = AxicorControl(os.path.join(base_dir, "MotorCortex", "manifest.toml"))
     
-    tuner = AxicorAutoTuner(
-        control,
-        target_score=3000.0, # Ant can score thousands of points
-        explore_prune=750, explore_night=30_000, explore_sprouts=128,
-        distill_prune=1500, distill_night=150_000, distill_sprouts=16,
-        crystallized_prune=5000, crystallized_night=50_000, crystallized_sprouts=16
-    )
-
-    # Analytics (monitoring only the Motor Cortex)
-    print(" Waiting for MotorCortex Shared Memory initialization...")
-    memory = None
-    for i in range(20):
-        try:
-            memory = AxicorMemory(contract_motor.zone_hash, read_only=False)
-            print("[OK] Telemetry Plane (MotorCortex) connected!")
-            break
-        except Exception:
-            time.sleep(1)
-
-    env = gym.make("Ant-v4", exclude_current_positions_from_observation=False).unwrapped
+    # Encoder
+    encoder = PopulationEncoder(variables_count=27, neurons_per_var=16, batch_size=BATCH_SIZE)
     
-    # 28 normalization variables (27 real + 1 padding)
-    bounds = np.array([[-30.0, 30.0]] * 28, dtype=np.float16)
+    # [DOD FIX] RX Buffer Calibration (MotorCortex only)
+    TOTAL_OUTPUT_PIXELS = 128  # motor_out 16x8
+    EXPECTED_RX_BYTES = TOTAL_OUTPUT_PIXELS * BATCH_SIZE
+    
+    # --- MEMORY PREALLOCATION (Hot Loop Safety) ---
+    total_motor = np.zeros(128, dtype=np.float16)
+    action = np.empty(8, dtype=np.float32)
+    inv_b = np.float16(1.0 / BATCH_SIZE)
+    
+    # Bounds for fast normalization
+    bounds = np.tile([-5.0, 5.0], (27, 1)).astype(np.float16)
     range_diff = bounds[:, 1] - bounds[:, 0]
-
-    episodes, score = 0, 0
     
-    # Preallocation for actions and observations
-    action_buffer = np.zeros(8, dtype=np.float32)
-    obs_padded = np.zeros(28, dtype=np.float16)
-
-    print(f" Starting Axicor DOD Ant Loop (Lockstep BATCH_SIZE={BATCH_SIZE})...")
-    current_params = PHASE_PARAMS[Phase.EXPLORATION]
-
-    state, _ = env.reset()
-
-    while episodes < EPISODES:
-        # [Zero-Garbage Pipeline]
-        # Pad 27 obs -> 28
-        obs_padded[:27] = state[:27]
-        norm_state = np.clip((obs_padded - bounds[:, 0]) / range_diff, 0.0, 1.0)
-
-        # Dopamine injection
-        dopamine_signal = current_params['dopamine_pulse']
-        if score > 0 and score % 20 == 0:
-            dopamine_signal = current_params['dopamine_reward']
-
-        # [DOD FIX] Zero-Allocation Pipeline
-        encoder.encode_into(norm_state, client.payload_views)
-        
-        # Blocking on the barrier
-        rx = client.step(dopamine_signal)
-        
-        # Extract motor spikes
-        total_motor = decoder.decode_from(rx)
-        
-        # 128 motor neurons / 8 joints = 16 neurons per joint
-        # Average population activation (0.0 .. 1.0) and translate to (-1.0 .. 1.0)
-        for i in range(8):
-            group_act = np.mean(total_motor[i*16 : (i+1)*16])
-            action_buffer[i] = (group_act * 2.0) - 1.0
-
-        state, reward, terminated, truncated, _ = env.step(action_buffer)
-        score += reward
-
-        if terminated or truncated:
-            # Death/fall shock
-            shock_batches = current_params['shock_base']
-            for _ in range(shock_batches):
-                client.step(current_params['dopamine_punish'])
-
-            stats = memory.get_network_stats() if memory else {"active_synapses": 0, "avg_weight": 0.0}
+    episodes, score, steps = 0, 0.0, 0
+    terminated, truncated = False, False
+    
+    print(f"🚀 Minimalist DOD Hot Loop Started (Batch={BATCH_SIZE}, TargetScore={TARGET_SCORE}, TargetTime={TARGET_TIME})...")
+    
+    try:
+        while episodes < EPISODES:
+            # Check for Target Time/Score Termination
+            time_reached = (TARGET_TIME > 0 and steps >= TARGET_TIME)
+            score_reached = (TARGET_SCORE >= 1000 and score >= TARGET_SCORE)
             
-            current_phase = tuner.step(score)
-            current_params = PHASE_PARAMS[current_phase]
+            if terminated or truncated or time_reached or score_reached:
+                # [DOD FIX] Death Signal: 15 LTD Batches
+                for _ in range(15):
+                    client.step(DOPAMINE_PUNISHMENT)
+                
+                if time_reached: reason = "Time Reached"
+                elif score_reached: reason = "Score Reached"
+                else: reason = "Terminated"
+                
+                print(f"Ep {episodes:04d} | Score: {score:6.1f} | Steps: {steps:5d} | [{reason}]")
+                
+                episodes += 1
+                state, _ = env.reset()
+                score = 0.0
+                steps = 0
+                terminated, truncated = False, False
+                continue
 
-            print(f"Ep {episodes:04d} | Score: {score:4.0f} | Phase: {current_phase.name:15s} | Synapses (MC): {stats['active_synapses']} | Avg W: {stats['avg_weight']:.1f}")
-
-            state, _ = env.reset()
-            score = 0
-            episodes += 1
+            # 1. Zero-Allocation Normalization
+            norm_state = np.clip((state - bounds[:, 0]) / range_diff, 0.0, 1.0).astype(np.float16)
+            
+            # 2. Encoder with Zero-Cost Payload Views
+            # [DOD FIX] Используем заранее нарезанный zero-copy view без заголовков
+            encoder.encode_into(norm_state, client.payload_views[0])
+            
+            # 3. Genesis Step
+            rx = client.step(DOPAMINE_REWARD, expected_rx_hash=fnv1a_32(b"motor_out"))
+            
+            if len(rx) != EXPECTED_RX_BYTES:
+                print(f"FATAL: RX mismatch {len(rx)} vs {EXPECTED_RX_BYTES}")
+                break
+                
+            # 4. Zero-Copy Decoding
+            raw_bytes = np.frombuffer(rx, dtype=np.uint8)
+            spikes_2d = raw_bytes.reshape((BATCH_SIZE, TOTAL_OUTPUT_PIXELS))
+            
+            # 5. Fast Response Resolution
+            np.sum(spikes_2d, axis=0, dtype=np.float16, out=total_motor)
+            np.multiply(total_motor, inv_b, out=total_motor)
+            
+            # Biceps/Triceps resolution
+            motor_view = total_motor.reshape(8, 16)
+            action[:] = np.sum(motor_view[:, :8], axis=1) - np.sum(motor_view[:, 8:], axis=1)
+            
+            # 6. Physical Step
+            state, reward, terminated, truncated, _ = env.step(action)
+            score += reward
+            steps += 1
+                    
+    finally:
+        env.close()
 
 if __name__ == '__main__':
     run_ant()

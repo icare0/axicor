@@ -68,7 +68,7 @@ struct alignas(64) VariantParameters {
   // ===  6: Pad ( 58..64) ===
   uint8_t d1_affinity;                       // 58..59
   uint8_t d2_affinity;                       // 59..60
-  uint8_t _pad[4];                           // 60..64
+  uint32_t heartbeat_m;                      // 60..64
 };
 }
 
@@ -377,7 +377,8 @@ __global__ void extract_outgoing_spikes_kernel(
       uint32_t head = heads[i];
       
       //    (AXON_SENTINEL = 0x80000000)
-      if (head >= 0x70000000u) continue;
+      // [DOD FIX] Пропускаем только пустой Sentinel. Свежие спайки (0xFFFFFFFF) обязаны пройти барьер.
+      if (head == 0x80000000u) continue;
 
       uint32_t ticks_since_spike = head / v_seg;
 

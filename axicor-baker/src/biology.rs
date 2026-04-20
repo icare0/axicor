@@ -47,7 +47,11 @@ impl From<TomlNeuronType> for VariantParameters {
             _leak_pad: [0; 3],
             d1_affinity: dto.d1_affinity,
             d2_affinity: dto.d2_affinity,
-            _pad: [0; 4],
+            heartbeat_m: if dto.spontaneous_firing_period_ticks > 0 {
+                65536 / dto.spontaneous_firing_period_ticks
+            } else {
+                0
+            },
         }
     }
 }

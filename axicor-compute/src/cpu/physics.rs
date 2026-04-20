@@ -222,8 +222,8 @@ pub unsafe fn cpu_update_neurons(
         let is_glif_spiking = (current_voltage >= eff_thresh) as i32;
 
         // 6.   (Heartbeat DDS)
-        let period = p.spontaneous_firing_period_ticks;
-        let is_heartbeat = if period > 0 && ((current_tick + (tid as u32 * 104729)) % period) == 0 {
+        let phase = ((current_tick as u64) * (p.heartbeat_m as u64) + (tid as u64) * 104729) & 0xFFFF;
+        let is_heartbeat = if p.heartbeat_m > 0 && phase < (p.heartbeat_m as u64) {
             1
         } else {
             0

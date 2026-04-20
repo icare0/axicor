@@ -110,9 +110,13 @@ pub fn build_local_topology_internal(
                             segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
                         }
 
+                        // [DOD FIX] Derived type_idx for Virtual Axons to prevent Neural Silence
+                        // If target_type matches a known type, use its index.
+                        let virtual_type_idx = name_map.get(&pin.target_type).cloned().unwrap_or(0);
+
                         axons.push(GrownAxon {
                             soma_idx: usize::MAX,
-                            type_idx: 0,
+                            type_idx: virtual_type_idx as usize,
                             tip_x: start_x,
                             tip_y: start_y,
                             tip_z: final_z,

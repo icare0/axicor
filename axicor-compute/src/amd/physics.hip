@@ -235,9 +235,8 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
 
   // Spontaneous Firing (Heartbeat) - Branchless period check
-  uint32_t period = p.spontaneous_firing_period_ticks;
-  int32_t is_heartbeat = (period > 0 && ((current_tick + (tid * 104729)) % period) == 0) ? 1 : 0;
-
+  uint32_t phase = ((uint64_t)current_tick * p.heartbeat_m + (uint64_t)tid * 104729) & 0xFFFF;
+  int32_t is_heartbeat = (p.heartbeat_m > 0 && phase < p.heartbeat_m) ? 1 : 0;
   //   (  Heartbeat)
   int32_t final_spike = is_glif_spiking | is_heartbeat;
 
@@ -420,6 +419,8 @@ __global__ void cu_ghost_sync_kernel(
     uint32_t src_axon = src_indices[tid];
     uint32_t dst_ghost = dst_indices[tid];
 
+    if (src_axon == 0x80000000) return; // Аппаратный Early Exit для Sentinel
+
     BurstHeads8 s_h = src_heads[src_axon];
     BurstHeads8 d_h = dst_heads[dst_ghost];
 
@@ -433,7 +434,8 @@ __global__ void cu_ghost_sync_kernel(
         uint32_t head = s_arr[i];
         
         //      
-        if (head >= 0x70000000u) continue;
+        // [DOD FIX] Пропускаем только пустой Sentinel. Свежие спайки (0xFFFFFFFF) обязаны пройти барьер.
+        if (head == 0x80000000u) continue;
 
         uint32_t age = head / v_seg;
         

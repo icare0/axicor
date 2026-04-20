@@ -4,22 +4,11 @@ members = [
     "axicor-baker",
     "axicor-compute",
     "axicor-node",
-    "axicor-lab",
-    "axicor-lab/crates/layout-api",
-    "axicor-lab/plugins/project_explorer",
-    "axicor-lab/plugins/connectome_viewer",
-    "axicor-lab/plugins/node_editor",
-    "axicor-lab/plugins/code_editor",
-    "axicor-lab/plugins/ai_copilot",
-    "axicor-lab/plugins/io_inspector",
-    "axicor-lab/plugins/blueprint_editor",
-    "axicor-lab/plugins/anatomy_slicer",
-    "axicor-lab/plugins/matrix_editor",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
@@ -34,7 +23,7 @@ categories = ["science::neuroscience", "simulation"]
 
 [workspace.dependencies]
 # axicor-core is a local dep for the others
-axicor-core = { version = "0.0.1", path = "axicor-core" }
+axicor-core = { version = "0.1.0", path = "axicor-core" }
 wyhash = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"

@@ -52,7 +52,12 @@ pub fn parse_blueprints(
             _leak_pad: [0; 3],
             d1_affinity: nt.d1_affinity,
             d2_affinity: nt.d2_affinity,
-            _pad: [0; 4],
+            // [DOD FIX] Zero-cost: предвычисляем DDS-фазу при компиляции, чтобы избавить GPU от деления
+            heartbeat_m: if nt.spontaneous_firing_period_ticks > 0 {
+                65536 / nt.spontaneous_firing_period_ticks
+            } else {
+                0
+            },
         };
     }
 

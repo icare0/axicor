@@ -29,11 +29,21 @@ pub struct ManifestVariant {
     pub adaptive_mode: u8,
     pub d1_affinity: u8,
     pub d2_affinity: u8,
+    pub heartbeat_m: u32,
 }
 
 impl ManifestVariant {
     /// Zero-cost conversion to strict C-ABI
     pub fn into_gpu(self) -> crate::layout::VariantParameters {
+        // [DOD FIX] Pre-calculate DDS multiplier if not provided or to ensure sync with Python
+        let m = if self.heartbeat_m > 0 {
+            self.heartbeat_m
+        } else if self.spontaneous_firing_period_ticks > 0 {
+            65536 / self.spontaneous_firing_period_ticks
+        } else {
+            0
+        };
+
         crate::layout::VariantParameters {
             threshold: self.threshold,
             rest_potential: self.rest_potential,
@@ -55,7 +65,7 @@ impl ManifestVariant {
             _leak_pad: [0; 3],
             d1_affinity: self.d1_affinity,
             d2_affinity: self.d2_affinity,
-            _pad: [0; 4],
+            heartbeat_m: m,
         }
     }
 }

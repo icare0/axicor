@@ -58,76 +58,12 @@ Axicor is built on three Data-Oriented Design pillars:
 - **[axicor-baker](axicor-baker/)** - offline topology compiler. Reads TOML "brain DNA", grows axons via cone tracing, emits binary `.state` / `.axons` dumps.
 - **[axicor-node](axicor-node/)** - BSP-lockstep orchestrator, UDP fast-path server, Night Phase daemon.
 - **[axicor-client](axicor-client/)** - Python SDK for RL integration. Zero-garbage UDP client, aligned `memoryview` encoders/decoders.
-- **axicor-lab** - desktop IDE (Bevy + egui) with connectome viewer, blueprint editor, matrix inspector. Experimental.
 
 ## Quickstart
 
 Axicor requires **Rust stable (1.75+)** and **Python 3.10+**. A CUDA-capable GPU or AMD ROCm device is recommended but not required - CPU fallback is shipped in the `mock-gpu` feature.
 
-### Installation
-
-```bash
-git clone https://github.com/H4V1K-dev/Axicor.git
-cd Axicor
-
-# Bootstrap (Linux / macOS)
-./scripts/setup.sh --mock
-
-# Windows PowerShell
-./scripts/setup.ps1 -Mock
-```
-
-Manual setup:
-```bash
-python -m venv .venv
-source .venv/bin/activate             # Windows: .venv\Scripts\activate
-pip install -e axicor-client/
-cargo build --release
-```
-
-### 1. Bake the connectome (CPU)
-
-Compile TOML "brain DNA" into binary C-ABI memory dumps:
-```bash
-cargo run --release -p axicor-baker -- \
-  --brain Axicor-Models/AntConnectome --yes
-```
-
-### 2. Start the reactor (GPU or CPU)
-
-Boot the engine. It maps baked binaries directly into memory and starts the BSP barrier:
-```bash
-# GPU (default, requires nvcc or hipcc at build time)
-cargo run --release -p axicor-node -- Axicor-Models/AntConnectome.axic
-
-# CPU-only fallback
-cargo run --release -p axicor-node --features mock-gpu -- \
-  Axicor-Models/AntConnectome.axic
-```
-
-### 3. Connect from Python
-
-```python
-from axicor.client import AxicorMultiClient
-from axicor.utils import fnv1a_32
-
-client = AxicorMultiClient(
-    addr=("127.0.0.1", 8081),
-    matrices=[{
-        "zone_hash":    fnv1a_32(b"SensoryCortex"),
-        "matrix_hash":  fnv1a_32(b"ant_sensors"),
-        "payload_size": 1120,
-    }],
-    rx_layout=[{
-        "matrix_hash": fnv1a_32(b"motor_out"),
-        "size":        2560,
-    }],
-)
-
-for tick in range(1000):
-    client.payload_views[0].fill(0x55)    # write sensors
-    rx = client.step(reward=1)            # advance one BSP epoch
-```
+## REFACTORING
 
 ## Engineering Invariants
 

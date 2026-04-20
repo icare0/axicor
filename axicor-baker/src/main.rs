@@ -445,6 +445,11 @@ fn serialize_artifacts(
                 adaptive_mode: v.adaptive_mode,
                 d1_affinity: v.d1_affinity,
                 d2_affinity: v.d2_affinity,
+                heartbeat_m: if v.spontaneous_firing_period_ticks > 0 {
+                    65536 / v.spontaneous_firing_period_ticks
+                } else {
+                    0
+                },
             })
             .collect(),
     };

@@ -26,8 +26,17 @@ class AxicorIoContract:
             
         self.data = toml.loads(io_bytes.decode('utf-8'))
         
-        self.inputs = {inp["name"]: inp for inp in self.data.get("input", [])}
-        self.outputs = {out["name"]: out for out in self.data.get("output", [])}
+        # [DOD FIX] SDK must map hashes to physical PIN names, not abstract matrix names.
+        # We index self.inputs/outputs by PIN names for direct L7 resolution.
+        self.inputs = {}
+        for matrix in self.data.get("input", []):
+            for pin in matrix.get("pin", []):
+                self.inputs[pin["name"]] = pin
+
+        self.outputs = {}
+        for matrix in self.data.get("output", []):
+            for pin in matrix.get("pin", []):
+                self.outputs[pin["name"]] = pin
 
     def get_client_config(self, batch_size: int) -> Dict[str, Any]:
         """Returns kwargs for unpacking into AxicorMultiClient."""
@@ -36,7 +45,9 @@ class AxicorIoContract:
 
         # 1. TX: Inputs (Bitmasks)
         for inp in self.inputs.values():
-            designer = IoMatrixDesigner(inp["width"], inp["height"], is_input=True)
+            w = inp.get("width", inp.get("shape", [1])[0])
+            h = inp.get("height", inp.get("shape", [1])[-1])
+            designer = IoMatrixDesigner(w, h, is_input=True)
             matrices.append({
                 "zone_hash": self.zone_hash,
                 "matrix_hash": fnv1a_32(inp["name"].encode('utf-8')),
@@ -46,12 +57,16 @@ class AxicorIoContract:
         # 2. RX: Outputs (Dynamic L7 fragmentation)
         current_offset = 0
         for out in self.outputs.values():
-            designer = IoMatrixDesigner(out["width"], out["height"], is_input=False)
+            w = out.get("width", out.get("shape", [1])[0])
+            h = out.get("height", out.get("shape", [1])[-1])
+            designer = IoMatrixDesigner(w, h, is_input=False)
             chunks = designer.fragment(sync_batch_ticks=batch_size)
             
             for i, chunk in enumerate(chunks):
                 chunk_name = out["name"].encode('utf-8') if len(chunks) == 1 else f"{out['name']}_chunk_{i}".encode('utf-8')
-                chunk_size = chunk["width"] * chunk["height"] * batch_size
+                cw = chunk.get("width", chunk.get("shape", [1])[0])
+                ch = chunk.get("height", chunk.get("shape", [1])[-1])
+                chunk_size = cw * ch * batch_size
                 rx_layout.append({
                     "matrix_hash": fnv1a_32(chunk_name),
                     "offset": current_offset,
@@ -63,27 +78,60 @@ class AxicorIoContract:
 
     def create_population_encoder(self, name: str, vars_count: int, batch_size: int, sigma: float = 0.2) -> PopulationEncoder:
         inp = self.inputs[name]
-        neurons_per_var = (inp["width"] * inp["height"]) // vars_count
+        w = inp.get("width", inp.get("shape", [1])[0])
+        h = inp.get("height", inp.get("shape", [1])[-1])
+        neurons_per_var = (w * h) // vars_count
         return PopulationEncoder(vars_count, neurons_per_var, batch_size, sigma)
 
+    def create_pwm_encoder(self, name: str, batch_size: int) -> PwmEncoder:
+        inp = self.inputs[name]
+        w = inp.get("width", inp.get("shape", [1])[0])
+        h = inp.get("height", inp.get("shape", [1])[-1])
+        return PwmEncoder(w * h, batch_size)
+
     def create_pwm_decoder(self, name: str, batch_size: int) -> PwmDecoder:
-        # Direct match (unfragmented output)
+        # Direct match (unfragmented output or specific chunk)
         if name in self.outputs:
             out = self.outputs[name]
-            return PwmDecoder(out["width"] * out["height"], batch_size)
+            w = out.get("width", out.get("shape", [1])[0])
+            h = out.get("height", out.get("shape", [1])[-1])
+            return PwmDecoder(w * h, batch_size)
         
         # Search for chunks: motor_out -> motor_out_chunk_0, motor_out_chunk_1, ...
         total_neurons = 0
         found = False
         for out_name, out in self.outputs.items():
             if out_name.startswith(name + "_chunk_"):
-                total_neurons += out["width"] * out["height"]
+                w = out.get("width", out.get("shape", [1])[0])
+                h = out.get("height", out.get("shape", [1])[-1])
+                total_neurons += w * h
                 found = True
         
         if not found:
             raise KeyError(f"Output '{name}' not found in contract. Available: {list(self.outputs.keys())}")
         
         return PwmDecoder(total_neurons, batch_size)
+
+    def create_population_decoder(self, name: str, vars_count: int, batch_size: int) -> PopulationDecoder:
+        if name in self.outputs:
+            out = self.outputs[name]
+            w = out.get("width", out.get("shape", [1])[0])
+            h = out.get("height", out.get("shape", [1])[-1])
+            total_neurons = w * h
+        else:
+            total_neurons = 0
+            found = False
+            for out_name, out in self.outputs.items():
+                if out_name.startswith(name + "_chunk_"):
+                    w = out.get("width", out.get("shape", [1])[0])
+                    h = out.get("height", out.get("shape", [1])[-1])
+                    total_neurons += w * h
+                    found = True
+            if not found:
+                 raise KeyError(f"Output '{name}' not found in contract. Available: {list(self.outputs.keys())}")
+
+        neurons_per_var = total_neurons // vars_count
+        return PopulationDecoder(vars_count, neurons_per_var, batch_size)
 
     def create_input_facade(self, name: str, buffer: Any) -> Any:
         """

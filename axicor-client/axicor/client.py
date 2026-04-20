@@ -77,7 +77,7 @@ class AxicorMultiClient:
             
             offset += HEADER_SIZE + size
 
-    def step(self, reward: int = 0) -> memoryview:
+    def step(self, reward: int = 0, expected_rx_hash: int = None) -> memoryview:
         """
         Hot Loop. Zero-Copy L7 Assembler.
         """
@@ -89,12 +89,17 @@ class AxicorMultiClient:
             self.sock.sendto(packet, self.addr)
 
         # 2. RX: Assembler
-        if self.expected_chunks == 0:
+        if self.expected_chunks == 0 and expected_rx_hash is None:
             return self._rx_view[0:0]
 
         chunks_received = 0
+        target_received = False
+        
+        # [DOD FIX] Limit search to 1 target if hash is provided, or all chunks in layout
+        limit = 1 if expected_rx_hash is not None else self.expected_chunks
+
         try:
-            while chunks_received < self.expected_chunks:
+            while (expected_rx_hash is not None and not target_received) or (expected_rx_hash is None and chunks_received < limit):
                 size, _ = self.sock.recvfrom_into(self._udp_buf, MAX_UDP_PAYLOAD)
                 if size < HEADER_SIZE: continue
 
@@ -106,16 +111,32 @@ class AxicorMultiClient:
                 # Strict validation: client only accepts OUTPUTS (GSOO_MAGIC) from the node
                 if magic != GSOO_MAGIC: continue
 
-                # Direct assembly into the arena via mapping
+                # [DOD FIX] If explicit hash requested, ignore everything else
+                if expected_rx_hash is not None:
+                    if m_hash != expected_rx_hash:
+                        continue
+                    
+                    # Target found. If it's in our map, copy it there. 
+                    # If not (dynamic request), we'd need a different buffer, but here we stick to layout.
+                    if m_hash in self._rx_map:
+                        offset, expected_size = self._rx_map[m_hash]
+                        self._rx_view[offset : offset + expected_size] = self._udp_view[HEADER_SIZE : HEADER_SIZE + expected_size]
+                        return self._rx_view[offset : offset + expected_size]
+                    else:
+                        # Return the raw packet payload view if not in layout
+                        return self._udp_view[HEADER_SIZE : size]
+
+                # Direct assembly into the arena via mapping (Standard Layout Mode)
                 if m_hash in self._rx_map:
                     offset, expected_size = self._rx_map[m_hash]
-                    # Copy packet payload into the correct arena location without extra allocations
-                    # Using slicing on pre-allocated memoryview
                     self._rx_view[offset : offset + expected_size] = self._udp_view[HEADER_SIZE : HEADER_SIZE + expected_size]
                     chunks_received += 1
             
             return self._rx_view
             
         except (socket.timeout, TimeoutError):
-            print(f"[WARN] [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
+            if expected_rx_hash is not None:
+                print(f"[WARN] [GenesisClient] UDP Timeout waiting for hash {expected_rx_hash}")
+            else:
+                print(f"[WARN] [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
             return self._rx_view[0:0]

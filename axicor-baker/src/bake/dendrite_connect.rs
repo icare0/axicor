@@ -61,9 +61,10 @@ pub fn connect_dendrites(
 
                 let owner_type_idx = seg_ref.type_idx as usize;
                 let owner_name = &types[owner_type_idx].name;
+                let is_virtual_or_ghost = axons[original_axon_index].soma_idx == usize::MAX;
 
-                // TODO: logic refactoring
-                if !my_type.dendrite_whitelist.is_empty()
+                // [DOD FIX] Virtual/Ghost axons (Sensors/Network) bypass whitelist to ensure zone connectivity
+                if !is_virtual_or_ghost && !my_type.dendrite_whitelist.is_empty()
                     && !my_type.dendrite_whitelist.contains(owner_name)
                 {
                     return;

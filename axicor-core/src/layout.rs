@@ -42,7 +42,7 @@ pub struct VariantParameters {
     // === Block 6: Pad (Offsets 58..64) ===
     pub d1_affinity: u8,
     pub d2_affinity: u8,
-    pub _pad: [u8; 4],
+    pub heartbeat_m: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);

@@ -63,7 +63,7 @@ struct alignas(64) VariantParameters {
 
   uint8_t d1_affinity;                      // 58..59
   uint8_t d2_affinity;                      // 59..60
-  uint8_t _pad[4];                          // 60..64
+  uint32_t heartbeat_m;                     // 60..64
 };
 }
 

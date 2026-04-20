@@ -453,7 +453,7 @@ fn execute_night_phase(
                         axicor_compute::ffi::gpu_memcpy_host_to_device(
                             gpu.vram.ptrs.dendrite_weights as *mut _,
                             workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
-                            dendrites_count * std::mem::size_of::<i16>(),
+                            dendrites_count * std::mem::size_of::<i32>(), // Закон Mass Domain (i32)
                         );
                         axicor_compute::ffi::gpu_memcpy_host_to_device(
                             gpu.vram.ptrs.soma_voltage as *mut _,
