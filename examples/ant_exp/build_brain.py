@@ -96,9 +96,17 @@ def build_ant_connectome():
 
     cargo_cmd = ["cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker"]
     
-    # [DOD FIX] Поддержка CPU-режима (Mock GPU) для виртуалки
-    if "--cpu" in sys.argv:
-        cargo_cmd.extend(["--features", "axicor-compute/mock-gpu"])
+    # [DOD FIX] Zero-Config Hardware Detection. Никаких ручных флагов.
+    import shutil
+    has_cuda = shutil.which("nvcc") is not None
+    has_rocm = shutil.which("hipcc") is not None
+
+    if has_rocm:
+        cargo_cmd.extend(["--features", "amd"])
+    elif not has_cuda:
+        print(" [HW] GPU compilers not found. Forcing CPU Fallback (mock-gpu)...")
+        # Передаем feature для axicor-baker, который пробросит его в axicor-compute
+        cargo_cmd.extend(["--features", "mock-gpu"])
 
     cargo_cmd.extend(["--", "--brain", brain_toml_path, "--clean"])
 

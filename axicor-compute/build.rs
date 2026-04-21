@@ -14,8 +14,8 @@ fn main() {
 
     if cfg!(feature = "amd") {
         if which::which("hipcc").is_err() {
-            println!("cargo:warning=hipcc not found. Skipping native AMD build.");
-            return;
+            // [DOD FIX] Жесткий барьер. Никаких скрытых провалов.
+            panic!("FATAL: hipcc compiler not found, but 'amd' feature is enabled. Check PATH or compile with 'mock-gpu'.");
         }
 
         cc::Build::new()
@@ -30,10 +30,10 @@ fn main() {
             println!("cargo:rustc-link-search=native=/opt/rocm/lib");
         }
         println!("cargo:rustc-link-lib=dylib=amdhip64");
-    } else {
+    } else if !cfg!(feature = "mock-gpu") {
         if which::which("nvcc").is_err() {
-            println!("cargo:warning=nvcc not found. Skipping native CUDA build.");
-            return;
+            // [DOD FIX] Если мы здесь, значит mock-gpu не включен. Требуем CUDA.
+            panic!("FATAL: nvcc compiler not found, and 'mock-gpu' feature is NOT enabled. Either install CUDA Toolkit or build with '--features mock-gpu'.");
         }
 
         cc::Build::new()

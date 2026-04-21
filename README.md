@@ -120,13 +120,21 @@ Axicor makes a handful of deliberate design choices that differ from mainstream 
 
 ## Documentation
 
-Full architectural specification, neuron models, and C-ABI contract reference:
+Full architectural specification, neuron models, and C-ABI contract reference are available in the [Axicor Book](docs/src/SUMMARY.md).
 
-- [Axicor Book](docs/src/) - architectural guide and design specs
-- [C-ABI Contracts](docs/src/reference/c-abi-contracts.md) - `#[repr(C)]` layouts with compile-time static assertions
-- [Baking Pipeline](docs/specs/09_baking_pipeline.md) - TOML DNA -> binary memory dumps
-- [IO Matrix Protocol](docs/specs/08_io_matrix.md) - UDP fast-path encoding
-- [Python SDK](docs/Python-SDK/) - encoder, decoder, and surgery APIs
+**Architecture & Physics:**
+- [Foundations & Philosophy](docs/src/architecture/foundations.md) - Data-Oriented Design and Integer Math constraints.
+- [Neuron Model (GLIF)](docs/src/architecture/neuron-model.md) - Generalized Leaky Integrate-and-Fire math.
+- [Baking Pipeline](docs/src/architecture/baking-pipeline.md) - TOML DNA -> binary memory dumps and axonal Cone Tracing.
+
+**Integration & SDK:**
+- [Python SDK](docs/src/guides/python-sdk.md) - Zero-garbage UDP client, `memoryview` encoders, and surgery APIs.
+- [Brain Builder](docs/src/guides/brain-builder.md) - Python API for generating connectome topologies.
+- [IO Matrix Protocol](docs/src/architecture/io-matrix.md) - UDP fast-path encoding for interacting with the cluster.
+
+**Reference:**
+- [C-ABI Contracts](docs/src/reference/c-abi-contracts.md) - `#[repr(C)]` layouts with compile-time static assertions.
+- [Hardware Backends](docs/src/reference/hardware-backends.md) - CUDA vs AMD HIP implementation details.
 
 ## Community
 
