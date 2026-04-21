@@ -147,20 +147,28 @@ pub fn write_state_blob(
     // Pre-allocate exact size to prevent memory reallocations
     let mut blob = Vec::with_capacity(total_size);
 
-    // [Contract] Strict byte layout sequence according to ShardVramPtrs
-    blob.extend_from_slice(cast_slice(&voltages[..padded_n]));
-    blob.extend_from_slice(cast_slice(&flags[..padded_n]));
-    blob.extend_from_slice(cast_slice(&thresholds[..padded_n]));
-    blob.extend_from_slice(cast_slice(&timers[..padded_n]));
-    blob.extend_from_slice(cast_slice(&soma_to_axon[..padded_n]));
-    blob.extend_from_slice(cast_slice(&dendrite_targets[..padded_n * MAX_DENDRITES]));
-    blob.extend_from_slice(cast_slice(&dendrite_weights[..padded_n * MAX_DENDRITES]));
-    blob.extend_from_slice(cast_slice(&dendrite_timers[..padded_n * MAX_DENDRITES]));
+    // [DOD FIX] C-ABI Warp Alignment Padding for Monolithic DMA
+    macro_rules! push_aligned {
+        ($data:expr) => {
+            blob.extend_from_slice(cast_slice($data));
+            let pad = (64 - (blob.len() % 64)) % 64;
+            blob.extend(std::iter::repeat(0).take(pad));
+        };
+    }
+
+    push_aligned!(&voltages[..padded_n]);
+    push_aligned!(&flags[..padded_n]);
+    push_aligned!(&thresholds[..padded_n]);
+    push_aligned!(&timers[..padded_n]);
+    push_aligned!(&soma_to_axon[..padded_n]);
+    push_aligned!(&dendrite_targets[..padded_n * MAX_DENDRITES]);
+    push_aligned!(&dendrite_weights[..padded_n * MAX_DENDRITES]);
+    push_aligned!(&dendrite_timers[..padded_n * MAX_DENDRITES]);
 
     assert_eq!(
         blob.len(),
         total_size,
-        "FATAL: State blob size mismatch before disk flush"
+        "FATAL: State blob size mismatch before disk flush. Check axicor-compute/src/memory.rs alignment!"
     );
 
     let mut file = File::create(path)?;

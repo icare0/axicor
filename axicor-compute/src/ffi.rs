@@ -46,11 +46,11 @@ unsafe impl Sync for ShardVramPtrs {}
 
 #[cfg_attr(
     all(not(feature = "mock-gpu"), not(feature = "amd")),
-    link(name = "genesis_cuda", kind = "static")
+    link(name = "axicor_cuda", kind = "static")
 )]
 #[cfg_attr(
     all(not(feature = "mock-gpu"), feature = "amd"),
-    link(name = "genesis_amd", kind = "static")
+    link(name = "axicor_amd", kind = "static")
 )]
 extern "C" {
     // =====================================================================

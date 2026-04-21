@@ -191,7 +191,7 @@ pub fn compute_gsop_weight(
 
     // 5. Global Decay coefficient
     let decay = 128i32; // 1.0 in Fixed Point 7
-    let delta = (delta * decay) >> (7 + cooling_shift);
+    let delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
 
     // 6. Apply change and clamp to i32 limits with Headroom
     // 2.14B ceiling leaves room to i32::MAX to prevent wrap-around.
@@ -287,95 +287,70 @@ mod tests {
 
     #[test]
     fn test_gsop_potentiation_basic() {
-        // current_weight=100, dopamine=0, d1_aff=0, d2_aff=0
-        // pot=80, dep=40, inertia=128 (1.0x), dist_to_spike=Some(0) (LTP), burst=128 (1.0x)
-        // delta_pot = (80 * 128 * 128) >> 7 = 80 << 7 / 128 = 80
-        // cooling_shift = 0 >> 4 = 0
-        // delta = 80 >> 0 = 80
-        // decay = (80 * 128) >> 7 = 80
-        // new_abs = 100 + 80 = 180
         assert_eq!(
-            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 128),
+            // [DOD FIX] burst_mult = 1 (Hardware burst_count, not fixed-point)
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 1),
             180
         );
     }
 
     #[test]
     fn test_gsop_depression_basic() {
-        // current_weight=100, dist_to_spike=None (LTD)
-        // delta_dep = (40 * 128 * 128) >> 7 = 40
-        // delta = -40
-        // final_delta = (-40 * 128) >> 7 = -40
-        // new_abs = 100 - 40 = 60
         assert_eq!(
-            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 128),
+            // [DOD FIX] burst_mult = 1
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 1),
             60
         );
     }
 
     #[test]
     fn test_gsop_i32_limits() {
-        // current_weight = -1000000
-        // Must NOT panic.
-        // potentiation (LTP): delta = 80
-        // new_abs = 1000000 + 80 = 1000080 -> sign=-1 -> -1000080
-        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, Some(0), 1);
         assert_eq!(w, -1000080);
 
-        // depression (LTD): delta = -40
-        // new_abs = 1000000 - 40 = 999960 -> sign=-1 -> -999960
-        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, None, 128);
+        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, None, 1);
         assert_eq!(w2, -999960);
     }
 
     #[test]
     fn test_gsop_sign_preservation_negative() {
-        // Negative weight should NEVER become positive (Dale's Law)
-        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 128);
-        assert!(
-            w <= 0,
-            "Dale's Law violated: negative weight became positive: {w}"
-        );
+        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 1);
+        assert!(w <= 0, "Dale's Law violated");
         assert_eq!(w, -460);
     }
 
     #[test]
     fn test_gsop_sign_preservation_depression_to_zero() {
-        // Small negative weight, heavy depression -> should clamp to 0, NOT become positive
-        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, None, 128);
+        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, None, 1);
         assert_eq!(w, 0);
     }
 
     #[test]
     fn test_gsop_clamp_max() {
-        // Large weight + potentiation -> clamp at Headroom limit (2.14B)
-        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, Some(0), 128);
+        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, Some(0), 1);
         assert_eq!(w, 2140000000);
     }
 
     #[test]
     fn test_gsop_inertia_rank_calculation() {
+        // [DOD FIX] Mass Domain >> 27 (1 rank = 134,217,728)
         assert_eq!(inertia_rank(0), 0);
-        assert_eq!(inertia_rank(2047), 0);
-        assert_eq!(inertia_rank(2048), 1);
-        assert_eq!(inertia_rank(4095), 1);
-        assert_eq!(inertia_rank(4096), 2);
-        assert_eq!(inertia_rank(32767), 14);
-        assert_eq!(inertia_rank(40000), 14);
+        assert_eq!(inertia_rank(134_217_727), 0);
+        assert_eq!(inertia_rank(134_217_728), 1);
+        assert_eq!(inertia_rank(268_435_455), 1);
+        assert_eq!(inertia_rank(268_435_456), 2);
+        assert_eq!(inertia_rank(1_879_048_192), 14);
+        assert_eq!(inertia_rank(2_140_000_000), 15);
     }
 
     #[test]
     fn test_gsop_cooling_effect() {
-        // dist_to_spike=64 (cooling_shift = 64>>4 = 4)
-        // delta_pot = 80
-        // delta = 80 >> 4 = 5
-        // decay = (5 * 128) >> (7 + 4) = 5 >> 4 = 0 (due to floor in cooling)
-        // NOTE: With dist=64, delta becomes very small in integer math
-        let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 128);
-        let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 128);
+        // [DOD FIX] burst_mult = 1. Double Cooling shift removed!
+        let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 1);
+        let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 1);
 
         assert!(w_close > w_far);
         assert_eq!(w_close, 1128); // 1000 + 128
-        assert_eq!(w_far, 1000); // 1000 + 0 (cooled down to zero)
+        assert_eq!(w_far, 1008); // 1000 + (128 >> 4) = 1000 + 8
     }
 }

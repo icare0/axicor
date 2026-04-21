@@ -147,7 +147,7 @@ pub fn boot_shard_from_vfs(
 }
 
 impl Bootloader {
-    /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
+    /// Full node bootstrap sequence. Standard "Axicor Sequence" pipeline.
     pub async fn boot_node(
         archive: Arc<axicor_core::vfs::AxicArchive>,
         project_name: &str,

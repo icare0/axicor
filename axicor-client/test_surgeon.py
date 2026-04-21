@@ -11,7 +11,7 @@ def test_surgeon():
     print("--- Testing AxicorSurgeon ---")
     
     # 1. Setup mock memory shards
-    shard_path = "/dev/shm/genesis_shard_test"
+    shard_path = "/dev/shm/axicor_shard_test"
     if not os.path.exists(shard_path):
         # Create a dummy shard if it doesn't exist for testing
         # In a real scenario, we'd use live shards
@@ -20,9 +20,9 @@ def test_surgeon():
         # but the logic is vector-based on numpy arrays.
         
     # Find a real shard to test on
-    shards = [f for f in os.listdir("/dev/shm") if f.startswith("genesis_shard_")]
+    shards = [f for f in os.listdir("/dev/shm") if f.startswith("axicor_shard_")]
     if not shards:
-        print("No active shards found in /dev/shm. Please start genesis-node.")
+        print("No active shards found in /dev/shm. Please start axicor-node.")
         return
 
     zone_hash = int(shards[0].split("_")[-1], 16)

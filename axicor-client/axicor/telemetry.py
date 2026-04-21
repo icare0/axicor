@@ -9,7 +9,7 @@ try:
 except ImportError:
     raise ImportError("Telemetry requires the websockets package (pip install websockets)")
 
-# Contract from axicor-core/src/ipc.rs and genesis-ide/src/telemetry.rs
+# Contract from axicor-core/src/ipc.rs and axicor-lab/src/telemetry.rs
 # 0..4: Magic "SPIK" (0x4B495053)
 # 4..12: Tick (u64)
 # 12..16: Spikes Count (u32)
@@ -32,7 +32,7 @@ class TelemetryListener:
         self._latest_tick = 0
         
         self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="Genesis-Telemetry-Rx")
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="Axicor-Telemetry-Rx")
         self._thread.start()
 
     def _run_loop(self):

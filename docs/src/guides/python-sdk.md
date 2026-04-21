@@ -2,20 +2,20 @@
 
 > Part of the Axicor architecture. High-performance Data-Oriented integration layer.
 
-## 1. Architecture & Philosophy (The Death of OOP)
+## 1. The 10ms Rule & Zero-Garbage Law
 
-The SDK (`axicor-client`) is not a bloated ML library. It is an ultra-thin bridge designed to pump bits into VRAM and back in microseconds, bypassing the Python Global Interpreter Lock (GIL) and generating zero heap garbage.
+The SDK (`axicor-client`) is an ultra-thin, Data-Oriented bridge designed to pump bits into VRAM via Zero-Copy IPC and UDP Fast-Path. High-level abstractions (OOP classes), JSON serialization, and heap allocations inside the hot loop are **strictly prohibited**.
 
-**[INVARIANT] ARCHITECTURAL LAW:** High-level abstractions like `class Neuron`, `class SynapseGroup`, JSON/Protobuf serialization, or blocking REST/gRPC APIs are **STRICTLY PROHIBITED** in the hot loop. All operations rely on flat `numpy.ndarray`, raw `memoryview`, and `struct.pack`. Python acts merely as a low-level memory dispatcher.
-
-### 1.1. The 10ms Budget
-The engine operates with a time quantum of 100 s (1 tick). A standard environment synchronization step (`sync_batch_ticks`) is 100 ticks. This gives your Python agent exactly **10 milliseconds** to complete its cycle:
+Axicor operates on a strict Bulk Synchronous Parallel (BSP) lockstep. A standard environment synchronization step (`sync_batch_ticks`) is 100 ticks (10 ms). Your Python agent has exactly **10 milliseconds** to complete its observation-action loop:
 1. Receive network response (UDP rx).
 2. Compute environment physics (Gymnasium / Mujoco).
 3. Encode new inputs into population codes.
 4. Transmit the pulse back (UDP tx).
 
-Allocating objects or serializing data in this loop will trigger the Garbage Collector (GC), causing a 15-20 ms latency spike and breaking the cluster synchronization barrier.
+**The Zero-Garbage Law:**
+You MUST NOT trigger the Python Garbage Collector (GC) during the hot loop. A single GC pause takes 15-20 ms, which immediately violates the BSP epoch barrier.
+*   **Forbidden:** `np.array()`, `list.append()`, or creating any new Python objects inside `while True`.
+*   **Required:** Pre-allocate all NumPy arrays and network buffers before the loop. Use `memoryview` and in-place operations exclusively (e.g., `np.clip(out=...)`, `np.subtract(out=...)`).
 
 ### 1.2. Strict BSP & Biological Amnesia
 Interaction with the environment relies on **Bulk Synchronous Parallel (BSP)** synchronization (Lockstep).
@@ -149,12 +149,15 @@ target_surgeon.inject_subgraph(payload)
 
 **Monumentalization:** Transplanted weights are artificially maximized to the 15th inertia rank (`abs(w) = 32767`) so the untrained recipient network does not immediately burn the implant via background depression.
 
-**[C-ABI] The Zero-Index Trap:** When parsing `dendrite_targets` via mmap, the surgeon MUST account for the fact that `target == 0` is a hardware Early Exit trigger for the GPU. The real `axon_id` is always shifted by +1.
+**[C-ABI] The Zero-Index Trap:** When parsing `dendrite_targets` via mmap, the surgeon MUST account for the fact that `target == 0` is a hardware Early Exit trigger for the GPU. The real `axon_id` is always shifted by `+1`.
 
 ```python
-# Zero-Cost Unpacking
+# Unpacking from VRAM
 axon_id = (target_packed & 0x00FFFFFF) - 1
 segment_offset = target_packed >> 24
+
+# Packing to VRAM (axon_id must be + 1!)
+target_packed = (segment_offset << 24) | ((axon_id + 1) & 0x00FFFFFF)
 ```
 
-Reading `axon_id` directly without the bitmask and shift will result in an index of `0xFFFFFFFF`, causing a Segmentation Fault on the GPU.
+> **FATAL WARNING:** If you pack `axon_id = -1` (empty slot) with a non-zero `segment_offset` without a strict mask, you will write a non-zero value to VRAM. The GPU will attempt to read an out-of-bounds `axon_id` (`0xFFFFFFFF`), resulting in an immediate Segmentation Fault and crashing the node.

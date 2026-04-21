@@ -294,9 +294,9 @@ Subcortical neuron parameters are based on published electrophysiological measur
 
 ### License
 
-GNM-Library is part of the Axicor project and is distributed under **GPLv3**
-(see root LICENSE). The conversion formulas and resulting neuron blueprints are
-original work; source data is used under the respective providers' terms of use.
+GNM-Library is part of the Axicor project and is dual-licensed under MIT or Apache 2.0.
+The conversion formulas and resulting neuron blueprints are original work; source data 
+is used under the respective providers' terms of use.
 
 ---
 

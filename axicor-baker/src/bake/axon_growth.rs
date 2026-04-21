@@ -716,9 +716,9 @@ mod tests {
     #[test]
     fn test_inject_empty_packets() {
         let positions: Vec<PackedPosition> = vec![];
-        use axicor_core::config::blueprints::GenesisConstantMemory;
+        use axicor_core::config::blueprints::AxicorConstantMemory;
         use axicor_core::layout::VariantParameters;
-        let _empty_const_mem = GenesisConstantMemory {
+        let _empty_const_mem = AxicorConstantMemory {
             variants: [VariantParameters {
                 threshold: 0,
                 rest_potential: 0,

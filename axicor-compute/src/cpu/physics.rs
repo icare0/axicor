@@ -362,7 +362,7 @@ pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, dopamine: i16)
             };
 
             // Fixed Slot Decay = 1.0x
-            delta = (delta * 128) >> 7;
+            delta = (delta * 128) >> 7; // [DOD FIX] Single Spatial Cooling
 
             // 3. Apply & Clamp to Mass Domain Limits
             let mut new_abs = abs_w + delta;

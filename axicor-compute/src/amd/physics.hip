@@ -336,7 +336,7 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int32_t delta = is_active ? (delta_pot >> cooling_shift) : -delta_dep;
 
     int32_t decay = 128;
-    delta = (delta * decay) >> (7 + cooling_shift);
+    delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
 
     int32_t new_abs = abs_w + delta;
     new_abs = new_abs & ~(new_abs >> 31);

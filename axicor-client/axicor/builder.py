@@ -244,7 +244,7 @@ class BrainBuilder:
         self.sim_params = {
             "tick_duration_us": 100,
             "total_ticks": 0,
-            "master_seed": "GENESIS",
+            "master_seed": "AXICOR",
             "voxel_size_um": 25.0,
             "signal_speed_m_s": 0.5,
             "sync_batch_ticks": 100,
@@ -329,7 +329,7 @@ class BrainBuilder:
         [DOD] Strict C-ABI memory cost estimation.
         O(1) calculation of VRAM and /dev/shm consumption prior to TOML generation.
         """
-        report = [f" Genesis Memory Estimator: {self.project_name}"]
+        report = [f" Axicor Memory Estimator: {self.project_name}"]
         total_vram = 0
         total_shm = 0
 
@@ -337,7 +337,7 @@ class BrainBuilder:
             raw_neurons = 0
             cursor_pct = 0.0
 
-            # Reflects logic in genesis-baker/src/bake/neuron_placement.rs
+            # Reflects logic in axicor-baker/src/bake/neuron_placement.rs
             for layer in zone.layers:
                 z_start = int(cursor_pct * zone.vox_z)
                 z_end = min(255, int((cursor_pct + layer.height_pct) * zone.vox_z))

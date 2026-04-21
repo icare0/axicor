@@ -198,6 +198,14 @@ impl ShardEngine {
                                 gpu.vram.padded_n,
                                 gpu.stream,
                             );
+
+                            // [DOD FIX] Zero-Cost Async DMA to Pinned Host Memory
+                            crate::ffi::gpu_memcpy_device_to_host_async(
+                                gpu.telemetry_count_pinned_h as *mut std::ffi::c_void,
+                                gpu.telemetry_count_d as *const std::ffi::c_void,
+                                4,
+                                gpu.stream,
+                            );
                         }
                     }
                 }

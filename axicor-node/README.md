@@ -17,4 +17,4 @@ The distributed simulation runtime for Axicor, acting as the orchestrator for lo
 - **Telemetry Server:** Provides real-time spikes and voltage data via WebSockets.
 
 ## License
-GPL-3.0-or-later
+Dual-licensed under MIT or Apache 2.0.

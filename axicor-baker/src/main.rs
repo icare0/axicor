@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use axicor_baker::{bake, parser, validator};
+use axicor_core::config::blueprints::{AxicorConstantMemory, NeuronType};
 use axicor_core::config::brain::BrainConfig;
 use axicor_core::config::manifest::{ManifestConnection, ModelManifest};
 
@@ -250,8 +251,8 @@ fn establish_ghost_links(
 
 pub struct BakeWorkspace {
     pub sim: axicor_core::config::SimulationConfig,
-    pub const_mem: axicor_core::config::blueprints::GenesisConstantMemory,
-    pub neuron_types: Vec<axicor_core::config::blueprints::NeuronType>,
+    pub const_mem: AxicorConstantMemory,
+    pub neuron_types: Vec<NeuronType>,
     pub name_map: std::collections::HashMap<String, u8>,
     pub anatomy: axicor_core::config::anatomy::AnatomyConfig,
     pub io: axicor_core::config::io::IoConfig,

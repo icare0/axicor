@@ -45,4 +45,4 @@ pip install axicor-client
 ```
 
 ## License
-GPL-3.0-or-later
+Dual-licensed under MIT or Apache 2.0.

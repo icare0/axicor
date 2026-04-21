@@ -313,13 +313,17 @@ fn save_hot_checkpoint(
     let chk_axons = baked_dir.join("shard.axons");
     let tmp_axons = baked_dir.join("shard.axons.tmp");
 
-    // 2. Atomic disk write
-    if std::fs::write(&tmp_state, state_buf).is_ok()
-        && std::fs::write(&tmp_axons, axons_buf).is_ok()
-    {
-        let _ = std::fs::rename(&tmp_state, &chk_state);
-        let _ = std::fs::rename(&tmp_axons, &chk_axons);
-    }
+    // [DOD FIX] Async atomic disk write (Zero-Block Hot Loop)
+    let state_data = state_buf.to_vec();
+    let axons_data = axons_buf.to_vec();
+    std::thread::spawn(move || {
+        if std::fs::write(&tmp_state, state_data).is_ok()
+            && std::fs::write(&tmp_axons, axons_data).is_ok()
+        {
+            let _ = std::fs::rename(&tmp_state, &chk_state);
+            let _ = std::fs::rename(&tmp_axons, &chk_axons);
+        }
+    });
 }
 
 // PHASE 4: Graph maintenance (Night Phase)

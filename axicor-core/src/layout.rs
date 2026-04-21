@@ -93,7 +93,7 @@ pub fn align_to_warp(n: usize) -> usize {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StateFileHeader {
-    pub magic: [u8; 4], // "GSNS" (Genesis State)
+    pub magic: [u8; 4], // "GSNS" (Axicor State)
     pub version: u32,
     pub padded_n: u32,
     pub total_axons: u32,
@@ -133,7 +133,7 @@ const _: () = assert!(std::mem::size_of::<StateFileHeader>() == 16);
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AxonsFileHeader {
-    pub magic: [u8; 4], // "GSAX" (Genesis Axons)
+    pub magic: [u8; 4], // "GSAX" (Axicor Axons)
     pub version: u32,
     pub total_axons: u32,
     pub _padding: u32,

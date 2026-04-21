@@ -8,7 +8,7 @@ MAX_UDP_PAYLOAD = 65507
 HEADER_SIZE = 20
 HEADER_FMT = "<IIIIhH"  # 20 bytes: magic, zone_hash, matrix_hash, size, reward, pad
 GSIO_MAGIC = 0x4F495347
-GSOO_MAGIC = 0x4F4F5347  # Genesis Standard Output
+GSOO_MAGIC = 0x4F4F5347  # Axicor Standard Output
 
 class AxicorMultiClient:
     def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0):
@@ -136,7 +136,7 @@ class AxicorMultiClient:
             
         except (socket.timeout, TimeoutError):
             if expected_rx_hash is not None:
-                print(f"[WARN] [GenesisClient] UDP Timeout waiting for hash {expected_rx_hash}")
+                print(f"[WARN] [AxicorClient] UDP Timeout waiting for hash {expected_rx_hash}")
             else:
-                print(f"[WARN] [GenesisClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
+                print(f"[WARN] [AxicorClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
             return self._rx_view[0:0]

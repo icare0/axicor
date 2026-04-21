@@ -1,12 +1,12 @@
 use crate::parser::{anatomy::Anatomy, simulation::SimulationConfig};
 use anyhow::bail;
-use axicor_core::config::blueprints::GenesisConstantMemory;
+use axicor_core::config::blueprints::AxicorConstantMemory;
 use axicor_core::time::PhysicalMetrics;
 
 /// Launches all configuration checks.
 pub fn validate_all(
     sim: &SimulationConfig,
-    const_mem: &GenesisConstantMemory,
+    const_mem: &AxicorConstantMemory,
     anatomy: &Anatomy,
 ) -> anyhow::Result<()> {
     // [DOD FIX] Hardware limits check
@@ -102,14 +102,14 @@ pub fn distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>
 }
 
 /// Main architecture validator. Called before starting shard baking.
-pub fn run_all_checks(const_mem: &GenesisConstantMemory) -> anyhow::Result<()> {
+pub fn run_all_checks(const_mem: &AxicorConstantMemory) -> anyhow::Result<()> {
     validate_gsop_dead_zones(const_mem);
     check_single_spike_in_flight(const_mem)?;
     Ok(())
 }
 
 /// Invariant check: (potentiation * inertia) >> 7 >= 1
-fn validate_gsop_dead_zones(const_mem: &GenesisConstantMemory) {
+fn validate_gsop_dead_zones(const_mem: &AxicorConstantMemory) {
     for (_type_idx, variant) in const_mem.variants.iter().enumerate() {
         if variant.gsop_potentiation > 0 {
             // Note: inertia_curve is now part of VariantParameters in layout.rs?
@@ -119,7 +119,7 @@ fn validate_gsop_dead_zones(const_mem: &GenesisConstantMemory) {
     }
 }
 
-pub fn check_single_spike_in_flight(const_mem: &GenesisConstantMemory) -> anyhow::Result<()> {
+pub fn check_single_spike_in_flight(const_mem: &AxicorConstantMemory) -> anyhow::Result<()> {
     for (type_idx, variant) in const_mem.variants.iter().enumerate() {
         if variant.signal_propagation_length == 0 && variant.threshold == 0 {
             continue;

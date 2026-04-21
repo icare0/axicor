@@ -2,7 +2,8 @@ import importlib.util
 import sys
 
 # Load builder.py directly
-spec = importlib.util.spec_from_file_location("builder", "genesis/builder.py")
+import os
+spec = importlib.util.spec_from_file_location("builder", os.path.join(os.path.dirname(__file__), "axicor/builder.py"))
 builder = importlib.util.module_from_spec(spec)
 sys.modules["builder"] = builder
 spec.loader.exec_module(builder)

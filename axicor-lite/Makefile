@@ -1,11 +1,11 @@
 CC=g++
 CFLAGS=-I./main -Wall -O3
-TARGET=genesis_lite
+TARGET=axicor_lite
 SRCS=main/main.cpp
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) main/genesis_core.hpp
+$(TARGET): $(SRCS) main/axicor_core.hpp
 	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET)
 
 clean:

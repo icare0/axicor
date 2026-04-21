@@ -224,21 +224,19 @@ pub struct VariantParameters {
 // Replaces your old code, if it was there.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct GenesisConstantMemory {
+pub struct AxicorConstantMemory {
     pub variants: [crate::layout::VariantParameters; 16],
 }
 
 // Determinism guarantees. Compiler will fail here if alignment is broken.
-/*
 const _: () = assert!(
-    std::mem::size_of::<VariantParameters>() == 64,
+    std::mem::size_of::<crate::layout::VariantParameters>() == 64,
     "VariantParameters MUST be exactly 64 bytes for optimal Constant Memory caching"
 );
 const _: () = assert!(
-    std::mem::size_of::<GenesisConstantMemory>() == 1024,
-    "GenesisConstantMemory MUST be exactly 1024 bytes"
+    std::mem::size_of::<AxicorConstantMemory>() == 1024,
+    "AxicorConstantMemory MUST be exactly 1024 bytes for GPU Constant Memory limits"
 );
-*/
 
 // #[cfg(test)]
 // #[path = "test_blueprints.rs"]

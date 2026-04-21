@@ -54,7 +54,12 @@ def run_ant():
     total_motor = np.zeros(128, dtype=np.float16)
     action = np.empty(8, dtype=np.float32)
     inv_b = np.float16(1.0 / BATCH_SIZE)
-    
+
+    # [DOD FIX] Preallocate intermediate buffers for Zero-Garbage math
+    norm_state = np.zeros(27, dtype=np.float16)
+    left_motor_sum = np.zeros(8, dtype=np.float16)
+    right_motor_sum = np.zeros(8, dtype=np.float16)
+
     # Bounds for fast normalization
     bounds = np.tile([-5.0, 5.0], (27, 1)).astype(np.float16)
     range_diff = bounds[:, 1] - bounds[:, 0]
@@ -89,13 +94,15 @@ def run_ant():
                 continue
 
             # 1. Zero-Allocation Normalization
-            norm_state = np.clip((state - bounds[:, 0]) / range_diff, 0.0, 1.0).astype(np.float16)
-            
+            np.subtract(state, bounds[:, 0], out=norm_state, dtype=np.float16)
+            np.divide(norm_state, range_diff, out=norm_state, dtype=np.float16)
+            np.clip(norm_state, 0.0, 1.0, out=norm_state)
+
             # 2. Encoder with Zero-Cost Payload Views
             # [DOD FIX] Используем заранее нарезанный zero-copy view без заголовков
             encoder.encode_into(norm_state, client.payload_views[0])
             
-            # 3. Genesis Step
+            # 3. Axicor Step
             rx = client.step(DOPAMINE_REWARD, expected_rx_hash=fnv1a_32(b"motor_out"))
             
             if len(rx) != EXPECTED_RX_BYTES:
@@ -112,8 +119,10 @@ def run_ant():
             
             # Biceps/Triceps resolution
             motor_view = total_motor.reshape(8, 16)
-            action[:] = np.sum(motor_view[:, :8], axis=1) - np.sum(motor_view[:, 8:], axis=1)
-            
+            np.sum(motor_view[:, :8], axis=1, out=left_motor_sum)
+            np.sum(motor_view[:, 8:], axis=1, out=right_motor_sum)
+            np.subtract(left_motor_sum, right_motor_sum, out=action)
+
             # 6. Physical Step
             state, reward, terminated, truncated, _ = env.step(action)
             score += reward

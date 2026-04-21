@@ -6,10 +6,10 @@ import numpy as np
 from .platform import get_shm_path
 
 class AxicorMemory:
-    # Strict C-ABI v3 (128 bytes) -> genesis-core/src/ipc.rs
+    # Strict C-ABI v3 (128 bytes) -> axicor-core/src/ipc.rs
     SHM_HEADER_FMT = "<IBBHIIIIQIIIIIIIIIII13I"
     SHM_HEADER_SIZE = 128
-    MAGIC = 0x47454E53 # "GENS"
+    MAGIC = 0x41584943  # "AXIC"
 
     def __init__(self, zone_hash: int, read_only: bool = False):
         self.zone_hash = zone_hash
@@ -117,10 +117,12 @@ class AxicorMemory:
         Strict C-ABI Packer (Zero-Index Trap Protection).
         [31..24] segment_offset (8 bit) | [23..0] axon_id + 1 (24 bit)
         """
-        assert np.all(axon_ids >= 0) and np.all(axon_ids <= 0x00FFFFFE), "axon_id out of range (0..16777214)"
+        assert np.all(axon_ids >= -1) and np.all(axon_ids <= 0x00FFFFFE), "axon_id out of range (-1..16777214)"
         assert np.all(segment_offsets >= 0) and np.all(segment_offsets <= 255), "segment_offset out of range (0..255)"
-        
-        return (segment_offsets.astype(np.uint32) << 24) | (axon_ids.astype(np.uint32) + 1)
+
+        # [DOD FIX] Hardware Early Exit Protection. Empty slots must be strictly 0.
+        packed = (segment_offsets.astype(np.uint32) << 24) | (axon_ids.astype(np.int32) + 1).astype(np.uint32)
+        return np.where(axon_ids == -1, np.uint32(0), packed)
 
     @staticmethod
     def unpack_targets(packed_targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

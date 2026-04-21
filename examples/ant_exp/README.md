@@ -58,6 +58,11 @@ In a new terminal, launch the UDP client. The ant will begin erratic movements (
 *Note: We utilize zero-copy buffers via `client.payload_views`. This guarantees microsecond latency, as all memory allocations are completely eliminated within the hot loop.*
 
 ```bash
+# Windows
+.venv\Scripts\Activate.ps1
+# Linux
+source .venv/bin/activate
+
 python examples/ant_exp/ant_agent.py
 ```
 

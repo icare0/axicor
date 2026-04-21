@@ -16,4 +16,4 @@ The offline topology compiler for Axicor, responsible for compiling high-level T
 3. **Deployment:** Load the .axic archive into `axicor-node`.
 
 ## License
-GPL-3.0-or-later
+Dual-licensed under MIT or Apache 2.0.

@@ -15,7 +15,7 @@
 ///   Any state   daemon panics                ERROR
 
 /// Magic number at offset 0 of every SHM segment.
-pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
+pub const SHM_MAGIC: u32 = 0x41584943; // "AXIC"
 
 /// IPC protocol version. Bump on incompatible ShmHeader changes.
 pub const SHM_VERSION: u8 = 3;

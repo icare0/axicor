@@ -3,22 +3,22 @@ use super::*;
 
 #[test]
 fn same_string_same_seed() {
-    let s1 = MasterSeed::from_str("GENESIS_DAEMON_TEST");
-    let s2 = MasterSeed::from_str("GENESIS_DAEMON_TEST");
+    let s1 = MasterSeed::from_str("AXICOR_DAEMON_TEST");
+    let s2 = MasterSeed::from_str("AXICOR_DAEMON_TEST");
     assert_eq!(s1, s2);
 }
 
 #[test]
 fn different_strings_different_seeds() {
-    let s1 = MasterSeed::from_str("GENESIS_DAEMON_TEST");
-    let s2 = MasterSeed::from_str("GENESIS_DAEMON_TEST2");
+    let s1 = MasterSeed::from_str("AXICOR_DAEMON_TEST");
+    let s2 = MasterSeed::from_str("AXICOR_DAEMON_TEST2");
     assert_ne!(s1, s2);
 }
 
 #[test]
 fn messy_string_test() {
     // Random garbage, spaces, Chinese (and others) characters, emojis
-    let messy = "   GENESIS   __ 2026      \n\t_!!   $#@%   ";
+    let messy = "   AXICOR   __ 2026      \n\t_!!   $#@%   ";
     let s = MasterSeed::from_str(messy);
     assert_ne!(s.raw(), 0, "Seed should not be 0 even for messy input");
 
@@ -37,9 +37,9 @@ fn empty_string_handled_safely() {
 
 #[test]
 fn raw_not_equal_to_literal() {
-    // Bug demonstration: old hardcoded "GENESIS" bytes is not "GENESIS" passed through wyhash
+    // Bug demonstration: old hardcoded "AXICOR" bytes is not "AXICOR" passed through wyhash
     let old_hardcode: u64 = 0x47454E455349530;
-    let real_seed = MasterSeed::from_str("GENESIS");
+    let real_seed = MasterSeed::from_str("AXICOR");
     assert_ne!(
         old_hardcode,
         real_seed.raw(),

@@ -48,7 +48,7 @@ fn emulate_gsop_math(
 
     // 5. Global Decay
     let decay = 128i32;
-    let delta = (delta * decay) >> (7 + cooling_shift);
+    let delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
 
     // 6. Clamp
     let mut new_abs = abs_w + delta;

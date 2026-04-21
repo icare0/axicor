@@ -11,7 +11,7 @@ struct alignas(32) BurstHeads8 {
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
 
-// Строго 64 байта (1 кэш-линия L1)
+// Strictly 64 bytes (1 L1 cache line)
 struct alignas(64) VariantParameters {
   int32_t threshold;                        // 0..4
   int32_t rest_potential;                   // 4..8
@@ -38,16 +38,16 @@ struct alignas(64) VariantParameters {
 
   uint8_t d1_affinity;                      // 58..59
   uint8_t d2_affinity;                      // 59..60
-  uint8_t _pad[4];                          // 60..64
+  uint32_t heartbeat_m;                     // 60..64
 };
 
-// Read-Only топология (Мапится из Flash-памяти)
+// Read-Only topology (Mapped from Flash memory)
 struct FlashTopology {
     uint32_t* dendrite_targets;
     uint32_t* soma_to_axon; 
 };
 
-// Hot State (Лежит в 520 KB SRAM)
+// Hot State (Resides in 520 KB SRAM)
 struct SramState {
     uint32_t padded_n;
     uint32_t total_axons;
@@ -58,11 +58,11 @@ struct SramState {
     uint8_t* refractory_timer;
 
     int32_t* dendrite_weights;
-    uint8_t* dendrite_timers; // [DOD FIX] Таймеры синапсов (Columnar)
+    uint8_t* dendrite_timers; // [DOD FIX] Synapse timers (Columnar Layout)
     BurstHeads8* axon_heads;
 };
 
-// [DOD FIX] Заголовок L7 протокола (Spike Batch V2)
+// [DOD FIX] L7 protocol header (Spike Batch V2)
 struct alignas(16) SpikeBatchHeaderV2 {
     uint32_t src_zone_hash;
     uint32_t dst_zone_hash;
@@ -70,22 +70,22 @@ struct alignas(16) SpikeBatchHeaderV2 {
     uint32_t is_last;
 };
 
-// [DOD] Сетевой пакет (Строго 8 байт)
+// [DOD] Network packet (Strictly 8 bytes)
 struct alignas(8) SpikeEvent {
     uint32_t ghost_id;
     uint32_t tick_offset;
 };
 
-// [DOD FIX] Control Plane (Строго 8 байт, алиасинг SpikeEvent)
-#define CTRL_MAGIC_DOPA 0x41504F44 // "DOPA" в Little-Endian
+// [DOD FIX] Control Plane (Strictly 8 bytes, aliasing SpikeEvent)
+#define CTRL_MAGIC_DOPA 0x41504F44 // "DOPA" in Little-Endian
 
 struct alignas(8) ControlPacket {
-    uint32_t magic;     // Обязано быть CTRL_MAGIC_DOPA
-    int16_t dopamine;   // Инъекция R-STDP (-32768..32767)
-    uint16_t _pad;      // Выравнивание до 8 байт
+    uint32_t magic;     // Must be CTRL_MAGIC_DOPA
+    int16_t dopamine;   // R-STDP Injection (-32768..32767)
+    uint16_t _pad;      // Padding to reach 8 bytes
 };
 
-// [DOD] Телеметрия для совместимости с live_dashboard.py (16 bytes: <Ifff)
+// [DOD] Telemetry for live_dashboard.py compatibility (16 bytes: <Ifff)
 struct alignas(16) DashboardFrame {
     uint32_t episode;
     float score;
@@ -97,13 +97,13 @@ struct alignas(16) DashboardFrame {
 
 // [DOD] Zero-Lock SPSC Queue (Core 0 -> Core 1)
 struct alignas(32) LockFreeSpikeQueue {
-    // Разносим head и tail по разным кэш-линиям процессора Xtensa (False Sharing protection)
+    // Segregate head and tail to different Xtensa CPU cache lines (False Sharing protection)
     alignas(32) std::atomic<uint32_t> head{0};
     alignas(32) std::atomic<uint32_t> tail{0};
     SpikeEvent buffer[SPIKE_QUEUE_SIZE];
 
     void clear() {
-        // [DOD FIX] Lock-free сброс: подтягиваем tail к head (Biological Amnesia)
+        // [DOD FIX] Lock-free clear: align tail to head (Biological Amnesia)
         tail.store(head.load(std::memory_order_relaxed), std::memory_order_release);
     }
 
@@ -125,5 +125,5 @@ struct alignas(32) LockFreeSpikeQueue {
     }
 };
 
-// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (Core 1)
+// [DOD FIX] Night Phase: Synapse sorting and pruning (Core 1)
 void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global_prune_threshold);

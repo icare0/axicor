@@ -24,7 +24,7 @@ fn main() {
             .file("src/amd/physics.hip")
             .flag("-O3")
             .flag("--offload-arch=gfx803")
-            .compile("genesis_amd");
+            .compile("axicor_amd");
 
         if cfg!(target_os = "linux") {
             println!("cargo:rustc-link-search=native=/opt/rocm/lib");
@@ -43,7 +43,7 @@ fn main() {
             .flag("-w")
             .file("src/cuda/bindings.cu")
             .file("src/cuda/physics.cu")
-            .compile("genesis_cuda");
+            .compile("axicor_cuda");
 
         println!("cargo:rustc-link-lib=dylib=cudart");
     }

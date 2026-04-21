@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import struct
 
-# [DOD] Genesis-Lite: Distillation Pipeline for ESP32-S3
+# [DOD] Axicor-Lite: Distillation Pipeline for ESP32-S3
 # Desktop .state format (910 bytes per neuron):
 # - voltage: i32 (4)
 # - flags: u8 (1)

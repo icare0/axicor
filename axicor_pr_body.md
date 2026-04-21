@@ -10,7 +10,7 @@ The repository advertises CPU/mock usage, but the actual startup path was broken
 - setup instructions referenced outdated example paths and commands
 
 ## Scope
-- expose `mock-gpu` in `genesis-node` and `genesis-baker`
+- expose `mock-gpu` in `axicor-node` and `axicor-baker`
 - complete mock FFI coverage required by baking/runtime startup
 - harden CPU batch processing against invalid slice bounds
 - auto-select backend in Python builder
@@ -28,11 +28,12 @@ The changes are limited to bootstrap, backend selection, mock backend completene
 
 ## Verification
 ```bash
-cargo build --release -p genesis-node -p genesis-baker --features mock-gpu
+cargo build --release -p axicor-node -p axicor-baker --features mock-gpu
 source .venv/bin/activate
-python examples/cartpole_exp/build_brain.py
-./target/release/genesis-node Axicor-Models/cartpole_exp.axic --cpu --log
-python examples/cartpole_exp/agent.py
+# Example assumes you have brought your own model (BYOM)
+python your_model_dir/build_brain.py
+./target/release/axicor-node Axicor-Models/your_model.axic --cpu --log
+python your_model_dir/agent.py
 ```
 
 ## Notes

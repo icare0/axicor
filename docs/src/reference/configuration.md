@@ -156,7 +156,7 @@ segment_length_voxels = 2
 signal_speed_um_tick = 50
 sync_batch_ticks = 100
 total_ticks = 0
-master_seed = "GENESIS"
+master_seed = "AXICOR"
 axon_growth_max_steps = 500
 ```
 
@@ -171,7 +171,7 @@ Parameters that are "baked" at startup and do not change at runtime:
 | `voxel_size_um` | f32 | 25.0 | Spatial quantum |
 | `signal_speed_um_tick` | u16 | 50 | Calculated at startup. `int` for fast addition. |
 | `max_dendrites` | const | 128 | Hard Constraint. Guarantees memory alignment by 128 bytes (cache lines + warps). |
-| `master_seed` | String | "GENESIS" | Hashed into u64 at startup. |
+| `master_seed` | String | "AXICOR" | Hashed into u64 at startup. |
 
 ### 4.3. Warp Alignment Rule
 **Padding Rule:** The number of active neurons in the shard binary (`.state`) is always padded with dummies to a number multiple of 32.

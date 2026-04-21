@@ -22,7 +22,8 @@ classifiers = [
 dependencies = [
     "numpy>=1.26,<2.0",
     "toml",
-    "opencv-python",
+    "opencv-python-headless",
+    "websockets>=12.0",
 ]
 
 [tool.setuptools.packages.find]

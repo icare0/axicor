@@ -143,3 +143,25 @@ Extracting fired neuron IDs requires global atomic operations. To avoid blocking
 - **Write:** Threads write their IDs in parallel at the computed offsets.
 
 **Result:** Global memory atomic transactions are reduced by a factor of 32.
+
+## Integer Physics & Warp Alignment
+
+The Axicor GPU hot loop contains **ZERO floating-point operations (`f32`/`f64`)**. FPU instructions cause pipeline stalls, divergence across hardware vendors (CUDA vs RDNA), and break bit-exact determinism.
+
+**1. The Mass Domain (Fixed-Point Math):**
+Synaptic weights are stored in VRAM as `i32` (Mass Domain, up to 2.14 billion). Before integration into the membrane voltage, the mass is shifted into the Charge Domain using a zero-cost bitwise shift:
+```c
+// Downscale mass to electrical charge (1 : 65536)
+int32_t charge = (int32_t)dendrite_weights[col_idx] >> 16;
+voltage += charge;
+```
+
+**2. Branchless GSOP (R-STDP):** 
+Learning rules (Potentiation/Depression) are applied without a single if statement to prevent Warp Divergence.
+```c
+// Branchless clamp to 0
+int32_t final_dep = raw_dep & ~(raw_dep >> 31); 
+```
+
+**3. Warp Alignment:** 
+The total number of neurons (`padded_n`) is ALWAYS rounded up to a multiple of 64. This mathematically guarantees that all SoA arrays perfectly align with the L2 Cache Line and the AMD Wavefront, preventing cache thrashing.

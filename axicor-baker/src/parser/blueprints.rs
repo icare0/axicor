@@ -1,10 +1,11 @@
-use axicor_core::config::blueprints::{BlueprintsConfig, GenesisConstantMemory, NeuronType};
+use axicor_core::config::blueprints::{BlueprintsConfig, AxicorConstantMemory, NeuronType};
 use axicor_core::layout::VariantParameters;
 use std::collections::HashMap;
 
+/// Full node bootstrap sequence. Standard "Axicor Sequence" pipeline.
 pub fn parse_blueprints(
     toml_content: &str,
-) -> (GenesisConstantMemory, Vec<NeuronType>, HashMap<String, u8>) {
+) -> (AxicorConstantMemory, Vec<NeuronType>, HashMap<String, u8>) {
     let config =
         BlueprintsConfig::parse(toml_content).expect("Fatal: Failed to parse blueprints.toml");
 
@@ -17,7 +18,7 @@ pub fn parse_blueprints(
         );
     }
 
-    let mut memory = GenesisConstantMemory {
+    let mut memory = AxicorConstantMemory {
         variants: [VariantParameters::default(); 16],
     };
     let mut name_map: HashMap<String, u8> = HashMap::new();

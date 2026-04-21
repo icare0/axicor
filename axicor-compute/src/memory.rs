@@ -6,28 +6,28 @@ use std::ffi::c_void;
 // =============================================================================
 //  SoA Layout Calculator
 //
-//       .state-.
-// baker     .
-// compute      DMA.
+//  Calculates the memory layout for the .state blob to ensure binary 
+//  compatibility between Baker (host) and Compute (GPU) backends.
+//  Enforces strict 64-byte alignment for DMA-friendly PCIe transactions.
 // =============================================================================
 
-///       (Hard Constraint 8).
+/// Maximum number of dendrites per neuron (Hardware Hard Constraint: 128).
 pub const MAX_DENDRITES: usize = 128;
 
-///  (padded_n, total_state_bytes)      .
+/// Calculates (padded_n, total_state_bytes) required for the state allocation.
 ///
-/// **   .state ** (   ShardVramPtrs):
+/// **.state Binary Layout** (Strictly matches ShardVramPtrs field order):
 /// ```text
-/// soma_voltage      [padded_n]             4 B
-/// soma_flags        [padded_n]             1 B
-/// threshold_offset  [padded_n]             4 B
-/// timers            [padded_n]             1 B
-/// soma_to_axon      [padded_n]             4 B
-/// dendrite_targets  [padded_n  128]       4 B
-/// dendrite_weights  [padded_n  128]       2 B
-/// dendrite_timers   [padded_n  128]       1 B
+/// soma_voltage      [padded_n]             4 B (i32)
+/// soma_flags        [padded_n]             1 B (u8)
+/// threshold_offset  [padded_n]             4 B (i32)
+/// timers            [padded_n]             1 B (u8)
+/// soma_to_axon      [padded_n]             4 B (u32)
+/// dendrite_targets  [padded_n * 128]       4 B (u32)
+/// dendrite_weights  [padded_n * 128]       4 B (i32, Mass Domain)
+/// dendrite_timers   [padded_n * 128]       1 B (u8)
 /// ```
-///  `axon_heads`    `.axons`-.
+/// Note: `axon_heads` are stored in a separate .axons blob.
 #[inline]
 pub fn calculate_state_blob_size(neuron_count: usize) -> (usize, usize) {
     let padded_n = align_to_warp(neuron_count);
@@ -41,20 +41,21 @@ pub fn calculate_state_blob_size(neuron_count: usize) -> (usize, usize) {
     let dendrite_weights_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<i32>();
     let dendrite_timers_sz = padded_n * MAX_DENDRITES * std::mem::size_of::<u8>();
 
-    let total = soma_voltage_sz
-        + soma_flags_sz
-        + threshold_sz
-        + timers_sz
-        + soma_to_axon_sz
-        + dendrite_targets_sz
-        + dendrite_weights_sz
-        + dendrite_timers_sz;
+    let mut total = 0;
+    total = (total + soma_voltage_sz + 63) & !63;
+    total = (total + soma_flags_sz + 63) & !63;
+    total = (total + threshold_sz + 63) & !63;
+    total = (total + timers_sz + 63) & !63;
+    total = (total + soma_to_axon_sz + 63) & !63;
+    total = (total + dendrite_targets_sz + 63) & !63;
+    total = (total + dendrite_weights_sz + 63) & !63;
+    total = (total + dendrite_timers_sz + 63) & !63;
 
     (padded_n, total)
 }
 
-///       .state .
-/// ** baker'    compute  DMA pointer arithmetic.**
+/// Offsets within the .state blob for DMA pointer arithmetic.
+/// Used by both Baker and Compute to synchronize memory mapping.
 #[derive(Debug, Clone, Copy)]
 pub struct StateOffsets {
     pub soma_voltage: usize,
@@ -71,21 +72,21 @@ pub struct StateOffsets {
 pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
     let mut off = 0;
     let soma_voltage = off;
-    off += padded_n * 4;
+    off = (off + padded_n * 4 + 63) & !63;
     let soma_flags = off;
-    off += padded_n * 1;
+    off = (off + padded_n * 1 + 63) & !63;
     let threshold_offset = off;
-    off += padded_n * 4;
+    off = (off + padded_n * 4 + 63) & !63;
     let timers = off;
-    off += padded_n * 1;
+    off = (off + padded_n * 1 + 63) & !63;
     let soma_to_axon = off;
-    off += padded_n * 4;
+    off = (off + padded_n * 4 + 63) & !63;
     let dendrite_targets = off;
-    off += padded_n * MAX_DENDRITES * 4;
+    off = (off + padded_n * MAX_DENDRITES * 4 + 63) & !63;
     let dendrite_weights = off;
-    off += padded_n * MAX_DENDRITES * 4;
+    off = (off + padded_n * MAX_DENDRITES * 4 + 63) & !63;
     let dendrite_timers = off;
-    off += padded_n * MAX_DENDRITES * 1;
+    off = (off + padded_n * MAX_DENDRITES * 1 + 63) & !63;
     StateOffsets {
         soma_voltage,
         soma_flags,
@@ -100,13 +101,13 @@ pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
 }
 
 // =============================================================================
-//  VramState   VRAM
+//  VramState - Shard VRAM Lifecycle Manager
 //
-//     GPU-.
-// :
-//   allocate()   cu_allocate_shard ( CUDA  BatchAlloc)
-//   upload()     cu_upload_state_blob (Zero-Copy DMA)
-//   Drop        cu_free_shard
+//  Handles GPU-side memory allocation and DMA synchronization.
+//  Lifecycle:
+//    allocate() -> cu_allocate_shard (Hardware Batch Allocation)
+//    upload()   -> cu_upload_state_blob (Zero-Copy DMA transaction)
+//    Drop       -> cu_free_shard (VRAM reclamation)
 // =============================================================================
 
 pub struct VramState {
@@ -121,7 +122,7 @@ unsafe impl Send for VramState {}
 unsafe impl Sync for VramState {}
 
 impl VramState {
-    ///    .
+    /// Allocates device or host-mocked memory for the entire shard state.
     pub fn allocate(padded_n: u32, total_axons: u32, total_ghosts: u32, use_gpu: bool) -> Self {
         let mut ptrs = ShardVramPtrs {
             soma_voltage: std::ptr::null_mut(),
@@ -162,7 +163,7 @@ impl VramState {
         self.padded_n + self.total_ghosts
     }
 
-    /// Zero-Copy DMA:   .state   VRAM.
+    /// Performs Zero-Copy DMA: uploads the .state blob directly to VRAM.
     pub fn upload_state(&self, flat_blob: &[u8]) {
         let (_, expected) = calculate_state_blob_size(self.padded_n as usize);
         assert_eq!(
@@ -254,10 +255,10 @@ impl Drop for VramState {
 }
 
 // =============================================================================
-//  PinnedBuffer  DMA-ready Memory (Pinned RAM)
+//  PinnedBuffer - DMA-Optimized Memory (Page-Locked RAM)
 //
-//       ,  cudaMemcpyAsync
-//     PCIe.
+//  Essential for high-speed cudaMemcpyAsync operations.
+//  Prevents CPU-side page faults during PCIe transactions.
 // =============================================================================
 
 pub struct PinnedBuffer<T> {

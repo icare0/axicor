@@ -85,7 +85,7 @@ fn main() {
     unsafe { std::ptr::write(mmap.as_mut_ptr() as *mut ShmHeader, header) };
 
     tracing::info!(
-        "[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...",
+        "[Axicor Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...",
         cli.zone_hash,
         shm_len / 1024 / 1024,
         shm_path
@@ -205,7 +205,7 @@ fn build_night_context(
 
     let layer_ranges = compute_layer_ranges(&anatomy, &sim_config);
     let shard_bounds = ShardBounds::from_config(&shard_cfg);
-    let master_seed = axicor_core::seed::MasterSeed::from_str("GENESIS").raw();
+    let master_seed = axicor_core::seed::MasterSeed::from_str("AXICOR").raw();
 
     let manifest_str = std::fs::read_to_string(manifest_path)
         .map_err(|e| tracing::error!("[Daemon] Cannot read manifest.toml: {}", e))
@@ -309,7 +309,7 @@ fn build_night_context(
     let geom_mmap = unsafe { memmap2::MmapMut::map_mut(&geom_file).ok()? };
 
     tracing::info!(
-        "[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})",
+        "[Axicor Daemon] Loaded {} axon geometries (next_ghost_slot_base={})",
         total_axons_max,
         padded_n
     );

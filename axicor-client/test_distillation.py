@@ -43,7 +43,7 @@ def test_distillation():
         # [DOD FIX] Strict C-ABI v2 (64 bytes)
         # <IBBHIIIIQIIIIIIII
         struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
-                         0x47454E53, 2, 0, 0,
+                         0x41584943, 2, 0, 0,
                          PADDED_N, 128, weights_off, targets_off,
                          0, # epoch
                          PADDED_N, # total_axons (set to padded_n for testing)

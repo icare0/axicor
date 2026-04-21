@@ -17,4 +17,4 @@ The foundation crate for the Axicor engine, defining the binary contracts and sh
 - `vfs`: The Axicor Virtual File System for managing baked brain archives (.axic).
 
 ## License
-GPL-3.0-or-later
+Dual-licensed under MIT or Apache 2.0.

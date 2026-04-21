@@ -470,7 +470,7 @@ pub fn run_sprouting_pass(
 pub fn inject_ghost_axons(
     ghost_packets: &[crate::bake::axon_growth::GhostPacket],
     positions: &[PackedPosition],
-    _const_mem: &axicor_core::config::blueprints::GenesisConstantMemory,
+    _const_mem: &axicor_core::config::blueprints::AxicorConstantMemory,
     sim: &crate::parser::simulation::SimulationConfig,
     shard_bounds: &crate::bake::axon_growth::ShardBounds,
     master_seed: u64,

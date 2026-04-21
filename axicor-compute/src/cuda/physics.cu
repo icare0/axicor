@@ -354,7 +354,7 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 
     // 4. Slot Decay neutralized (fixed to 1.0x)
     int32_t decay = 128;
-    delta = (delta * decay) >> (7 + cooling_shift);
+    delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
 
     // 5. Apply & Clamp
     int32_t new_abs = abs_w + delta;

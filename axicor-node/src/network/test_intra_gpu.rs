@@ -10,7 +10,7 @@ mod tests {
     /// Allocate a flat axon-heads buffer on host (via mock gpu_malloc) and
     /// expose it as a *mut u32.
     unsafe fn make_heads(count: usize) -> *mut u32 {
-        let ptr = axicor_compute::ffi::gpu_malloc(count * 4) as *mut u32;
+        let ptr = axicor_compute::ffi::gpu_host_alloc(count * 4) as *mut u32;
         std::ptr::write_bytes(ptr as *mut u8, 0, count * 4);
         ptr
     }
@@ -36,7 +36,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_basic_spike_transfer() {
         unsafe {
             let h0 = make_heads(100);
@@ -62,7 +61,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_fanout_one_to_many() {
         unsafe {
             let h0 = make_heads(100);
@@ -77,13 +75,12 @@ mod tests {
             assert_eq!(get(h1, 51), 99);
             assert_eq!(get(h1, 52), 99);
 
-            axicor_compute::ffi::gpu_free(h0 as *mut _);
-            axicor_compute::ffi::gpu_free(h1 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h0 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h1 as *mut _);
         }
     }
 
     #[test]
-    #[ignore]
     fn test_bidirectional() {
         unsafe {
             let h0 = make_heads(100);
@@ -103,13 +100,12 @@ mod tests {
             assert_eq!(get(h1, 99), 111);
             assert_eq!(get(h0, 98), 222);
 
-            axicor_compute::ffi::gpu_free(h0 as *mut _);
-            axicor_compute::ffi::gpu_free(h1 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h0 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h1 as *mut _);
         }
     }
 
     #[test]
-    #[ignore]
     fn test_empty_channel() {
         unsafe {
             let h0 = make_heads(100);
@@ -123,13 +119,12 @@ mod tests {
             assert_eq!(get(h0, 10), 42);
             assert_eq!(get(h1, 10), 0);
 
-            axicor_compute::ffi::gpu_free(h0 as *mut _);
-            axicor_compute::ffi::gpu_free(h1 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h0 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h1 as *mut _);
         }
     }
 
     #[test]
-    #[ignore]
     fn test_repeated_sync() {
         unsafe {
             let h0 = make_heads(100);
@@ -146,13 +141,12 @@ mod tests {
             manual_sync(&channel, h0, h1);
             assert_eq!(get(h1, 60), 0);
 
-            axicor_compute::ffi::gpu_free(h0 as *mut _);
-            axicor_compute::ffi::gpu_free(h1 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h0 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h1 as *mut _);
         }
     }
 
     #[test]
-    #[ignore]
     fn test_sentinel_propagation() {
         unsafe {
             let h0 = make_heads(100);
@@ -167,8 +161,8 @@ mod tests {
             // Sentinel MUST be faithfully copied  GPU kernel will handle early-exit
             assert_eq!(get(h1, 60), sentinel);
 
-            axicor_compute::ffi::gpu_free(h0 as *mut _);
-            axicor_compute::ffi::gpu_free(h1 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h0 as *mut _);
+            axicor_compute::ffi::gpu_host_free(h1 as *mut _);
         }
     }
 }

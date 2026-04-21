@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h> // Для эмуляции датчика
-#include <algorithm> // Прунинг синапсов
+#include <math.h> // For sensor emulation
+#include <algorithm> // Synapse pruning
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -17,7 +17,7 @@
 #include "lwip/netdb.h"
 #include "esp_partition.h"
 #include "spi_flash_mmap.h"
-#include "genesis_core.hpp"
+#include "axicor_core.hpp"
 
 VariantParameters VARIANT_LUT[2];
 SramState sram;
@@ -26,7 +26,7 @@ std::atomic<int16_t> global_dopamine{0};
 std::atomic<uint32_t> global_tick{0};
 
 spi_device_handle_t tui_spi;
-uint8_t* tui_dma_buffer = nullptr; // [DOD FIX] Объявляем глобально!
+uint8_t* tui_dma_buffer = nullptr; // [DOD FIX] Declare globally!
 
 #define SAFE_CALLOC(n, size) ({ \
     void* ptr = calloc((n), (size)); \
@@ -42,22 +42,22 @@ struct alignas(32) MotorOut {
 
 MotorOut motors;
 
-// [DOD] Глобальный Ring Buffer между ядрами
+// [DOD] Global Ring Buffer between cores
 LockFreeSpikeQueue rx_queue;
 
-void init_brain() { // [DOD FIX] Без аргументов!
-    // 1. Мапим Flash первым делом
+void init_brain() { // [DOD FIX] Zero arguments!
+    // 1. Map Flash memory first
     const esp_partition_t* part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "brain_topo");
     if (!part) { printf("FATAL: Partition 'brain_topo' not found! Did you flash it?\n"); abort(); }
 
     spi_flash_mmap_handle_t mmap_handle;
     const void* map_ptr;
-    // [DOD FIX] Мапим только 1МБ вместо 8МБ, чтобы не исчерпать vaddr range на ESP32
+    // [DOD FIX] Map only 1MB instead of 8MB to prevent vaddr range exhaustion on ESP32
     uint32_t map_size = (part->size > 1024*1024) ? 1024*1024 : part->size;
     esp_err_t err = esp_partition_mmap(part, 0, map_size, ESP_PARTITION_MMAP_DATA, &map_ptr, &mmap_handle);
     if (err != ESP_OK) { printf("FATAL: spi_flash_mmap failed with code %d\n", err); abort(); }
 
-    // 2. Читаем C-ABI Заголовок
+    // 2. Read C-ABI Header
     uint32_t* header = (uint32_t*)map_ptr;
     if (header[0] != 0x4F504F54) { // Magic "TOPO"
         printf("FATAL: Invalid Magic 0x%08X in Flash. Did you run distill_esp32.py?\n", (unsigned int)header[0]); abort();
@@ -68,7 +68,7 @@ void init_brain() { // [DOD FIX] Без аргументов!
     sram.padded_n = num_neurons;
     sram.total_axons = num_neurons;
 
-    // 3. Выделяем SRAM под реальный размер графа
+    // 3. Allocate SRAM for actual graph size
     sram.voltage = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
     sram.flags = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
     sram.threshold_offset = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
@@ -76,20 +76,20 @@ void init_brain() { // [DOD FIX] Без аргументов!
     sram.dendrite_weights = (int32_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int32_t));
     sram.dendrite_timers = (uint8_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint8_t));
     
-    // Выравнивание строго по 32 байтам для векторных инструкций Xtensa
+    // Strict 32-byte alignment for Xtensa SIMD instructions
     sram.axon_heads = (BurstHeads8*)heap_caps_aligned_calloc(
         32, num_neurons, sizeof(BurstHeads8), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
     );
     if (!sram.axon_heads) { printf("FATAL OOM: axon_heads\n"); abort(); }
 
-    // 4. Сдвигаем указатели Flash на 64 байта (пропускаем заголовок)
+    // 4. Shift Flash pointers by 64 bytes (skip header)
     flash.dendrite_targets = (uint32_t*)((uint8_t*)map_ptr + 64);
     uint32_t targets_size_bytes = num_neurons * MAX_DENDRITE_SLOTS * sizeof(uint32_t);
     flash.soma_to_axon = (uint32_t*)((uint8_t*)map_ptr + 64 + targets_size_bytes);
     
     printf("[OK] MMAP Topology loaded from Flash: %d bytes mapped\n", (int)part->size);
 
-    // 5. TUI DMA буфер
+    // 5. TUI DMA buffer
     size_t dma_buf_size = 240 * 10 * 2;
     tui_dma_buffer = (uint8_t*)heap_caps_malloc(dma_buf_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     if (!tui_dma_buffer) { printf("FATAL OOM: TUI DMA\n"); abort(); }
@@ -116,12 +116,12 @@ void init_brain() { // [DOD FIX] Без аргументов!
     VARIANT_LUT[0].d2_affinity = 128;
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
 
-    printf("[BRAIN] Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
+    printf("[BRAIN] Axicor-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
 }
 
 
 // [DOD] Minimal 5x7 Font (ASCII 32-90)
-// Инициализация через массив, совместимый с C++ (без десигнаторов)
+// C++ compatible array initialization (no designators)
 uint8_t font5x7[91][5] = {0};
 
 void init_font() {
@@ -201,12 +201,12 @@ void tui_render_stats_int(uint8_t* buffer, uint32_t tps, int32_t dopamine, uint3
     draw_number(buffer, x, m_r);
 }
 
-// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (Core 1)
+// [DOD FIX] Night Phase: Synapse sorting and pruning (Core 1)
 void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global_prune_threshold) {
     // [DOD FIX] Mass Domain Shift
     int32_t threshold = (int32_t)global_prune_threshold << 16;
     
-    // [DOD FIX] Оптимизация под Columnar Layout (SRAM Locality)
+    // [DOD FIX] Optimization for Columnar Layout (SRAM Locality)
     for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
         for (uint32_t tid = 0; tid < sram.padded_n; tid++) {
             uint32_t col_idx = slot * sram.padded_n + tid;
@@ -214,8 +214,8 @@ void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global
             if (target == 0) continue;
 
             int32_t w = sram.dendrite_weights[col_idx];
-            // [DOD FIX] Обнуляем только SRAM. Flash-память остается неизменной.
-            // Связь структурно жива, но электрически мертва (Amnesia).
+            // [DOD FIX] Clear only SRAM. Flash memory remains intact.
+            // Connection remains structurally alive, but electrically dead (Amnesia).
             if (std::abs((int)w) < threshold) {
                 sram.dendrite_weights[col_idx] = 0;
             }
@@ -232,12 +232,12 @@ void day_phase_task(void *pvParameter) {
 
         uint32_t tick = global_tick.load(std::memory_order_relaxed);
 
-        // [DOD FIX] Сброс burst_count (биты [3:1]) в начале каждого батча (hardware contract sync)
+        // [DOD FIX] Reset burst_count (bits [3:1]) at the start of each batch (hardware contract sync)
         for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
             sram.flags[tid] &= 0xF1;
         }
 
-        // [DOD FIX] Night Phase (каждые 100 тиков) — прунинг и сортировка
+        // [DOD FIX] Night Phase (every 100 ticks) — pruning and sorting
         if (tick % 100 == 0) {
             sort_and_prune_kernel(sram, flash, 15); // Global Prune Threshold = 15
         }
@@ -277,7 +277,7 @@ void day_phase_task(void *pvParameter) {
             uint8_t flags = sram.flags[tid];
             uint8_t variant_id = (flags >> 4) & 0x0F;
             
-            // [DOD FIX] Zero-Copy Read из L1 Cache (Никаких глубоких копий!)
+            // [DOD FIX] Zero-Copy Read from L1 Cache (No deep copies!)
             const VariantParameters& p = VARIANT_LUT[variant_id];
 
             if (sram.refractory_timer[tid] > 0) {
@@ -289,18 +289,18 @@ void day_phase_task(void *pvParameter) {
             int32_t current_voltage = sram.voltage[tid];
             int32_t i_in = 0;
 
-            // [DOD FIX] Выгружаем константу в регистр ДО входа в горячий цикл
+            // [DOD FIX] Load constant to register BEFORE entering hot loop
             uint32_t prop = p.signal_propagation_length;
 
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
 
-                if (target_packed == 0) break; // Аппаратный Early Exit
+                if (target_packed == 0) break; // Hardware Early Exit
 
                 uint32_t seg_idx = target_packed >> 24;
                 uint32_t axon_id = (target_packed & 0x00FFFFFF) - 1;
-                // [DOD FIX] True Zero-Copy Reference. Нет копирования 32 байт!
+                // [DOD FIX] True Zero-Copy Reference. No 32-byte copying!
                 const BurstHeads8& h = sram.axon_heads[axon_id];
 
                 // [DOD FIX] Branchless 8-head Hit Detection (SIMD-like OR)
@@ -353,7 +353,7 @@ void day_phase_task(void *pvParameter) {
 
             sram.voltage[tid] = current_voltage;
 
-            // [DOD FIX] Унифицированный Branchless Flag Update
+            // [DOD FIX] Unified Branchless Flag Update
             uint8_t burst_count = (flags >> 1) & 0x07;
             burst_count += final_spike * (burst_count < 7);
             sram.flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
@@ -372,16 +372,16 @@ void day_phase_task(void *pvParameter) {
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
 
-                // [DOD FIX] Проверка синаптической рефрактерности (O(1) Branchless-friendly)
+                // [DOD FIX] Synaptic refractory check (O(1) Branchless-friendly)
                 if (sram.dendrite_timers[col_idx] > 0) {
                     sram.dendrite_timers[col_idx] -= 1;
-                    continue; // Синапс спит, пропускаем тяжелую математику
+                    continue; // Synapse is sleeping, skip heavy math
                 }
 
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
                 if (target_packed == 0) break;
 
-                // [DOD FIX] Поднимаем чтение веса. Предиктор переходов легко проглотит этот branch.
+                // [DOD FIX] Hoist weight read. Branch predictor easily swallows this.
                 int32_t w = sram.dendrite_weights[col_idx];
                 if (w == 0) continue; 
 
@@ -393,8 +393,8 @@ void day_phase_task(void *pvParameter) {
                 uint32_t prop = p.signal_propagation_length;
 
                 // [DOD FIX] Branchless 8-head Hit Detection
-                // Побитовое ИЛИ (|) запрещает компилятору создавать ветвления (jmp/br).
-                // Все 8 сравнений выполняются линейно.
+                // Bitwise OR (|) prevents compiler from generating branches (jmp/br).
+                // All 8 comparisons are executed linearly.
                 uint32_t is_active = 
                     ((h.h0 - seg_idx) <= prop) |
                     ((h.h1 - seg_idx) <= prop) |
@@ -428,7 +428,7 @@ void day_phase_task(void *pvParameter) {
                 uint8_t burst_count = (flags >> 1) & 0x07;
                 int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
 
-                // [DOD FIX] Умножение до сдвига строго как в CUDA. Нет cooling_shift.
+                // [DOD FIX] Multiplication before shift strictly as in CUDA. No cooling_shift.
                 int32_t delta_pot = (final_pot * inertia * burst_mult) >> 7;
                 int32_t delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
@@ -450,11 +450,11 @@ void day_phase_task(void *pvParameter) {
         int64_t end_time = esp_timer_get_time();
 
         // 4. Record Readout (Motor Cortex)
-        // Если нейрон 254 выстрелил - даем импульс на левый мотор
+        // If neuron 254 fired - pulse left motor
         if (sram.flags[254] & 0x01) {
             motors.left.fetch_add(1, std::memory_order_relaxed);
         }
-        // Если нейрон 255 выстрелил - даем импульс на правый мотор
+        // If neuron 255 fired - pulse right motor
         if (sram.flags[255] & 0x01) {
             motors.right.fetch_add(1, std::memory_order_relaxed);
         }
@@ -520,7 +520,7 @@ void init_hardware() {
         ledc_channel_config(&ledc_ch[i]);
     }
 
-    // [DOD FIX] Zero-Init гарантирует отсутствие проблем с порядком полей в C++
+    // [DOD FIX] Zero-Init prevents issues with C++ field ordering
     spi_bus_config_t buscfg = {};
     buscfg.mosi_io_num = TUI_PIN_MOSI;
     buscfg.miso_io_num = -1;
@@ -554,8 +554,8 @@ int16_t i2c_read_accel_x() {
     return (int16_t)((data[0] << 8) | data[1]);
 }
 
-#define MY_ZONE_HASH 0xDEADBEEF // Заменить на реальный хэш или задать через макрос
-#define SYNC_BATCH_TICKS 20     // Размер батча HFT
+#define MY_ZONE_HASH 0xDEADBEEF // Replace with real hash or define via macro
+#define SYNC_BATCH_TICKS 20     // HFT batch size
 
 // =========================================================
 // CORE 0: Pro Phase (Sensors I2C / PWM Motors / Network)
@@ -584,7 +584,7 @@ void pro_core_task(void *pvParameter) {
         printf("[OK] [Core 0] Wi-Fi initialized.\n");
     }
 
-    // 0. Настройка UDP сокета
+    // 0. Setup UDP socket
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     struct sockaddr_in serv_addr;
     serv_addr.sin_family = AF_INET;
@@ -601,7 +601,7 @@ void pro_core_task(void *pvParameter) {
     static bool trans_in_flight = false;
 
     while (1) {
-        // 1. NON-BLOCKING СЕТЬ (Fast-Path UDP)
+        // 1. NON-BLOCKING NETWORK (Fast-Path UDP)
         uint8_t rx_buffer[1472]; // Max MTU Ethernet
         struct sockaddr_in source_addr;
         socklen_t socklen = sizeof(source_addr);
@@ -615,7 +615,7 @@ void pro_core_task(void *pvParameter) {
                 uint32_t current_epoch = current_tick_sync / SYNC_BATCH_TICKS;
 
                 if (header->epoch > current_epoch) {
-                    // Self-Healing: Сеть ушла вперед. Сбрасываем старый мусор.
+                    // Self-Healing: Network advanced. Drop old garbage.
                     rx_queue.clear();
                     global_tick.store(header->epoch * SYNC_BATCH_TICKS, std::memory_order_release);
                     current_epoch = header->epoch;
@@ -639,15 +639,15 @@ void pro_core_task(void *pvParameter) {
         }
 
         // 2. INTEGER I2C SENSOR & POPULATION ENCODER
-        // Опрашиваем гироскоп (accel_x: -16384 .. +16384)
+        // Poll gyroscope (accel_x: -16384 .. +16384)
         int16_t accel_x = i2c_read_accel_x(); 
         
-        // Переводим в диапазон 0..32768 (Integer Physics)
+        // Normalize to 0..32768 range (Integer Physics)
         int32_t normalized_accel = (int32_t)accel_x + 16384; 
         if (normalized_accel < 0) normalized_accel = 0;
         if (normalized_accel > 32768) normalized_accel = 32768;
         
-        // [DOD FIX] Мапим на 10 рецепторных нейронов (0..9) БЕЗ f32
+        // [DOD FIX] Map to 10 receptor neurons (0..9) WITHOUT f32
         // (normalized_accel * 10) / 32768  ==  (normalized_accel * 10) >> 15
         uint32_t center_id = (normalized_accel * 10) >> 15;
         if (center_id > 9) center_id = 9;
@@ -655,7 +655,7 @@ void pro_core_task(void *pvParameter) {
         SpikeEvent ev = {center_id, 0};
         rx_queue.push(ev);
 
-        // 3. PWM Motor Out (Декодер: rate -> Duty Cycle)
+        // 3. PWM Motor Out (Decoder: rate -> Duty Cycle)
         uint32_t p_left = motors.left.exchange(0, std::memory_order_relaxed);
         uint32_t p_right = motors.right.exchange(0, std::memory_order_relaxed);
         uint32_t duty_left = 400 + (p_left * 8);
@@ -667,19 +667,19 @@ void pro_core_task(void *pvParameter) {
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty_right);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
 
-        // 4. LOCK-FREE TUI & DMA (Раз в 500мс)
+        // 4. LOCK-FREE TUI & DMA (Every 500ms)
         int64_t now = esp_timer_get_time();
         if (now - last_ui_time > 500000) {
             uint32_t dt_us = (uint32_t)(now - last_ui_time);
             uint32_t current_tick_ui = global_tick.load(std::memory_order_relaxed);
             
-            // [DOD FIX] 64-bit Integer Math. НИКАКИХ FLOAT!
+            // [DOD FIX] 64-bit Integer Math. NO FLOATS!
             uint32_t tps_ui = (uint32_t)(((uint64_t)(current_tick_ui - last_ui_tick) * 1000000ULL) / dt_us);
             
             last_ui_tick = current_tick_ui;
             last_ui_time = now;
 
-            // Проверяем статус прошлого кадра
+            // Check previous frame status
             if (trans_in_flight) {
                 spi_transaction_t* ret_trans;
                 if (spi_device_get_trans_result(tui_spi, &ret_trans, 0) == ESP_OK) {
@@ -701,38 +701,38 @@ void pro_core_task(void *pvParameter) {
                 trans.length = 240 * 10 * 2 * 8; // В битах
                 trans.tx_buffer = tui_dma_buffer;
                 
-                // Запуск аппаратного DMA без блокировки ядра
+                // Trigger hardware DMA without core blocking
                 if (spi_device_queue_trans(tui_spi, &trans, 0) == ESP_OK) {
                     trans_in_flight = true;
                 }
             }
         }
 
-        // Если сетевых пакетов не было, отдаем 1 тик (1 мс) ОС, чтобы не вешать Watchdog
-        // В HFT-режиме это предотвращает голодание других задач FreeRTOS
-        // [DOD FIX] Гарантированный возврат кванта планировщику (IDLE0 WDT)
-        // При CONFIG_FREERTOS_HZ=1000 это ровно 1 мс.
+        // If no network packets, yield 1 tick (1ms) to OS to prevent Watchdog timeout
+        // In HFT mode this prevents FreeRTOS task starvation
+        // [DOD FIX] Guaranteed quantum yield to scheduler (IDLE0 WDT)
+        // With CONFIG_FREERTOS_HZ=1000 this is exactly 1ms.
         if (len <= 0) {
-            vTaskDelay(1); // Хардкод 1 тика вместо макроса
+            vTaskDelay(1); // Hardcoded 1 tick instead of macro
         }
         }
         }
 
 
 extern "C" void app_main(void) {
-    // [DOD FIX] Даем UART консоли 2 секунды на подключение, чтобы ловить паники!
+    // [DOD FIX] Allow UART console 2 seconds to connect to catch panics!
     vTaskDelay(pdMS_TO_TICKS(2000));
-    printf("[BOOT] Booting Genesis-Lite on FreeRTOS (Dual-Core)...\n");
+    printf("[BOOT] Booting Axicor-Lite on FreeRTOS (Dual-Core)...\n");
     
-    init_brain(); // Вызов без хардкода!
-    init_font();  // [DOD FIX] Инициализация шрифта
+    init_brain(); // Call without hardcode!
+    init_font();  // [DOD FIX] Font initialization
 
-    // Поднимаем PRO Core (Сеть) на нулевом ядре
+    // Spawn PRO Core (Network) on core 0
     xTaskCreatePinnedToCore(
         pro_core_task, "ProPhase", 4096, NULL, 5, NULL, 0 
     );
 
-    // Поднимаем APP Core (Физика) на первом ядре
+    // Spawn APP Core (Physics) on core 1
     xTaskCreatePinnedToCore(
         day_phase_task, "DayPhase", 8192, NULL, configMAX_PRIORITIES - 1, NULL, 1 
     );

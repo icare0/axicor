@@ -67,3 +67,23 @@ To achieve high-frequency trading (HFT) speeds in the Day Phase, the `axicor-nod
 - Each shard's simulation loop is locked to a dedicated physical CPU core.
 - **[SAFETY]** The `libc::sched_setaffinity` wrapper ensures that the OS scheduler does not migrate the thread to another core, keeping the L1/L2 cache hot for the entire simulation epoch.
 - Network polling and UDP socket reads are isolated on separate cores to prevent I/O blocking from stalling the Integer Physics calculations.
+
+## Strict BSP & Biological Amnesia
+
+Axicor operates on a Bulk Synchronous Parallel (BSP) model. The cluster does not wait for slow nodes or delayed Python agents. 
+
+**The Biological Amnesia Law:**
+Every UDP packet on the Fast-Path contains an `epoch` counter (`SpikeBatchHeaderV2.epoch`). If a packet arrives with an `epoch < current_epoch`, the orchestrator SILENTLY DROPS it. The engine prioritizes the causality of the physics over data completeness. Late data is dead data.
+
+## Self-Healing & RCU Routing
+
+The cluster topology is dynamic and uses Read-Copy-Update (RCU) for Zero-Lock routing table swaps.
+
+**1. Dynamic Routing (RCU):**
+When a node joins or changes address, it broadcasts a `ROUT_MAGIC` (0x54554F52) packet containing a `RouteUpdate` struct. The orchestrator's Egress router performs an O(1) atomic pointer swap of the routing table (`Arc<RoutingTable>`). No mutexes block the hot loop.
+
+**2. The Great Resurrection:**
+If a node is isolated (BSP timeout > 500ms), it is considered dead. Upon restart, the Orchestrator initiates a Resurrection:
+- Re-allocates VRAM.
+- Restores the Hot State from `/dev/shm/*.shadow` using Zero-Copy `cudaMemcpyAsync`.
+- Enters a 100-tick Warmup loop to stabilize membrane voltages before joining the active epoch.

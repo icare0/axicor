@@ -198,12 +198,12 @@ Without this, debugging a distributed system is impossible. A "floating bug" on 
 ### 2.1. Configuration
 
 - **Parameter:** `master_seed` (String) in `simulation.toml`.
-- **String Type:** The string is hashed into u64 at startup. This does not affect performance (one-time operation), but allows using readable seeds: "GENESIS", "HELLO_WORLD", "DEBUG_RUN_42". (Note: The default engine seed remains "GENESIS" for compatibility).
+- **String Type:** The string is hashed into u64 at startup. This does not affect performance (one-time operation), but allows using readable seeds: "AXICOR", "HELLO_WORLD", "DEBUG_RUN_42". (Note: The default engine seed remains "AXICOR" for compatibility).
 - **Rule:** This is the only entropy entry point. There must be no `time(NULL)`, `std::random_device`, or `SystemTime::now()` in the code.
 
 ```toml
 [simulation]
-master_seed = "GENESIS"
+master_seed = "AXICOR"
 ```
 
 ### 2.2. Implementation (Stateless Hashing)

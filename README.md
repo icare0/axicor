@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./LOGO.svg" height="512" alt="Axicor Logo">
-  <h1>Axicor Engine</h1>
-  <p><strong>Neuromorphic Computing Engine - SNN AI architecture inspired by biology.</strong></p>
+  <h1>Axicor 0.1.0 Public</h1>
+  <p><strong>Neuromorphic Computing Engine. SNN AI Architecture base from biology.</strong></p>
 
   <p>
     <a href="https://github.com/H4V1K-dev/Axicor/actions/workflows/ci.yml"><img src="https://github.com/H4V1K-dev/Axicor/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -84,11 +84,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 
 ### 3. Run the Embodied AI Demo
 
-> **⚠️ IMPORTANT NOTICE:** All commands below (and in the future) MUST be executed from the root of the project directory. When you open a new terminal, always ensure you navigate to the project folder first:
-> ```powershell
-> cd ~/axicor
-> ```
-
 Once the bootstrap completes successfully, it will print the exact commands tailored to your hardware. Open **two terminals** in the `axicor` folder:
 
 **Terminal 1 (Build Brain & Start Node):**
@@ -108,6 +103,47 @@ python examples\ant_exp\ant_agent.py
 ```
 
 *Note: If you are running inside a Virtual Machine without OpenGL support, you will get a GLFWError. Open `examples/ant_exp/ant_agent.py` and change `render_mode="human"` to `render_mode=None` to run in headless mode.*
+
+## Quickstart (Linux)
+
+Tested on **Debian 13 (Trixie)**. The automated bootstrap script handles Rust, Python (via `uv`), and C-ABI dependencies.
+
+### 1. Install Base Dependencies
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl
+```
+*Note: If you just started your VM, wait 1-2 minutes before running to avoid `apt` lock errors.*
+
+### 2. Clone & Bootstrap
+```bash
+git clone https://github.com/H4V1K-dev/axicor.git
+cd axicor
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+```
+
+### 3. Build & Launch Node (New Terminal)
+Ensure you use a **new terminal** session to pick up the updated `$PATH` (Cargo/Rust).
+```bash
+cd axicor
+source .venv/bin/activate
+python3 examples/ant_exp/build_brain.py
+cargo run --release -p axicor-node --features axicor-compute/mock-gpu -- Axicor-Models/AntConnectome.axic --log
+```
+
+### 4. Run RL Agent (Second New Terminal)
+```bash
+cd axicor
+source .venv/bin/activate
+python3 examples/ant_exp/ant_agent.py
+```
+*Note: If you are running inside a Virtual Machine without OpenGL support, open `examples/ant_exp/ant_agent.py` and change `render_mode="human"` to `render_mode=None` to run in headless mode.*
+
+> **⚠️ IMPORTANT NOTICE:** All commands above MUST be executed from the root of the project directory. When you open a new terminal, always ensure you navigate to the project folder first:
+> ```bash
+> cd ~/axicor
+> ```
 
 ## Engineering Invariants
 

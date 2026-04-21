@@ -5,7 +5,7 @@ use crate::bake::dendrite_connect::connect_dendrites;
 use crate::bake::layout::{CompiledShard, ShardSoA};
 use crate::bake::neuron_placement::generate_placement_from_config;
 use axicor_core::config::{
-    anatomy::AnatomyConfig, blueprints::GenesisConstantMemory, blueprints::NeuronType,
+    anatomy::AnatomyConfig, blueprints::AxicorConstantMemory, blueprints::NeuronType,
     io::IoConfig, InstanceConfig, SimulationConfig,
 };
 use axicor_core::types::PackedPosition;
@@ -19,7 +19,7 @@ pub fn build_local_topology_internal(
     anatomy: &AnatomyConfig,
     shard_cfg: &InstanceConfig,
     neuron_types: &[NeuronType],
-    const_mem: &GenesisConstantMemory,
+    const_mem: &AxicorConstantMemory,
     name_map: &HashMap<String, u8>,
     io: &IoConfig,
     zone_name: &str,

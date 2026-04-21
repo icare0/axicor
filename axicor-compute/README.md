@@ -16,4 +16,4 @@ The hardware acceleration layer for the Axicor engine, providing highly optimize
 - `mock-gpu`: A CPU-based mock implementation for CI/CD and development without physical GPUs.
 
 ## License
-GPL-3.0-or-later
+Dual-licensed under MIT or Apache 2.0.
