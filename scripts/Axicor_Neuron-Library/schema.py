@@ -41,7 +41,7 @@ def generate_scaffold(name: str, is_inhibitory: bool) -> Dict[str, Any]:
     }
 
 def init_catalog_dir():
-    base_dir = Path(__file__).parent / "GNM-Library"
+    base_dir = Path(__file__).parent.parent.parent / "Axicor_Neuron-Lib"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
 

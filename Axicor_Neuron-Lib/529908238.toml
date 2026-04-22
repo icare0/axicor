@@ -1,0 +1,23 @@
+[[neuron_type]]
+name = "ITG_529908238"
+threshold = -38281
+rest_potential = -72669
+leak_shift = 8
+homeostasis_penalty = 0
+spontaneous_firing_period_ticks = 0
+initial_synapse_weight = 1000
+gsop_potentiation = 0
+gsop_depression = 0
+homeostasis_decay = 0
+refractory_period = 10
+synapse_refractory_period = 15
+signal_propagation_length = 20
+is_inhibitory = false
+inertia_curve = [ 0, 0, 0, 0, 0, 0, 0, 0,]
+ahp_amplitude = 5000
+adaptive_leak_min_shift = 6
+adaptive_leak_gain = 0
+adaptive_mode = 0
+d1_affinity = 192
+d2_affinity = 128
+

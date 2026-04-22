@@ -86,3 +86,4 @@ copilot.local.toml
 .layout.toml
 .brain.tmp.toml
 .simulation.tmp.toml
+scripts/Axicor_Neuron-Library/raw_data/

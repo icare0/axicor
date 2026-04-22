@@ -74,7 +74,7 @@ def run_ingestion():
         
         v_rest_mv = float(row['vrest'])
         v_thresh_mv = float(row['threshold_v_long_square'])
-        tau_ms = float(row['tau']) * 1000.0 # Convert seconds to ms
+        tau_ms = float(row['tau']) # Allen SDK tau is already in ms # Convert seconds to ms
         rheobase_pa = float(row['threshold_i_long_square'])
         
         # Inter-spike interval to Frequency (Hz)
