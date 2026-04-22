@@ -48,7 +48,7 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h, uint32_t v_seg) 
 struct alignas(64) VariantParameters {
   int32_t threshold;                        // 0..4
   int32_t rest_potential;                   // 4..8
-  int32_t leak_rate;                        // 8..12
+  uint32_t leak_shift;                      // 8..12
   int32_t homeostasis_penalty;              // 12..16
   uint32_t spontaneous_firing_period_ticks; // 16..20
 
@@ -62,16 +62,18 @@ struct alignas(64) VariantParameters {
   uint8_t signal_propagation_length;        // 30..31
   uint8_t is_inhibitory;                    // 31..32
 
-  uint8_t inertia_curve[16];                // 32..48
+  uint8_t inertia_curve[8];                 // 32..40
+  uint16_t ahp_amplitude;                   // 40..42
+  uint8_t _pad_ahp[6];                      // 42..48
 
-  int32_t adaptive_leak_max;                // 48..52
+  int32_t adaptive_leak_min_shift;          // 48..52
   uint16_t adaptive_leak_gain;              // 52..54
   uint8_t adaptive_mode;                    // 54..55
   uint8_t _leak_pad[3];                     // 55..58
 
   uint8_t d1_affinity;                      // 58..59
   uint8_t d2_affinity;                      // 59..60
-  uint8_t _pad[4];                          // 60..64
+  uint32_t heartbeat_m;                     // 60..64
 };
 
 //   . Rust      .
@@ -212,27 +214,21 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t decayed = thresh_offset - p.homeostasis_decay;
   thresh_offset = decayed & ~(decayed >> 31);
 
-  // 4. Adaptive GLIF Leak (Linear subtraction per user spec)
-  int32_t current_leak = p.leak_rate;
+  // Adaptive GLIF Leak
+  uint32_t current_shift = p.leak_shift;
   if (p.adaptive_mode == 1) {
-    int32_t adaptive_add = (thresh_offset * p.adaptive_leak_gain) >> 8;
-    current_leak += adaptive_add;
-
-    int32_t over = current_leak - p.adaptive_leak_max;
-    current_leak -= over & ~(over >> 31);
+    int32_t adaptive_sub = (thresh_offset * p.adaptive_leak_gain) >> 8;
+    int32_t new_shift = (int32_t)current_shift - adaptive_sub;
+    int32_t lower_bound = p.adaptive_leak_min_shift;
+    new_shift = (new_shift < lower_bound) ? lower_bound : new_shift;
+    current_shift = (new_shift < 0) ? 0 : (uint32_t)new_shift;
   }
 
-  current_voltage += i_in; //   
+  current_voltage += i_in; 
+
+  // Shift-based Exponential Leak (Branchless)
   int32_t diff = current_voltage - p.rest_potential;
-  int32_t sign = (diff > 0) - (diff < 0);
-  int32_t abs_diff = diff * sign;
-
-  //      !
-  int32_t leaked_abs = abs_diff - current_leak;
-  leaked_abs = leaked_abs & ~(leaked_abs >> 31);
-
-  //       
-  current_voltage = p.rest_potential + (sign * leaked_abs);
+  current_voltage -= (diff >> current_shift);
 
   int32_t effective_threshold = p.threshold + thresh_offset;
   int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
@@ -243,8 +239,9 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   //   (  Heartbeat)
   int32_t final_spike = is_glif_spiking | is_heartbeat;
 
-  //       GLIF-
-  current_voltage = is_glif_spiking * p.rest_potential + (1 - is_glif_spiking) * current_voltage;
+  // AHP: Сброс мембраны с undershoot
+  int32_t reset_v = p.rest_potential - (int32_t)p.ahp_amplitude;
+  current_voltage = is_glif_spiking * reset_v + (1 - is_glif_spiking) * current_voltage;
   thresh_offset += is_glif_spiking * p.homeostasis_penalty;
   uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
 
@@ -316,8 +313,8 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int16_t sign = (w >= 0) ? 1 : -1;
     int32_t abs_w = (w >= 0) ? w : -w;
 
-    int32_t rank = abs_w >> 27;
-    if (rank > 15) rank = 15;
+    int32_t rank = abs_w >> 28;
+    if (rank > 7) rank = 7;
     int32_t inertia = p.inertia_curve[rank];
 
     // Dopamine modulation (D1 boosts LTP, D2 suppresses LTD on reward)

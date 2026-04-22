@@ -439,7 +439,7 @@ fn serialize_artifacts(
                 name: format!("Variant_{}", i),
                 threshold: v.threshold,
                 rest_potential: v.rest_potential,
-                leak_rate: v.leak_rate,
+                leak_shift: v.leak_shift, // [DOD FIX]
                 homeostasis_penalty: v.homeostasis_penalty,
                 spontaneous_firing_period_ticks: v.spontaneous_firing_period_ticks,
                 initial_synapse_weight: v.initial_synapse_weight,
@@ -450,14 +450,9 @@ fn serialize_artifacts(
                 synapse_refractory_period: v.synapse_refractory_period,
                 signal_propagation_length: v.signal_propagation_length,
                 is_inhibitory: v.is_inhibitory != 0,
-                inertia_curve: {
-                    let mut curve = [0u8; 16];
-                    for (i, &val) in v.inertia_curve.iter().enumerate().take(16) {
-                        curve[i] = val;
-                    }
-                    curve
-                },
-                adaptive_leak_max: v.adaptive_leak_max,
+                inertia_curve: v.inertia_curve, // [DOD FIX] Direct copy of [u8; 8]
+                ahp_amplitude: v.ahp_amplitude, // [DOD FIX]
+                adaptive_leak_min_shift: v.adaptive_leak_min_shift, // [DOD FIX]
                 adaptive_leak_gain: v.adaptive_leak_gain,
                 adaptive_mode: v.adaptive_mode,
                 d1_affinity: v.d1_affinity,

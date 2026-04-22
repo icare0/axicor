@@ -213,15 +213,23 @@ pub unsafe fn cpu_update_neurons(
         let decayed = thresh_offset - p.homeostasis_decay as i32;
         thresh_offset = decayed & !(decayed >> 31); // Branchless max(0, val)
 
-        // 5. GLIF  (Branchless clamp)
-        let diff = current_voltage - p.rest_potential;
-        let sign = (diff > 0) as i32 - (diff < 0) as i32;
-        let abs_mask = diff >> 31;
-        let mut leaked_abs = (diff ^ abs_mask).wrapping_sub(abs_mask) - p.leak_rate;
-        leaked_abs &= !(leaked_abs >> 31);
-        current_voltage = p.rest_potential + (sign * leaked_abs);
+        // 5. Adaptive GLIF Leak
+        let mut current_shift = p.leak_shift;
+        if p.adaptive_mode == 1 {
+            let adaptive_sub = (thresh_offset * (p.adaptive_leak_gain as i32)) >> 8;
+            let mut new_shift = (current_shift as i32) - adaptive_sub;
+            let lower_bound = p.adaptive_leak_min_shift;
+            if new_shift < lower_bound {
+                new_shift = lower_bound;
+            }
+            current_shift = if new_shift < 0 { 0 } else { new_shift as u32 };
+        }
 
         current_voltage += i_in;
+
+        // Shift-based Exponential Leak (Branchless)
+        let diff = current_voltage - p.rest_potential;
+        current_voltage -= diff >> current_shift;
 
         let eff_thresh = p.threshold + thresh_offset;
         let is_glif_spiking = (current_voltage >= eff_thresh) as i32;
@@ -236,8 +244,9 @@ pub unsafe fn cpu_update_neurons(
 
         let final_spike = is_glif_spiking | is_heartbeat;
 
-        // 7.
-        current_voltage = final_spike * p.rest_potential + (1 - final_spike) * current_voltage;
+        // 7. AHP: Сброс мембраны с undershoot
+        let reset_v = p.rest_potential - (p.ahp_amplitude as i32);
+        current_voltage = final_spike * reset_v + (1 - final_spike) * current_voltage;
         thresh_offset += final_spike * p.homeostasis_penalty;
         *timer_ptr =
             (final_spike * p.refractory_period as i32 + (1 - final_spike) * timer as i32) as u8;
@@ -339,9 +348,9 @@ pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, dopamine: i16)
             let abs_w = w.abs();
 
             // 1. Inertia Rank (1 , Branchless)
-            let mut rank = (abs_w >> 27) as usize;
-            if rank > 15 {
-                rank = 15;
+            let mut rank = (abs_w >> 28) as usize;
+            if rank > 7 {
+                rank = 7;
             }
             let inertia = p.inertia_curve[rank] as i32;
 
@@ -469,7 +478,7 @@ mod tests {
             let mut p = VariantParameters::default();
             p.threshold = 100;
             p.rest_potential = 0;
-            p.leak_rate = 0;
+            p.leak_shift = 0;
             p.refractory_period = 5;
             p.homeostasis_penalty = 50;
 

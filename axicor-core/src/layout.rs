@@ -14,7 +14,7 @@ pub struct VariantParameters {
     // === Block 1: 32-bit (Offsets 0..20) ===
     pub threshold: i32,
     pub rest_potential: i32,
-    pub leak_rate: i32,
+    pub leak_shift: u32,
     pub homeostasis_penalty: i32,
     pub spontaneous_firing_period_ticks: u32,
 
@@ -31,13 +31,15 @@ pub struct VariantParameters {
     pub is_inhibitory: u8, // 1 = true (GABA), 0 = false (Glu)
 
     // === Block 4: Arrays (Offsets 32..48) ===
-    pub inertia_curve: [u8; 16],
+    pub inertia_curve: [u8; 8],
+    pub ahp_amplitude: u16,
+    pub _pad: [u8; 6],
 
     // === Block 5: Adaptive Leak Hardware (Offsets 48..58) ===
-    pub adaptive_leak_max: i32,    // 48..52
-    pub adaptive_leak_gain: u16,   // 52..54
-    pub adaptive_mode: u8,         // 54..55
-    pub _leak_pad: [u8; 3],        // 55..58
+    pub adaptive_leak_min_shift: i32, // 48..52
+    pub adaptive_leak_gain: u16,      // 52..54
+    pub adaptive_mode: u8,            // 54..55
+    pub _leak_pad: [u8; 3],           // 55..58
 
     // === Block 6: Pad (Offsets 58..64) ===
     pub d1_affinity: u8,

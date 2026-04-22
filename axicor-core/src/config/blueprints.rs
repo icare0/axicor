@@ -17,7 +17,7 @@ pub struct NeuronType {
     // --- Membrane Parameters (i32, microVolts) ---
     pub threshold: i32,
     pub rest_potential: i32,
-    pub leak_rate: i32,
+    pub leak_shift: u32,
 
     #[serde(default)]
     pub spontaneous_firing_period_ticks: u32,
@@ -82,13 +82,13 @@ pub struct NeuronType {
 
     pub ltm_slot_count: u8,
 
-    // --- Plasticity Inertia (16 ranks) ---
+    // --- Plasticity Inertia (8 ranks) ---
     #[serde(default = "default_inertia_curve")]
-    pub inertia_curve: [u8; 16],
+    pub inertia_curve: [u8; 8],
 
     // --- Adaptive Leak ---
     #[serde(default)]
-    pub adaptive_leak_max: i32,
+    pub adaptive_leak_min_shift: i32,
     #[serde(default)]
     pub adaptive_leak_gain: u16,
     #[serde(default)]
@@ -123,6 +123,10 @@ pub struct NeuronType {
     // --- Night Phase ---
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
+
+    // --- AHP Amplitude ---
+    #[serde(default)]
+    pub ahp_amplitude: u16,
 }
 
 // Default values for optional fields
@@ -181,9 +185,9 @@ fn default_sprouting_type() -> f32 {
 fn default_prune_threshold() -> i16 {
     15
 }
-fn default_inertia_curve() -> [u8; 16] {
+fn default_inertia_curve() -> [u8; 8] {
     [
-        128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        128, 112, 96, 80, 64, 48, 32, 16,
     ]
 }
 

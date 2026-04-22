@@ -12,7 +12,7 @@ pub struct ManifestVariant {
     pub name: String,
     pub threshold: i32,
     pub rest_potential: i32,
-    pub leak_rate: i32,
+    pub leak_shift: u32, // [DOD FIX] Shift-based exponential leak
     pub homeostasis_penalty: i32,
     pub spontaneous_firing_period_ticks: u32,
     pub initial_synapse_weight: u16,
@@ -23,8 +23,9 @@ pub struct ManifestVariant {
     pub synapse_refractory_period: u8,
     pub signal_propagation_length: u8,
     pub is_inhibitory: bool,
-    pub inertia_curve: [u8; 16],
-    pub adaptive_leak_max: i32,
+    pub inertia_curve: [u8; 8], // [DOD FIX] Compressed curve
+    pub ahp_amplitude: u16, // [DOD FIX] 
+    pub adaptive_leak_min_shift: i32, // [DOD FIX]
     pub adaptive_leak_gain: u16,
     pub adaptive_mode: u8,
     pub d1_affinity: u8,
@@ -47,7 +48,7 @@ impl ManifestVariant {
         crate::layout::VariantParameters {
             threshold: self.threshold,
             rest_potential: self.rest_potential,
-            leak_rate: self.leak_rate,
+            leak_shift: self.leak_shift, // [DOD FIX]
             homeostasis_penalty: self.homeostasis_penalty,
             spontaneous_firing_period_ticks: self.spontaneous_firing_period_ticks,
             initial_synapse_weight: self.initial_synapse_weight,
@@ -58,8 +59,10 @@ impl ManifestVariant {
             synapse_refractory_period: self.synapse_refractory_period,
             signal_propagation_length: self.signal_propagation_length,
             is_inhibitory: self.is_inhibitory as u8,
-            inertia_curve: self.inertia_curve,
-            adaptive_leak_max: self.adaptive_leak_max,
+            inertia_curve: self.inertia_curve, // [DOD FIX]
+            ahp_amplitude: self.ahp_amplitude, // [DOD FIX]
+            _pad: [0; 6], // [DOD FIX] Maintain C-ABI size
+            adaptive_leak_min_shift: self.adaptive_leak_min_shift, // [DOD FIX]
             adaptive_leak_gain: self.adaptive_leak_gain,
             adaptive_mode: self.adaptive_mode,
             _leak_pad: [0; 3],

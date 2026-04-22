@@ -29,7 +29,7 @@ pub fn parse_blueprints(
         memory.variants[i] = VariantParameters {
             threshold: nt.threshold,
             rest_potential: nt.rest_potential,
-            leak_rate: nt.leak_rate,
+            leak_shift: nt.leak_shift,
             homeostasis_penalty: nt.homeostasis_penalty,
             spontaneous_firing_period_ticks: nt.spontaneous_firing_period_ticks,
             initial_synapse_weight: nt.initial_synapse_weight,
@@ -41,13 +41,15 @@ pub fn parse_blueprints(
             signal_propagation_length: nt.signal_propagation_length,
             is_inhibitory: nt.is_inhibitory as u8,
             inertia_curve: {
-                let mut curve = [0u8; 16];
-                for (idx, &val) in nt.inertia_curve.iter().enumerate().take(16) {
+                let mut curve = [0u8; 8];
+                for (idx, &val) in nt.inertia_curve.iter().enumerate().take(8) {
                     curve[idx] = val;
                 }
                 curve
             },
-            adaptive_leak_max: nt.adaptive_leak_max,
+            ahp_amplitude: nt.ahp_amplitude,
+            _pad: [0; 6],
+            adaptive_leak_min_shift: nt.adaptive_leak_min_shift,
             adaptive_leak_gain: nt.adaptive_leak_gain,
             adaptive_mode: nt.adaptive_mode,
             _leak_pad: [0; 3],

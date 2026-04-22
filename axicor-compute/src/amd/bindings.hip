@@ -40,7 +40,7 @@ struct alignas(64) VariantParameters {
   // === Group 1: 32-bit fields (bytes 0..20) ===
   int32_t threshold;                        // 0..4
   int32_t rest_potential;                   // 4..8
-  int32_t leak_rate;                        // 8..12
+  uint32_t leak_shift;                      // 8..12
   int32_t homeostasis_penalty;              // 12..16
   uint32_t spontaneous_firing_period_ticks; // 16..20
 
@@ -56,11 +56,13 @@ struct alignas(64) VariantParameters {
   uint8_t signal_propagation_length;        // 30..31
   uint8_t is_inhibitory;                    // 31..32
 
-  // === Group 4: Inertia Curve (bytes 32..48) ===
-  uint8_t inertia_curve[16];                // 32..48
+  // === Group 4: Inertia Curve & AHP (bytes 32..48) ===
+  uint8_t inertia_curve[8];                 // 32..40
+  uint16_t ahp_amplitude;                   // 40..42
+  uint8_t _pad[6];                          // 42..48
 
   // === Group 5: Adaptive Leak Hardware (bytes 48..58) ===
-  int32_t adaptive_leak_max;                // 48..52
+  int32_t adaptive_leak_min_shift;          // 48..52
   uint16_t adaptive_leak_gain;              // 52..54
   uint8_t adaptive_mode;                    // 54..55
   uint8_t _leak_pad[3];                     // 55..58

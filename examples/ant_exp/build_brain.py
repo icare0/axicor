@@ -23,71 +23,82 @@ def build_ant_connectome():
     builder.sim_params["tick_duration_us"] = 100
 
     # ============================================================
-    # АППАРАТНЫЕ ПРОФИЛИ (Strict Reward-Gated Plasticity)
+    # АППАРАТНЫЕ ПРОФИЛИ (Multi-Population Biological Soup)
     # ============================================================
-    # pot=0 (рост только от дофамина), dep=2 (постоянное выжигание мусора)
-    exc_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
-    inh_type = builder.gnm_lib("VISp4/114").set_plasticity(pot=0, dep=2)
-    
-    motor_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
-    motor_type.name = "Motor_Pyramidal"
-    for d in motor_type.data_list:
-        d["name"] = "Motor_Pyramidal"
-        d["initial_synapse_weight"] = 12000 # Форсируем сильный стартовый контакт
-        d["dendrite_radius_um"] = 500.0     # Широкий захват дендритов
+    # SENSORY: Высокий порог, стабильность
+    sens_exc_1 = builder.gnm_lib("L4_spiny_MTG_2")
+    sens_exc_2 = builder.gnm_lib("L2_spiny_MTG_3")
+    sens_inh   = builder.gnm_lib("L4_aspiny_AnG_1")
+
+    # THALAMUS (CPG): Бешеные осцилляторы и реле
+    thal_pace_exc  = builder.gnm_lib("L5_spiny_MTG_82")         # Fast Engine (80 ticks)
+    thal_relay_exc = builder.gnm_lib("4-3-19_Enuc_2-4_Cell_4")  # Slow Relay (5000 ticks)
+    thal_pace_inh  = builder.gnm_lib("L5_aspiny_VISp5_170")     # Hyper-fast brake (55 ticks)
+    thal_mod_inh   = builder.gnm_lib("L23_aspiny_VISp23_101")   # Modulator (87 ticks)
+
+    # SPINAL GANGLIA: Мощные выходы и жесткое подавление
+    motor_pyr_1 = builder.gnm_lib("L5_spiny_VISp5_1")
+    motor_pyr_2 = builder.gnm_lib("L6_spiny_AnG")
+    motor_inh   = builder.gnm_lib("232_10-1_30x_04A_xyz-5081-7597-377") # Medium Spiny
 
     # ============================================================
-    # SHARD 1: SENSORY CORTEX (Входной шлюз)
+    # SHARD 1: SENSORY CORTEX
     # ============================================================
     sensory = builder.add_zone("SensoryCortex", width_vox=64, depth_vox=64, height_vox=16)
+    sensory.add_layer("L4_Input", height_pct=1.0, density=0.15)\
+           .add_population(sens_exc_1, fraction=0.6)\
+           .add_population(sens_exc_2, fraction=0.2)\
+           .add_population(sens_inh, fraction=0.2)
     
-    sensory.add_layer("L4_Input", height_pct=1.0, density=0.15) \
-           .add_population(exc_type, fraction=0.9) \
-           .add_population(inh_type, fraction=0.1)
-           
-    # Strict VRAM Stride Alignment: 28 * 16 = 448 pixels
     sensory.add_input("ant_sensors", width=28, height=16, entry_z="top")
-    sensory.add_output("to_thoracic", width=16, height=16)
+    sensory.add_output("to_thalamus", width=16, height=16)
 
     # ============================================================
-    # SHARD 2: THORACIC GANGLION (Генератор Паттернов / Хаб)
+    # SHARD 2: THALAMUS (Central Pattern Generator Hub)
     # ============================================================
-    thoracic = builder.add_zone("ThoracicGanglion", width_vox=64, depth_vox=64, height_vox=32)
-    
-    thoracic.add_layer("L_Lower", height_pct=0.5, density=0.2) \
-            .add_population(exc_type, fraction=0.7) \
-            .add_population(inh_type, fraction=0.3)
-
-    thoracic.add_layer("L_Upper", height_pct=0.5, density=0.2) \
-            .add_population(exc_type, fraction=0.6) \
-            .add_population(inh_type, fraction=0.4)
-
-    thoracic.add_output("to_motor", width=16, height=16)
-
-    # ============================================================
-    # SHARD 3: MOTOR CORTEX (Выходной шлюз + Winner-Takes-All)
-    # ============================================================
-    motor = builder.add_zone("MotorCortex", width_vox=64, depth_vox=64, height_vox=32)
-    
-    motor.add_layer("L5_Lower", height_pct=0.6, density=0.25) \
-         .add_population(motor_type, fraction=0.4) \
-         .add_population(inh_type, fraction=0.6) # Winner-Takes-All Inhibition
-
-    motor.add_layer("L5_Upper", height_pct=0.4, density=0.15) \
-         .add_population(exc_type, fraction=1.0)
-
-    # Выход строго с пирамид
-    motor.add_output("motor_out", width=16, height=8, target_type="Motor_Pyramidal")
+    thalamus = builder.add_zone("Thalamus", width_vox=64, depth_vox=64, height_vox=32)
+    thalamus.add_layer("L_Hub", height_pct=1.0, density=0.25)\
+            .add_population(thal_pace_exc, fraction=0.3)\
+            .add_population(thal_relay_exc, fraction=0.2)\
+            .add_population(thal_pace_inh, fraction=0.3)\
+            .add_population(thal_mod_inh, fraction=0.2)
+            
+    thalamus.add_output("to_fl", width=16, height=8)
+    thalamus.add_output("to_fr", width=16, height=8)
+    thalamus.add_output("to_bl", width=16, height=8)
+    thalamus.add_output("to_br", width=16, height=8)
 
     # ============================================================
-    # ПРОВОДКА (Ghost Axons Routing)
+    # SHARDS 3-6: SPINAL GANGLIA (Independent Legs)
     # ============================================================
-    print("[*] Прокладка аксонов...")
-    builder.connect(sensory, thoracic, out_matrix="to_thoracic", 
-                    in_width=16, in_height=16, entry_z="bottom", growth_steps=1200)
+    legs = {}
+    for leg in ["FL", "FR", "BL", "BR"]:
+        ganglion = builder.add_zone(f"{leg}_Ganglion", width_vox=32, depth_vox=32, height_vox=16)
+        ganglion.add_layer("L_Motor", height_pct=1.0, density=0.2)\
+                .add_population(motor_pyr_1, fraction=0.5)\
+                .add_population(motor_pyr_2, fraction=0.2)\
+                .add_population(motor_inh, fraction=0.3)
+                
+        # [DOD FIX] Strict targeting for motor output
+        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="L5_spiny_VISp5_1")
+        ganglion.add_output(f"proprio_{leg}", width=8, height=8)
+        legs[leg] = ganglion
 
-    builder.connect(thoracic, motor, out_matrix="to_motor", 
-                    in_width=16, in_height=16, entry_z="bottom", target_type="Motor_Pyramidal", growth_steps=1500)
+    # ============================================================
+    # ПРОВОДКА (Ghost Axons L2 Routing)
+    # ============================================================
+    print("[*] Прокладка аксонов (Zero-Copy L2 Ghost Sync)...")
+    builder.connect(sensory, thalamus, out_matrix="to_thalamus", 
+                    in_width=16, in_height=16, entry_z="top", growth_steps=1200)
+
+    for leg, ganglion in legs.items():
+        builder.connect(thalamus, ganglion, out_matrix=f"to_{leg.lower()}", 
+                        in_width=16, in_height=8, entry_z="top", growth_steps=1000)
+        
+        # [DOD FIX] Проприоцепция жестко бьет в гиперактивный тормоз Таламуса, обрывая фазу шага
+        builder.connect(ganglion, thalamus, out_matrix=f"proprio_{leg}", 
+                        in_width=8, in_height=8, entry_z="bottom", 
+                        target_type="L5_aspiny_VISp5_170", growth_steps=1500)
 
     builder.build()
 

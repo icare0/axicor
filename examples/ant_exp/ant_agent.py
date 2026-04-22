@@ -10,6 +10,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from axicor.client import AxicorMultiClient
 from axicor.encoders import PopulationEncoder
+from axicor.decoders import PwmDecoder
+from axicor.contract import AxicorIoContract
 from axicor.brain import fnv1a_32
 
 # CONFIG
@@ -23,69 +25,76 @@ TARGET_TIME = 10_000            # 10k steps
 def run_ant():
     env = gym.make("Ant-v4", render_mode="human", max_episode_steps=TARGET_TIME if TARGET_TIME > 0 else 1000)
     state, _ = env.reset()
-    
-    # Hashing
-    zone_hash = fnv1a_32(b"SensoryCortex")
-    matrix_hash = fnv1a_32(b"ant_sensors")
-    
-    # [DOD FIX] Stride Alignment: 28 vars * 16 neurons = 448 pixels
-    padded_sensors = 448
-    input_payload_size = (padded_sensors * BATCH_SIZE) // 8
-    
+
+    # --- 1. Load Zero-Cost Contracts ---
+    print("Loading C-ABI Contracts for 6 zones...")
+    model_path = "Axicor-Models/AntConnectome.axic"
+
+    c_sensory = AxicorIoContract(model_path, "SensoryCortex")
+    c_fl = AxicorIoContract(model_path, "FL_Ganglion")
+    c_fr = AxicorIoContract(model_path, "FR_Ganglion")
+    c_bl = AxicorIoContract(model_path, "BL_Ganglion")
+    c_br = AxicorIoContract(model_path, "BR_Ganglion")
+
+    # Build combined layout
+    cfg_sens = c_sensory.get_client_config(BATCH_SIZE)
+    cfg_fl = c_fl.get_client_config(BATCH_SIZE)
+    cfg_fr = c_fr.get_client_config(BATCH_SIZE)
+    cfg_bl = c_bl.get_client_config(BATCH_SIZE)
+    cfg_br = c_br.get_client_config(BATCH_SIZE)
+
+    matrices = cfg_sens["matrices"] # Only Sensory has external inputs
+    rx_layout = (cfg_fl["rx_layout"] + cfg_fr["rx_layout"] +
+                 cfg_bl["rx_layout"] + cfg_br["rx_layout"])
+
     # HFT Transport
     client = AxicorMultiClient(
         addr=("127.0.0.1", 8081),
-        matrices=[{'zone_hash': zone_hash, 'matrix_hash': matrix_hash, 'payload_size': input_payload_size}]
+        matrices=matrices,
+        rx_layout=rx_layout
     )
-    
+
     try:
         client.sock.bind(("0.0.0.0", 8092))
     except OSError:
-        sys.exit(1)
-    
-    # Encoder
-    encoder = PopulationEncoder(variables_count=27, neurons_per_var=16, batch_size=BATCH_SIZE)
-    
-    # [DOD FIX] RX Buffer Calibration (MotorCortex only)
-    TOTAL_OUTPUT_PIXELS = 128  # motor_out 16x8
-    EXPECTED_RX_BYTES = TOTAL_OUTPUT_PIXELS * BATCH_SIZE
-    
+        pass
+
+    # --- 2. Zero-Garbage Encoders/Decoders ---
+    encoder = c_sensory.create_population_encoder("ant_sensors", vars_count=27, batch_size=BATCH_SIZE)
+
+    dec_fl = c_fl.create_pwm_decoder("motor_out_FL", BATCH_SIZE)
+    dec_fr = c_fr.create_pwm_decoder("motor_out_FR", BATCH_SIZE)
+    dec_bl = c_bl.create_pwm_decoder("motor_out_BL", BATCH_SIZE)
+    dec_br = c_br.create_pwm_decoder("motor_out_BR", BATCH_SIZE)
+
     # --- MEMORY PREALLOCATION (Hot Loop Safety) ---
-    total_motor = np.zeros(128, dtype=np.float16)
-    action = np.empty(8, dtype=np.float32)
-    inv_b = np.float16(1.0 / BATCH_SIZE)
-
-    # [DOD FIX] Preallocate intermediate buffers for Zero-Garbage math
+    action = np.zeros(8, dtype=np.float32)
     norm_state = np.zeros(27, dtype=np.float16)
-    left_motor_sum = np.zeros(8, dtype=np.float16)
-    right_motor_sum = np.zeros(8, dtype=np.float16)
 
-    # Bounds for fast normalization
     bounds = np.tile([-5.0, 5.0], (27, 1)).astype(np.float16)
     range_diff = bounds[:, 1] - bounds[:, 0]
-    
+
     episodes, score, steps = 0, 0.0, 0
     terminated, truncated = False, False
-    
-    print(f"🚀 Minimalist DOD Hot Loop Started (Batch={BATCH_SIZE}, TargetScore={TARGET_SCORE}, TargetTime={TARGET_TIME})...")
-    
+
+    print(f"🚀 Thalamo-Cortical-Spinal Hot Loop Started (Batch={BATCH_SIZE})...")
+
     try:
         while episodes < EPISODES:
-            # Check for Target Time/Score Termination
             time_reached = (TARGET_TIME > 0 and steps >= TARGET_TIME)
             score_reached = (TARGET_SCORE >= 1000 and score >= TARGET_SCORE)
-            
+
             if terminated or truncated or time_reached or score_reached:
-                # [DOD FIX] Death Signal: 15 LTD Batches
+                # Death Signal: 15 LTD Batches
                 for _ in range(15):
                     client.step(DOPAMINE_PUNISHMENT)
-                
+
                 if time_reached: reason = "Time Reached"
                 elif score_reached: reason = "Score Reached"
                 else: reason = "Terminated"
-                
+
                 print(f"Ep {episodes:04d} | Score: {score:6.1f} | Steps: {steps:5d} | [{reason}]")
-                
+
                 episodes += 1
                 state, _ = env.reset()
                 score = 0.0
@@ -98,36 +107,43 @@ def run_ant():
             np.divide(norm_state, range_diff, out=norm_state, dtype=np.float16)
             np.clip(norm_state, 0.0, 1.0, out=norm_state)
 
-            # 2. Encoder with Zero-Cost Payload Views
-            # [DOD FIX] Используем заранее нарезанный zero-copy view без заголовков
-            encoder.encode_into(norm_state, client.payload_views[0])
-            
-            # 3. Axicor Step
-            rx = client.step(DOPAMINE_REWARD, expected_rx_hash=fnv1a_32(b"motor_out"))
-            
-            if len(rx) != EXPECTED_RX_BYTES:
-                print(f"FATAL: RX mismatch {len(rx)} vs {EXPECTED_RX_BYTES}")
-                break
-                
-            # 4. Zero-Copy Decoding
-            raw_bytes = np.frombuffer(rx, dtype=np.uint8)
-            spikes_2d = raw_bytes.reshape((BATCH_SIZE, TOTAL_OUTPUT_PIXELS))
-            
-            # 5. Fast Response Resolution
-            np.sum(spikes_2d, axis=0, dtype=np.float16, out=total_motor)
-            np.multiply(total_motor, inv_b, out=total_motor)
-            
-            # Biceps/Triceps resolution
-            motor_view = total_motor.reshape(8, 16)
-            np.sum(motor_view[:, :8], axis=1, out=left_motor_sum)
-            np.sum(motor_view[:, 8:], axis=1, out=right_motor_sum)
-            np.subtract(left_motor_sum, right_motor_sum, out=action)
+            # 2. Encode to Network Buffer
+            encoder.encode_into(norm_state, client.payload_views)
+
+            # 3. Axicor Step (Network I/O)
+            rx_raw = client.step(DOPAMINE_REWARD)
+            rx_view = memoryview(rx_raw)
+
+            # 4. Zero-Copy Decoding for each Leg
+            off = 0
+            fl_out = dec_fl.decode_from(rx_view[off : off + dec_fl.payload_size]); off += dec_fl.payload_size
+            fr_out = dec_fr.decode_from(rx_view[off : off + dec_fr.payload_size]); off += dec_fr.payload_size
+            bl_out = dec_bl.decode_from(rx_view[off : off + dec_bl.payload_size]); off += dec_bl.payload_size
+            br_out = dec_br.decode_from(rx_view[off : off + dec_br.payload_size]); off += dec_br.payload_size
+
+            # 5. Fast Response Resolution (Biceps/Triceps per joint)
+            # Ant-v4 Action Space:
+            # 0: Hip FL, 1: Ankle FL
+            action[0] = np.sum(fl_out[0:8]) - np.sum(fl_out[8:16])
+            action[1] = np.sum(fl_out[16:24]) - np.sum(fl_out[24:32])
+
+            # 2: Hip FR, 3: Ankle FR
+            action[2] = np.sum(fr_out[0:8]) - np.sum(fr_out[8:16])
+            action[3] = np.sum(fr_out[16:24]) - np.sum(fr_out[24:32])
+
+            # 4: Hip BL, 5: Ankle BL
+            action[4] = np.sum(bl_out[0:8]) - np.sum(bl_out[8:16])
+            action[5] = np.sum(bl_out[16:24]) - np.sum(bl_out[24:32])
+
+            # 6: Hip BR, 7: Ankle BR
+            action[6] = np.sum(br_out[0:8]) - np.sum(br_out[8:16])
+            action[7] = np.sum(br_out[16:24]) - np.sum(br_out[24:32])
 
             # 6. Physical Step
             state, reward, terminated, truncated, _ = env.step(action)
             score += reward
             steps += 1
-                    
+
     finally:
         env.close()
 
