@@ -158,9 +158,9 @@ impl VramState {
         }
     }
 
-    // [DOD FIX] Virtual axons start after local AND ghosts
+    // [DOD FIX] Strict VRAM Layout: Local -> Virtual -> Ghosts
     pub fn virtual_offset(&self) -> u32 {
-        self.padded_n + self.total_ghosts
+        self.padded_n
     }
 
     /// Performs Zero-Copy DMA: uploads the .state blob directly to VRAM.

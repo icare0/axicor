@@ -47,6 +47,7 @@ mod tests {
                 &[10],
                 &[60], // src_indices, dst_indices
                 10,    // capacity
+                100,   // dst_total_axons
             );
 
             set(h0, 10, 42);
@@ -66,7 +67,7 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            let channel = IntraGpuChannel::from_slices(0, 1, &[5, 5, 5], &[50, 51, 52], 10);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[5, 5, 5], &[50, 51, 52], 10, 100);
 
             set(h0, 5, 99);
             manual_sync(&channel, h0, h1);
@@ -87,9 +88,9 @@ mod tests {
             let h1 = make_heads(100);
 
             // Forward channel: 0 -> 1
-            let ch_fwd = IntraGpuChannel::from_slices(0, 1, &[1], &[99], 10);
+            let ch_fwd = IntraGpuChannel::from_slices(0, 1, &[1], &[99], 10, 100);
             // Backward channel: 1 -> 0
-            let ch_bwd = IntraGpuChannel::from_slices(1, 0, &[2], &[98], 10);
+            let ch_bwd = IntraGpuChannel::from_slices(1, 0, &[2], &[98], 10, 100);
 
             set(h0, 1, 111);
             set(h1, 2, 222);
@@ -112,7 +113,7 @@ mod tests {
             let h1 = make_heads(100);
             set(h0, 10, 42);
 
-            let channel = IntraGpuChannel::from_slices(0, 1, &[], &[], 10);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[], &[], 10, 100);
             manual_sync(&channel, h0, h1);
 
             // Nothing should change
@@ -130,7 +131,7 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            let channel = IntraGpuChannel::from_slices(0, 1, &[10], &[60], 10);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[10], &[60], 10, 100);
 
             set(h0, 10, 42);
             manual_sync(&channel, h0, h1);
@@ -153,7 +154,7 @@ mod tests {
             let h1 = make_heads(100);
 
             let sentinel = 0x80000000u32;
-            let channel = IntraGpuChannel::from_slices(0, 1, &[10], &[60], 10);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[10], &[60], 10, 100);
 
             set(h0, 10, sentinel);
             manual_sync(&channel, h0, h1);

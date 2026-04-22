@@ -159,6 +159,7 @@ pub fn run_sprouting_pass(
     soma_to_axon: &[u32],
     padded_n: usize,
     total_ghosts: usize,
+    virtual_axons: usize, // [DOD FIX]
     max_x: u32,
     max_y: u32,
     blueprints: Option<&BlueprintsConfig>,
@@ -173,8 +174,8 @@ pub fn run_sprouting_pass(
     shm_ptr: *mut u8,     // [DOD FIX] For prune writing
 ) -> (usize, usize, Vec<axicor_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
-    let ghost_start = padded_n;
-    let ghost_end = padded_n + total_ghosts;
+    let ghost_start = padded_n + virtual_axons; // [DOD FIX] Ghosts follow Virtual
+    let ghost_end = ghost_start + total_ghosts;
 
     // [DOD FIX] Axon Liveness Tracking (Reference Counting)
     let mut active_axons = vec![false; total_axons];
@@ -217,6 +218,7 @@ pub fn run_sprouting_pass(
         // [DOD FIX] Create ACK for sender
         generated_acks.push(axicor_core::ipc::AxonHandoverAck {
             target_zone_hash: ev.origin_zone_hash,
+            receiver_zone_hash: zone_hash, // [DOD FIX] Inject our identity
             src_axon_id: ev.local_axon_id,
             dst_ghost_id: next_free_ghost as u32,
         });
@@ -435,6 +437,7 @@ pub fn run_sprouting_pass(
                 // Register death in SHM
                 prunes.push(axicor_core::ipc::AxonHandoverPrune {
                     target_zone_hash,
+                    receiver_zone_hash: zone_hash, // [DOD FIX] Inject our identity
                     dst_ghost_id: ghost_id as u32,
                 });
 

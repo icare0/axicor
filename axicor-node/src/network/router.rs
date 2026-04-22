@@ -169,6 +169,13 @@ impl InterNodeRouter {
                 (*header).total_chunks = total_chunks as u16;
 
                 let events_bytes = bytemuck::cast_slice(chunk);
+                let total_size = 16 + events_bytes.len();
+                
+                if total_size > axicor_core::constants::MAX_UDP_PAYLOAD {
+                    tracing::warn!("[Egress] Dropping ghost batch: {} bytes exceeds UDP MTU", total_size);
+                    return;
+                }
+
                 std::ptr::copy_nonoverlapping(
                     events_bytes.as_ptr(),
                     msg.buffer.as_mut_ptr().add(16),

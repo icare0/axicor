@@ -367,6 +367,7 @@ pub extern "C" fn launch_ghost_sync(
     _src_indices: *const u32,
     _dst_indices: *const u32,
     _count: u32,
+    _dst_total_axons: u32, // [DOD FIX] C-ABI Sync
     _sync_batch_ticks: u32,
     _v_seg: u32,
     _stream: *mut c_void,

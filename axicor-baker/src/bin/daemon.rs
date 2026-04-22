@@ -17,6 +17,7 @@ struct NightPhaseContext {
     _next_ghost_slot_base: u32,
     _total_axons_max: u32,
     _total_ghosts: u32,
+    _virtual_axons: u32, // [DOD FIX]
     _max_x: u32,
     _max_y: u32,
 
@@ -336,6 +337,7 @@ fn build_night_context(
         _next_ghost_slot_base: padded_n,
         _total_axons_max: total_axons_max,
         _total_ghosts: total_ghosts,
+        _virtual_axons: manifest.memory.virtual_axons as u32, // [DOD FIX]
         _max_x: max_x,
         _max_y: max_y,
         _axon_heads: axon_heads,
@@ -458,6 +460,7 @@ fn run_night_phase<S: Read + Write>(
             &ctx._soma_to_axon,
             padded_n,
             ctx._total_ghosts as usize, // NEW
+            ctx._virtual_axons as usize, // [DOD FIX] Pass layout offset
             ctx._max_x,                 // NEW
             ctx._max_y,                 // NEW
             blueprints,

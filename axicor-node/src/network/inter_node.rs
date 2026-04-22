@@ -41,10 +41,20 @@ impl InterNodeChannel {
         capacity: u32,
     ) -> Self {
         let count = src_indices.len() as u32;
-        assert!(
+        debug_assert!(
             count <= capacity,
             "FATAL: Initial connections exceed capacity"
         );
+        if count > capacity {
+            tracing::error!(
+                "CRITICAL: Initial connections (count={}) exceed capacity ({}). Link dropped.",
+                count,
+                capacity
+            );
+            // In constructor, we can't easily return a dummy Self without breaking everything.
+            // But we should at least clamp it for safety.
+        }
+        let count = std::cmp::min(count, capacity);
 
         // Allocate for MAX CAPACITY, not current count
         let bytes_capacity = (capacity as usize) * 4;
@@ -121,10 +131,17 @@ impl InterNodeChannel {
         dst_ghost: u32,
         stream: axicor_compute::ffi::CudaStream,
     ) {
-        assert!(
+        debug_assert!(
             self.count < self.capacity,
             "FATAL: Routing capacity exceeded. Increase ghost_capacity."
         );
+        if self.count >= self.capacity {
+            tracing::error!(
+                "CRITICAL: Routing capacity exceeded ({}). Link 0x{:08X} -> 0x{:08X} dropped.",
+                self.capacity, src_axon, dst_ghost
+            );
+            return;
+        }
         let idx = self.count as usize;
 
         self.src_indices_host.push(src_axon);

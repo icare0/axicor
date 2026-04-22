@@ -149,6 +149,7 @@ impl BakerClient {
         let mut acks = vec![
             axicor_core::ipc::AxonHandoverAck {
                 target_zone_hash: 0,
+                receiver_zone_hash: 0,
                 src_axon_id: 0,
                 dst_ghost_id: 0
             };

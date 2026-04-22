@@ -10,6 +10,8 @@ use std::path::Path;
 pub struct CompiledShard {
     pub _zone_name: String,
     pub local_axons_count: usize,
+    pub ghost_offset_base: u32, // [DOD FIX] Exact start index for ghosts
+    pub ghost_capacity_limit: u32, // [DOD FIX] Hard limit from config
     /// Dense ID -> Axon ID mapping
     pub soma_to_axon_map: Vec<u32>,
     /// Packed 32-bit coordinates (X|Y|Z|Type)

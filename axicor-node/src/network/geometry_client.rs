@@ -138,6 +138,7 @@ impl GeometryServer {
                                     .incoming_prune
                                     .push(axicor_core::ipc::AxonHandoverPrune {
                                         target_zone_hash: 0, // Ignored on sender side
+                                        receiver_zone_hash: 0,
                                         dst_ghost_id: ghost_id,
                                     });
                             }

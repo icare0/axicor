@@ -198,10 +198,17 @@ fn establish_ghost_links(
     }
     tracing::info!("\n[baker] === Baking Ghost Axon Mappings ===");
 
+    // [DOD FIX] Stateful cursor for sequential ghost slot allocation
+    let mut ghost_cursors: HashMap<String, u32> = HashMap::new();
+
+    // INVARIANT: Iteration order == declaration order in brain.toml.
+    // This guarantees deterministic target_ghost_id assignment across runs.
     for conn in &brain_config.connections {
         let src_shard = compiled_zones.get(&conn.from).expect("Source zone missing");
         let dst_shard = compiled_zones.get(&conn.to).expect("Dest zone missing");
-        let dst_ghost_offset = dst_shard.local_axons_count as u32;
+        
+        let cursor = ghost_cursors.entry(conn.to.clone()).or_insert(dst_shard.ghost_offset_base);
+        let dst_ghost_offset = *cursor;
 
         let target_zone_rel = &brain_config
             .zones
@@ -239,11 +246,20 @@ fn establish_ghost_links(
             bake::ghost_map::write_ghosts_file(&out_dir, &conn.from, &conn.to, &ghosts);
             ghosts.header.connection_count
         };
+        // [DOD FIX] Contract: sent_ghosts represents CONSUMED VRAM SLOTS, not live connections!
+        *cursor += sent_ghosts;
+
+        // [DOD FIX] Cursor Boundary Assert (Defense-in-depth against Python SDK bugs)
+        let max_allowed = dst_shard.ghost_offset_base + dst_shard.ghost_capacity_limit;
+        assert!(
+            *cursor <= max_allowed,
+            "FATAL: Ghost capacity exceeded for zone '{}'. Cursor: {}, Max Allowed: {}. Check SDK sum() calculation!",
+            conn.to, *cursor, max_allowed
+        );
+
         tracing::info!(
-            "[baker]  Ghost link {} -> {}: {} axons established.",
-            conn.from,
-            conn.to,
-            sent_ghosts
+            "[baker]  Ghost link {} -> {}: {} axons [{}..{}) established.",
+            conn.from, conn.to, sent_ghosts, dst_ghost_offset, *cursor
         );
     }
     Ok(())

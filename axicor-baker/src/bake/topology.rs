@@ -276,6 +276,9 @@ pub fn build_local_topology_internal(
     let compiled_shard = CompiledShard {
         _zone_name: zone_name.to_string(),
         local_axons_count,
+        // [DOD FIX] Export strict boundaries for Ghost allocation
+        ghost_offset_base: (padded_n + num_virtual) as u32,
+        ghost_capacity_limit: ghost_capacity as u32,
         soma_to_axon_map: shard.soma_to_axon.clone(),
         packed_positions,
         _bounds_voxels: bounds_voxels,

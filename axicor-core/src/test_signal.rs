@@ -104,3 +104,97 @@ fn sentinel_always_dead() {
         );
     }
 }
+
+#[cfg(test)]
+mod burst_heads_tests {
+    use super::*;
+    use crate::constants::AXON_SENTINEL;
+
+    /// Test Vector 1: The Wrap-Around Wrap (Overflow Arithmetic)
+    /// Проверяем, что инициализация головы как `0 - v_seg` корректно отрабатывает
+    /// переход через нуль и не вызывает ложных активаций до фактического смещения.
+    #[test]
+    fn test_burst_wrap_around_overflow() {
+        let v_seg = 3u32;
+        let prop = 10u32;
+        let seg_idx = 0u32;
+
+        // Имитируем рождение спайка (как в C-ядре: h0 = 0 - v_seg)
+        let h0_born = 0u32.wrapping_sub(v_seg); // 0xFFFFFFFD
+
+        // На этом тике (ДО сдвига) дистанция до нулевого сегмента должна быть огромной
+        let dist_born = h0_born.wrapping_sub(seg_idx);
+        assert!(dist_born > prop, "Fatal: Born spike falsely triggered segment 0");
+
+        // Тик 1: сдвиг
+        let h0_tick1 = h0_born.wrapping_add(v_seg); // Ровно 0x00000000
+        let dist_tick1 = h0_tick1.wrapping_sub(seg_idx);
+        assert!(dist_tick1 < prop, "Fatal: Spike failed to activate segment 0 after shift");
+
+        // Тик 2: быстрый аксон пролетает дальше
+        let h0_tick2 = h0_tick1.wrapping_add(v_seg * 2); // 6
+        let dist_tick2 = h0_tick2.wrapping_sub(5); // 6 - 5 = 1 < 10
+        assert!(dist_tick2 < prop, "Fatal: Spike lost Active Tail tracking");
+    }
+
+    /// Test Vector 2: Sentinel Collision (Death by Old Age)
+    /// Убеждаемся, что старый спайк, приближающийся к 0x80000000, 
+    /// никогда не даст дистанцию < prop для реальных дендритов.
+    #[test]
+    fn test_burst_sentinel_collision() {
+        let prop = 20u32;
+        let seg_idx = 10u32;
+
+        // Спайк умирает от старости (подходит к лимиту Sentinel)
+        let dying_head = AXON_SENTINEL.wrapping_sub(5); // 0x7FFFFFFB
+
+        let dist_dying = dying_head.wrapping_sub(seg_idx);
+        // 0x7FFFFFFB - 10 = 0x7FFFFFF1. Это гигантское число (больше 2 миллиардов)
+        assert!(
+            dist_dying > prop,
+            "Fatal: Dying spike hallucinated a connection!"
+        );
+
+        // Сам Sentinel никогда не должен ничего активировать
+        let dist_sentinel = AXON_SENTINEL.wrapping_sub(seg_idx);
+        assert!(
+            dist_sentinel > prop,
+            "Fatal: Sentinel activated a dendrite!"
+        );
+    }
+
+    /// Test Vector 3: Burst Compression (Bitwise OR Merging)
+    /// Тестируем Branchless-логику из GPU-ядра. Если 2 спайка накладываются
+    /// в одном сегменте, они должны сжаться в 1 (True), без Branching.
+    #[test]
+    fn test_burst_compression_bitwise_or() {
+        let prop = 5u32;
+        let seg_idx = 10u32;
+
+        // Два спайка летят вплотную (Active Tails пересекаются)
+        let h0 = 12u32; // Dist = 2 (Hit)
+        let h1 = 14u32; // Dist = 4 (Hit)
+        let h2 = AXON_SENTINEL; // Miss
+
+        // Эмуляция железа: 8-way bitwise OR
+        let hit = ((h0.wrapping_sub(seg_idx) < prop) as u32)
+            | ((h1.wrapping_sub(seg_idx) < prop) as u32)
+            | ((h2.wrapping_sub(seg_idx) < prop) as u32);
+
+        assert_eq!(
+            hit, 1,
+            "Fatal: Burst Compression failed to merge overlapping spikes!"
+        );
+
+        // Смещаем сегмент так, чтобы оба спайка промахнулись
+        let seg_far = 20u32;
+        let hit_far = ((h0.wrapping_sub(seg_far) < prop) as u32)
+            | ((h1.wrapping_sub(seg_far) < prop) as u32)
+            | ((h2.wrapping_sub(seg_far) < prop) as u32);
+
+        assert_eq!(
+            hit_far, 0,
+            "Fatal: Branchless OR falsely detected a hit on a distant segment!"
+        );
+    }
+}

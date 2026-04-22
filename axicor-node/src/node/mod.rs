@@ -239,28 +239,21 @@ impl NodeRuntime {
         let stream = std::ptr::null_mut();
 
         while let Some(ack) = self.network.routing_acks.pop() {
-            // Find Inter-Node channel (if neighbor is on another machine)
             if let Some((_, channel)) = self
                 .network
                 .inter_node_channels
                 .iter_mut()
-                .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash)
+                .find(|(_, c)| c.src_zone_hash == ack.target_zone_hash && c.target_zone_hash == ack.receiver_zone_hash)
             {
-                unsafe {
-                    channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream);
-                }
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
             }
-            // Find Intra-GPU channel (if both zones reside in our VRAM)
             else if let Some((_, _, channel)) = self
                 .network
                 .intra_gpu_channels
                 .iter_mut()
-                // [DOD FIX] Exact hash matching without magic stubs!
-                .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash)
+                .find(|(_, _, c)| c.src_zone_hash == ack.target_zone_hash && c.target_zone_hash == ack.receiver_zone_hash)
             {
-                unsafe {
-                    channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream);
-                }
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
             }
         }
 
@@ -269,20 +262,16 @@ impl NodeRuntime {
                 .network
                 .inter_node_channels
                 .iter_mut()
-                .find(|(_, c)| c.target_zone_hash == prune.target_zone_hash)
+                .find(|(_, c)| c.src_zone_hash == prune.target_zone_hash && c.target_zone_hash == prune.receiver_zone_hash)
             {
-                unsafe {
-                    channel.prune_route(prune.dst_ghost_id, stream);
-                }
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
             } else if let Some((_, _, channel)) = self
                 .network
                 .intra_gpu_channels
                 .iter_mut()
-                .find(|(_, _, c)| c.target_zone_hash == prune.target_zone_hash)
+                .find(|(_, _, c)| c.src_zone_hash == prune.target_zone_hash && c.target_zone_hash == prune.receiver_zone_hash)
             {
-                unsafe {
-                    channel.prune_route(prune.dst_ghost_id, stream);
-                }
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
             }
         }
     }
@@ -417,14 +406,8 @@ impl NodeRuntime {
                 };
 
                 // 160 KB copied in L1/L2 processor cache in nanoseconds. No allocations and memset!
-                unsafe {
-                    // Guarantee enough capacity. reserve() allocates only if needed.
-                    if output_bytes > self.egress_transpose_buffer.capacity() {
-                        self.egress_transpose_buffer.reserve(output_bytes);
-                    }
-                    // Now shift is safe
-                    self.egress_transpose_buffer.set_len(output_bytes);
-                }
+                // [DOD FIX] Safe reallocation prevents STATUS_HEAP_CORRUPTION
+                self.egress_transpose_buffer.resize(output_bytes, 0);
 
                 for t in 0..batch_size_usize {
                     for p in 0..total_pixels {

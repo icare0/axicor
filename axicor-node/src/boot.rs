@@ -237,6 +237,8 @@ impl Bootloader {
 
         // [DOD FIX] Flash routing table for inter-zone Egress
         let mut initial_routes = HashMap::new();
+        let mut logged_routes = std::collections::HashSet::new();
+
         for (zm, _) in &zone_manifests_with_names {
             for conn in &zm.connections {
                 let src_hash = axicor_core::hash::fnv1a_32(conn.from.as_bytes());
@@ -248,10 +250,12 @@ impl Bootloader {
                             .parse::<std::net::SocketAddr>()
                             .expect("FATAL: Invalid peer IP");
                         initial_routes.insert(dst_hash, (addr, 65507));
-                        info!(
-                            "[Boot] Route (Egress): {} (0x{:08X}) -> {}",
-                            conn.to, dst_hash, addr
-                        );
+                        if logged_routes.insert((zm.zone_hash, dst_hash, "Egress")) {
+                            info!(
+                                "[Boot] Route (Egress): {} (0x{:08X}) -> {}",
+                                conn.to, dst_hash, addr
+                            );
+                        }
                     }
                 } else if dst_hash == zm.zone_hash {
                     if let Some(peer_addr) = zm.network.fast_path_peers.get(&conn.from) {
@@ -259,10 +263,12 @@ impl Bootloader {
                             .parse::<std::net::SocketAddr>()
                             .expect("FATAL: Invalid peer IP");
                         initial_routes.insert(src_hash, (addr, 65507));
-                        info!(
-                            "[Boot] Route (ACK): {} (0x{:08X}) -> {}",
-                            conn.from, src_hash, addr
-                        );
+                        if logged_routes.insert((zm.zone_hash, src_hash, "ACK")) {
+                            info!(
+                                "[Boot] Route (ACK): {} (0x{:08X}) -> {}",
+                                conn.from, src_hash, addr
+                            );
+                        }
                     }
                 }
             }
@@ -583,12 +589,19 @@ impl Bootloader {
         let inter_node = Vec::new();
         let mut expected_peers = 0;
 
-        let mut all_connections = Vec::new();
+        // [DOD FIX] Epic 5: Bootstrap Idempotence.
+        // ZoneManifests redundantly store the global connectome. We MUST deduplicate
+        // to prevent VRAM memory leaks and fatal Data Races in cu_ghost_sync_kernel.
+        let mut unique_connections = std::collections::HashMap::new();
         let mut receiver_manifests: HashMap<u32, &ZoneManifest> = HashMap::new();
         for (zm, _) in zone_manifests_with_names {
             receiver_manifests.insert(zm.zone_hash, zm);
-            all_connections.extend(zm.connections.clone());
+            for conn in &zm.connections {
+                unique_connections.insert((conn.from.clone(), conn.to.clone()), conn.clone());
+            }
         }
+
+        let all_connections: Vec<_> = unique_connections.into_values().collect();
 
         for conn in &all_connections {
             let src_hash = axicor_core::hash::fnv1a_32(conn.from.as_bytes());
@@ -643,6 +656,11 @@ impl Bootloader {
 
                 let src_ptr = *axon_head_ptrs.get(&src_hash).unwrap();
                 let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
+                let receiver_manifest = receiver_manifests.get(&dst_hash).unwrap();
+                let dst_total_axons = receiver_manifest.memory.padded_n 
+                    + receiver_manifest.memory.virtual_axons 
+                    + receiver_manifest.memory.ghost_capacity;
+
                 let channel = unsafe {
                     IntraGpuChannel::from_slices(
                         src_hash,
@@ -650,6 +668,7 @@ impl Bootloader {
                         &src_axons,
                         &dst_ghosts,
                         capacity,
+                        dst_total_axons as u32, // [DOD FIX] Pass layout limit
                     )
                 };
                 intra_gpu.push((src_ptr, dst_ptr, channel));

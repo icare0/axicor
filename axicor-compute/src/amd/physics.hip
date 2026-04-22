@@ -183,8 +183,11 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     if (target_packed == 0)
       break;
 
-    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index Trap)
-    uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
+    // [DOD FIX] Zero-Index Trap Protection. Extract ID first, then check.
+    uint32_t raw_id = target_packed & 0x00FFFFFF;
+    if (raw_id == 0) break; // Corrupted segment index with empty ID
+    
+    uint32_t target_id = raw_id - 1;
     uint32_t seg_idx = target_packed >> 24;
 
     BurstHeads8 h = vram.axon_heads[target_id];
@@ -410,6 +413,7 @@ __global__ void cu_ghost_sync_kernel(
     const uint32_t* __restrict__ src_indices,
     const uint32_t* __restrict__ dst_indices,
     uint32_t count,
+    uint32_t dst_total_axons, // [DOD FIX] Hardware VRAM Guard
     uint32_t sync_batch_ticks,
     uint32_t v_seg
 ) {
@@ -420,6 +424,9 @@ __global__ void cu_ghost_sync_kernel(
     uint32_t dst_ghost = dst_indices[tid];
 
     if (src_axon == 0x80000000) return; // Аппаратный Early Exit для Sentinel
+
+    // [DOD FIX] Strict VRAM Guard. Never trust the host.
+    if (dst_ghost >= dst_total_axons) return;
 
     BurstHeads8 s_h = src_heads[src_axon];
     BurstHeads8 d_h = dst_heads[dst_ghost];
@@ -455,14 +462,15 @@ void launch_ghost_sync(
     const uint32_t* src_indices,
     const uint32_t* dst_indices,
     uint32_t count,
+    uint32_t dst_total_axons, // [DOD FIX] C-ABI Sync
     uint32_t sync_batch_ticks,
     uint32_t v_seg,
     hipStream_t stream
 ) {
     int threads = 256;
     int blocks = (count + threads - 1) / threads;
-    hipLaunchKernelGGL(cu_ghost_sync_kernel, dim3(blocks), dim3(threads), 0, stream,
-        src_heads, dst_heads, src_indices, dst_indices, count, sync_batch_ticks, v_seg
+    cu_ghost_sync_kernel<<<blocks, threads, 0, stream>>>(
+        src_heads, dst_heads, src_indices, dst_indices, count, dst_total_axons, sync_batch_ticks, v_seg
     );
 }
 

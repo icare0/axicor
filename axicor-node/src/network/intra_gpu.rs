@@ -12,6 +12,7 @@ pub struct IntraGpuChannel {
     pub target_zone_hash: u32, // [DOD FIX] Strict binding to destination
     pub capacity: u32,
     pub count: u32,
+    pub dst_total_axons: u32, // [DOD FIX] Guard for OOB Ghost Sync
 
     pub src_indices_host: Vec<u32>,
     pub dst_indices_host: Vec<u32>,
@@ -39,13 +40,22 @@ impl IntraGpuChannel {
         src_indices: &[u32],
         dst_indices: &[u32],
         capacity: u32,
+        dst_total_axons: u32,
     ) -> Self {
         assert_eq!(src_indices.len(), dst_indices.len());
         let count = src_indices.len() as u32;
-        assert!(
+        debug_assert!(
             count <= capacity,
             "FATAL: Initial connections exceed capacity"
         );
+        if count > capacity {
+            tracing::error!(
+                "CRITICAL: Initial IntraGPU connections (count={}) exceed capacity ({}). Clamping.",
+                count,
+                capacity
+            );
+        }
+        let count = std::cmp::min(count, capacity);
 
         let bytes_capacity = (capacity as usize) * 4;
         let src_d = axicor_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
@@ -82,6 +92,7 @@ impl IntraGpuChannel {
             dst_indices_host: dst_host,
             src_indices_d: src_d,
             dst_indices_d: dst_d,
+            dst_total_axons,
         }
     }
 
@@ -111,6 +122,7 @@ impl IntraGpuChannel {
             self.src_indices_d,
             self.dst_indices_d,
             self.count,
+            self.dst_total_axons, // [DOD FIX] Hardware VRAM Guard
             sync_batch_ticks,
             v_seg,
             stream,
@@ -124,10 +136,17 @@ impl IntraGpuChannel {
         dst_ghost: u32,
         stream: axicor_compute::ffi::CudaStream,
     ) {
-        assert!(
+        debug_assert!(
             self.count < self.capacity,
             "FATAL: IntraGPU Routing capacity exceeded."
         );
+        if self.count >= self.capacity {
+            tracing::error!(
+                "CRITICAL: IntraGPU Routing capacity exceeded ({}). Link 0x{:08X} -> 0x{:08X} dropped.",
+                self.capacity, src_axon, dst_ghost
+            );
+            return;
+        }
         let idx = self.count as usize;
 
         self.src_indices_host.push(src_axon);

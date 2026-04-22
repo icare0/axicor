@@ -179,7 +179,12 @@ pub unsafe fn cpu_update_neurons(
                 continue;
             }
 
-            let axon_id = (target_packed & 0x00FFFFFF).saturating_sub(1);
+            // [DOD FIX] Zero-Index Trap Protection
+            let raw_id = target_packed & 0x00FFFFFF;
+            if raw_id == 0 {
+                break;
+            }
+            let axon_id = raw_id - 1;
             let seg_idx = target_packed >> 24;
 
             let h = *ptrs.axon_heads.add(axon_id as usize);

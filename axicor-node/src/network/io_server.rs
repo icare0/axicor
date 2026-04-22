@@ -311,7 +311,8 @@ impl ExternalIoServer {
         let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
 
         if total_size > axicor_core::constants::MAX_UDP_PAYLOAD {
-            panic!("Output batch exceeds UDP MTU.");
+            tracing::warn!("[Egress] Dropping batch: {} bytes exceeds UDP MTU (Heap Protection)", total_size);
+            return;
         }
 
         let mut msg = loop {

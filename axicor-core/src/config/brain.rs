@@ -65,6 +65,14 @@ pub fn parse_brain_config_from_str(content: &str) -> Result<BrainConfig, String>
     let config: BrainConfig = toml::from_str(content)
         .map_err(|e| format!("Failed to parse brain config from string: {}", e))?;
 
+    // [DOD FIX] Strict Zone Name Uniqueness
+    let mut seen = std::collections::HashSet::new();
+    for zone in &config.zones {
+        if !seen.insert(&zone.name) {
+            return Err(format!("CRITICAL INVARIANT BROKEN: Duplicate zone name found: '{}'", zone.name));
+        }
+    }
+
     Ok(config)
 }
 

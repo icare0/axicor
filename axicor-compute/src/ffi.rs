@@ -177,6 +177,7 @@ extern "C" {
         src_indices: *const u32,
         dst_indices: *const u32,
         count: u32,
+        dst_total_axons: u32,
         sync_batch_ticks: u32, // [DOD FIX]
         v_seg: u32,            // [DOD FIX]
         stream: CudaStream,

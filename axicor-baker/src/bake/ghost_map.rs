@@ -141,4 +141,37 @@ mod tests {
         assert_eq!(g.connections[1].src_soma_id, EMPTY_PIXEL);
         assert_eq!(g.connections[1].target_ghost_id, 201);
     }
+    #[test]
+    fn test_multi_source_ghost_no_collision() {
+        // Эмулируем 4 входящих коннекта (как от 4 лап муравья в Таламус)
+        let src_pixels = vec![
+            vec![1, EMPTY_PIXEL, 3], // FL (3 слота)
+            vec![1, 2],              // FR (2 слота)
+            vec![EMPTY_PIXEL],       // BL (1 слот)
+            vec![3, 4, 5, 6],        // BR (4 слота)
+        ];
+
+        let base_ghost_id = 1024;
+        let mut cursor = base_ghost_id;
+        let mut all_target_ids = std::collections::HashSet::new();
+
+        for src_mapped_soma_ids in src_pixels {
+            let start_cursor = cursor;
+            let g = build_ghost_mapping("src", "dst", &src_mapped_soma_ids, cursor);
+            
+            // Проверка контракта: возвращаем количество потребленных слотов
+            let consumed_slots = g.connections.len() as u32;
+            cursor += consumed_slots;
+
+            // Проверка диапазонов
+            for conn in g.connections {
+                assert!(conn.target_ghost_id >= start_cursor);
+                assert!(conn.target_ghost_id < cursor);
+                // Проверка коллизий
+                assert!(all_target_ids.insert(conn.target_ghost_id), "COLLISION DETECTED!");
+            }
+        }
+
+        assert_eq!(cursor, 1024 + 3 + 2 + 1 + 4);
+    }
 }

@@ -54,6 +54,7 @@ const _: () = assert!(
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AxonHandoverAck {
     pub target_zone_hash: u32,
+    pub receiver_zone_hash: u32, // [DOD FIX] Strict routing
     pub src_axon_id: u32,
     pub dst_ghost_id: u32, // Index in neighbor's VRAM
 }
@@ -63,6 +64,7 @@ pub struct AxonHandoverAck {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AxonHandoverPrune {
     pub target_zone_hash: u32,
+    pub receiver_zone_hash: u32, // [DOD FIX] Strict routing
     pub dst_ghost_id: u32,
 }
 
