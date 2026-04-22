@@ -296,13 +296,12 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
   for (int i = 0; i < MAX_DENDRITES; i++) {
     uint32_t col_idx = i * padded_n + tid;
     uint32_t target_packed = vram.dendrite_targets[col_idx];
+    if (target_packed == 0) break;
 
-    if (target_packed == 0)
-      break; //    
+    uint32_t raw_id = target_packed & 0x00FFFFFF;
+    if (raw_id == 0) break; // [DOD FIX] Zero-Index Trap Protection!
 
-    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
-    // Trap)
-    uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
+    uint32_t target_id = raw_id - 1;
     uint32_t seg_idx = target_packed >> 24;
     BurstHeads8 b = vram.axon_heads[target_id];
     uint32_t len = p.signal_propagation_length;

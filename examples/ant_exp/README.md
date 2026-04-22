@@ -1,5 +1,8 @@
 # Axicor HFT: Ant-v4 Connectome
 
+> [!WARNING]
+> This example is currently non-functional due to ongoing maintenance and updates of the neuron library.
+
 An integration example for an Embodied AI agent within the Gymnasium Ant-v4 environment. This demonstration showcases real-time Spiking Neural Network (SNN) execution using a 3-zone topology (Sensory, Thoracic, Motor) and Reinforcement-based STDP (dopaminergic modulation) without backpropagation.
 
 ## Architectural Principles (Zero-Garbage)

@@ -11,9 +11,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from axicor.builder import BrainBuilder
 
 def build_ant_connectome():
-    print("🧠 Инициализация архитектора (3-Zone Feedforward WTA)...")
+    print("Initializing architect (6-Zone Feedforward WTA)...")
     base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    gnm_path = os.path.join(base_path, "GNM-Library")
+    # [DOD FIX] Use the new regenerated catalog
+    gnm_path = os.path.join(base_path, "Axicor_Neuron-Lib")
     out_dir = os.path.join(base_path, "Axicor-Models/AntConnectome")
 
     builder = BrainBuilder(project_name="AntConnectome", output_dir=out_dir, gnm_lib_path=gnm_path)
@@ -23,31 +24,30 @@ def build_ant_connectome():
     builder.sim_params["tick_duration_us"] = 100
 
     # ============================================================
-    # АППАРАТНЫЕ ПРОФИЛИ (Multi-Population Biological Soup)
+    # EPIC 11: INTEGRATION HARDWARE PROFILES (Validated Canonical Cells)
     # ============================================================
-    # SENSORY: Высокий порог, стабильность
-    sens_exc_1 = builder.gnm_lib("L4_spiny_MTG_2")
-    sens_exc_2 = builder.gnm_lib("L2_spiny_MTG_3")
-    sens_inh   = builder.gnm_lib("L4_aspiny_AnG_1")
+    # SENSORY: Integrators and Fast-Spiking
+    sens_exc_1 = builder.gnm_lib("VISp_313860745") # Integrator
+    sens_exc_2 = builder.gnm_lib("VISp_313860745") # Fallback mapping
+    sens_inh   = builder.gnm_lib("VISp_475549334") # Fast-Spiking Inhibitory
 
-    # THALAMUS (CPG): Бешеные осцилляторы и реле
-    thal_pace_exc  = builder.gnm_lib("L5_spiny_MTG_82")         # Fast Engine (80 ticks)
-    thal_relay_exc = builder.gnm_lib("4-3-19_Enuc_2-4_Cell_4")  # Slow Relay (5000 ticks)
-    thal_pace_inh  = builder.gnm_lib("L5_aspiny_VISp5_170")     # Hyper-fast brake (55 ticks)
-    thal_mod_inh   = builder.gnm_lib("L23_aspiny_VISp23_101")   # Modulator (87 ticks)
+    # THALAMUS (CPG): Pacemakers and Relays
+    thal_pace_exc  = builder.gnm_lib("VISp_313862134") # Pacemaker
+    thal_relay_exc = builder.gnm_lib("VISpm_313861411") # Relay
+    thal_pace_inh  = builder.gnm_lib("VISp_475549334") # Fast-Spiking (Brake)
+    thal_mod_inh   = builder.gnm_lib("VISp_313861608") # Martinotti Modulator
 
-    # SPINAL GANGLIA: Мощные выходы и жесткое подавление
-    motor_pyr_1 = builder.gnm_lib("L5_spiny_VISp5_1")
-    motor_pyr_2 = builder.gnm_lib("L6_spiny_AnG")
-    motor_inh   = builder.gnm_lib("232_10-1_30x_04A_xyz-5081-7597-377") # Medium Spiny
+    # SPINAL GANGLIA: Motor outputs
+    motor_pyr_1 = builder.gnm_lib("VISp_313860745") # Integrator Pyramid
+    motor_pyr_2 = builder.gnm_lib("VISpm_313861411") # Relay Pyramid
+    motor_inh   = builder.gnm_lib("VISp_313861608") # Martinotti
 
     # ============================================================
     # SHARD 1: SENSORY CORTEX
     # ============================================================
     sensory = builder.add_zone("SensoryCortex", width_vox=64, depth_vox=64, height_vox=16)
-    sensory.add_layer("L4_Input", height_pct=1.0, density=0.15)\
-           .add_population(sens_exc_1, fraction=0.6)\
-           .add_population(sens_exc_2, fraction=0.2)\
+    sensory.add_layer("L4_Input", height_pct=1.0, density=0.8)\
+           .add_population(sens_exc_1, fraction=0.8)\
            .add_population(sens_inh, fraction=0.2)
     
     sensory.add_input("ant_sensors", width=28, height=16, entry_z="top")
@@ -80,14 +80,14 @@ def build_ant_connectome():
                 .add_population(motor_inh, fraction=0.3)
                 
         # [DOD FIX] Strict targeting for motor output
-        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="L5_spiny_VISp5_1")
+        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="VISp_313860745")
         ganglion.add_output(f"proprio_{leg}", width=8, height=8)
         legs[leg] = ganglion
 
     # ============================================================
     # ПРОВОДКА (Ghost Axons L2 Routing)
     # ============================================================
-    print("[*] Прокладка аксонов (Zero-Copy L2 Ghost Sync)...")
+    print("[*] Laying axons (Zero-Copy L2 Ghost Sync)...")
     builder.connect(sensory, thalamus, out_matrix="to_thalamus", 
                     in_width=16, in_height=16, entry_z="top", growth_steps=1200)
 
@@ -98,11 +98,11 @@ def build_ant_connectome():
         # [DOD FIX] Проприоцепция жестко бьет в гиперактивный тормоз Таламуса, обрывая фазу шага
         builder.connect(ganglion, thalamus, out_matrix=f"proprio_{leg}", 
                         in_width=8, in_height=8, entry_z="bottom", 
-                        target_type="L5_aspiny_VISp5_170", growth_steps=1500)
+                        target_type="VISp_475549334", growth_steps=1500)
 
     builder.build()
 
-    print("\n🔥 Запускаем Axicor Baker...")
+    print("\nStarting Axicor Baker...")
     brain_toml_path = os.path.join(out_dir, "brain.toml")
 
     cargo_cmd = ["cargo", "run", "--release", "-p", "axicor-baker", "--bin", "axicor-baker"]
@@ -119,12 +119,12 @@ def build_ant_connectome():
         # Передаем feature для axicor-baker, который пробросит его в axicor-compute
         cargo_cmd.extend(["--features", "mock-gpu"])
 
-    cargo_cmd.extend(["--", "--brain", brain_toml_path, "--clean"])
+    cargo_cmd.extend(["--", "--brain", brain_toml_path, "--clean", "--yes"])
 
     result = subprocess.run(cargo_cmd, cwd=base_path)
 
     if result.returncode != 0:
-        print("\n❌ Ошибка компиляции коннектома.")
+        print("\n[ERROR] Connectome compilation failed.")
         sys.exit(1)
 
 if __name__ == '__main__':
