@@ -171,6 +171,25 @@ extern "C" {
         stream: CudaStream,
     );
 
+    // [DOD FIX] Epic 2: Debug Harness Micro-Kernels
+    pub fn launch_debug_inject_current(
+        soma_voltage: *mut i32,
+        target_tids: *const u32,
+        injection_uv: *const i32,
+        count: u32,
+        stream: CudaStream,
+    );
+
+    pub fn launch_debug_record_v(
+        soma_voltage: *const i32,
+        target_tids: *const u32,
+        out_trace: *mut i32,
+        current_tick: u32,
+        count: u32,
+        max_ticks: u32,
+        stream: CudaStream,
+    );
+
     pub fn launch_ghost_sync(
         src_heads: *const axicor_core::layout::BurstHeads8,
         dst_heads: *mut axicor_core::layout::BurstHeads8,

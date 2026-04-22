@@ -583,3 +583,39 @@ mod tests {
         assert_eq!(out_ids[2], 9999);
     }
 }
+
+// =============================================================================
+// DEBUG HARNESS (Epic 2) - CPU Implementations
+// =============================================================================
+pub fn cpu_debug_inject_current(
+    soma_voltage: *mut i32,
+    target_tids: &[u32],
+    injection_uv: &[i32],
+) {
+    for (i, &tid) in target_tids.iter().enumerate() {
+        unsafe {
+            let v_ptr = soma_voltage.add(tid as usize);
+            *v_ptr = (*v_ptr).saturating_add(injection_uv[i]);
+        }
+    }
+}
+
+pub fn cpu_debug_record_v(
+    soma_voltage: *const i32,
+    target_tids: &[u32],
+    out_trace: &mut [i32],
+    current_tick: u32,
+    max_ticks: u32,
+) {
+    if current_tick >= max_ticks {
+        return;
+    }
+    for (i, &tid) in target_tids.iter().enumerate() {
+        unsafe {
+            let v = *soma_voltage.add(tid as usize);
+            if let Some(slot) = out_trace.get_mut(i * (max_ticks as usize) + (current_tick as usize)) {
+                *slot = v;
+            }
+        }
+    }
+}

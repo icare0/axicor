@@ -1,6 +1,16 @@
 use crate::memory::VramState;
 use std::ptr;
 
+#[derive(Clone, Copy)]
+pub struct EphysState {
+    pub tids_d: *const u32,
+    pub uvs_d: *const i32,
+    pub trace_d: *mut i32,
+    pub count: u32,
+    pub max_ticks: u32,
+    pub current_tick: u32,
+}
+
 pub struct GpuIoBuffers {
     pub d_input_bitmask: *mut u32,
     pub d_incoming_spikes: *mut u32,
@@ -52,12 +62,14 @@ pub struct GpuEngine {
     pub telemetry_ids_d: *mut u32,
     pub telemetry_count_d: *mut u32,
     pub telemetry_count_pinned_h: *mut u32,
+    pub ephys_state: Option<EphysState>, // [DOD FIX] Debug Harness State
 }
 
 pub struct CpuEngine {
     pub vram: VramState,
     pub telemetry_ids: Vec<u32>,
     pub telemetry_count: u32,
+    pub ephys_state: Option<EphysState>, // [DOD FIX]
 }
 
 pub enum ShardEngine {
@@ -96,13 +108,29 @@ impl ShardEngine {
                 telemetry_ids_d,
                 telemetry_count_d,
                 telemetry_count_pinned_h,
+                ephys_state: None,
             })
         } else {
             Self::Cpu(CpuEngine {
                 vram,
                 telemetry_ids: vec![0u32; n],
                 telemetry_count: 0,
+                ephys_state: None,
             })
+        }
+    }
+
+    pub fn set_ephys_state(&mut self, state: Option<EphysState>) {
+        match self {
+            Self::Gpu(gpu) => gpu.ephys_state = state,
+            Self::Cpu(cpu) => cpu.ephys_state = state,
+        }
+    }
+
+    pub fn get_ephys_state(&self) -> Option<EphysState> {
+        match self {
+            Self::Gpu(gpu) => gpu.ephys_state,
+            Self::Cpu(cpu) => cpu.ephys_state,
         }
     }
 
@@ -173,6 +201,17 @@ impl ShardEngine {
                                     .add((tick * io_buffers.num_outputs) as usize)
                             };
 
+                            // [DOD FIX] Ephys Current Injection
+                            if let Some(ephys) = &gpu.ephys_state {
+                                crate::ffi::launch_debug_inject_current(
+                                    gpu.vram.ptrs.soma_voltage,
+                                    ephys.tids_d,
+                                    ephys.uvs_d,
+                                    ephys.count,
+                                    gpu.stream,
+                                );
+                            }
+
                             crate::ffi::cu_step_day_phase(
                                 &gpu.vram.ptrs,
                                 gpu.vram.padded_n,
@@ -190,6 +229,20 @@ impl ShardEngine {
                                 dopamine,
                                 gpu.stream,
                             );
+
+                            // [DOD FIX] Ephys V(t) Recording
+                            if let Some(ephys) = &mut gpu.ephys_state {
+                                crate::ffi::launch_debug_record_v(
+                                    gpu.vram.ptrs.soma_voltage,
+                                    ephys.tids_d,
+                                    ephys.trace_d,
+                                    ephys.current_tick,
+                                    ephys.count,
+                                    ephys.max_ticks,
+                                    gpu.stream,
+                                );
+                                ephys.current_tick += 1;
+                            }
 
                             crate::ffi::launch_extract_telemetry(
                                 gpu.vram.ptrs.soma_flags,
@@ -304,6 +357,17 @@ impl ShardEngine {
                             crate::cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
                         }
 
+                        // [DOD FIX] Ephys Current Injection
+                        if let Some(ephys) = &cpu.ephys_state {
+                            unsafe {
+                                crate::cpu::physics::cpu_debug_inject_current(
+                                    cpu.vram.ptrs.soma_voltage,
+                                    std::slice::from_raw_parts(ephys.tids_d, ephys.count as usize),
+                                    std::slice::from_raw_parts(ephys.uvs_d, ephys.count as usize),
+                                );
+                            }
+                        }
+
                         // 2. GLIF Physics
                         unsafe {
                             crate::cpu::physics::cpu_update_neurons(
@@ -321,6 +385,20 @@ impl ShardEngine {
                                 cpu.vram.padded_n,
                                 dopamine,
                             );
+                        }
+
+                        // [DOD FIX] Ephys V(t) Recording
+                        if let Some(ephys) = &mut cpu.ephys_state {
+                            unsafe {
+                                crate::cpu::physics::cpu_debug_record_v(
+                                    cpu.vram.ptrs.soma_voltage,
+                                    std::slice::from_raw_parts(ephys.tids_d, ephys.count as usize),
+                                    std::slice::from_raw_parts_mut(ephys.trace_d, (ephys.count * ephys.max_ticks) as usize),
+                                    ephys.current_tick,
+                                    ephys.max_ticks,
+                                );
+                            }
+                            ephys.current_tick += 1;
                         }
 
                         // 4. Output History

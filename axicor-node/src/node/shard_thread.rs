@@ -57,8 +57,13 @@ pub struct ThreadWorkspace {
     pub timers_offset: usize,
     pub shm_buffer: MmapMut,
     pub checkpoint_state_buffer: Vec<u8>,
-    pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Buffer for Active Tails
-    pub ghost_origins: Vec<u32>,          // [DOD FIX] O(1) Origin Tracking
+    pub checkpoint_axons_buffer: Vec<u8>, 
+    pub ghost_origins: Vec<u32>,          
+    // [DOD FIX] Ephys GPU Pointers and SHM Mapping
+    pub ephys_mmap: Option<memmap2::MmapMut>,
+    pub d_ephys_tids: *mut u32,
+    pub d_ephys_uvs: *mut i32,
+    pub d_ephys_trace: *mut i32,
 }
 
 impl ThreadWorkspace {
@@ -105,6 +110,19 @@ impl ThreadWorkspace {
                     checkpoint_state_buffer: vec![0u8; 0],
                     checkpoint_axons_buffer: vec![0u8; 0],
                     ghost_origins: vec![0u32; total_ghosts],
+                    ephys_mmap: {
+                        let path = axicor_core::ipc::ephys_shm_path(zone_hash);
+                        if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).create(true).open(&path) {
+                            let size = std::mem::size_of::<axicor_core::ipc::EphysShm>() as u64;
+                            if file.metadata().map(|m| m.len()).unwrap_or(0) < size {
+                                let _ = file.set_len(size);
+                            }
+                            unsafe { memmap2::MmapMut::map_mut(&file).ok() }
+                        } else { None }
+                    },
+                    d_ephys_tids: unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut u32 },
+                    d_ephys_uvs: unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut i32 },
+                    d_ephys_trace: unsafe { axicor_compute::ffi::gpu_malloc(16 * 10000 * 4) as *mut i32 },
                 };
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -190,6 +208,7 @@ fn execute_day_phase(
     v_seg: u32,
     _batch_counter: u64,
     tick_base: u32,
+    workspace: &mut ThreadWorkspace, // [DOD FIX]
 ) {
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
@@ -206,6 +225,29 @@ fn execute_day_phase(
             counts_slice_atomic.len(),
         )
     };
+
+    // [DOD FIX] Ephys SHM Orchestration (Zero-Copy Host-to-Device)
+    if let Some(mmap) = &mut workspace.ephys_mmap {
+        let ephys = unsafe { &mut *(mmap.as_mut_ptr() as *mut axicor_core::ipc::EphysShm) };
+        if ephys.magic == axicor_core::ipc::EPHYS_MAGIC {
+            if ephys.state == 1 { // Trigger command from Python SDK
+                let count = ephys.count.min(16);
+                unsafe {
+                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_tids as *mut _, ephys.target_tids.as_ptr() as *const _, (count * 4) as usize);
+                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_uvs as *mut _, ephys.injection_uv.as_ptr() as *const _, (count * 4) as usize);
+                }
+                shard.set_ephys_state(Some(axicor_compute::compute::shard::EphysState {
+                    tids_d: workspace.d_ephys_tids,
+                    uvs_d: workspace.d_ephys_uvs,
+                    trace_d: workspace.d_ephys_trace,
+                    count,
+                    max_ticks: ephys.max_ticks.min(10000),
+                    current_tick: 0,
+                }));
+                ephys.state = 2; // Mark Busy
+            }
+        }
+    }
 
     let input_ptr = my_io_ctx.consume_for_gpu();
     let input_slice = if !input_ptr.is_null() && input_words_per_tick > 0 {
@@ -232,6 +274,28 @@ fn execute_day_phase(
         global_dopamine,
         tick_base,
     );
+
+    // [DOD FIX] Ephys SHM Output (Zero-Copy Device-to-Host)
+    if let Some(mmap) = &mut workspace.ephys_mmap {
+        let ephys = unsafe { &mut *(mmap.as_mut_ptr() as *mut axicor_core::ipc::EphysShm) };
+        if ephys.state == 2 {
+            if let Some(es) = shard.get_ephys_state() {
+                ephys.current_tick = es.current_tick;
+                if es.current_tick >= es.max_ticks {
+                    let bytes = (es.count * es.max_ticks * 4) as usize;
+                    unsafe {
+                        axicor_compute::ffi::gpu_memcpy_device_to_host(
+                            ephys.out_trace.as_mut_ptr() as *mut _,
+                            workspace.d_ephys_trace as *const _,
+                            bytes
+                        );
+                    }
+                    ephys.state = 3; // Mark Done
+                    shard.set_ephys_state(None);
+                }
+            }
+        }
+    }
 }
 
 fn download_outputs(
@@ -863,7 +927,7 @@ pub fn spawn_shard_thread(
                         // PHASE 1: GPU batch execution (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
-                            &ctx.io_ctx, &mut io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
+                            &ctx.io_ctx, &mut io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base, &mut workspace
                         );
 
                         // --- PHASE 2: Read outputs ---

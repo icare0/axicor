@@ -452,6 +452,40 @@ __global__ void cu_ghost_sync_kernel(
     dst_heads[dst_ghost] = d_h;
 }
 
+// ============================================================================
+// DEBUG HARNESS (Epic 2) - Isolated Micro-Kernels for Electrophysiology
+// ============================================================================
+__global__ void cu_debug_inject_current_kernel(
+    int32_t* __restrict__ soma_voltage,
+    const uint32_t* __restrict__ target_tids,
+    const int32_t* __restrict__ injection_uV,
+    uint32_t count
+) {
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+    if (tid >= count) return;
+
+    uint32_t target_soma = target_tids[tid];
+    // [DOD] Atomic add protects against overlapping injection targets
+    atomicAdd(&soma_voltage[target_soma], injection_uV[tid]);
+}
+
+__global__ void cu_debug_record_v_kernel(
+    const int32_t* __restrict__ soma_voltage,
+    const uint32_t* __restrict__ target_tids,
+    int32_t* __restrict__ out_trace,
+    uint32_t current_tick,
+    uint32_t count,
+    uint32_t max_ticks
+) {
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+    if (tid >= count) return;
+    if (current_tick >= max_ticks) return;
+
+    uint32_t target_soma = target_tids[tid];
+    // [DOD] Flat 2D projection: [target_index][tick_index]
+    out_trace[tid * max_ticks + current_tick] = soma_voltage[target_soma];
+}
+
 extern "C" {
 void launch_ghost_sync(
     const BurstHeads8* src_heads,
@@ -559,6 +593,34 @@ void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint
     cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
         ptrs->soma_flags, out_ids, out_count_pinned, padded_n
     );
+}
+
+void launch_debug_inject_current(
+    int32_t* soma_voltage,
+    const uint32_t* target_tids,
+    const int32_t* injection_uV,
+    uint32_t count,
+    hipStream_t stream
+) {
+    if (count == 0) return;
+    int threads = 256;
+    int blocks = (count + threads - 1) / threads;
+    cu_debug_inject_current_kernel<<<blocks, threads, 0, stream>>>(soma_voltage, target_tids, injection_uV, count);
+}
+
+void launch_debug_record_v(
+    const int32_t* soma_voltage,
+    const uint32_t* target_tids,
+    int32_t* out_trace,
+    uint32_t current_tick,
+    uint32_t count,
+    uint32_t max_ticks,
+    hipStream_t stream
+) {
+    if (count == 0) return;
+    int threads = 256;
+    int blocks = (count + threads - 1) / threads;
+    cu_debug_record_v_kernel<<<blocks, threads, 0, stream>>>(soma_voltage, target_tids, out_trace, current_tick, count, max_ticks);
 }
 
 } // extern "C"

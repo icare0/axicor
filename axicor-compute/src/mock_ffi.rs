@@ -468,3 +468,27 @@ pub unsafe extern "C" fn cu_dma_d2h_io(
     }
     0
 }
+
+#[no_mangle]
+pub extern "C" fn launch_debug_inject_current(
+    _soma_voltage: *mut i32,
+    _target_tids: *const u32,
+    _injection_uv: *const i32,
+    _count: u32,
+    _stream: *mut c_void,
+) {
+    // Handled by CPU module directly in non-GPU builds
+}
+
+#[no_mangle]
+pub extern "C" fn launch_debug_record_v(
+    _soma_voltage: *const i32,
+    _target_tids: *const u32,
+    _out_trace: *mut i32,
+    _current_tick: u32,
+    _count: u32,
+    _max_ticks: u32,
+    _stream: *mut c_void,
+) {
+    // Handled by CPU module directly
+}

@@ -656,3 +656,41 @@ pub struct RouteUpdate {
 }
 
 const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 24);
+
+// ===========================================================================
+// EPHYS TELEMETRY (Epic 2)
+// ===========================================================================
+
+pub const EPHYS_MAGIC: u32 = 0x45504859; // "EPHY" in Little-Endian
+pub const MAX_EPHYS_TARGETS: usize = 16;
+pub const MAX_EPHYS_TICKS: usize = 10_000;
+
+/// Shared Memory layout for Electrophysiology Debug Harness.
+/// Strictly aligned to 64 bytes (L2 Cache Line). Size: ~640 KB.
+#[repr(C, align(64))]
+pub struct EphysShm {
+    pub magic: u32,
+    pub state: u32,       // 0=Idle, 1=Trigger, 2=Busy, 3=Done
+    pub count: u32,
+    pub max_ticks: u32,
+    pub current_tick: u32,
+    pub _pad: [u32; 11],
+    
+    pub target_tids: [u32; MAX_EPHYS_TARGETS],
+    pub injection_uv: [i32; MAX_EPHYS_TARGETS],
+    // Flat 2D Array: [target_idx][tick_idx]
+    pub out_trace: [i32; MAX_EPHYS_TARGETS * MAX_EPHYS_TICKS],
+}
+
+const _: () = assert!(
+    std::mem::size_of::<EphysShm>() == 640192,
+    "EphysShm size invariant violated"
+);
+
+pub fn ephys_shm_path(zone_hash: u32) -> std::path::PathBuf {
+    let filename = format!("axicor_ephys_{:08X}.shm", zone_hash);
+    #[cfg(unix)]
+    { std::path::PathBuf::from("/dev/shm").join(filename) }
+    #[cfg(windows)]
+    { std::env::temp_dir().join(filename) }
+}
