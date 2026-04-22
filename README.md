@@ -1,6 +1,7 @@
 <div align="center">
   <img src="./LOGO.svg" height="512" alt="Axicor Logo">
   <h1>Axicor 0.1.0 Public</h1>
+  <a href="https://github.com/H4V1K-dev/axicor/tree/21a299cb45632426a431873aa4ccf4fba2f7a1a0"><img src="https://img.shields.io/badge/last%20stable%20commit-21a299c-red" alt="Last Stable Commit"></a>
   <p><strong>Neuromorphic Computing Engine. SNN AI Architecture base from biology.</strong></p>
 
   <p>
@@ -9,7 +10,7 @@
     <a href="https://docs.rs/axicor-core"><img src="https://img.shields.io/docsrs/axicor-core" alt="docs.rs"></a>
     <a href="https://pypi.org/project/axicor-client/"><img src="https://img.shields.io/pypi/v/axicor-client.svg" alt="PyPI"></a>
     <a href="#license"><img src="https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg" alt="License"></a>
-    <a href="https://github.com/H4V1K-dev/Axicor/commits"><img src="https://img.shields.io/github/last-commit/H4V1K-dev/Axicor" alt="Last Commit"></a>
+    <a href="https://github.com/H4V1K-dev/axicor/commits"><img src="https://img.shields.io/github/last-commit/H4V1K-dev/axicor" alt="Last Commit"></a>
   </p>
 
   <p>
@@ -76,6 +77,7 @@ Open **PowerShell** and run the following commands. The automated bootstrap scri
 cd ~
 git clone https://github.com/H4V1K-dev/axicor.git
 cd axicor
+git checkout 21a299c # Use last stable commit
 
 # Run the automated bootstrap script
 # Copy-paste this command into PowerShell:
@@ -119,6 +121,7 @@ sudo apt-get install -y git curl
 ```bash
 git clone https://github.com/H4V1K-dev/axicor.git
 cd axicor
+git checkout 21a299c # Use last stable commit
 chmod +x scripts/setup.sh
 ./scripts/setup.sh
 ```

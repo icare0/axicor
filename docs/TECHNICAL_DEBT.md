@@ -6,6 +6,10 @@ This document maps the identified monolithic components within the Axicor engine
 
 | Component | File | Severity | Complexity (Est. LOC) | Problem Description | Refactoring Recommendation |
 |-----------|------|----------|------------------------|---------------------|----------------------------|
+| `Baker Sprouting` | `baker/axon_growth.rs` | **CRITICAL** | 100+ | [OOB] Night Phase OOB. `axon_id` exceeds `total_axons` pool during ghost-axon sprouting. GPU kernels lack `if (target_id >= total_axons) break;` guard, leading to silent VRAM corruption and `STATUS_HEAP_CORRUPTION`. | Implement strict hardware bounds checks in `cu_update_neurons_kernel` and `cu_apply_gsop_kernel`. Enforce pool validation in Baker. |
+| `Teardown Logic` | `core/layout.rs` | **HIGH** | 50+ | [DEINIT] C-ABI Teardown Race. OS destroys CUDA context before Rust's `Drop` (VramState) calls `cudaFree`, causing `0xc0000374` heap corruption on process exit. | Implement a dedicated `Teardown()` sequence to deallocate GPU resources BEFORE the main process exit handler. |
+| `Neuron Library` | `scripts/Axicor_Neuron-Library/` | **HIGH** | N/A | [MISSING] Subcortical & Drosophila models lost. Neocortex-only library lacks Thalamus, Hippocampus, Basal Ganglia, Cerebellum, and Drosophila connectome support. Legacy scripts are missing. | Restore `generate_subcortical_library.py` and `normalize_drosophila.py`. Expand catalog to include full biological structures. |
+| `UDP Orchestrator`| `network/io_server.rs` | **HIGH** | 100+ | [NETWORK] UDP MTU Overflow. Output matrices exceeding 65,507 bytes (`MAX_UDP_PAYLOAD`) cause buffer overflow and fatal crashes when resolution/sync_batch_ticks are high. | Implement L7 fragmentation for large payload chunks or enforce resolution limits in `io.toml`. |
 | `NodeRuntime` | `node/mod.rs` | **HIGH** | 500+ | God-object managing lifecycle, compute dispatch, and network topology. | Decompose into `LifecycleManager`, `ComputeOrchestrator`, and `NetworkRegistry`. |
 | `run_node_loop` | `node/mod.rs` | **HIGH** | 200+ | Procedural loop mixing dispatch, feedback, sync, and heartbeats. | Transform into a strict State Machine driving Data-Oriented pipeline stages. |
 | `Bootloader` | `boot.rs` | **HIGH** | 500+ | Massive async procedural block handling ROM/SRAM unpacking and hardware flashing. | Split into discrete boot phases using a stateful pipeline. |
@@ -17,7 +21,6 @@ This document maps the identified monolithic components within the Axicor engine
 | `Update Neurons` | `cpu/physics.rs` | **HIGH** | 200+ | Complex Hot Loop with deeply nested branchless logic. | Decompose into discrete inline "Math Blocks" (Leak, Integrate, Threshold). |
 | `ShardStateSoA` | `layout.rs` | **LOW** | 100+ | Central data structure prone to growing into a blob. | Use discrete "State Planes" to maintain SoA cache efficiency. |
 | `Daemon Spawning`| `node/mod.rs` | **MED** | 50 | Orphaned `axicor-baker-daemon` processes lock resources (UDP ports, SHM) if Node crashes on Windows. | Implement Windows Job Object (`CreateJobObject` / `AssignProcessToJobObject`) to bind daemon lifetimes to the Node orchestrator. |
-| `C-ABI Teardown` | `core/layout.rs` | **MED** | 50+ | OS destroys CUDA context before Rust `Drop` (VramState) calls `cudaFree`. Teardown race. | Implement explicit `Teardown()` phase before process exit or utilize OS-level cleanup for pinned memory. |
 
 ## Refactoring Order (API Impact Priority)
 
