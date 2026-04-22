@@ -16,6 +16,7 @@ This document maps the identified monolithic components within the Axicor engine
 | `Incoming UDP` | `network/io_server.rs`| **MED** | 100+ | Procedural header validation and matrix logic. | Use a `PacketDispatcher` state machine for protocol versions. |
 | `Update Neurons` | `cpu/physics.rs` | **HIGH** | 200+ | Complex Hot Loop with deeply nested branchless logic. | Decompose into discrete inline "Math Blocks" (Leak, Integrate, Threshold). |
 | `ShardStateSoA` | `layout.rs` | **LOW** | 100+ | Central data structure prone to growing into a blob. | Use discrete "State Planes" to maintain SoA cache efficiency. |
+| `Daemon Spawning`| `node/mod.rs` | **MED** | 50 | Orphaned `axicor-baker-daemon` processes lock resources (UDP ports, SHM) if Node crashes on Windows. | Implement Windows Job Object (`CreateJobObject` / `AssignProcessToJobObject`) to bind daemon lifetimes to the Node orchestrator. |
 
 ## Refactoring Order (API Impact Priority)
 

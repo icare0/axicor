@@ -52,6 +52,7 @@ genesis-lite/build/
 # sdkconfig.defaults - NOT ignored (required for shared config)
 
 # === Firmware Dumps & Temp ===
+debug_output/
 *shard.flash
 *shard.sram
 *.bin

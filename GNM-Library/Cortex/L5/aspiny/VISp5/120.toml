@@ -5,7 +5,9 @@ is_inhibitory = true
 # Membrane
 threshold = 25468
 rest_potential = 4144
-leak_rate = 101
+leak_shift = 4
+ahp_amplitude = 0
+adaptive_leak_min_shift = 0
 refractory_period = 19
 spontaneous_firing_period_ticks = 176
 
@@ -33,7 +35,7 @@ steering_weight_jitter = 0.2
 initial_synapse_weight = 1500
 gsop_potentiation = 20
 gsop_depression = 24
-inertia_curve = [128, 121, 113, 106, 98, 90, 83, 75, 67, 59, 51, 43, 35, 26, 17, 7]
+inertia_curve = [ 128, 108, 88, 66, 41, 22, 8, 0,]
 prune_threshold = 100
 
 # --- Dynamic Slot Decay (Derived) ---

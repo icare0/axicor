@@ -64,10 +64,14 @@ pub struct ThreadWorkspace {
     pub d_ephys_tids: *mut u32,
     pub d_ephys_uvs: *mut i32,
     pub d_ephys_trace: *mut i32,
+    pub cpu_ephys_tids: Vec<u32>,
+    pub cpu_ephys_uvs: Vec<i32>,
+    pub cpu_ephys_trace: Vec<i32>,
+    pub use_gpu: bool,
 }
 
 impl ThreadWorkspace {
-    pub fn new(zone_hash: u32, padded_n: usize, total_ghosts: usize) -> Self {
+    pub fn new(zone_hash: u32, padded_n: usize, total_ghosts: usize, use_gpu: bool) -> Self {
         let path = axicor_core::ipc::shm_file_path(zone_hash);
         let total_size = shm_size(padded_n);
 
@@ -98,7 +102,7 @@ impl ThreadWorkspace {
             };
             let header = unsafe { std::ptr::read(mmap.as_ptr() as *const ShmHeader) };
             if header.validate().is_ok() {
-                return Self {
+                let mut res = Self {
                     weights_offset: header.weights_offset as usize,
                     targets_offset: header.targets_offset as usize,
                     handovers_offset: header.handovers_offset as usize,
@@ -120,10 +124,24 @@ impl ThreadWorkspace {
                             unsafe { memmap2::MmapMut::map_mut(&file).ok() }
                         } else { None }
                     },
-                    d_ephys_tids: unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut u32 },
-                    d_ephys_uvs: unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut i32 },
-                    d_ephys_trace: unsafe { axicor_compute::ffi::gpu_malloc(16 * 10000 * 4) as *mut i32 },
+                    d_ephys_tids: std::ptr::null_mut(),
+                    d_ephys_uvs: std::ptr::null_mut(),
+                    d_ephys_trace: std::ptr::null_mut(),
+                    cpu_ephys_tids: vec![0u32; 16],
+                    cpu_ephys_uvs: vec![0i32; 16],
+                    cpu_ephys_trace: vec![0i32; 16 * 10000],
+                    use_gpu,
                 };
+                if use_gpu {
+                    res.d_ephys_tids = unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut u32 };
+                    res.d_ephys_uvs = unsafe { axicor_compute::ffi::gpu_malloc(16 * 4) as *mut i32 };
+                    res.d_ephys_trace = unsafe { axicor_compute::ffi::gpu_malloc(16 * 10000 * 4) as *mut i32 };
+                } else {
+                    res.d_ephys_tids = res.cpu_ephys_tids.as_mut_ptr();
+                    res.d_ephys_uvs = res.cpu_ephys_uvs.as_mut_ptr();
+                    res.d_ephys_trace = res.cpu_ephys_trace.as_mut_ptr();
+                }
+                return res;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
@@ -232,9 +250,15 @@ fn execute_day_phase(
         if ephys.magic == axicor_core::ipc::EPHYS_MAGIC {
             if ephys.state == 1 { // Trigger command from Python SDK
                 let count = ephys.count.min(16);
-                unsafe {
-                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_tids as *mut _, ephys.target_tids.as_ptr() as *const _, (count * 4) as usize);
-                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_uvs as *mut _, ephys.injection_uv.as_ptr() as *const _, (count * 4) as usize);
+                match shard {
+                    ShardEngine::Gpu(_) => unsafe {
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_tids as *mut _, ephys.target_tids.as_ptr() as *const _, (count * 4) as usize);
+                        axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_uvs as *mut _, ephys.injection_uv.as_ptr() as *const _, (count * 4) as usize);
+                    },
+                    ShardEngine::Cpu(_) => unsafe {
+                        std::ptr::copy_nonoverlapping(ephys.target_tids.as_ptr(), workspace.d_ephys_tids, count as usize);
+                        std::ptr::copy_nonoverlapping(ephys.injection_uv.as_ptr(), workspace.d_ephys_uvs, count as usize);
+                    }
                 }
                 shard.set_ephys_state(Some(axicor_compute::compute::shard::EphysState {
                     tids_d: workspace.d_ephys_tids,
@@ -283,12 +307,21 @@ fn execute_day_phase(
                 ephys.current_tick = es.current_tick;
                 if es.current_tick >= es.max_ticks {
                     let bytes = (es.count * es.max_ticks * 4) as usize;
-                    unsafe {
-                        axicor_compute::ffi::gpu_memcpy_device_to_host(
-                            ephys.out_trace.as_mut_ptr() as *mut _,
-                            workspace.d_ephys_trace as *const _,
-                            bytes
-                        );
+                    match shard {
+                        ShardEngine::Gpu(_) => unsafe {
+                            axicor_compute::ffi::gpu_memcpy_device_to_host(
+                                ephys.out_trace.as_mut_ptr() as *mut _,
+                                workspace.d_ephys_trace as *const _,
+                                bytes
+                            );
+                        },
+                        ShardEngine::Cpu(_) => unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                workspace.d_ephys_trace as *const _,
+                                ephys.out_trace.as_mut_ptr() as *mut _,
+                                (es.count * es.max_ticks) as usize
+                            );
+                        }
                     }
                     ephys.state = 3; // Mark Done
                     shard.set_ephys_state(None);
@@ -906,7 +939,7 @@ pub fn spawn_shard_thread(
             let (_, state_size) = axicor_compute::memory::calculate_state_blob_size(padded_n);
 
             // [DOD FIX] Align payload size with Baker Daemon expectations
-            let mut workspace = ThreadWorkspace::new(hash, padded_n, vram.total_ghosts as usize);
+            let mut workspace = ThreadWorkspace::new(hash, padded_n, vram.total_ghosts as usize, use_gpu);
             let axons_size = vram.total_axons as usize * std::mem::size_of::<axicor_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
