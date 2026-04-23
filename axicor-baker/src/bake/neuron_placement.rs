@@ -19,9 +19,9 @@ pub fn generate_placement_from_config(
     let off_y = shard_cfg.world_offset.y;
     let off_z = shard_cfg.world_offset.z;
 
-    assert!(off_x + max_x <= 0x7FF, "Zone X range exceeds 11-bit limit");
-    assert!(off_y + max_y <= 0x7FF, "Zone Y range exceeds 11-bit limit");
-    assert!(off_z + max_z <= 0x3F, "Zone Z range exceeds 6-bit limit");
+    assert!(off_x + max_x <= 0x3FF, "Zone X range exceeds 10-bit limit");
+    assert!(off_y + max_y <= 0x3FF, "Zone Y range exceeds 10-bit limit");
+    assert!(off_z + max_z <= 0xFF, "Zone Z range exceeds 8-bit limit");
 
     let mut positions = Vec::new();
     let mut rng = ChaCha8Rng::seed_from_u64(master_seed);

@@ -553,12 +553,9 @@ pub fn inject_ghost_axons(
         }
 
         let length_segments = segments.len() as u32;
-        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-            (
-                (last & 0x7FF),
-                ((last >> 11) & 0x7FF),
-                ((last >> 22) & 0x3F),
-            )
+        let (final_x, final_y, final_z) = if let Some(&last) = segments.last() {
+            let pos = axicor_core::types::PackedPosition(last);
+            (pos.x() as u32, pos.y() as u32, pos.z() as u32)
         } else {
             (packet.entry_x, packet.entry_y, packet.entry_z)
         };
