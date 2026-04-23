@@ -87,6 +87,7 @@ pub struct NodeRuntime {
     pub local_port: u16,
     /// [DOD] Output routes: zone_hash -> (TargetAddr, MatrixHash, PixelOffset, ChunkPixels)
     pub output_routes: HashMap<u32, Vec<(String, u32, usize, usize)>>,
+    pub compute_thread_handles: Option<Vec<std::thread::JoinHandle<()>>>,
     // [DOD] Ownership of child processes (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
     // [DOD FIX] Shard metadata for Hot-Reload
@@ -160,6 +161,8 @@ impl NodeRuntime {
         let mut zone_v_segs = HashMap::new();
         let mut virtual_offset_map = HashMap::new();
 
+        let mut thread_handles = Vec::new();
+
         // [DOD] Consume shards to spawn threads
         let mut core_id = 1;
         for desc in shards {
@@ -190,7 +193,7 @@ impl NodeRuntime {
                 routing_table: routing_table.clone(), // [DOD FIX]
             };
 
-            crate::node::shard_thread::spawn_shard_thread(
+            let handle = crate::node::shard_thread::spawn_shard_thread(
                 desc,
                 ctx,
                 rx,
@@ -198,6 +201,7 @@ impl NodeRuntime {
                 core_id,
                 sync_batch_ticks,
             );
+            thread_handles.push(handle);
             core_id += 1;
         }
 
@@ -223,6 +227,7 @@ impl NodeRuntime {
             local_ip,
             local_port,
             output_routes,
+            compute_thread_handles: Some(thread_handles),
             daemons: Mutex::new(daemons),
             manifest_metadata: Mutex::new(manifest_metadata),
             zone_v_segs,
@@ -316,7 +321,7 @@ impl NodeRuntime {
     }
 
     // [DOD FIX] The correct Pipeline Order: Compute -> Network Tx -> Network Rx Wait
-    pub fn run_node_loop(&mut self) {
+    pub fn run_node_loop(&mut self, is_running: Arc<std::sync::atomic::AtomicBool>) {
         let batch_size = self.sync_batch_ticks;
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
@@ -334,7 +339,7 @@ impl NodeRuntime {
         let loop_start = std::time::Instant::now();
         let mut batch_start = loop_start;
 
-        loop {
+        while is_running.load(Ordering::Acquire) {
             // 1. Swap IO Buffers (Acquire semantics)
             for (_, io_ctx) in &self.services.io_server.io_contexts {
                 io_ctx.swapchain.swap();
@@ -540,6 +545,26 @@ impl NodeRuntime {
             // [DOD FIX] Restore time progression! Without this GPU will get stuck in first N ticks.
             current_tick += batch_size as u64;
         }
+    }
+
+    pub fn teardown(&mut self) {
+        tracing::info!("[Orchestrator] Executing synchronous C-ABI teardown...");
+        
+        // 1. Send shutdown to all shards
+        for tx in self.compute_dispatchers.values() {
+            let _ = tx.send(ComputeCommand::Shutdown);
+        }
+        
+        // 2. Drop dispatchers to close channels
+        self.compute_dispatchers.clear();
+        
+        // 3. Await all OS threads to gracefully clean up VRAM
+        if let Some(handles) = self.compute_thread_handles.take() {
+            for handle in handles {
+                let _ = handle.join();
+            }
+        }
+        tracing::info!("[Orchestrator] All compute threads terminated. VRAM cleared.");
     }
 }
 

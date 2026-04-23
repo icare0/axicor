@@ -27,20 +27,20 @@ def build_ant_connectome():
     # EPIC 11: INTEGRATION HARDWARE PROFILES (Validated Canonical Cells)
     # ============================================================
     # SENSORY: Integrators and Fast-Spiking
-    sens_exc_1 = builder.gnm_lib("VISp_313860745") # Integrator
-    sens_exc_2 = builder.gnm_lib("VISp_313860745") # Fallback mapping
-    sens_inh   = builder.gnm_lib("VISp_475549334") # Fast-Spiking Inhibitory
+    sens_exc_1 = builder.gnm_lib("Cortex/L4/spiny/VISp4/1") # Integrator
+    sens_exc_2 = builder.gnm_lib("Cortex/L4/spiny/VISp4/1") # Fallback mapping
+    sens_inh   = builder.gnm_lib("Cortex/L4/aspiny/VISp4/1") # Fast-Spiking Inhibitory
 
     # THALAMUS (CPG): Pacemakers and Relays
-    thal_pace_exc  = builder.gnm_lib("VISp_313862134") # Pacemaker
-    thal_relay_exc = builder.gnm_lib("VISpm_313861411") # Relay
-    thal_pace_inh  = builder.gnm_lib("VISp_475549334") # Fast-Spiking (Brake)
-    thal_mod_inh   = builder.gnm_lib("VISp_313861608") # Martinotti Modulator
+    thal_pace_exc  = builder.gnm_lib("Cortex/L4/spiny/VISp4/2") # Pacemaker
+    thal_relay_exc = builder.gnm_lib("Cortex/L4/spiny/VISpm4/1") # Relay
+    thal_pace_inh  = builder.gnm_lib("Cortex/L4/aspiny/VISp4/1") # Fast-Spiking (Brake)
+    thal_mod_inh   = builder.gnm_lib("Cortex/L4/aspiny/VISp4/2") # Martinotti Modulator
 
     # SPINAL GANGLIA: Motor outputs
-    motor_pyr_1 = builder.gnm_lib("VISp_313860745") # Integrator Pyramid
-    motor_pyr_2 = builder.gnm_lib("VISpm_313861411") # Relay Pyramid
-    motor_inh   = builder.gnm_lib("VISp_313861608") # Martinotti
+    motor_pyr_1 = builder.gnm_lib("Cortex/L4/spiny/VISp4/1") # Integrator Pyramid
+    motor_pyr_2 = builder.gnm_lib("Cortex/L4/spiny/VISpm4/1") # Relay Pyramid
+    motor_inh   = builder.gnm_lib("Cortex/L4/aspiny/VISp4/2") # Martinotti
 
     # ============================================================
     # SHARD 1: SENSORY CORTEX
@@ -80,7 +80,7 @@ def build_ant_connectome():
                 .add_population(motor_inh, fraction=0.3)
                 
         # [DOD FIX] Strict targeting for motor output
-        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="VISp_313860745")
+        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="Cortex/L4/spiny/VISp4/1")
         ganglion.add_output(f"proprio_{leg}", width=8, height=8)
         legs[leg] = ganglion
 
@@ -98,7 +98,7 @@ def build_ant_connectome():
         # [DOD FIX] Проприоцепция жестко бьет в гиперактивный тормоз Таламуса, обрывая фазу шага
         builder.connect(ganglion, thalamus, out_matrix=f"proprio_{leg}", 
                         in_width=8, in_height=8, entry_z="bottom", 
-                        target_type="VISp_475549334", growth_steps=1500)
+                        target_type="Cortex/L4/aspiny/VISp4/1", growth_steps=1500)
 
     builder.build()
 

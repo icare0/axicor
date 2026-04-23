@@ -34,3 +34,11 @@ This document maps the identified monolithic components within the Axicor engine
 - **NO ECS**: Do not use Entity-Component-Systems for runtime simulation. Stick to DOD (SoA/AoS) and C-ABI.
 - **State Machines**: Emphasize explicit state transitions for network and lifecycle management.
 - **DOD Pipeline**: Maintain the Compute -> Network Tx -> Network Rx Wait order in all orchestrator refactors.
+
+## [2026-04-23] axicor_baker_daemon - TOML Parsing
+**Issue**: `axicor_baker_daemon` emits `[WARN] Failed to load blueprints from ... TOML parse error ... missing field slot_decay_ltm` at runtime.
+**Context**: Added `#[serde(default)]` to `axicor_core::config::blueprints::NeuronType` to fix the Baker compilation phase, but `axicor_baker_daemon` still warns during runtime loading. Need to ensure the daemon's deserializer picks up the defaults correctly or update the daemon's parser logic.
+
+## [2026-04-23] axicor-compute - Heap Corruption
+**Issue**: The Node runtime still crashes with `STATUS_HEAP_CORRUPTION` (0xc0000374) during execution.
+**Context**: This is a pre-existing broken invariant (likely OOB memory access or C-ABI mismatch in the GPU kernels) independent of the Teardown Race fix. Requires deep audit of CUDA/HIP kernels.

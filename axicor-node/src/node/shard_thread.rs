@@ -874,7 +874,7 @@ pub fn spawn_shard_thread(
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
     _core_id: usize,
     sync_batch_ticks: u32,
-) {
+) -> std::thread::JoinHandle<()> {
     let max_spikes_per_tick = 100_000u32;
     let output_bytes = (desc.num_outputs * sync_batch_ticks) as usize;
 
@@ -1017,5 +1017,5 @@ pub fn spawn_shard_thread(
                     ComputeCommand::Shutdown => break,
                 }
             }
-        }).expect("Failed to spawn compute thread");
+        }).expect("Failed to spawn compute thread")
 }

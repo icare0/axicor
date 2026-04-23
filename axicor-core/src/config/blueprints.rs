@@ -77,9 +77,12 @@ pub struct NeuronType {
     pub homeostasis_decay: u16, // u16 (for runtime)
 
     // --- Slot Decay (Fixed-point: 128 = 1.0) ---
+    #[serde(default = "default_slot_decay_ltm")]
     pub slot_decay_ltm: u8,
+    #[serde(default = "default_slot_decay_wm")]
     pub slot_decay_wm: u8,
 
+    #[serde(default = "default_ltm_slot_count")]
     pub ltm_slot_count: u8,
 
     // --- Plasticity Inertia (8 ranks) ---
@@ -190,6 +193,9 @@ fn default_inertia_curve() -> [u8; 8] {
         128, 112, 96, 80, 64, 48, 32, 16,
     ]
 }
+fn default_slot_decay_ltm() -> u8 { 128 }
+fn default_slot_decay_wm() -> u8 { 128 }
+fn default_ltm_slot_count() -> u8 { 8 }
 
 impl NeuronType {
     /// Total sprouting score weight (should be  1.0).

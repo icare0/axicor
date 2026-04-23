@@ -11,7 +11,7 @@ gsop_depression = 7
 homeostasis_decay = 3
 refractory_period = 17
 synapse_refractory_period = 15
-signal_propagation_length = 5
+signal_propagation_length = 17
 is_inhibitory = true
 inertia_curve = [128, 125, 123, 121, 119, 116, 114, 112,]
 ahp_amplitude = 5000
@@ -19,7 +19,7 @@ adaptive_leak_min_shift = 6
 adaptive_leak_gain = 0
 adaptive_mode = 0
 d1_affinity = 64
-d2_affinity = 256
+d2_affinity = 255
 
 # --- Baker Sprouting Params (Not in VRAM) ---
 steering_fov_deg = 72.2

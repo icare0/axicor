@@ -305,7 +305,8 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     for (int k = 0; k < 8; k++) {
         uint32_t head = ((uint32_t*)&b)[k];
         d = head - seg_idx;
-        min_dist = min(min_dist, (d < len) ? d : 0xFFFFFFFF);
+        uint32_t valid_d = d | ((uint32_t)-(int32_t)(d >= len));
+        min_dist = min(min_dist, valid_d);
     }
 
     bool is_active = (min_dist != 0xFFFFFFFF);

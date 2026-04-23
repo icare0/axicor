@@ -196,7 +196,10 @@ fn main() -> Result<()> {
         // 7. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
         // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
         let mut node = boot_result.node_runtime;
-        std::thread::Builder::new()
+        let is_running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let is_running_clone = is_running.clone();
+
+        let orchestrator_handle = std::thread::Builder::new()
             .name("axicor-orchestrator".into())
             .spawn(move || {
                 #[cfg(target_os = "linux")]
@@ -210,13 +213,20 @@ fn main() -> Result<()> {
                         tracing::info!(" [Core] Orchestrator locked to OS Thread Core 0");
                     }
                 }
-                node.run_node_loop();
+                node.run_node_loop(is_running_clone);
+                node // Return ownership back to main thread!
             })
             .expect("Fatal: Failed to spawn orchestrator OS thread");
 
         // 8. Wait for termination
         tokio::signal::ctrl_c().await.unwrap();
         tracing::info!("[Node] Shutting down...");
+        
+        // Signal loop to stop, then join to regain ownership of node
+        is_running.store(false, std::sync::atomic::Ordering::Release);
+        let mut node = orchestrator_handle.join().unwrap();
+        
+        node.teardown();
         Ok(())
     })
 }

@@ -19,7 +19,7 @@ adaptive_leak_min_shift = 5
 adaptive_leak_gain = 0
 adaptive_mode = 0
 d1_affinity = 64
-d2_affinity = 256
+d2_affinity = 255
 
 # --- Baker Sprouting Params (Not in VRAM) ---
 steering_fov_deg = 72.2
