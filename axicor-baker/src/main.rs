@@ -471,26 +471,18 @@ fn serialize_artifacts(
 
     let dna_dir = workspace.out_dir.join("BrainDNA");
     std::fs::create_dir_all(&dna_dir)?;
-    let configs = [
-        (&workspace.sim_path, "simulation.toml"),
-        (&workspace.bp_path, "blueprints.toml"),
-        (&workspace.an_path, "anatomy.toml"),
-        (&workspace.io_path, "io.toml"),
-        (&workspace.shard_cfg_path, "shard.toml"),
-    ];
-    for (src, dst_name) in configs {
-        if src.exists() {
-            if dst_name == "simulation.toml" {
-                if let Ok(content) = std::fs::read_to_string(src) {
-                    let mutated = content
-                        .replace("[sim_v_1]", "[manifest_sim_v_1]")
-                        .replace("[simulation]", "[manifest_sim_v_1]");
-                    let _ = std::fs::write(dna_dir.join(dst_name), mutated);
-                }
-            } else {
-                std::fs::copy(src, dna_dir.join(dst_name))?;
-            }
-        }
-    }
+    // [DOD FIX] Serialize normalized AST back to TOML to ensure all #[serde(default)] values are embedded in the binary archive.
+    let sim_toml = toml::to_string(&workspace.sim).expect("Failed to serialize simulation.toml")
+        .replace("[sim_v_1]", "[manifest_sim_v_1]")
+        .replace("[simulation]", "[manifest_sim_v_1]");
+    std::fs::write(dna_dir.join("simulation.toml"), sim_toml)?;
+
+    let bp_cfg = axicor_core::config::blueprints::BlueprintsConfig {
+        neuron_types: workspace.neuron_types.clone(),
+    };
+    std::fs::write(dna_dir.join("blueprints.toml"), toml::to_string(&bp_cfg).expect("Failed to serialize blueprints.toml"))?;
+    std::fs::write(dna_dir.join("anatomy.toml"), toml::to_string(&workspace.anatomy).expect("Failed to serialize anatomy.toml"))?;
+    std::fs::write(dna_dir.join("io.toml"), toml::to_string(&workspace.io).expect("Failed to serialize io.toml"))?;
+    std::fs::write(dna_dir.join("shard.toml"), toml::to_string(&workspace.shard_cfg).expect("Failed to serialize shard.toml"))?;
     Ok(())
 }

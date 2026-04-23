@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Full `blueprints.toml`  list of neuron types.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlueprintsConfig {
     #[serde(rename = "neuron_type")]
     pub neuron_types: Vec<NeuronType>,
@@ -9,7 +9,7 @@ pub struct BlueprintsConfig {
 
 /// A single [[neuron_type]] block from blueprints.toml.
 /// Combines parameters for both baker (growth) and runtime (GSOP, Night Phase).
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct NeuronType {
     /// Unique type name. Used as a key in anatomy.toml.
     pub name: String,
