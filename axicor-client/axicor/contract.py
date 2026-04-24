@@ -7,6 +7,15 @@ from .encoders import PopulationEncoder, PwmEncoder
 from .decoders import PwmDecoder, PopulationDecoder
 from .axic import AxicReader
 from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
+from functools import lru_cache
+
+@lru_cache(maxsize=1024)
+def _get_name_hash(name: str) -> int:
+    return fnv1a_32(name.encode('utf-8'))
+
+@lru_cache(maxsize=1024)
+def _get_chunk_hash(name: str, index: int) -> int:
+    return fnv1a_32(f"{name}_chunk_{index}".encode('utf-8'))
 
 class AxicorIoContract:
     def __init__(self, axic_path: str, zone_name: str):
@@ -31,6 +40,7 @@ class AxicorIoContract:
         self.inputs = {}
         for matrix in self.data.get("input", []):
             for pin in matrix.get("pin", []):
+                pin["matrix_hash"] = _get_name_hash(pin["name"])
                 self.inputs[pin["name"]] = pin
 
         self.outputs = {}
@@ -50,7 +60,7 @@ class AxicorIoContract:
             designer = IoMatrixDesigner(w, h, is_input=True)
             matrices.append({
                 "zone_hash": self.zone_hash,
-                "matrix_hash": fnv1a_32(inp["name"].encode('utf-8')),
+                "matrix_hash": inp["matrix_hash"],
                 "payload_size": designer.bytes_per_tick * batch_size
             })
 
@@ -62,13 +72,19 @@ class AxicorIoContract:
             designer = IoMatrixDesigner(w, h, is_input=False)
             chunks = designer.fragment(sync_batch_ticks=batch_size)
             
+            num_chunks = len(chunks)
+            out_name = out["name"]
             for i, chunk in enumerate(chunks):
-                chunk_name = out["name"].encode('utf-8') if len(chunks) == 1 else f"{out['name']}_chunk_{i}".encode('utf-8')
+                if num_chunks == 1:
+                    m_hash = _get_name_hash(out_name)
+                else:
+                    m_hash = _get_chunk_hash(out_name, i)
+
                 cw = chunk.get("width", chunk.get("shape", [1])[0])
                 ch = chunk.get("height", chunk.get("shape", [1])[-1])
                 chunk_size = cw * ch * batch_size
                 rx_layout.append({
-                    "matrix_hash": fnv1a_32(chunk_name),
+                    "matrix_hash": m_hash,
                     "offset": current_offset,
                     "size": chunk_size
                 })

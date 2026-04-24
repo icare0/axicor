@@ -1,3 +1,6 @@
+from functools import lru_cache
+
+@lru_cache(maxsize=1024)
 def fnv1a_32(data: bytes) -> int:
     """Deterministic hash (matches the Rust implementation)."""
     hash_val = 0x811c9dc5
