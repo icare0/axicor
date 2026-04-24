@@ -220,7 +220,7 @@ impl InterNodeRouter {
             let mut buf = vec![0u8; 65507];
             loop {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
-                    if size < 16 {
+                    if size < std::mem::size_of::<SpikeBatchHeaderV2>() {
                         continue;
                     }
 
@@ -228,11 +228,9 @@ impl InterNodeRouter {
                     let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
                     if magic == axicor_core::ipc::ROUT_MAGIC {
                         if size >= std::mem::size_of::<axicor_core::ipc::RouteUpdate>() {
-                            let update = unsafe {
-                                std::ptr::read_unaligned(
-                                    buf.as_ptr() as *const axicor_core::ipc::RouteUpdate
-                                )
-                            };
+                            let update: axicor_core::ipc::RouteUpdate =
+                                bytemuck::pod_read_unaligned(&buf[..std::mem::size_of::<axicor_core::ipc::RouteUpdate>()]);
+
                             if update.cluster_secret == cluster_secret {
                                 let mut new_map = unsafe { (*routing_table.get_map_ptr()).clone() };
                                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
@@ -252,9 +250,7 @@ impl InterNodeRouter {
                         continue;
                     }
 
-                    let header = unsafe {
-                        std::ptr::read_unaligned(buf.as_ptr() as *const SpikeBatchHeaderV2)
-                    };
+                    let header: SpikeBatchHeaderV2 = bytemuck::pod_read_unaligned(&buf[..std::mem::size_of::<SpikeBatchHeaderV2>()]);
                     let current_epoch = bsp_barrier
                         .current_epoch
                         .load(std::sync::atomic::Ordering::Acquire);

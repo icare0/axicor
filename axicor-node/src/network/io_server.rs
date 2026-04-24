@@ -160,13 +160,12 @@ impl ExternalIoServer {
         }
 
         // [DOD FIX] Safe unaligned stack read. Prevents SIGBUS on ARM/Xtensa.
-        let header =
-            unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const ExternalIoHeader) };
+        let header: ExternalIoHeader = bytemuck::pod_read_unaligned(&payload[..std::mem::size_of::<ExternalIoHeader>()]);
 
         if header.magic == axicor_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
-                let update =
-                    unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
+                let update: RouteUpdate =
+                    bytemuck::pod_read_unaligned(&payload[..std::mem::size_of::<RouteUpdate>()]);
 
                 // [DOD FIX] O(1) Zero-Cost Auth
                 if update.cluster_secret != self.cluster_secret {

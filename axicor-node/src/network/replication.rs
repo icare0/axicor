@@ -45,7 +45,7 @@ async fn handle_replication_stream(
     let mut header_buf = [0u8; 32];
     tokio::io::AsyncReadExt::read_exact(&mut socket, &mut header_buf).await?;
 
-    let header = unsafe { &*(header_buf.as_ptr() as *const ShardStateHeader) };
+    let header: ShardStateHeader = bytemuck::pod_read_unaligned(&header_buf);
     if header.magic != SNAP_MAGIC {
         anyhow::bail!("Invalid snapshot magic: 0x{:08X}", header.magic);
     }
