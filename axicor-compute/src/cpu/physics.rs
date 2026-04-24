@@ -135,6 +135,7 @@ pub fn cpu_record_outputs(
 pub unsafe fn cpu_update_neurons(
     ptrs: &ShardVramPtrs,
     padded_n: u32,
+    total_axons: u32,
     current_tick: u32,
     v_seg: u32,
 ) {
@@ -185,6 +186,9 @@ pub unsafe fn cpu_update_neurons(
                 break;
             }
             let axon_id = raw_id - 1;
+            if axon_id >= total_axons {
+                continue;
+            }
             let seg_idx = target_packed >> 24;
 
             let h = *ptrs.axon_heads.add(axon_id as usize);
@@ -254,7 +258,7 @@ pub unsafe fn cpu_update_neurons(
         // 8.   (Burst Shift)
         if final_spike != 0 {
             let my_axon = *ptrs.soma_to_axon.add(tid);
-            if my_axon != 0xFFFFFFFF {
+            if my_axon != 0xFFFFFFFF && my_axon < total_axons {
                 let h_ptr = ptrs.axon_heads.add(my_axon as usize);
                 let mut h = *h_ptr;
                 h.h7 = h.h6;
@@ -287,7 +291,7 @@ pub unsafe fn cpu_update_neurons(
 
 ///  5:  GSOP.
 /// DOD FIX: Branchless- STDP. Zero-Warp Divergence.
-pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, dopamine: i16) {
+pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, total_axons: u32, dopamine: i16) {
     use crate::bindings::VARIANT_LUT;
 
     (0..padded_n as usize).into_par_iter().for_each(|tid| {
@@ -330,7 +334,14 @@ pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, dopamine: i16)
             } //   ( Night Phase Pruning)
 
             let seg_idx = target_packed >> 24;
-            let axon_id = (target_packed & 0x00FFFFFF).saturating_sub(1);
+            let raw_id = target_packed & 0x00FFFFFF;
+            if raw_id == 0 {
+                break;
+            }
+            let axon_id = raw_id - 1;
+            if axon_id >= total_axons {
+                continue;
+            }
             let h = *ptrs.axon_heads.add(axon_id as usize);
             let prop = p.signal_propagation_length as u32;
 

@@ -5,6 +5,9 @@ use axicor_core::config::blueprints::NeuronType;
 use axicor_core::types::PackedPosition;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use glam::Vec3;
+use crate::bake::cone_tracing::{calculate_v_attract, ConeParams};
+use crate::bake::spatial_grid::SpatialGrid;
 
 /// Grown axon ready for writing to ShardStateSoA.
 #[derive(Debug, Clone)]
@@ -81,17 +84,29 @@ pub fn step_and_pack(
     let y_idx = (next_pos_um.y / voxel_size_um).max(0.0) as u32;
     let z_idx = (next_pos_um.z / voxel_size_um).max(0.0) as u32;
 
-    let packed = PackedPosition::pack_raw(x_idx, y_idx, z_idx, type_id);
+    // [DOD FIX] Strict clamping to prevent bit overflow into adjacent coordinate fields
+    let packed = PackedPosition::pack_raw(
+        x_idx.min(1023),
+        y_idx.min(1023),
+        z_idx.min(255),
+        type_id,
+    );
 
     (next_pos_um, packed)
 }
 
-// MONOLITH: MED — Growth logic (execute_growth_loop) is a tight procedural loop with mixed physical/logical rules.
-// REFACTOR: Encapsulate growth rules into a pure State Machine or physical "GrowthEngine".
+// [DOD FIX] Strict State Machine for Axon Growth
+pub enum GrowthEvent {
+    Advanced(u32),                  // Успешный шаг (возвращает raw u32 PackedPosition)
+    TargetReached,                  // Достиг цели по Z
+    Stagnated,                      // Застрял (дистанция < epsilon или уперся в границу)
+    OutOfBounds(GhostPacket),       // Покинул шард (уходит в сеть)
+}
+
 /// Unified physical growth pipeline. Used for both local and Ghost axons.
 pub fn execute_growth_loop(
     ctx: &mut GrowthContext,
-    params: &crate::bake::cone_tracing::ConeParams,
+    params: &ConeParams,
     weights: &SteeringWeights,
     spatial_grid: &SpatialGrid,
     sim: &SimulationConfig,
@@ -100,6 +115,35 @@ pub fn execute_growth_loop(
 ) -> (Vec<u32>, Option<GhostPacket>) {
     let mut segments = Vec::new();
     let mut ghost_packet = None;
+
+    while ctx.remaining_steps > 0 {
+        ctx.remaining_steps -= 1;
+        
+        let event = compute_growth_step(ctx, params, weights, spatial_grid, sim, shard_bounds, &mut rng, segments.last().copied());
+        
+        match event {
+            GrowthEvent::Advanced(packed_pos) => segments.push(packed_pos),
+            GrowthEvent::TargetReached | GrowthEvent::Stagnated => break,
+            GrowthEvent::OutOfBounds(packet) => {
+                ghost_packet = Some(packet);
+                break;
+            }
+        }
+    }
+    (segments, ghost_packet)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn compute_growth_step(
+    ctx: &mut GrowthContext,
+    params: &ConeParams,
+    weights: &SteeringWeights,
+    spatial_grid: &SpatialGrid,
+    sim: &SimulationConfig,
+    shard_bounds: &ShardBounds,
+    rng: &mut ChaCha8Rng,
+    last_packed: Option<u32>,
+) -> GrowthEvent {
     let voxel_size_um = sim.simulation.voxel_size_um as f32;
     let segment_length_um = sim.simulation.segment_length_voxels as f32 * voxel_size_um;
 
@@ -107,87 +151,82 @@ pub fn execute_growth_loop(
     let world_d_vox = (sim.world.depth_um as f32 / voxel_size_um) as u32;
     let world_h_vox = (sim.world.height_um as f32 / voxel_size_um) as u32;
 
-    while ctx.remaining_steps > 0 {
-        ctx.remaining_steps -= 1;
+    // 1. Determine V_global
+    let v_global = if let Some(target) = ctx.target_pos {
+        (target - ctx.current_pos_vox).normalize_or_zero()
+    } else {
+        ctx.forward_dir // Ghost axons use inertia as target
+    };
 
-        // 1. Determine V_global
-        let v_global = if let Some(target) = ctx.target_pos {
-            (target - ctx.current_pos_vox).normalize_or_zero()
-        } else {
-            ctx.forward_dir // Ghost axons use inertia as target
-        };
-
-        // 2. Stop upon reaching Z-target (only if target exists)
-        if let Some(target) = ctx.target_pos {
-            // H-axons or V-axons: check target achievement
-            let is_growing_up = target.z >= ctx.current_pos_vox.z;
-            if (is_growing_up && ctx.current_pos_vox.z >= target.z)
-                || (!is_growing_up && ctx.current_pos_vox.z <= target.z)
-            {
-                break;
-            }
+    // 2. Stop upon reaching Z-target (only if target exists)
+    if let Some(target) = ctx.target_pos {
+        let is_growing_up = target.z >= ctx.current_pos_vox.z;
+        if (is_growing_up && ctx.current_pos_vox.z >= target.z)
+            || (!is_growing_up && ctx.current_pos_vox.z <= target.z)
+        {
+            return GrowthEvent::TargetReached;
         }
-
-        // 3. Sensing
-        let current_packed = PackedPosition::new(
-            ctx.current_pos_vox.x.round() as u32,
-            ctx.current_pos_vox.y.round() as u32,
-            ctx.current_pos_vox.z.round() as u32,
-            ctx.owner_type_idx,
-        );
-
-        let v_attract = calculate_v_attract(
-            current_packed,
-            ctx.forward_dir,
-            params,
-            spatial_grid,
-            voxel_size_um,
-        );
-
-        // 4. Steering & Step
-        let (next_pos_um, next_packed) = step_and_pack(
-            ctx.current_pos_um,
-            v_global,
-            v_attract,
-            weights,
-            segment_length_um,
-            ctx.owner_type_idx,
-            &mut rng,
-            voxel_size_um,
-        );
-
-        ctx.current_pos_um = next_pos_um;
-        ctx.forward_dir = (next_pos_um - (ctx.current_pos_vox * voxel_size_um)).normalize_or_zero();
-        ctx.current_pos_vox = next_pos_um / voxel_size_um;
-
-        let x = next_packed.x() as u32;
-        let y = next_packed.y() as u32;
-        let z = next_packed.z() as u32;
-
-        // 5. Shard boundaries
-        if shard_bounds.is_outside(x, y, z) {
-            ghost_packet = Some(GhostPacket {
-                origin_shard_id: ctx.origin_shard_id,
-                soma_idx: ctx.soma_idx,
-                type_idx: ctx.owner_type_idx as usize,
-                entry_x: x.min(world_w_vox.saturating_sub(1)),
-                entry_y: y.min(world_d_vox.saturating_sub(1)),
-                entry_z: z.min(world_h_vox.saturating_sub(1)),
-                entry_dir: ctx.forward_dir,
-                remaining_steps: ctx.remaining_steps,
-            });
-            break;
-        }
-
-        // 6. Stagnation protection
-        if segments.last().copied() == Some(next_packed.0) {
-            break;
-        }
-
-        segments.push(next_packed.0);
     }
 
-    (segments, ghost_packet)
+    // 3. Sensing
+    // [DOD FIX] Truncation strictly matches physical step_and_pack bounds
+    let current_packed = PackedPosition::new(
+        ctx.current_pos_vox.x as u32,
+        ctx.current_pos_vox.y as u32,
+        ctx.current_pos_vox.z as u32,
+        ctx.owner_type_idx,
+    );
+
+    let v_attract = calculate_v_attract(
+        current_packed,
+        ctx.forward_dir,
+        params,
+        spatial_grid,
+        voxel_size_um,
+    );
+
+    // 4. Steering & Step
+    let (next_pos_um, next_packed) = step_and_pack(
+        ctx.current_pos_um,
+        v_global,
+        v_attract,
+        weights,
+        segment_length_um,
+        ctx.owner_type_idx,
+        rng,
+        voxel_size_um,
+    );
+
+    // [DOD FIX] Calculate true direction vector before mutating current state
+    ctx.forward_dir = (next_pos_um - ctx.current_pos_um).normalize_or_zero();
+    ctx.current_pos_um = next_pos_um;
+    ctx.current_pos_vox = next_pos_um / voxel_size_um;
+
+    // [DOD FIX] OutOfBounds must be evaluated against physical space, not clamped bitmasks
+    let raw_x = ctx.current_pos_vox.x.max(0.0) as u32;
+    let raw_y = ctx.current_pos_vox.y.max(0.0) as u32;
+    let raw_z = ctx.current_pos_vox.z.max(0.0) as u32;
+
+    // 5. Shard boundaries
+    if shard_bounds.is_outside(raw_x, raw_y, raw_z) {
+        return GrowthEvent::OutOfBounds(GhostPacket {
+            origin_shard_id: ctx.origin_shard_id,
+            soma_idx: ctx.soma_idx,
+            type_idx: ctx.owner_type_idx as usize,
+            entry_x: raw_x.min(world_w_vox.saturating_sub(1)),
+            entry_y: raw_y.min(world_d_vox.saturating_sub(1)),
+            entry_z: raw_z.min(world_h_vox.saturating_sub(1)),
+            entry_dir: ctx.forward_dir,
+            remaining_steps: ctx.remaining_steps,
+        });
+    }
+
+    // 6. Stagnation protection
+    if last_packed == Some(next_packed.0) {
+        return GrowthEvent::Stagnated;
+    }
+
+    GrowthEvent::Advanced(next_packed.0)
 }
 
 /// Cache of layer Z-ranges (calculated once from anatomy + sim)
@@ -305,9 +344,7 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
 /// 5. XY: small cone drift (FOV) relative to original XY position.
 ///    `tip_x = soma_x + x`, where `|x|  cone_radius`
 /// 6. Axon length = |target_z - soma_z| + 1 (in segments/voxels)
-use crate::bake::cone_tracing::calculate_v_attract;
-use crate::bake::spatial_grid::SpatialGrid;
-use glam::Vec3;
+// Removed local imports, moved to top.
 
 pub fn grow_axons(
     positions: &[PackedPosition],
@@ -382,7 +419,7 @@ pub fn grow_single_axon(
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (GrownAxon, Option<GhostPacket>) {
-    use crate::bake::cone_tracing::ConeParams;
+    // Removed local import, moved to top.
 
     // O(1) growth parameter lookup from flat array:
     let type_params = &types[type_idx as usize];

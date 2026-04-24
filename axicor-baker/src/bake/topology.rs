@@ -236,9 +236,9 @@ pub fn build_local_topology_internal(
         burst.h0 = init_val;
         shard.axon_heads[dst_offset] = burst;
 
-        // [DOD FIX] 4-bit Type Mask goes to bits [31..28]
+        // [DOD FIX] Strict 10-10-8-4 PackedPosition layout alignment
         shard.axon_tips_uvw[dst_offset] =
-            ((ax.type_idx as u32 & 0x0F) << 28) | (ax.tip_z << 22) | (ax.tip_y << 11) | ax.tip_x;
+            ((ax.type_idx as u32 & 0x0F) << 28) | (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
         let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
         let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
         let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;

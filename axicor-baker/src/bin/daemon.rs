@@ -20,6 +20,7 @@ struct NightPhaseContext {
     _virtual_axons: u32, // [DOD FIX]
     _max_x: u32,
     _max_y: u32,
+    _max_z: u32,
 
     _axon_heads: Vec<axicor_core::layout::BurstHeads8>,
     _soma_to_axon: Vec<u32>,
@@ -340,6 +341,7 @@ fn build_night_context(
         _virtual_axons: manifest.memory.virtual_axons as u32, // [DOD FIX]
         _max_x: max_x,
         _max_y: max_y,
+        _max_z: shard_cfg.dimensions.h,
         _axon_heads: axon_heads,
         _soma_to_axon: soma_to_axon,
         _geom_mmap: geom_mmap,
@@ -463,6 +465,7 @@ fn run_night_phase<S: Read + Write>(
             ctx._virtual_axons as usize, // [DOD FIX] Pass layout offset
             ctx._max_x,                 // NEW
             ctx._max_y,                 // NEW
+            ctx._max_z,                 // NEW
             blueprints,
             hdr.epoch,
             lengths_slice,    // NEW

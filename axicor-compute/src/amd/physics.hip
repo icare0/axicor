@@ -156,7 +156,7 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
-                                         uint32_t padded_n, uint32_t current_tick, uint32_t v_seg) {
+                                         uint32_t padded_n, uint32_t total_axons, uint32_t current_tick, uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -190,6 +190,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     if (raw_id == 0) break; // Corrupted segment index with empty ID
     
     uint32_t target_id = raw_id - 1;
+    if (target_id >= total_axons) break; // [DOD FIX] Hardware VRAM Guard!
     uint32_t seg_idx = target_packed >> 24;
 
     BurstHeads8 h = vram.axon_heads[target_id];
@@ -355,7 +356,8 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 __global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
                                          const uint32_t* __restrict__ mapped_soma_ids,
                                          uint8_t* __restrict__ output_history,
-                                         uint32_t num_outputs) {
+                                         uint32_t num_outputs,
+                                         uint32_t padded_n) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_outputs)
     return;
@@ -363,7 +365,7 @@ __global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
   uint32_t soma_id = mapped_soma_ids[tid];
   uint8_t is_spiking = 0;
 
-  if (soma_id != 0xFFFFFFFF) {
+  if (soma_id != 0xFFFFFFFF && soma_id < padded_n) { // [DOD FIX] Strict VRAM Guard
     is_spiking = soma_flags[soma_id] & 0x01;
   }
 
@@ -553,7 +555,7 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
       output_history != nullptr) {
     int blocks_out = (num_outputs + threads - 1) / threads;
     cu_record_readout_kernel<<<blocks_out, threads, 0, stream>>>(
-        vram->soma_flags, mapped_soma_ids, output_history, num_outputs);
+        vram->soma_flags, mapped_soma_ids, output_history, num_outputs, padded_n);
   }
 
   return 0;

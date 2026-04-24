@@ -426,26 +426,24 @@ fn save_hot_checkpoint(
 // PHASE 4: Graph maintenance (Night Phase)
 #[inline(always)]
 fn execute_night_phase(
-    shard: &mut ShardEngine,
+    desc: &mut ShardDescriptor,
     hash: u32,
     socket_path: &std::path::Path,
     baker_client: &mut Option<crate::ipc::BakerClient>,
-    incoming_grow: &Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
-    shard_config: &InstanceConfig,
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
     prune_threshold: i16,
     max_sprouts: u16,
     routing_table: &Arc<crate::network::router::RoutingTable>,
 ) {
-    let vram = match shard {
+    let vram = match &desc.engine {
         ShardEngine::Gpu(gpu) => &gpu.vram,
         ShardEngine::Cpu(cpu) => &cpu.vram,
     };
     let padded_n = vram.padded_n as usize;
     let dendrites_count = padded_n * axicor_core::constants::MAX_DENDRITE_SLOTS;
 
-    match shard {
+    match &mut desc.engine {
         ShardEngine::Gpu(ref mut gpu) => unsafe {
             axicor_compute::ffi::gpu_memcpy_device_to_host(
                 workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
@@ -528,7 +526,7 @@ fn execute_night_phase(
 
     if let Some(client) = baker_client.as_mut() {
         let mut incoming_handovers = Vec::new();
-        while let Some(ev) = incoming_grow.pop() {
+        while let Some(ev) = desc.incoming_grow.pop() {
             incoming_handovers.push(ev);
             if incoming_handovers.len() >= axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT {
                 break;
@@ -544,7 +542,7 @@ fn execute_night_phase(
             max_sprouts,
         ) {
             Ok(acks) => {
-                match shard {
+                match &mut desc.engine {
                     ShardEngine::Gpu(gpu) => unsafe {
                         axicor_compute::ffi::gpu_memcpy_host_to_device(
                             gpu.vram.ptrs.dendrite_targets as *mut _,
@@ -612,11 +610,11 @@ fn execute_night_phase(
                     },
                 }
 
-                dispatch_handovers(client, shard_config, rt_handle);
+                dispatch_handovers(client, &desc.config, rt_handle);
 
-                // [DOD FIX] Fill ghost owners map (Origin Tracking)
+                // [DOD FIX] Correct offset calculation for Ghost Origin Tracking
                 for ack in &acks {
-                    let idx = (ack.dst_ghost_id as usize).saturating_sub(padded_n);
+                    let idx = (ack.dst_ghost_id as usize).saturating_sub(padded_n + desc.num_virtual_axons as usize);
                     if idx < workspace.ghost_origins.len() {
                         workspace.ghost_origins[idx] = ack.target_zone_hash;
                     }
@@ -626,7 +624,7 @@ fn execute_night_phase(
 
                 // [DOD FIX] Read GC cleans from SHM and route deaths
                 dispatch_prunes(
-                    shard,
+                    &mut desc.engine,
                     client,
                     &workspace.ghost_origins,
                     padded_n,
@@ -995,8 +993,8 @@ pub fn spawn_shard_thread(
                             let current_max_sprouts = ctx.atomic_settings.max_sprouts.load(Ordering::Relaxed);
                             let night_start = std::time::Instant::now();
                              execute_night_phase(
-                                &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
-                                &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
+                                &mut desc, hash, std::path::Path::new(&socket_path), &mut baker_client,
+                                &ctx.rt_handle, &mut workspace,
                                 current_prune_threshold, current_max_sprouts, &ctx.routing_table
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();

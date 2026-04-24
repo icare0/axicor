@@ -57,7 +57,8 @@ fn nudge_axon(
     handovers_count: &mut usize,
     max_x: u32,
     max_y: u32,
-    zone_hash: u32, // <--- NEW PARAMETER
+    max_z: u32,
+    zone_hash: u32,
 ) {
     let packed_tip = tips[axon_id];
     if packed_tip == 0 {
@@ -101,13 +102,13 @@ fn nudge_axon(
     let new_ty = ty as i32 + shift_y;
     let new_tz = tz as i32 + shift_z;
 
-    // [DOD FIX] Handover Trigger: excursion outside shard boundaries
+    // [DOD FIX] Handover Trigger with dynamic Z-bounds
     if new_tx < 0
         || new_tx >= max_x as i32
         || new_ty < 0
         || new_ty >= max_y as i32
         || new_tz < 0
-        || new_tz > 63
+        || new_tz >= max_z as i32
     {
         if *handovers_count < axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             let len = lengths[axon_id] as u16;
@@ -121,7 +122,7 @@ fn nudge_axon(
                 vector_z: dz,
                 type_mask: type_mask as u8,
                 remaining_length: 256u16.saturating_sub(len),
-                entry_z: new_tz.clamp(0, 63) as u8,
+                entry_z: new_tz.clamp(0, 255) as u8,
                 _padding: 0,
             };
             *handovers_count += 1;
@@ -162,6 +163,7 @@ pub fn run_sprouting_pass(
     virtual_axons: usize, // [DOD FIX]
     max_x: u32,
     max_y: u32,
+    max_z: u32,
     blueprints: Option<&BlueprintsConfig>,
     _epoch: u64,
     lengths: &mut [u8],
@@ -223,9 +225,10 @@ pub fn run_sprouting_pass(
             dst_ghost_id: next_free_ghost as u32,
         });
 
+        // [DOD FIX] Correct shifts for 10-10-8-4 layout
         let packed_tip = ((ev.type_mask as u32) << 28)
-            | ((ev.entry_z as u32) << 22)
-            | ((ev.entry_y as u32) << 11)
+            | ((ev.entry_z as u32) << 20)
+            | ((ev.entry_y as u32) << 10)
             | (ev.entry_x as u32);
 
         let packed_dir = ((ev.vector_z as u8 as u32) << 16)
@@ -262,6 +265,7 @@ pub fn run_sprouting_pass(
                     &mut handovers_count,
                     max_x,
                     max_y,
+                    max_z,
                     zone_hash,
                 );
             }
@@ -269,8 +273,8 @@ pub fn run_sprouting_pass(
     }
 
     // 2. Ghost Axons (Unconditional growth by inertia)
-    let ghost_end = padded_n + total_ghosts;
-    for axon_id in padded_n..ghost_end {
+    // [DOD FIX] Strict iteration bounds to prevent OOB and virtual axon corruption
+    for axon_id in ghost_start..ghost_end {
         nudge_axon(
             axon_id,
             axon_tips_uvw,
@@ -281,6 +285,7 @@ pub fn run_sprouting_pass(
             &mut handovers_count,
             max_x,
             max_y,
+            max_z,
             zone_hash,
         );
     }

@@ -42,10 +42,10 @@ VOXEL_SIZE_UM = 25.0
 MAX_DENDRITES = 128
 
 def unpack_position(packed):
-    """Zero-cost unpacking of 32-bit PackedPosition [Type(4) | Z(6) | Y(11) | X(11)]"""
-    x = (packed & 0x7FF) * VOXEL_SIZE_UM
-    y = ((packed >> 11) & 0x7FF) * VOXEL_SIZE_UM
-    z = ((packed >> 22) & 0x3F) * VOXEL_SIZE_UM
+    """Zero-cost unpacking of 32-bit PackedPosition [Type(4) | Z(8) | Y(10) | X(10)]"""
+    x = (packed & 0x3FF) * VOXEL_SIZE_UM
+    y = ((packed >> 10) & 0x3FF) * VOXEL_SIZE_UM
+    z = ((packed >> 20) & 0xFF) * VOXEL_SIZE_UM
     return x, y, z
 
 def load_neuron_topology(baked_dir, target_soma_id):

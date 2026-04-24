@@ -247,8 +247,8 @@ pub unsafe extern "C" fn cu_step_day_phase(
     }
 
     cpu::physics::cpu_propagate_axons(axon_heads, v_seg);
-    cpu::physics::cpu_update_neurons(ptrs, padded_n, 0, v_seg);
-    cpu::physics::cpu_apply_gsop(ptrs, padded_n, dopamine);
+    cpu::physics::cpu_update_neurons(ptrs, padded_n, total_axons, 0, v_seg);
+    cpu::physics::cpu_apply_gsop(ptrs, padded_n, total_axons, dopamine);
 
     if !output_history.is_null() && !mapped_soma_ids.is_null() && num_outputs != 0 {
         let soma_flags = std::slice::from_raw_parts(ptrs.soma_flags, padded_n as usize);

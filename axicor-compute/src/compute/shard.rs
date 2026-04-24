@@ -373,6 +373,7 @@ impl ShardEngine {
                             crate::cpu::physics::cpu_update_neurons(
                                 &cpu.vram.ptrs,
                                 cpu.vram.padded_n,
+                                cpu.vram.total_axons,
                                 global_tick,
                                 v_seg,
                             );
@@ -383,6 +384,7 @@ impl ShardEngine {
                             crate::cpu::physics::cpu_apply_gsop(
                                 &cpu.vram.ptrs,
                                 cpu.vram.padded_n,
+                                cpu.vram.total_axons,
                                 dopamine,
                             );
                         }
