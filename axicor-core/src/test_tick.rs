@@ -55,7 +55,7 @@ fn emulate_update_neuron(
 
     // 4. GLIF Leak
     let mut v = soma.voltage;
-    let leaked = v - p.leak_rate;
+    let leaked = v - ((v - p.rest_potential) >> p.leak_shift);
     // max(rest, leaked)
     v = if leaked > p.rest_potential {
         leaked
@@ -127,7 +127,7 @@ fn test_neuron() -> NeuronType {
         name: "Test".to_string(),
         threshold: 200,
         rest_potential: 0,
-        leak_rate: 10,
+        leak_shift: 10,
         homeostasis_penalty: 50,
         homeostasis_decay: 5,
         refractory_period: 10,
@@ -172,12 +172,12 @@ fn test_glif_leak_clamps_at_rest() {
 
     // leak=10, voltage=5. Expected: max(0, 5-10) = 0
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    assert_eq!(soma.voltage, 0);
+    assert_eq!(soma.voltage, 5);
 
     // leak=10, voltage=25. Expected: max(0, 25-10) = 15
     soma.voltage = 25;
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    assert_eq!(soma.voltage, 15);
+    assert_eq!(soma.voltage, 25);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn test_active_tail_triggers_voltage() {
     let mut heads = [0, 2]; // axon 0 (dummy), axon 1 (head=2)
 
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    assert_eq!(soma.voltage, 150);
+    assert_eq!(soma.voltage, 160);
     assert_eq!(dendrites[0].timer, p.synapse_refractory_period);
 }
 
