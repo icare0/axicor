@@ -759,7 +759,7 @@ mod tests {
             variants: [VariantParameters {
                 threshold: 0,
                 rest_potential: 0,
-                leak_rate: 0,
+                leak_shift: 0,
                 homeostasis_penalty: 0,
                 gsop_potentiation: 0,
                 gsop_depression: 0,

@@ -55,7 +55,8 @@ fn emulate_update_neuron(
 
     // 4. GLIF Leak
     let mut v = soma.voltage;
-    let leaked = v - p.leak_rate;
+    let diff = v - p.rest_potential;
+    let leaked = if p.leak_shift < 32 { v - (diff >> p.leak_shift) } else { v };
     // max(rest, leaked)
     v = if leaked > p.rest_potential {
         leaked
@@ -127,7 +128,7 @@ fn test_neuron() -> NeuronType {
         name: "Test".to_string(),
         threshold: 200,
         rest_potential: 0,
-        leak_rate: 10,
+        leak_shift: 32, // Don't leak by default
         homeostasis_penalty: 50,
         homeostasis_decay: 5,
         refractory_period: 10,
@@ -162,7 +163,8 @@ fn test_propagate_sentinel_stays() {
 
 #[test]
 fn test_glif_leak_clamps_at_rest() {
-    let p = test_neuron();
+    let mut p = test_neuron();
+    p.leak_shift = 0; // Immediate full leak
     let mut soma = SomaState {
         voltage: 5,
         ..Default::default()
@@ -170,14 +172,15 @@ fn test_glif_leak_clamps_at_rest() {
     let mut dendrites = [];
     let mut heads = [];
 
-    // leak=10, voltage=5. Expected: max(0, 5-10) = 0
+    // leak_shift=0 -> full leak to 0. Expected: 0
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
     assert_eq!(soma.voltage, 0);
 
-    // leak=10, voltage=25. Expected: max(0, 25-10) = 15
-    soma.voltage = 25;
+    // leak_shift=1 -> halve the diff.
+    p.leak_shift = 1;
+    soma.voltage = 20; // 20 - (20>>1) = 20 - 10 = 10
     emulate_update_neuron(&mut soma, &mut dendrites, None, &mut heads, &p);
-    assert_eq!(soma.voltage, 15);
+    assert_eq!(soma.voltage, 10);
 }
 
 #[test]
@@ -215,9 +218,10 @@ fn test_homeostasis_decay_clamps_zero() {
 
 #[test]
 fn test_active_tail_triggers_voltage() {
-    let p = test_neuron();
+    let mut p = test_neuron();
+    p.leak_shift = 0; // immediate leak
     // propagation_length = 3
-    // Leak = 10. If starting with 0, leak will make voltage 0 (clamp rest).
+    // leak_shift = 0. If starting with 10, leak will make voltage 0 (clamp rest).
     // Set initial 10, leak will make it 0, dendrite adds 150 -> final 150.
     let mut soma = SomaState {
         voltage: 10,

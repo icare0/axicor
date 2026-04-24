@@ -233,7 +233,9 @@ pub unsafe fn cpu_update_neurons(
 
         // Shift-based Exponential Leak (Branchless)
         let diff = current_voltage - p.rest_potential;
-        current_voltage -= diff >> current_shift;
+        if current_shift < 32 {
+            current_voltage -= diff >> current_shift;
+        }
 
         let eff_thresh = p.threshold + thresh_offset;
         let is_glif_spiking = (current_voltage >= eff_thresh) as i32;
@@ -489,7 +491,7 @@ mod tests {
             let mut p = VariantParameters::default();
             p.threshold = 100;
             p.rest_potential = 0;
-            p.leak_shift = 0;
+            p.leak_shift = 32; // Disable leak for this test
             p.refractory_period = 5;
             p.homeostasis_penalty = 50;
 
@@ -501,7 +503,7 @@ mod tests {
             *ptrs.soma_to_axon.add(0) = 0; // Axon 0
 
             // Tick 1
-            cpu_update_neurons(&ptrs, padded_n, 1, 1);
+            cpu_update_neurons(&ptrs, padded_n, axons, 1, 0);
 
             // Spike check
             assert_eq!((*ptrs.soma_flags.add(0)) & 0x01, 1, "Neuron 0 must spike");
@@ -521,7 +523,7 @@ mod tests {
             let h = *ptrs.axon_heads.add(0);
             assert_eq!(
                 h.h0,
-                0u32.wrapping_sub(1),
+                0u32.wrapping_sub(0),
                 "Axon head h0 must be initialized with temporal sync"
             );
 
@@ -559,7 +561,7 @@ mod tests {
             (*ptrs.axon_heads.add(1)).h0 = 0;
 
             // Apply GSOP with dopamine +200
-            cpu_apply_gsop(&ptrs, padded_n, 200);
+            cpu_apply_gsop(&ptrs, padded_n, axons, 200);
 
             let new_w_full = *ptrs.dendrite_weights.add(0);
             assert!(
