@@ -66,3 +66,100 @@ pub fn parse_blueprints(
 
     (memory, config.neuron_types, name_map)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_blueprints_happy_path() {
+        let toml = r#"
+            [[neuron_type]]
+            name = "Excitatory"
+            threshold = 1000
+            rest_potential = 500
+            leak_shift = 2
+            refractory_period = 5
+            synapse_refractory_period = 5
+            homeostasis_penalty = 100
+            homeostasis_decay = 5
+
+            [[neuron_type]]
+            name = "Inhibitory"
+            threshold = 800
+            rest_potential = 400
+            leak_shift = 3
+            refractory_period = 3
+            synapse_refractory_period = 3
+            homeostasis_penalty = 80
+            homeostasis_decay = 3
+            is_inhibitory = true
+        "#;
+
+        let (memory, types, name_map) = parse_blueprints(toml);
+
+        assert_eq!(types.len(), 2);
+        assert_eq!(name_map.get("Excitatory"), Some(&0));
+        assert_eq!(name_map.get("Inhibitory"), Some(&1));
+
+        assert_eq!(memory.variants[0].threshold, 1000);
+        assert_eq!(memory.variants[0].is_inhibitory, 0);
+        assert_eq!(memory.variants[1].threshold, 800);
+        assert_eq!(memory.variants[1].is_inhibitory, 1);
+    }
+
+    #[test]
+    fn test_parse_blueprints_limit() {
+        let mut toml = String::new();
+        for i in 0..16 {
+            toml.push_str(&format!(
+                r#"
+                [[neuron_type]]
+                name = "Type{}"
+                threshold = 1000
+                rest_potential = 500
+                leak_shift = 1
+                refractory_period = 5
+                synapse_refractory_period = 5
+                homeostasis_penalty = 100
+                homeostasis_decay = 5
+                "#,
+                i
+            ));
+        }
+
+        let (memory, types, name_map) = parse_blueprints(&toml);
+        assert_eq!(types.len(), 16);
+        assert_eq!(name_map.len(), 16);
+    }
+
+    #[test]
+    #[should_panic(expected = "Fatal: Architecture hard limit exceeded")]
+    fn test_parse_blueprints_exceed_limit() {
+        let mut toml = String::new();
+        for i in 0..17 {
+            toml.push_str(&format!(
+                r#"
+                [[neuron_type]]
+                name = "Type{}"
+                threshold = 1000
+                rest_potential = 500
+                leak_shift = 1
+                refractory_period = 5
+                synapse_refractory_period = 5
+                homeostasis_penalty = 100
+                homeostasis_decay = 5
+                "#,
+                i
+            ));
+        }
+        parse_blueprints(&toml);
+    }
+
+    #[test]
+    #[should_panic(expected = "Fatal: Failed to parse blueprints.toml")]
+    fn test_parse_blueprints_invalid_toml() {
+        let toml = "invalid = toml";
+        parse_blueprints(toml);
+    }
+}
