@@ -36,7 +36,7 @@ source .venv/bin/activate
 
 echo "[BOOT] Resolving wheels (Zero-Build)..."
 uv pip install --upgrade pip
-uv pip install "numpy>=1.26,<2.0" toml opencv-python "gymnasium[mujoco]==0.29.1" mujoco==2.3.7 pygame==2.5.2 optuna==3.6.1
+uv pip install "numpy>=1.26,<2.0" toml opencv-python "gymnasium[mujoco]==0.29.1" mujoco==2.3.7 pygame==2.5.2 optuna==3.6.1 matplotlib networkx pandas pyserial
 uv pip install -e ./axicor-client
 
 # 4. IPC / POSIX Shared Memory Verification
