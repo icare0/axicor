@@ -6,10 +6,10 @@ from .builder import IoMatrixDesigner
 from .encoders import PopulationEncoder, PwmEncoder
 from .decoders import PwmDecoder, PopulationDecoder
 from .axic import AxicReader
-from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
 
 class AxicorIoContract:
     def __init__(self, axic_path: str, zone_name: str):
+        from .utils import fnv1a_32
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
         reader = AxicReader(axic_path)
         
@@ -40,6 +40,7 @@ class AxicorIoContract:
 
     def get_client_config(self, batch_size: int) -> Dict[str, Any]:
         """Returns kwargs for unpacking into AxicorMultiClient."""
+        from .utils import fnv1a_32
         matrices = []
         rx_layout = []
 

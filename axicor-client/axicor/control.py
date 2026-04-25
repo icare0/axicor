@@ -4,7 +4,6 @@ from typing import Callable, Any
 
 from .axic import AxicReader
 from .platform import get_manifest_path
-from .utils import fnv1a_32 # DOD FIX: Fixed Circular Import
 
 class AxicorControl:
     """
@@ -12,6 +11,7 @@ class AxicorControl:
     Manages runtime parameters on the fly via atomic rewriting of manifest.toml.
     """
     def __init__(self, axic_path: str, zone_name: str):
+        from .utils import fnv1a_32
         self.zone_hash = fnv1a_32(zone_name.encode('utf-8'))
         # [DOD FIX] Node exports the manifest into SHM. SDK modifies it there!
         self.manifest_path = get_manifest_path(self.zone_hash)
