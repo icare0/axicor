@@ -145,7 +145,8 @@ $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
 
 Write-Host "Installing Python ML dependencies..." -ForegroundColor Cyan
 python -m pip install -q --upgrade pip
-python -m pip install -q numpy==1.26.4 "gymnasium[mujoco]==0.29.1" mujoco==2.3.7 pygame==2.5.2 optuna==3.6.1 toml==0.10.2
+python -m pip install -q numpy==1.26.4 "gymnasium[mujoco]==0.29.1" mujoco==2.3.7 pygame==2.5.2 optuna==3.6.1 toml==0.10.2 matplotlib networkx pandas pyserial opencv-python-headless
+python -m pip install -q -e ./axicor-client
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Failed to install Python dependencies. Check the logs above." -ForegroundColor Red
     exit 1
