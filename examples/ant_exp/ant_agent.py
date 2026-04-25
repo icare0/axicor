@@ -13,14 +13,20 @@ from axicor.encoders import PopulationEncoder
 from axicor.decoders import PwmDecoder
 from axicor.contract import AxicorIoContract
 from axicor.brain import fnv1a_32
+from axicor.control import AxicorControl
+
 
 # CONFIG
 EPISODES = 20_000_000
 BATCH_SIZE = 20
-DOPAMINE_REWARD = -2
-DOPAMINE_PUNISHMENT = 255       # Death Signal
-TARGET_SCORE = 50_000           # 50k score
-TARGET_TIME = 10_000            # 10k steps
+TARGET_SCORE = 50_000           # 50k score (Condition de victoire)
+TARGET_TIME = 10_000            # 10k steps (Temps max par essai)
+
+# --- RL HYPERPARAMETERS ---
+MOTOR_GAIN = 0.015               # Muscles plus forts (avant 0.008)
+REWARD_SCALE = 8.0               # Exagère la récompense de vitesse (avant 5.0)
+DOPAMINE_BASE = -12              # Rend l'immobilité DOULOUREUSE (avant -5)
+DOPAMINE_PUNISHMENT = -120       # MUST BE NEGATIVE for LTD (Long-Term Depression)
 
 def run_ant():
     env = gym.make("Ant-v4", render_mode="human", max_episode_steps=TARGET_TIME if TARGET_TIME > 0 else 1000)
@@ -31,21 +37,24 @@ def run_ant():
     model_path = "Axicor-Models/AntConnectome.axic"
 
     c_sensory = AxicorIoContract(model_path, "SensoryCortex")
-    c_fl = AxicorIoContract(model_path, "FL_Ganglion")
-    c_fr = AxicorIoContract(model_path, "FR_Ganglion")
-    c_bl = AxicorIoContract(model_path, "BL_Ganglion")
-    c_br = AxicorIoContract(model_path, "BR_Ganglion")
+    c_motor = AxicorIoContract(model_path, "MotorCortex")
+
+    # --- CONTROL PLANE SDK ---
+    ctrl_sensory = AxicorControl(model_path, "SensoryCortex")
+    ctrl_motor = AxicorControl(model_path, "MotorCortex")
+    
+    # Configure initial plasticity and pruning to avoid Epileptic Seizures
+    ctrl_motor.set_prune_threshold(30)
+    ctrl_sensory.set_prune_threshold(30)
+    ctrl_motor.set_max_sprouts(1)
+    ctrl_sensory.set_max_sprouts(1)
 
     # Build combined layout
     cfg_sens = c_sensory.get_client_config(BATCH_SIZE)
-    cfg_fl = c_fl.get_client_config(BATCH_SIZE)
-    cfg_fr = c_fr.get_client_config(BATCH_SIZE)
-    cfg_bl = c_bl.get_client_config(BATCH_SIZE)
-    cfg_br = c_br.get_client_config(BATCH_SIZE)
+    cfg_motor = c_motor.get_client_config(BATCH_SIZE)
 
-    matrices = cfg_sens["matrices"] # Only Sensory has external inputs
-    rx_layout = (cfg_fl["rx_layout"] + cfg_fr["rx_layout"] +
-                 cfg_bl["rx_layout"] + cfg_br["rx_layout"])
+    matrices = cfg_sens["matrices"] 
+    rx_layout = cfg_motor["rx_layout"]
 
     # HFT Transport
     client = AxicorMultiClient(
@@ -61,11 +70,7 @@ def run_ant():
 
     # --- 2. Zero-Garbage Encoders/Decoders ---
     encoder = c_sensory.create_population_encoder("ant_sensors", vars_count=27, batch_size=BATCH_SIZE)
-
-    dec_fl = c_fl.create_pwm_decoder("motor_out_FL", BATCH_SIZE)
-    dec_fr = c_fr.create_pwm_decoder("motor_out_FR", BATCH_SIZE)
-    dec_bl = c_bl.create_pwm_decoder("motor_out_BL", BATCH_SIZE)
-    dec_br = c_br.create_pwm_decoder("motor_out_BR", BATCH_SIZE)
+    decoder = c_motor.create_pwm_decoder("motor_out", BATCH_SIZE)
 
     # --- MEMORY PREALLOCATION (Hot Loop Safety) ---
     action = np.zeros(8, dtype=np.float32)
@@ -76,6 +81,10 @@ def run_ant():
 
     episodes, score, steps = 0, 0.0, 0
     terminated, truncated = False, False
+    last_reward_signal = 0
+
+    best_score = -9999.0
+    is_crystallized = False
 
     print(f"🚀 Thalamo-Cortical-Spinal Hot Loop Started (Batch={BATCH_SIZE})...")
 
@@ -85,20 +94,44 @@ def run_ant():
             score_reached = (TARGET_SCORE >= 1000 and score >= TARGET_SCORE)
 
             if terminated or truncated or time_reached or score_reached:
-                # Death Signal: 15 LTD Batches
-                for _ in range(15):
-                    client.step(DOPAMINE_PUNISHMENT)
-
                 if time_reached: reason = "Time Reached"
                 elif score_reached: reason = "Score Reached"
                 else: reason = "Terminated"
 
                 print(f"Ep {episodes:04d} | Score: {score:6.1f} | Steps: {steps:5d} | [{reason}]")
 
+                # --- 1. Best Score Checkpoint ---
+                if score > best_score and steps > 100: # Ensure it's a meaningful score
+                    best_score = score
+                    print(f"🔥 NOUVEAU RECORD : {best_score:.1f} ! Forçage de la sauvegarde (VRAM -> Disque)...")
+                    # Temporarily reduce checkpoint interval to trigger a save
+                    ctrl_motor.set_checkpoints_interval(10)
+                    ctrl_sensory.set_checkpoints_interval(10)
+                    for _ in range(10): client.step(0) # Let the node process the change
+                    # Restore standard interval
+                    ctrl_motor.set_checkpoints_interval(1_000_000)
+                    ctrl_sensory.set_checkpoints_interval(1_000_000)
+
+                # --- 2. Death Signal ---
+                if not is_crystallized:
+                    # Death Signal: 5 batches of moderate LTD
+                    for _ in range(5):
+                        client.step(DOPAMINE_PUNISHMENT)
+
+                # --- 3. Sleep Phase (Pruning) ---
+                if episodes > 0 and episodes % 25 == 0 and not is_crystallized:
+                    print("🌙 Phase de sommeil PROFOND : élagage massif des connexions faibles...")
+                    ctrl_motor.set_night_interval(1)
+                    ctrl_sensory.set_night_interval(1)
+                    for _ in range(50): client.step(0) # Let it sleep for a few ticks
+                    ctrl_motor.set_night_interval(0)
+                    ctrl_sensory.set_night_interval(0)
+
                 episodes += 1
                 state, _ = env.reset()
                 score = 0.0
                 steps = 0
+                last_reward_signal = 0
                 terminated, truncated = False, False
                 continue
 
@@ -111,39 +144,51 @@ def run_ant():
             encoder.encode_into(norm_state, client.payload_views)
 
             # 3. Axicor Step (Network I/O)
-            rx_raw = client.step(DOPAMINE_REWARD)
+            # Pass the reward from the PREVIOUS step to the network
+            rx_raw = client.step(last_reward_signal)
             rx_view = memoryview(rx_raw)
 
-            # 4. Zero-Copy Decoding for each Leg
-            off = 0
-            fl_out = dec_fl.decode_from(rx_view[off : off + dec_fl.payload_size]); off += dec_fl.payload_size
-            fr_out = dec_fr.decode_from(rx_view[off : off + dec_fr.payload_size]); off += dec_fr.payload_size
-            bl_out = dec_bl.decode_from(rx_view[off : off + dec_bl.payload_size]); off += dec_bl.payload_size
-            br_out = dec_br.decode_from(rx_view[off : off + dec_br.payload_size]); off += dec_br.payload_size
+            # 4. Zero-Copy Decoding
+            motor_out = decoder.decode_from(rx_view)
 
-            # 5. Fast Response Resolution (Biceps/Triceps per joint)
-            # Ant-v4 Action Space:
-            # 0: Hip FL, 1: Ankle FL
-            action[0] = np.sum(fl_out[0:8]) - np.sum(fl_out[8:16])
-            action[1] = np.sum(fl_out[16:24]) - np.sum(fl_out[24:32])
-
-            # 2: Hip FR, 3: Ankle FR
-            action[2] = np.sum(fr_out[0:8]) - np.sum(fr_out[8:16])
-            action[3] = np.sum(fr_out[16:24]) - np.sum(fr_out[24:32])
-
-            # 4: Hip BL, 5: Ankle BL
-            action[4] = np.sum(bl_out[0:8]) - np.sum(bl_out[8:16])
-            action[5] = np.sum(bl_out[16:24]) - np.sum(bl_out[24:32])
-
-            # 6: Hip BR, 7: Ankle BR
-            action[6] = np.sum(br_out[0:8]) - np.sum(br_out[8:16])
-            action[7] = np.sum(br_out[16:24]) - np.sum(br_out[24:32])
+            # 5. Fast Response Resolution (Slicing & Normalizing)
+            # FL
+            action[0] = (np.sum(motor_out[0:8]) - np.sum(motor_out[8:16])) * MOTOR_GAIN
+            action[1] = (np.sum(motor_out[16:24]) - np.sum(motor_out[24:32])) * MOTOR_GAIN
+            # FR
+            action[2] = (np.sum(motor_out[32:40]) - np.sum(motor_out[40:48])) * MOTOR_GAIN
+            action[3] = (np.sum(motor_out[48:56]) - np.sum(motor_out[56:64])) * MOTOR_GAIN
+            # BL
+            action[4] = (np.sum(motor_out[64:72]) - np.sum(motor_out[72:80])) * MOTOR_GAIN
+            action[5] = (np.sum(motor_out[80:88]) - np.sum(motor_out[88:96])) * MOTOR_GAIN
+            # BR
+            action[6] = (np.sum(motor_out[96:104]) - np.sum(motor_out[104:112])) * MOTOR_GAIN
+            action[7] = (np.sum(motor_out[112:120]) - np.sum(motor_out[120:128])) * MOTOR_GAIN
+            
+            np.clip(action, -1.0, 1.0, out=action)
 
             # 6. Physical Step
             state, reward, terminated, truncated, _ = env.step(action)
+            
+            # 7. Convert Physical Reward to SNN Dopamine
+            # Higher gain for positive reinforcement, baseline for stability
+            last_reward_signal = int(np.clip(reward * REWARD_SCALE + DOPAMINE_BASE, -128, 127))
+            
             score += reward
             steps += 1
 
+    except KeyboardInterrupt:
+        print("\n🛑 Interruption manuelle demandée (Ctrl+C) !")
+        print("💾 Sauvegarde de l'état du cerveau en VRAM vers le disque en cours...")
+        try:
+            ctrl_motor.set_checkpoints_interval(10)
+            ctrl_sensory.set_checkpoints_interval(10)
+            for _ in range(10): client.step(0)
+            ctrl_motor.set_checkpoints_interval(1_000_000)
+            ctrl_sensory.set_checkpoints_interval(1_000_000)
+            print("✅ Cerveau sauvegardé avec succès dans le dossier .axic.mem !")
+        except Exception as e:
+            pass
     finally:
         env.close()
 
