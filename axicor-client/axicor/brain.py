@@ -3,11 +3,11 @@ import toml
 from typing import Dict
 from .control import AxicorControl
 from .memory import AxicorMemory
-from .utils import fnv1a_32
 
 class Zone:
     """Represents a single brain zone (e.g., SensoryCortex)."""
     def __init__(self, name: str, baked_dir: str):
+        from .utils import fnv1a_32
         self.name = name
         self.hash = fnv1a_32(name.encode('utf-8'))
         
