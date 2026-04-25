@@ -51,7 +51,7 @@ def run_retina_stress_test():
         cv2.randu(mock_frame, 0, 255)
         
         # Encoding
-        retina.encode_into(mock_frame, tx_view, offset=20)
+        retina.encode_into(mock_frame, tx_view[20:])
 
     elapsed = time.perf_counter() - start_t
     

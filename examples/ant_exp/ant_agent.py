@@ -4,6 +4,8 @@ import sys
 import time
 import numpy as np
 import gymnasium as gym
+import socket
+import struct
 
 # Добавляем путь к SDK
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "axicor-client")))
@@ -27,6 +29,11 @@ MOTOR_GAIN = 0.015               # Muscles plus forts (avant 0.008)
 REWARD_SCALE = 8.0               # Exagère la récompense de vitesse (avant 5.0)
 DOPAMINE_BASE = -12              # Rend l'immobilité DOULOUREUSE (avant -5)
 DOPAMINE_PUNISHMENT = -120       # MUST BE NEGATIVE for LTD (Long-Term Depression)
+
+# --- DASHBOARD CONFIG ---
+DASHBOARD_IP = "127.0.0.1"
+DASHBOARD_PORT = 8100
+dash_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def run_ant():
     env = gym.make("Ant-v4", render_mode="human", max_episode_steps=TARGET_TIME if TARGET_TIME > 0 else 1000)
@@ -82,6 +89,7 @@ def run_ant():
     episodes, score, steps = 0, 0.0, 0
     terminated, truncated = False, False
     last_reward_signal = 0
+    ep_start_time = time.time()
 
     best_score = -9999.0
     is_crystallized = False
@@ -127,10 +135,17 @@ def run_ant():
                     ctrl_motor.set_night_interval(0)
                     ctrl_sensory.set_night_interval(0)
 
+                # --- 4. Dashboard (History) ---
+                duration = time.time() - ep_start_time
+                tps = steps / duration if duration > 0 else 0
+                packet = struct.pack("<Ifff", episodes, float(score), float(tps), 1.0)
+                dash_sock.sendto(packet, (DASHBOARD_IP, DASHBOARD_PORT))
+
                 episodes += 1
                 state, _ = env.reset()
                 score = 0.0
                 steps = 0
+                ep_start_time = time.time()
                 last_reward_signal = 0
                 terminated, truncated = False, False
                 continue
@@ -176,6 +191,13 @@ def run_ant():
             
             score += reward
             steps += 1
+
+            # 8. Periodic Dashboard Update (Live)
+            if steps % 10 == 0:
+                duration = time.time() - ep_start_time
+                tps = steps / duration if duration > 0 else 0
+                packet = struct.pack("<Ifff", episodes, float(score), float(tps), 0.0)
+                dash_sock.sendto(packet, (DASHBOARD_IP, DASHBOARD_PORT))
 
     except KeyboardInterrupt:
         print("\n🛑 Interruption manuelle demandée (Ctrl+C) !")
