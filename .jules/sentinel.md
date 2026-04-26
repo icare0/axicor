@@ -1,0 +1,4 @@
+## 2025-03-05 - Parameterized SQL queries and eliminated hardcoded paths in find_canons.py
+**Vulnerability:** Use of string concatenation for executing SQL queries `c.execute(query)` and a hardcoded, OS-specific absolute path (`w:/Workspace/...`) in a Python script.
+**Learning:** Hardcoded queries can easily evolve into vulnerabilities if parameters are parameterized via string concatenation rather than driver bindings. Hardcoded absolute paths limit portability and can unintentionally expose workstation layout/data if committed.
+**Prevention:** Always use parameterized SQL query APIs provided by database drivers (like `sqlite3` `c.execute(query, params)`) when executing queries, and robustly resolve local file paths using relative mechanisms like `pathlib.Path(__file__).parent`.

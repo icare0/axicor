@@ -1,26 +1,27 @@
 import sqlite3
 from pathlib import Path
 
-db_path = Path('w:/Workspace/axicor/scripts/Axicor_Neuron-Library/raw_data/library_index.db')
+BASE_DIR = Path(__file__).parent
+db_path = BASE_DIR / "raw_data" / "library_index.db"
 conn = sqlite3.connect(db_path)
 c = conn.cursor()
 
-def get_specimen(query):
-    c.execute(query)
+def get_specimen(query, params=()):
+    c.execute(query, params)
     return c.fetchone()
 
 # Selection Criteria
 canons = {
-    "Integrator": "SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type='spiny' AND is_inhibitory=0 LIMIT 1",
-    "Fast-Spiking": "SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type='aspiny' AND is_inhibitory=1 ORDER BY avg_firing_rate_hz DESC LIMIT 1",
-    "Pacemaker": "SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE avg_firing_rate_hz > 5 LIMIT 1", # Lowered threshold if data is sparse
-    "Relay": "SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE structure_area_abbrev LIKE '%TH%' OR structure_area_abbrev LIKE '%LG%' LIMIT 1",
-    "Martinotti": "SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type='aspiny' AND structure_area_abbrev='VISp' LIMIT 1 OFFSET 2"
+    "Integrator": ("SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type=? AND is_inhibitory=? LIMIT 1", ('spiny', 0)),
+    "Fast-Spiking": ("SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type=? AND is_inhibitory=? ORDER BY avg_firing_rate_hz DESC LIMIT 1", ('aspiny', 1)),
+    "Pacemaker": ("SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE avg_firing_rate_hz > ? LIMIT 1", (5,)), # Lowered threshold if data is sparse
+    "Relay": ("SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE structure_area_abbrev LIKE ? OR structure_area_abbrev LIKE ? LIMIT 1", ('%TH%', '%LG%')),
+    "Martinotti": ("SELECT specimen_id, structure_area_abbrev FROM allen_ephys WHERE dendrite_type=? AND structure_area_abbrev=? LIMIT 1 OFFSET 2", ('aspiny', 'VISp'))
 }
 
 results = {}
-for name, q in canons.items():
-    results[name] = get_specimen(q)
+for name, (q, params) in canons.items():
+    results[name] = get_specimen(q, params)
 
 for name, res in results.items():
     print(f"{name}: {res}")
