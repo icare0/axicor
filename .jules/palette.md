@@ -1,0 +1,3 @@
+## 2025-01-20 - High-Contrast Overlays in Matplotlib Dark Dashboards
+**Learning:** In Matplotlib dark-mode dashboards (e.g., `#050505` backgrounds), text overlays (like help tooltips or HUDs) that render on top of data grids require intentional contrast enforcement. Simple dark text (e.g., `#444`) becomes invisible when overlaid on line plots or gridlines.
+**Action:** When adding HUD or help text overlays directly to plot axes in Python scripts, always use high-contrast colors (e.g., `#cccccc`) and apply a semi-transparent dark bounding box (`bbox=dict(fc='#050505', alpha=0.8, ec='none')`) to ensure the text remains legible regardless of the data rendering beneath it.
