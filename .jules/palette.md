@@ -1,0 +1,3 @@
+## 2025-04-29 - Improve readability of dark-mode dashboard controls
+**Learning:** In Axicor's dark-mode Matplotlib dashboards (like `live_dashboard.py`), overlay text directly on plot axes must use high-contrast colors (e.g., `#cccccc`) and a semi-transparent dark bounding box (`bbox=dict(fc='#050505', alpha=0.8)`) to remain readable against underlying data grids and avoid accessibility issues.
+**Action:** Always ensure any Matplotlib text annotations placed over data areas in dark mode are wrapped in a high-contrast style with an appropriate background `bbox` to separate them from gridlines and data plots.
