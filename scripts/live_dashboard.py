@@ -91,7 +91,8 @@ add_info_line('s300',   'SMA-300', C_SMA300)
 add_info_line('tps',    'TPS    ', C_TPS)
 
 ax1.text(0.98, 0.02, 'Arrows: Scroll | P: Pause | R: Reset | S: Screenshot', 
-         transform=ax1.transAxes, color='#444', ha='right', fontsize=8)
+         transform=ax1.transAxes, color='#cccccc', ha='right', fontsize=8,
+         bbox=dict(fc='#050505', alpha=0.8, ec='none'))
 
 def on_key(event):
     global view_offset, is_paused
