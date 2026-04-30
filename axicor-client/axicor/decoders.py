@@ -67,7 +67,7 @@ class PopulationDecoder:
         
         # Pre-calculated reshape view (V, M, B)
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
-        self._spikes_view = self._raw_bytes.reshape((self.V, self.M, self.B))
+        self._spikes_view = self._raw_bytes.reshape((self.B, self.V, self.M))
 
     def decode_from(self, rx_view: memoryview) -> np.ndarray:
         # Amnesia Defense: Return neutral state (0.5)
@@ -79,7 +79,7 @@ class PopulationDecoder:
         self._raw_bytes[:] = rx_view[:self.payload_size]
         
         # 3. Sum spikes across ticks (Time Integration, axis=2)
-        np.sum(self._spikes_view, axis=2, dtype=np.float16, out=self._sum_buffer)
+        np.sum(self._spikes_view, axis=0, dtype=np.float16, out=self._sum_buffer)
         
         # 4. Find total spike mass for each variable
         np.sum(self._sum_buffer, axis=1, out=self._mass_buffer)
