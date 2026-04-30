@@ -33,7 +33,7 @@ def test_population_decoder():
     full_packet = bytearray(20) + payload
     rx_view = memoryview(full_packet)
     
-    decoded = decoder.decode_from(rx_view, offset=20)
+    decoded = decoder.decode_from(rx_view[20:])
     print(f"Input: {input_states} -> Decoded: {decoded}")
     
     # Error margin due to discretization (10 neurons over [0,1] -> ~0.11 step)
@@ -42,7 +42,7 @@ def test_population_decoder():
     # 2. Amnesia Defense test (empty buffer)
     print("Testing Amnesia Defense (Empty View)...")
     empty_view = rx_view[0:0]
-    decoded_amnesia = decoder.decode_from(empty_view, offset=20)
+    decoded_amnesia = decoder.decode_from(empty_view[20:])
     print(f"Amnesia Result: {decoded_amnesia}")
     assert np.all(decoded_amnesia == 0.5), "Amnesia should return neutral 0.5"
     
@@ -55,7 +55,7 @@ def test_population_decoder():
     partial_payload[:, 0, m_idx] = 1
     
     full_packet_partial = bytearray(20) + partial_payload.tobytes()
-    decoded_partial = decoder.decode_from(memoryview(full_packet_partial), offset=20)
+    decoded_partial = decoder.decode_from(memoryview(full_packet_partial)[20:])
     print(f"Partial Silence Result: {decoded_partial}")
     assert np.allclose(decoded_partial[0], 0.3, atol=0.06)
     assert decoded_partial[1] == 0.5, "Silent variable should default to 0.5"

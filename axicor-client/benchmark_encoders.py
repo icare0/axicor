@@ -19,14 +19,14 @@ def benchmark_encoder(name, encoder, iters=10_000):
         data = np.random.rand(encoder.V).astype(np.float16)
     
     # Warmup
-    encoder.encode_into(data, tx_view, HEADER_SIZE)
+    encoder.encode_into(data, tx_view[HEADER_SIZE:])
     
     gc.collect()
     count_before = gc.get_count()[0]
     
     start = time.perf_counter()
     for _ in range(iters):
-        encoder.encode_into(data, tx_view, HEADER_SIZE)
+        encoder.encode_into(data, tx_view[HEADER_SIZE:])
     end = time.perf_counter()
     
     count_after = gc.get_count()[0]
