@@ -1,0 +1,3 @@
+## 2024-05-01 - [Matplotlib Dark Mode Overlay Readability]
+**Learning:** In Axicor's dark-mode Matplotlib dashboards (like `live_dashboard.py`), simply using a dark color like `#444` for text overlay on plot axes can make it unreadable when data grids pass underneath. Using high-contrast colors is not always sufficient if the background gets busy.
+**Action:** When adding or modifying text overlays in dark-mode dashboards, always use high-contrast text colors (e.g., `#cccccc`) combined with a semi-transparent dark bounding box (`bbox=dict(fc='#050505', alpha=0.8)`) to guarantee readability against varying underlying chart data.
